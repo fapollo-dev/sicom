@@ -4,6 +4,7 @@ import type { CandidatosLoteDto, GerarFinanceiroLoteDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -66,7 +67,7 @@ export class GerarFinanceiroLoteService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const db = this.dbp.forTenant() as AnyDB;
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeNaLoja();
 
     return db.transaction().execute(async (trx: AnyDB) => {
       // a forma DUPLICATA da empresa — sem ela o legado recusa a tela inteira

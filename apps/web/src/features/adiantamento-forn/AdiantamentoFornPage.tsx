@@ -10,10 +10,11 @@ import {
   listarAdiantamentos, listarContas, listarSituacoes, criarAdiantamento, editarAdiantamento, excluirAdiantamento,
   type Adiantamento, type ContaAdiantamento, type SituacaoAdiantamento,
 } from './adiantamentoFornApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const nomeConta = (c: ContaAdiantamento) => `${c.nroconta ?? ''} ${c.titular ?? ''}`.trim() || `Conta ${c.codconta}`;
 /** prefill da observação (dbmOBSEnter do legado): 'ADIANT P/ <razão> - ' no débito, 'ADIANT DE <razão> - ' no
  *  crédito. No golden 527 das 563 observações começam com 'ADIANT P/ ' e 5 com 'ADIANT DE ' — é o padrão do

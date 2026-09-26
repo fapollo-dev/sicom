@@ -4,10 +4,11 @@ import { DateField } from '../../shared/ui/DateField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { calcularDre, type LinhaDre } from './dreApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const anoInicio = () => `${new Date().getFullYear()}-01-01`;
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 
 /**
  * DRE CONTÁBIL (relatório) — corte-1. Demonstração do Resultado calculada do DIÁRIO por período/empresa

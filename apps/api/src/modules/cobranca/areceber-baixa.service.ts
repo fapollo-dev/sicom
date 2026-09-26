@@ -9,6 +9,7 @@ import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { centrosDaBaixa, colunasCentroDaBaixa, estornarCaixaDaBaixa, lancarCaixaDaBaixa, novoLote } from './baixa-caixa';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -90,7 +91,7 @@ export class AreceberBaixaService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     // trava de período fechado (UBaixaAreceber:1319 ValidaPeriodoFechado; DTPGTO × BLOQ_BAIXA_RCB) — fora da trx.
-    await assertPeriodoNaoFechado(this.dbp.forTenantRead() as AnyDB, emp, dto.dtpgto ?? new Date().toISOString().slice(0, 10), 'bloq_baixa_rcb');
+    await assertPeriodoNaoFechado(this.dbp.forTenantRead() as AnyDB, emp, dto.dtpgto ?? hojeNaLoja(), 'bloq_baixa_rcb');
     // GATE de senha (E7): acréscimo/desconto líquido ≠ 0 exige a senha de DESCONTO da empresa (fora da trx).
     await this.exigirSenhaDesconto(r2(num(dto.acrescimo) - num(dto.desconto)), dto.senhaOperacao);
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {

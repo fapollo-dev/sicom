@@ -7,6 +7,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { listarCuponsDisponiveis, previaVendasNf, type CupomDisponivel, type PreviaVendasNf } from './nfVendasApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * IMPORTAR VENDAS — a NF de cupom (`ImportaVenda`, uNF.pas:13201): a pesquisa dos cupons do período (verde = já
@@ -15,7 +16,7 @@ import { listarCuponsDisponiveis, previaVendasNf, type CupomDisponivel, type Pre
  */
 const fmtQ = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 
 interface Props {
   onFechar: () => void;

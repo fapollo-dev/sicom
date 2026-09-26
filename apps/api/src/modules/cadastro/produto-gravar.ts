@@ -19,6 +19,7 @@
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = any;
 
@@ -66,7 +67,7 @@ export async function validarGravacaoProduto(dto: Record<string, unknown>, id: n
     // NCMValido (UCadProduto.pas:7960): existe na tabela NCM e está vigente
     const reg = (await db.selectFrom('ncm').select(['vigencia_inicio', 'vigencia_fim']).where('ncmsh', '=', ncm).executeTakeFirst()) as { vigencia_inicio?: unknown; vigencia_fim?: unknown } | undefined;
     if (!reg) throw new BusinessRuleError('PRODUTO_NCM_NAO_ENCONTRADO', { ncmsh: ncm });
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeNaLoja();
     const dia = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
     if (reg.vigencia_inicio != null && dia(reg.vigencia_inicio) > hoje) throw new BusinessRuleError('PRODUTO_NCM_FORA_DE_VIGENCIA', { ncmsh: ncm });
     if (reg.vigencia_fim != null && dia(reg.vigencia_fim) < hoje) throw new BusinessRuleError('PRODUTO_NCM_VENCIDO', { ncmsh: ncm });

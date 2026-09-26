@@ -10,9 +10,10 @@ import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { loteCobrancaSchema, type CriarLoteCobrancaDto } from '@apollo/shared';
 import { AddTitulosModal } from './AddTitulosModal';
 import type { AreceberRow, ItemLote } from './lotesCobrancaApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** hoje em ISO 'YYYY-MM-DD' (legado DefaultToday=True no campo Emissão). */
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 
 /**
  * Form local = o DTO + colunas de EXIBIÇÃO nos itens (duplicata/razao/dtvenc/valor/

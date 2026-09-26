@@ -14,8 +14,9 @@ import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useSituacoesDaOperacao, useSituacaoUnica } from '../../shared/situacao/situacaoDaOperacao';
 import { useMensagem } from '../../shared/mensagem';
+import { hojeNaLoja } from '../../shared/tempo';
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**

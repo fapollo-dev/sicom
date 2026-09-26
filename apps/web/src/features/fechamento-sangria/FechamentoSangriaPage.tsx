@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * FECHAMENTO DE SANGRIA (`FRMFECHAMENTOSANGRIA`) — a tesouraria. Dossiê: `tesouraria-sangria-fechamento.md`.
@@ -15,7 +16,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dataHora = (v: unknown) => (v == null ? '' : `${String(v).slice(0, 10).split('-').reverse().join('/')} ${String(v).slice(11, 16)}`);
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 
 interface Sangria {
   codhistsangria: number; data: string; codpdv: number | null; descricao: string | null; valor: number; nome_responsavel: string | null; operador: string | null;

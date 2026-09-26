@@ -47,6 +47,7 @@ import { decomporItemNf, lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo
 import { NfDecomposicaoModal } from './NfDecomposicaoModal';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -59,7 +60,7 @@ const PAPEL_FLAG: Record<NfTipo, 'frn' | 'cli'> = { E: 'frn', S: 'cli' };
 const PARCEIRO_LABEL: Record<NfTipo, string> = { E: 'Fornecedor', S: 'Cliente' };
 
 /** hoje em ISO 'YYYY-MM-DD' (DTEMISSAO/DTCONTABIL default hoje, como no OnNewRecord do legado). */
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 const fmtBRL = (n: number) =>
   n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** combos {value:number} → {value:string} p/ o SelectField. */

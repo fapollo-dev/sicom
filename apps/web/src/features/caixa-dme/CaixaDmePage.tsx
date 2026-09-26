@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * CAIXA DME (`FRMRELATORIOCAIXADME`). Dossiê: `uRelatorioCaixaDME.md`.
@@ -14,7 +15,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 
 type Linha = { codparceiro: number; razao: string; cnpjCpf: string | null; tipo: string; total: number; lancamentos: number };

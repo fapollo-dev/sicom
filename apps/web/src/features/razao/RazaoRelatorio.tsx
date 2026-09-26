@@ -6,12 +6,13 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { gerarRazao, type ContaRazao } from './razaoApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // default = MÊS corrente (o Razão detalha cada lançamento; abrir com o ano inteiro × todas as contas seria
 // pesado num diário grande). O operador amplia o período/filtra a conta conforme precisar.
 const mesInicio = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 
 /**
  * LIVRO RAZÃO contábil (uRelRazaoContabil) — corte-2. Movimentos do Diário por conta analítica e período:

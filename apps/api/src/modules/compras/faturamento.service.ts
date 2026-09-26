@@ -4,6 +4,7 @@ import { situacaoParcela, type FaturamentoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -75,7 +76,7 @@ export class FaturamentoService {
        LIMIT ${f.limite}
     `.execute(db)).rows;
 
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeNaLoja();
     const notas = new Set<number>();
     const t = { parcelas: linhas.length, notas: 0, valor: 0, vencendoHoje: 0, atrasadas: 0, faturadas: 0, dataInvalida: 0 };
     const saida = linhas.map((l) => {

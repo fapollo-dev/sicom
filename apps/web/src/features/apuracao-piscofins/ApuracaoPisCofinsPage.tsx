@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * APURAÇÃO PIS/COFINS (`FRMAPURACAOPISCOFINS`).
@@ -18,7 +19,7 @@ const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const P = '/fiscal/sped/apuracao-pc';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 interface Apuracao {

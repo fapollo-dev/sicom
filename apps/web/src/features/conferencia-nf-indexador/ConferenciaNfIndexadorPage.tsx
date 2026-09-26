@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -36,7 +37,7 @@ interface Resultado { linhas: Item[]; totais: { itens: number; divergentes: numb
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nfmt = (v: unknown, d = 3) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: d });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 /** o par sistema × nota, com a diferença destacada quando existe. */

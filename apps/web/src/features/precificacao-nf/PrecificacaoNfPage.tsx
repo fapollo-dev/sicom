@@ -8,6 +8,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -53,7 +54,7 @@ const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 /** markup PERCENTUAL sobre o custo — `CalcularMargem`, modo custo bruto (`uDMPrecificacaoNF:377`). */
 const pctDe = (venda: number, custo: number) => (custo > 0 ? r2(((venda - custo) * 100) / custo) : 0);
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const dias = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 export function PrecificacaoNfPage() {

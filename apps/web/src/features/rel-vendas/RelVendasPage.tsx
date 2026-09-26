@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -23,7 +24,7 @@ const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocal
 const q3 = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 /** % com denominador 0 vem NULL do backend (fiel ao NULLIF do legado) → célula VAZIA, nunca "0,00%". */
 const pct = (n: unknown) => (n == null || !Number.isFinite(Number(n)) ? '—' : `${Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`);
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 
 interface Linha { idempresa: number; idproduto: number; codbarra?: string; descricao?: string; unidade?: string; qtde: number; bruto: number; total_custo: number; total_venda: number; lucro: number; margem: number | null; rentabilidade: number | null; acrescimo: number; desc_promocao: number; vrvenda_uni: number; vrcusto_uni: number; sem_custo?: boolean; departamento?: string; grupo?: string; subgrupo?: string; secao?: string }
 interface Totais { qtde: number; total_venda: number; total_custo: number; lucro_bruto: number; margem: number | null; rentabilidade: number | null; acrescimo: number; desc_promocao: number; linhas: number; sem_custo: number }

@@ -5,9 +5,10 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { ncmSchema, UN_TRIBUTADA, type CriarNcmDto } from '@apollo/shared';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** hoje em ISO 'YYYY-MM-DD' (OnNewRecord: VIGENCIA_INICIO := today). */
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 
 /**
  * Cadastro de NCM via o pilar <CadMaster> — CHAVE NATURAL (o código NCM é digitado,

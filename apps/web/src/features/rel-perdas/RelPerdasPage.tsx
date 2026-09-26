@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * RELATÓRIO DE PERDAS (`FRMRELPERDAS`). Dossiê: `uRelPerdas.md`.
@@ -16,7 +17,7 @@ const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'c
 const qt = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const pct = (v: unknown) => `${Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 
 interface Totais { itens: number; scraps: number; qtde: number; custo: number; maiorItem: { codscrap: number; data: string; descricao: string; qtde: number; vrCusto: number; total: number; participacao: number } | null }

@@ -1,3 +1,4 @@
+import { hojeNaLoja } from '../tempo';
 /**
  * EXPORTAR A GRADE (o "Exportar Grid [F10]" do legado).
  *
@@ -28,7 +29,7 @@ export function exportarGradeCsv<T>(linhas: T[], colunas: Array<ColunaExport<T>>
   const texto = `﻿${[cabecalho, ...corpo].join('\r\n')}\r\n`;
   const url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a');
-  const data = new Date().toISOString().slice(0, 10);
+  const data = hojeNaLoja();
   a.href = url;
   a.download = `${nomeArquivo}-${data}.csv`;
   document.body.appendChild(a);

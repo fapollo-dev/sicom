@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * CLUBE DE DESCONTO — o cadastro das regras (mig 285). Dossiê `uClubeDesconto.md`.
@@ -29,7 +30,7 @@ const dia = (d: string | null) => (d ? String(d).slice(0, 10).split('-').reverse
 const vazio = () => ({
   operacao: 'PRECO', barras: '', descricao: '', valor: '', tipo: '', quantidade: '1',
   quantidade_paga: '', maximo: '', pdv: '', codigo_promocional: '',
-  data_inicio: new Date().toISOString().slice(0, 10), data_fim: new Date().toISOString().slice(0, 10),
+  data_inicio: hojeNaLoja(), data_fim: hojeNaLoja(),
 });
 
 /** como o valor daquela operação deve ser lido — é o que evita 419% de desconto */

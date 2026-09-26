@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * LIVRO DIÁRIO (`FRMRELDIARIOCONTABIL`). Dossiê: `uRelDiarioContabil.md`.
@@ -13,7 +14,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 
 interface Linha { coddiario: number; dia: string; conta: string | null; codigoconta: number | null; descricao: string | null; historico: string; origem: number | null; nome_origem: string | null; idorigem: number | null; documento: string | null; debito: number; credito: number }

@@ -5,12 +5,13 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** EXPORTAÇÃO DE NF-e (`FRMEXPORTANFE`). Dossiê: `uExportaNFe.md`. */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 interface Nota { codnf: number; nronf: string; serie: string; modelo: string; dtemissao: string; chavenfe: string; statusnfe: string | null; totalnf: number; razao: string | null; temXml: boolean }
 const STATUS: Record<string, string> = { P: 'Autorizada', C: 'Cancelada', D: 'Denegada' };

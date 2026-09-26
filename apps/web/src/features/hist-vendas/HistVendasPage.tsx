@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { DateField } from '../../shared/ui/DateField';
 import { consultarCupom, listarVendas, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const qtd = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -30,7 +31,7 @@ export function HistVendasPage() {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ConsultaCupom | null>(null);
   // a LISTA (o botão de pesquisa do legado): recorte de datas obrigatório + filtros opcionais.
-  const hojeIso = new Date().toISOString().slice(0, 10);
+  const hojeIso = hojeNaLoja();
   const [dtini, setDtini] = useState<string | undefined>(hojeIso);
   const [dtfim, setDtfim] = useState<string | undefined>(hojeIso);
   const [fCliente, setFCliente] = useState('');

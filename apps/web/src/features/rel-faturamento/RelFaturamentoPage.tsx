@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -18,7 +19,7 @@ interface Resultado { linhas: Mes[]; totais: { reducaoz: number; notaFiscal: num
 
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const MESES = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const anoAtras = () => new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
 
 /**

@@ -5,6 +5,7 @@ import type { NfIbsCbsCalculoDto, NfIbsCbsConsultaDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 
@@ -91,7 +92,7 @@ export class NfIbsCbsService {
     // na fase-teste de 2026 e **26,5% no regime pleno de 2033** (17,7 + 8,8, o que a mig 007 já semeia).
     // Buscar por `current_date` faria o recálculo de uma nota de 2026 feito em 2033 aplicar 26,5× a
     // alíquota certa — e recalcular nota antiga é rotina de conferência fiscal, não exceção.
-    const dataRef = String(nf.data_ref ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const dataRef = String(nf.data_ref ?? hojeNaLoja()).slice(0, 10);
     const aliq = (await sql<{ ibs: number | null; cbs: number | null; ibs_tab: number | null }>`
         SELECT (SELECT r.ibs FROM tributacao_reforma r
                  WHERE r.uf = ${nf.uf ?? ''} AND r.vigencia_inicio <= ${dataRef}::date

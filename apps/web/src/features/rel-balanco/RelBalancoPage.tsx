@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * BALANÇO PATRIMONIAL (`FRMRELBALANCO`). Dossiê: `uRelBalanco.md`.
@@ -14,7 +15,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 
 interface Linha { codplanocontas: number; codiexpandido: string; descricao: string; nivel: number; sintetica: boolean; saldoAnterior: number; debito: number; credito: number; saldoAtual: number; degrau: string }
 interface Grupo { codigo: string; descricao: string; saldoAnterior: number; debito: number; credito: number; saldoAtual: number }

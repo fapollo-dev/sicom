@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * ANÁLISE DE COMPORTAMENTO POR PERÍODO (`FRMRELANALISECOMPORTAMENTOPERIODO`).
@@ -38,7 +39,7 @@ const LINHAS: Array<{ k: keyof Periodo; rotulo: string; fmt: (v: unknown) => str
 ];
 const METRICAS = ['Faturamento', 'CMV', 'Lucro', 'Rentabilidade', 'Quantidade de tickets', 'Valor ticket médio'] as const;
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const anoPassado = (d: string) => `${Number(d.slice(0, 4)) - 1}${d.slice(4)}`;
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 

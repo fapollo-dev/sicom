@@ -7,6 +7,7 @@ import {
   cartaoPendentes, integrarCartao, estornarCartao, integrarBaixa, estornarBaixa,
   integrarDocumento, estornarDocumento, integrarFechamento, estornarFechamento, type Periodo, type Resultado, type TipoDoc,
 } from './integracaoApi';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * INTEGRAÇÃO CONTÁBIL (`FRMTRON`, `uTron.pas`). Dossiê: `uTron-integracao-contabil.md`.
@@ -97,7 +98,7 @@ const ORIGENS: Origem[] = [
   { id: 'importacao', label: 'Importação', codigos: '66', nota: 'Grava no razão sem situação de documento; precisa de análise própria.' },
 ];
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 const primeiroDoMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 /** o resultado vem com campos diferentes por origem; a tela conta só o que veio. */

@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /**
  * GERAR FINANCEIRO EM LOTE (`FRMGERARFINANCEIROLOTE`). Dossiê: `uGerarFinanceiroLote.md`.
@@ -15,7 +16,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 
 type Cand = { codparceiro: number; razao: string; fantasia: string | null; fixo: number; vencPrev: number | null };
 type Res = { simulado: boolean; gerados: Array<Record<string, unknown>>; descartados: Array<Record<string, unknown>>; totais: { clientes: number; gerados: number; descartados: number; valor: number; jaExistiam: number; semValorFixo: number } };

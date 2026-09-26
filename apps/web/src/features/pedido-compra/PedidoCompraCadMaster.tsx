@@ -28,9 +28,10 @@ import {
 import { imprimirPedido } from './imprimirPedido';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
 import { NumberField } from '../../shared/ui/NumberField';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeNaLoja();
 
 /**
  * mig 303 — o ESTADO POR LOJA do pedido, como a leitura do agregado o devolve (`lojas`, `fechamento`,

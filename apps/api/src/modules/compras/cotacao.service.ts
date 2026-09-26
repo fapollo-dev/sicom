@@ -7,6 +7,7 @@ import { pedidoCompraAggregateConfig } from './pedido-compra.aggregate';
 import { formatarEmpresas } from './pedido-lojas';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -425,7 +426,7 @@ export class CotacaoService {
         porForn.set(Number(g.codparceiro), arr);
       }
       // (3) gera — `_sistema:true` faz o agregado PULAR os gates interativos do btnGravar (o GerarPedido insere direto).
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = hojeNaLoja();
       const pedidos: number[] = [];
       for (const [codparceiro, itens] of porForn) {
         const codpedcomp = await this.engine.createAggregate(pedidoCompraAggregateConfig, { codparceiro, data: hoje, empresas, itens, _sistema: true });

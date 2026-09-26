@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -69,7 +70,7 @@ export function ProdutosRelPage() {
   const [f, setF] = useState({
     tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS', ativo: 'S',
     coddpto: '', codgrupo: '', codfor: '', produto: '', diasSemVenda: '',
-    dataIni: `${new Date().toISOString().slice(0, 7)}-01`, dataFim: new Date().toISOString().slice(0, 10),
+    dataIni: `${new Date().toISOString().slice(0, 7)}-01`, dataFim: hojeNaLoja(),
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);

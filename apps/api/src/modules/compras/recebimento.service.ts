@@ -15,6 +15,7 @@ import { normRef, digEan } from './codref-normalize';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { configNaTrx } from './pedido-heranca';
 import { recalcularMetricasEntrada } from '../cadastro/nf-custo-item';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -405,7 +406,7 @@ export class RecebimentoService {
 
     // DTCONTABIL = data do IMPORT (hoje), não a emissão — fiel ao legado (cdsNF.DTCONTABIL:=Now, NFe.pas:3373;
     // no golden 80% dos imports têm DTCONTABIL≠DTEMISSAO). É a competência do lançamento (entra no dia que chega).
-    const hojeISO = new Date().toISOString().slice(0, 10);
+    const hojeISO = hojeNaLoja();
     const dtoNf: Record<string, unknown> = {
       tipo: 'E',
       modelo: nfe.modelo,

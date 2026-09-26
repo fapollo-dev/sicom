@@ -5,11 +5,12 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { hojeNaLoja } from '../../shared/tempo';
 
 /** BALANCETE DE VERIFICAÇÃO (`FRMRELBALANCETE`). Dossiê: `uRelBalancete.md`. */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeNaLoja();
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 interface Linha { codiexpandido: string; descricao: string; nivel: number; sintetica: boolean; saldoAnterior: number; debito: number; credito: number; saldoAtual: number }
 interface Res { linhas: Linha[]; totais: Record<string, number> }
