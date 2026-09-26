@@ -273,7 +273,13 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
 2. **Se o EFD-Contribuições sai deste sistema.** Só 8 meses cheios têm apuração em 4 anos (jun–out/2022, ago–set/2024, jul/2025). Com o `Abort` do fonte, nenhum outro mês geraria o arquivo. Pode ser feito fora (contador) ou o binário novo não exigir mais a apuração.
 3. **Origem do valor errado da última linha** (18/18).
 4. Granularidade exata de `VALORPISAPURA` na NFC-e e na SAIDA NF. Testados item, documento, documento+CFOP, documento+alíquota, dia+empresa: nenhum fecha (desvio de centavos a 7,74).
-5. **O conjunto de itens da SAIDA NF** no binário atual.
+5. **O conjunto de itens da SAIDA NF** no binário atual. Recon de 25/09/2026 (produção, só leitura): a produção **inclui a 5929** (NF de
+   cupom, situação 9) e a **5949** (situações 125 "consumo interno – troca" e 1137 "saída uso ou consumo") e **exclui 5152, 5557, 5927 e
+   5202/5411/6202/6411** — o contrário da lista do fonte de 2020 (que exclui a 5929 e inclui transferência, perda e matéria-prima). Base =
+   VRCUSTO×QTD − VRDESCPROD − o ICMS do item 'T': **exata** nas linhas das situações 1 e 11 (301: 20,40; 282: 6,99; 341: 5,14 e 7,85) e na
+   situação 13 da 301 (431,00 + 41,47 = 472,47). **Não fecha** na situação 13 das outras: 282 dá 1.410,72 × 1.391,73; 261 dá 3.484,80 ×
+   3.455,13; na 341 nenhuma combinação de grupos (CFOP × situação × loja × mês) chega a 4.600,59 — falta um filtro de item (hipótese: a
+   5929 cujo cupom já está na NFC-e, ou a situação PIS/COFINS do produto na data da apuração). O motor segue com o ramo do fonte até fechar.
 6. Por que o ICMS é abatido com `ABATER_ICMS_BASE_CALCULO_PIS_COFINS = N` (regra fixa no binário novo ou outra config).
 7. De onde vem o 1,65/7,6 do `*_APURA`: `PISCOFINS.ALIQ_*_SAI`, `NF_PROD.ALIQPISE` ou constante (no dado os três coincidem).
 8. Uso de `FILTRAR_CFOP_CALCULO_PIS_COFINS` (nula) e `…_BASE_ENT2`.
