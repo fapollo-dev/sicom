@@ -14,6 +14,8 @@ import { RegistrosLogModal, type LogDaTela } from '../log/RegistrosLogModal';
 interface CamposCtx<T extends FieldValues> {
   form: UseFormReturn<T>;
   editavel: boolean;
+  /** abre outro registro na tela (ex.: a nota gerada pelo clone) — o mesmo caminho do código + Enter */
+  carregar?: (id: number) => Promise<void>;
 }
 
 interface Props<T extends FieldValues> {
@@ -221,10 +223,10 @@ export function CadMaster<T extends FieldValues>({
             (abas/ações navegáveis no browse) recebem só o `editavel` e NÃO são envolvidas no
             fieldset disabled — senão as abas/ações ficariam mortas na navegação. */}
         {gerenciaEdicaoInterna ? (
-          campos({ form, editavel: cad.editavel })
+          campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id) })
         ) : (
           <fieldset disabled={!cad.editavel} className="border-0 p-0 m-0">
-            {campos({ form, editavel: cad.editavel })}
+            {campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id) })}
           </fieldset>
         )}
 

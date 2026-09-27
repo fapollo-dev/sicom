@@ -332,7 +332,7 @@ Revisão legado→migrado de TODO o complexo NF. **Efeitos (F3/F4): cópia fiel,
 - **DTCONTABIL < hoje (confirmação)** [uNF.pas:4556] → **UI** (confirmação, não-bloqueante).
 - **Nota de complemento** (sem valor de produto + exige referência) [uProcessaNotaFiscal.pas:388] → **F2b/processar**.
 
-**Eventos/menu adiados (B, com procedência):** Clonar/Transferência/Devolução (`ClonaNF 1/2/3/4`) [uNF.pas:15152+]; transformar **Entrada↔Saída** (`NotadeSada`) [uNF.pas:15166]; gerar nota de complemento [uNF.pas:11663]; **espelho/impressão/DANFE/etiquetas** [uNF.pas:14616/14711/14646]; sincronizar CFOP cabeçalho→itens [uNF.pas:16401]; liberar NF do indexador [uNF.pas:17780]; registros de log / análise de item [uNF.pas:14759/2810] — **F2b/F6/relatórios**.
+**Eventos/menu adiados (B, com procedência):** ~~Clonar/Transferência~~ ✅ 27/09/2026 (seção "Clonar e transferência entre lojas" no fim); Devolução/entrada de devolução/depósito (`ClonaNF 2/3/4`) 🪦 sem uso [uNF.pas:15152+]; transformar **Entrada↔Saída** (`NotadeSada`) [uNF.pas:15166]; gerar nota de complemento [uNF.pas:11663]; **espelho/impressão/DANFE/etiquetas** [uNF.pas:14616/14711/14646]; sincronizar CFOP cabeçalho→itens [uNF.pas:16401]; liberar NF do indexador [uNF.pas:17780]; registros de log / análise de item [uNF.pas:14759/2810] — **F2b/F6/relatórios**.
 
 **Divergências de campo registradas (valor correto; reconciliar com golden):**
 - **Chave de duplicidade**: legado tem 2 checks (NRONF+IDEMPRESA+CODPARCEIRO+SERIE+TIPOEMISSAO='0'; e CODPARCEIRO+NRONF+MODELO=55+SERIE+IDEMPRESA+TIPOEMISSAO) [uNF.pas:4735/4761]; o corte-1 usa (nronf+serie+modelo+idempresa+tipo+codparceiro) — aproximação (sem TIPOEMISSAO; `tipo` E/S em vez de `modelo=55` fixo).
@@ -466,3 +466,22 @@ Relatório: `docs/05-migration-engineering/auditoria-travas/g1-compras-fiscal.md
   - A reversão segue nos dois casos. Eram 295 reversões com financeiro em 2025 e 151 em 2026.
 - **TOTALNF no processar:** não é mais conferido. O legado só confere o ICMS-ST; 643 + 459 NFs da produção não fecham com a fórmula.
 - **Mantidas (ancoradas):** processada, contabilizada, cancelada/enviada, chave duplicada, CFOP × situação, estorno com título quitado, entre outras (tabela completa no relatório).
+
+## Clonar e transferência entre lojas (27/09/2026)
+
+`POST fiscal/nf/:id/clonar {operacao}` (`nf-clonar.service.ts`, permissão de incluir) + a seção "Gerar nota" na barra de ações.
+Fiel ao `ClonaNF` (uNF.pas:6987) e ao `NotadeTransferencia1Click` (:15216). A cópia é GRAVADA não processada (a transferência nasce na
+outra loja, que a sessão não alcança pelo cadastro) — no legado ela abre em inclusão; excluir uma cópia indesejada é a exclusão normal.
+
+- **Clonar**: a nota e os itens, coluna a coluna (menos auditoria, processamento, coleta, exportação e produção), com NRONF 000000,
+  sem chave/protocolo/status, OBS/confirmação vazias, CANCELADA/PROC/CONTABILIZADO 'N', DTCONTABIL e hora de saída agora, série com 3
+  dígitos, emissão própria, finalidade 1 (mantém 4); itens com VRVENDA e VRCUSTOREAL = o VRCUSTO da origem.
+- **Transferência entre lojas** (a saída 5152 vira a ENTRADA na loja destinatária): destino = a EMPRESA com o CNPJ do destinatário;
+  fornecedor = o parceiro com o CNPJ da loja de origem; tipo E, emissão de terceiros, STATUSNFE e NF_IMPORTACAO_NFE 'T', mesmo número,
+  chave e protocolo, VALIDATOTALNF = total, CFOP 1xxx/2xxx (UF), situação vazia. Travas do legado: destino não é empresa, origem sem
+  parceiro (o legado silenciava — aqui 422 com texto), transferência já gerada (mesma chave e fornecedor no destino, com o código),
+  CNPJ de destino = emitente, nota sem número. **Produção: 53/82/38 em 2024/25/26, as 38 de 2026 batem nas regras** (número, total,
+  emissão, CFOP 1152, emissão de terceiros; itens com venda = custo da origem). Smoke §267.
+- **Fora, com prova:** devolução por clone (desde 2023 as 180 devoluções 5202/6202 vêm do pedido de devolução — COD_PED_DEV_COMPRA em
+  100%), entrada de devolução a partir da saída (0 em 2026) e transferência para depósito (0 na história).
+

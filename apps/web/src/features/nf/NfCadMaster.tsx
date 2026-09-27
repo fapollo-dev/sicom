@@ -43,7 +43,7 @@ import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { configuracaoItemNf, recalcularNf } from './nfFiscalApi';
 import { decomporItemNf, lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo, pendentesDecomposicaoNf, processarNf, repasseAutomaticoNf, reverterNf,
-  type PaiDecomposicao } from './nfProcessamentoApi';
+  type PaiDecomposicao, clonarNf } from './nfProcessamentoApi';
 import { NfDecomposicaoModal } from './NfDecomposicaoModal';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
@@ -185,7 +185,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
         { campo: 'statusnfe', label: 'Status', tipo: 'text', largura: 100 },
         { campo: 'totalnf', label: 'Total', tipo: 'text', largura: 130 },
       ]}
-      campos={({ form, editavel }) => <NfForm form={form} editavel={editavel} tipo={tipo} opts={opts} />}
+      campos={({ form, editavel, carregar }) => <NfForm form={form} editavel={editavel} tipo={tipo} opts={opts} carregar={carregar} />}
     />
   );
 }
@@ -223,11 +223,13 @@ function NfForm({
   editavel,
   tipo,
   opts,
+  carregar,
 }: {
   form: UseFormReturn<CriarNfDto>;
   editavel: boolean;
   tipo: NfTipo;
   opts: LookupOptions;
+  carregar?: (id: number) => Promise<void>;
 }) {
   // aba ativa (o legado abre em "Cálculo de impostos"; começamos em Itens, que é onde se digita)
   const [aba, setAba] = useState('itens');
@@ -300,7 +302,7 @@ function NfForm({
       </div>
 
       {/* BARRA DE AÇÕES NF-e (rodapé do legado): Processar/Reverter (F3) + NFe/SEFAZ (F6) + strip inerte. */}
-      <AcoesNfeBar form={form} />
+      <AcoesNfeBar form={form} carregar={carregar} />
     </div>
   );
 }
@@ -610,7 +612,7 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
 
 const NFE_INERTES = ['Inutilizar', 'Imprimir', 'Importar', 'Salvar XML', 'Recuperar XML', 'Enviar Email'];
 
-function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
+function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carregar?: (id: number) => Promise<void> }) {
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   if (codnf == null) return null; // ações só em nota gravada (como o legado habilita o rodapé)
   return (
@@ -620,6 +622,7 @@ function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
         <div className="flex flex-wrap items-start gap-form-gap">
           <ProcessamentoSection form={form} />
           <NfeSefazSection form={form} />
+          <GerarNotaSection form={form} carregar={carregar} />
         </div>
         {/* strip inerte fiel ao rodapé "NF-e" do legado (fase futura / infra externa) */}
         <div className="flex flex-wrap items-center gap-gp-xs border-t border-border pt-pad-sm">
@@ -668,6 +671,53 @@ function LiberarIndexadorModal({ liberada, onFechar, onConfirmar }: { liberada: 
 /** os totais do cabeçalho que a análise automática refaz (somas dos itens) */
 const TOTAIS_DA_ANALISE = ['totalicm', 'totalbaseicm', 'totalicm_st', 'totalbaseicmt', 'totalnf', 'total_icmst_externo', 'totalbase_stexterno', 'total_streal',
   'icms_st_apagar', 'totalicm_stexterno_sepnf'] as const;
+
+/**
+ * GERAR NOTA a partir desta (`ClonaNF`, uNF.pas:6987): "Clonar nota" (a cópia não processada, aberta na tela) e, na SAÍDA, a
+ * "Nota de transferência entre lojas" — a entrada nasce na loja destinatária (a empresa com o CNPJ do destinatário), que a
+ * confere e processa. As confirmações são as do legado.
+ */
+function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carregar?: (id: number) => Promise<void> }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const [pergunta, setPergunta] = useState<'CLONAR' | 'TRANSFERENCIA' | null>(null);
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const tipoNota = form.watch('tipo');
+  const gerar = async (operacao: 'CLONAR' | 'TRANSFERENCIA') => {
+    if (codnf == null || executando) return;
+    setExecutando(true);
+    try {
+      const r = await clonarNf(codnf, operacao);
+      if (operacao === 'CLONAR') {
+        await carregar?.(r.codnf);
+        mensagem.sucesso(`Nota clonada: código ${r.codnf} (não processada). Confira e grave.`);
+      } else {
+        mensagem.sucesso(`Nota de entrada de transferência gerada na empresa ${r.idempresa}: código ${r.codnf}, NF ${r.nronf}. Confira e processe nessa loja.`);
+      }
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+      setPergunta(null);
+    }
+  };
+  return (
+    <div className="flex min-w-56 flex-1 flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
+      <span className="text-body-sm font-semibold text-fg-default">Gerar nota</span>
+      <div className="flex flex-wrap items-center gap-gp-sm">
+        <Button label="C&lonar nota" variant="soft" disabled={executando} onClick={() => setPergunta('CLONAR')} />
+        {tipoNota === 'S' && <Button label="Nota de &transferência entre lojas" variant="soft" disabled={executando} onClick={() => setPergunta('TRANSFERENCIA')} />}
+      </div>
+      {pergunta && (
+        <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">
+          <span className="text-body-sm">{pergunta === 'CLONAR' ? 'Deseja clonar a nota selecionada?' : 'Deseja gerar nota fiscal de transferencia entre lojas?'}</span>
+          <Button label="&Sim" variant="soft" disabled={executando} onClick={() => void gerar(pergunta)} />
+          <Button label="&Não" variant="ghost" disabled={executando} onClick={() => setPergunta(null)} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Ações de PROCESSAMENTO (F3): movem o estoque (entrada soma / saída baixa) e travam a nota.

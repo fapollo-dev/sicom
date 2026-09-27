@@ -335,6 +335,12 @@ const CODE_PT: Record<string, string> = {
   PRODUTO_NCM_OBRIGATORIO: 'O NCM é obrigatorio!',
   FAMILIA_DEPARTAMENTO_INATIVO: 'O departamento informado não está ativo!',
   PLC_CODIGO_EXISTE: 'Já existe uma conta cadastrada com o número informado!',
+  // o ClonaNF / NotadeTransferencia1Click do legado (uNF.pas:6987, :15216) — texto do legado
+  NF_TRANSF_DESTINO_NAO_EMPRESA: 'A empresa de destino não está cadastrada como parceiro. Verifique.',
+  NF_TRANSF_ORIGEM_SEM_PARCEIRO: 'A empresa de origem não está cadastrada como parceiro (fornecedor com o CNPJ dela). Verifique.',
+  NF_TRANSF_JA_EXISTE: 'Já existe uma nota de entrada de transferência referente a esta saída na empresa de destino selecionada.',
+  NF_TRANSF_MESMO_CNPJ: 'Não é possível gerar uma nota de transferência com CNPJ de destino igual ao CNPJ emitente!',
+  NF_TRANSF_SEM_NUMERO: 'Para realizar o processo de transferência, será preciso preencher o número da nota fiscal de origem.',
   // o gravar do cadastro de empresas (UCadEmpresa.pas btnGravarClick / Preenchido / ContigenciaNFC) — texto do legado
   EMPRESA_CURVA_ABC_100: 'Somatória de curva A B C não totaliza 100%',
   EMPRESA_PLC_TAXAS_NAO_DESPESA: 'O tipo de conta informado em "Centro de custo (Taxas de cartões)" não é de despesa.',

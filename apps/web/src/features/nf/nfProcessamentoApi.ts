@@ -112,3 +112,9 @@ export async function pendentesDecomposicaoNf(codnf: number): Promise<PaiDecompo
 export function decomporItemNf(codnf: number, escolhas: { codnfprod: number; grupo?: { codprodutopai: number; nroitemDecomp: number | null }; qtdTotal: number; valorTotal: number; cfop: number }): Promise<{ codnf: number }> {
   return req(`/fiscal/nf/${codnf}/decomposicao`, escolhas);
 }
+
+/** CLONAR a nota / gerar a NOTA DE TRANSFERÊNCIA entre lojas (ClonaNF): a nota nova, não processada — a transferência nasce na loja de destino */
+export function clonarNf(codnf: number, operacao: 'CLONAR' | 'TRANSFERENCIA'): Promise<{ codnf: number; idempresa: number; nronf: string; tipo: string }> {
+  return req(`/fiscal/nf/${codnf}/clonar`, { operacao });
+}
+

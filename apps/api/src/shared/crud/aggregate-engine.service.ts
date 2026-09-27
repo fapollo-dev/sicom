@@ -35,6 +35,14 @@ export class AggregateEngineService extends CrudEngineService {
     return cfg.anexarLeitura ? cfg.anexarLeitura({ db, id, registro: out, emp: this.emp() }) : out;
   }
 
+  /**
+   * a LOG de INCLUSÃO de um agregado gravado fora do motor (ex.: o clone da NF, que copia a nota coluna a coluna) — a mesma que o
+   * `createAggregate` grava (a linha do mestre e as dos itens), dentro da transação de quem gravou.
+   */
+  async registrarInclusao(trx: AnyDB, cfg: AggregateConfig, id: number): Promise<void> {
+    await this.logDaLinha(trx, cfg, id, null);
+  }
+
   /** cria o agregado: master (delta+stamp+histórico+outbox) + itens, numa transação. */
   async createAggregate(cfg: AggregateConfig, dto: Record<string, unknown>): Promise<number> {
     const op = currentTenant().operadorId ?? null;

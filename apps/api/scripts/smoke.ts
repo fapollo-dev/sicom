@@ -25344,6 +25344,79 @@ async function main() {
         await pgCl.end();
       }
     }
+
+    // ══ §267 NOTA FISCAL — clonar e a NOTA DE TRANSFERÊNCIA ENTRE LOJAS (ClonaNF) ═══════════════════════════════════════════════
+    {
+      const pgTf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const criadas: number[] = [];
+      const clonar = async (cod: number, operacao: string) => {
+        const r = await fetch(`${base}/fiscal/nf/${cod}/clonar`, { method: 'POST', headers: H, body: JSON.stringify({ operacao }) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        if (r.status === 201 && j.codnf) criadas.push(Number(j.codnf));
+        return { status: r.status, code: j.code, message: j.message, j };
+      };
+      const nfOrigem = async (nronf: string, chave: string, codend: number) => {
+        const r = await pgTf.query(`INSERT INTO nf (idempresa, codparceiro, codparceiro_end, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop,
+                                                   chavenfe, protocolo_nfe, tipoemissao, statusnfe, totalnf, finalidade, obs, contabilizado)
+                                    VALUES (1, 992671, $1, $2, 55, '1', 'S', 'S', 'N', '2054-02-10', '2054-02-10', '5152', $3, 'PROT267', '0', 'A', 30, '1', 'OBS DA ORIGEM', 'S')
+                                    RETURNING codnf`, [codend, nronf, chave]);
+        const cod = Number(r.rows[0].codnf); criadas.push(cod);
+        await pgTf.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, vrcusto, vrvenda, cfop, aliquota) VALUES
+                            ($1, 1, 1, 2, 1, 10, 0, '5152', 'T01'), ($1, 2, 2, 1, 1, 10, 0, '5152', 'T01')`, [cod]);
+        return cod;
+      };
+      try {
+        await pgTf.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, cli, frn) VALUES
+                            (992671, 1, 'LOJA 2 COMO CLIENTE', 'LOJA 2', 'S', 'N'), (992672, 1, 'LOJA 1 COMO FORNECEDOR', 'LOJA 1', 'N', 'S'),
+                            (992673, 1, 'CLIENTE QUALQUER', 'CLIENTE', 'S', 'N') ON CONFLICT (codparceiro) DO NOTHING`);
+        // origem_legado 'S': endereços como os da carga (o documento repetido do histórico é aceito — mig 178)
+        await pgTf.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, cidade, uf, cnpj_cpf, endereco_padrao, origem_legado) VALUES
+                            (992671, 992671, 'RUA A', 'UBERLANDIA', 'MG', '11444777000161', 'S', 'S'), (992672, 992672, 'RUA B', 'UBERLANDIA', 'MG', '11222333000181', 'S', 'S'),
+                            (992673, 992673, 'RUA C', 'UBERLANDIA', 'MG', '98765432000198', 'S', 'S') ON CONFLICT (codend) DO NOTHING`);
+        const fornEsperado = (await pgTf.query(`SELECT codparceiro, codend FROM parceiros_end WHERE cnpj_cpf = '11222333000181' ORDER BY codparceiro, codend LIMIT 1`)).rows[0] as any;
+        const saida = await nfOrigem('777', 'CHAVE267A', 992671);
+
+        const t1 = await clonar(saida, 'TRANSFERENCIA');
+        const nova = (await pgTf.query(`SELECT idempresa, tipo, nronf, chavenfe, protocolo_nfe, tipoemissao::text AS te, statusnfe, nf_importacao_nfe, finalidade, cfop,
+                                               codparceiro, codparceiro_end, validatotalnf::float AS vt, proc, obs, serie, idsituacao_nf, contabilizado
+                                          FROM nf WHERE codnf = $1`, [t1.j.codnf])).rows[0] as any;
+        const itensNovos = (await pgTf.query(`SELECT nroitem, cfop, vrvenda::float AS v, vrcustoreal::float AS r, vrcusto::float AS c, idsituacao_nf FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [t1.j.codnf])).rows as any[];
+        const logIns = Number((await pgTf.query(`SELECT count(*)::int n FROM log WHERE tabela = 'NF' AND valor = $1::numeric AND acao = 'Inseriu'`, [t1.j.codnf])).rows[0].n);
+        const t2 = await clonar(saida, 'TRANSFERENCIA');
+        check('NF §267.1 [nota de transferência entre lojas]: a saída 5152 da loja 1 vira a ENTRADA na loja destinatária (a empresa 2, pelo CNPJ do destinatário): mesmo número, chave e protocolo, emissão de terceiros (1), STATUSNFE e NF_IMPORTACAO_NFE "T", CFOP 1152 na nota e nos itens, o fornecedor = o parceiro com o CNPJ da loja 1, VALIDATOTALNF = total, não processada, situação vazia, série com 3 dígitos, OBS vazia; itens com venda e custo real = o custo da origem; a LOG registra a inclusão; gerar de novo → 422 com o código da que já existe',
+          t1.status === 201 && Number(nova?.idempresa) === 2 && nova?.tipo === 'E' && nova?.nronf === '777' && nova?.chavenfe === 'CHAVE267A' && nova?.protocolo_nfe === 'PROT267'
+          && nova?.te === '1' && nova?.statusnfe === 'T' && nova?.nf_importacao_nfe === 'T' && nova?.finalidade === '1' && String(nova?.cfop) === '1152'
+          && Number(nova?.codparceiro) === Number(fornEsperado?.codparceiro) && Number(nova?.codparceiro_end) === Number(fornEsperado?.codend)
+          && nova?.vt === 30 && nova?.proc === 'N' && nova?.obs == null && nova?.serie === '001' && nova?.idsituacao_nf == null && nova?.contabilizado === 'N'
+          && itensNovos.length === 2 && itensNovos.every((i) => String(i.cfop) === '1152' && i.v === 10 && i.r === 10 && i.idsituacao_nf == null) && logIns >= 1
+          && t2.status === 422 && t2.code === 'NF_TRANSF_JA_EXISTE' && String(t2.message).includes(String(t1.j.codnf)),
+          { t1: [t1.status, t1.code, t1.message], nova, itensNovos, logIns, t2: [t2.status, t2.code, t2.message], fornEsperado });
+
+        const c1 = await clonar(saida, 'CLONAR');
+        const clone = (await pgTf.query(`SELECT idempresa, tipo, nronf, chavenfe, protocolo_nfe, tipoemissao::text AS te, statusnfe, cfop, proc, obs, finalidade FROM nf WHERE codnf = $1`, [c1.j.codnf])).rows[0] as any;
+        const itensClone = (await pgTf.query(`SELECT cfop, vrvenda::float AS v FROM nf_prod WHERE codnf = $1`, [c1.j.codnf])).rows as any[];
+        const outroDest = await nfOrigem('778', 'CHAVE267B', 992673);
+        const semEmpresa = await clonar(outroDest, 'TRANSFERENCIA');
+        const semNumero = await nfOrigem('0', 'CHAVE267C', 992671);
+        const semNro = await clonar(semNumero, 'TRANSFERENCIA');
+        const daOutraLoja = await clonar(Number(t1.j.codnf), 'CLONAR');
+        check('NF §267.2 [clonar e as travas]: clonar copia a nota na mesma loja com número 000000, sem chave/protocolo/status, emissão própria, não processada, OBS vazia, CFOP e finalidade mantidos, itens com venda = custo · transferência para destinatário que não é empresa → 422 ("A empresa de destino não está cadastrada…"); nota sem número → 422; a nota de outra loja não é alcançada (422 NF_NAO_ENCONTRADA)',
+          c1.status === 201 && Number(clone?.idempresa) === 1 && clone?.tipo === 'S' && clone?.nronf === '000000' && clone?.chavenfe == null && clone?.protocolo_nfe == null
+          && clone?.te === '0' && clone?.statusnfe == null && String(clone?.cfop) === '5152' && clone?.proc === 'N' && clone?.obs == null && clone?.finalidade === '1'
+          && itensClone.length === 2 && itensClone.every((i) => String(i.cfop) === '5152' && i.v === 10)
+          && semEmpresa.status === 422 && semEmpresa.code === 'NF_TRANSF_DESTINO_NAO_EMPRESA' && semEmpresa.message === 'A empresa de destino não está cadastrada como parceiro. Verifique.'
+          && semNro.status === 422 && semNro.code === 'NF_TRANSF_SEM_NUMERO' && daOutraLoja.status === 422 && daOutraLoja.code === 'NF_NAO_ENCONTRADA',
+          { c1: [c1.status, c1.code, c1.message], clone, semEmpresa: [semEmpresa.status, semEmpresa.code, semEmpresa.message], semNro: [semNro.status, semNro.code], daOutraLoja: [daOutraLoja.status, daOutraLoja.code] });
+      } finally {
+        if (criadas.length) {
+          await pgTf.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [criadas]);
+          await pgTf.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [criadas]);
+        }
+        await pgTf.query(`DELETE FROM parceiros_end WHERE codend IN (992671, 992672, 992673)`);
+        await pgTf.query(`DELETE FROM parceiros WHERE codparceiro IN (992671, 992672, 992673)`);
+        await pgTf.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
