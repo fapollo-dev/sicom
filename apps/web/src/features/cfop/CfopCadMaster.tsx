@@ -1,4 +1,5 @@
 import { Controller } from 'react-hook-form';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { cfopSchema, type CriarCfopDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -42,6 +43,8 @@ const CLASSIFICACAO: Array<[Flag, string]> = [
 ];
 
 export function CfopCadMaster() {
+  // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
+  const { tem: pode } = useOpcoesDoForm('FRMCADCFOP');
   const { data: situacoes = [] } = useResourceOptions(
     'cadastro/situacoes-nf',
     (s: any) => ({ value: String(s.idsituacao_nf), label: `${s.idsituacao_nf} - ${s.descricao}` }),
@@ -131,7 +134,7 @@ export function CfopCadMaster() {
                   <SelectField label="CFOP para de&volução de compra" options={devolucoes} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Selecione…" />
                 )} />
                 <Controller control={form.control} name="aliquota" render={({ field }) => (
-                  <SelectField label="&Alíquota de saída" options={aliquotas} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" />
+                  <SelectField label="&Alíquota de saída" options={aliquotas} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!pode('CMBALIQUOTA')} />
                 )} />
                 <Controller control={form.control} name="codplanocontas" render={({ field }) => (
                   <NumberField label="Conta &contábil (código no plano)" value={typeof field.value === 'number' ? field.value : undefined} onChange={(v) => field.onChange(v ?? '')} decimais={0} min={0} disabled={!editavel} />

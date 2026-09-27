@@ -1,4 +1,6 @@
 import { sql } from 'kysely';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirDetalhe } from '../../shared/acesso/controles';
 import { pedidoCompraSchema, atualizarPedidoCompraSchema, CAMPOS_HERDADOS_ITEM } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -298,6 +300,17 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // INTERATIVOS do btnGravar (condição-obrigatória / prazo-máximo / pendências-fornecedor) — fiel ao legado,
     // que grava o pedido em lote fora do formulário. As travas de integridade (FRN, estado FECHADO) FICAM.
     const interativo = (dto as Record<string, unknown>)._sistema !== true;
+    // as PERMISSÕES DE CONTROLE da grade de itens (uPedidoCompra.dfm, form de cadastro): "F7 - Adicionar" (btnAdicionarI),
+    // "F10 - Excluir" (btnExcluirI) e "F9 - Limpar" (btnLimparI) desabilitados sem a opção — produção 27/09/2026: 6 de 34
+    // operador×loja sem as três (os mesmos 6 não têm as da bonificação nem "Baixar pedidos em lote"). Só na tela (operador).
+    if (interativo && Array.isArray(dto.itens) && currentTenant().operadorId != null) {
+      const tem = await opcoesConcedidas(db, 'FRMPEDIDOCOMPRA');
+      const antigos = id != null
+        ? ((await db.selectFrom('pedidocompra_i').select('idproduto').where('codpedcomp', '=', id).execute()) as Array<{ idproduto: number }>).map((r) => Number(r.idproduto))
+        : [];
+      conferirDetalhe(tem, 'FRMPEDIDOCOMPRA', antigos, (dto.itens as Array<Record<string, unknown>>).map((i) => Number(i.idproduto)),
+        { adicionar: 'BTNADICIONARI', excluir: 'BTNEXCLUIRI', limpar: 'BTNLIMPARI', no: 'no pedido', do: 'do pedido' });
+    }
 
     // travas de edição por estado (update). Pedido excluído (soft-delete INDR='E') é INEXISTENTE — não
     // se edita um documento morto. FECHADO='S' é read-only (o fechar/reabrir é o vertical).

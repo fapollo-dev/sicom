@@ -1,4 +1,6 @@
 import { sql } from 'kysely';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirCampos } from '../../shared/acesso/controles';
 import { cfopSchema, atualizarCfopSchema } from '@apollo/shared';
 import { createCrudController } from '../../shared/crud/crud.controller.factory';
 import type { CrudConfig } from '../../shared/crud/crud-config';
@@ -52,6 +54,11 @@ export const cfopCrudConfig: CrudConfig = {
   // o estado que as regras precisam (o TIPO, o destino e o PROCESSA FINANCEIRO do registro, quando a gravação não os traz) e as
   // validações de cada código escolhido
   validarTrx: async ({ trx, id, dto }) => {
+    // permissão de controle: a alíquota (cmbAliquota, Tag 1, form de cadastro) desabilitada sem a opção — só na tela (operador)
+    if (currentTenant().operadorId != null && dto.aliquota !== undefined) {
+      const antes = id != null ? ((await trx.selectFrom('cfop').select('aliquota').where('codcfop', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined) : undefined;
+      conferirCampos(await opcoesConcedidas(trx, 'FRMCADCFOP'), 'FRMCADCFOP', dto, antes, [{ campo: 'aliquota', opcao: 'CMBALIQUOTA', acao: 'alterar a alíquota do CFOP', padrao: '' }]);
+    }
     const atual = id != null
       ? ((await trx.selectFrom('cfop').select(['tipo', 'tipoestado', 'proc_financeiro']).where('codcfop', '=', String(id)).executeTakeFirst()) as
           { tipo?: string | null; tipoestado?: string | null; proc_financeiro?: string | null } | undefined)

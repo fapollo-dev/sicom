@@ -443,7 +443,7 @@ compra (`CHBATIVO`, `CHBATIVOCOMPRA`), "Precificação" (`BTNPRECIFICACAO`) e os
 `BTNLIMPARCOMPOSICAO`) e decomposição (`BTNADDDESCOMP`, `BTNEXCLUIDECOMP`, `BTNLIMPADECOMP`). Produção: de 134 operador×loja com acesso,
 6 não mudam o preço, 8 o custo, 12 não incluem na composição, 19 não excluem, 69 sem precificação. A tela desabilita
 (`useOpcoesDoForm`) e a gravação recusa com "Você não tem permissão para …" (`produto-permissoes.ts`, 422 SEM_PERMISSAO_CONTROLE); sem
-operador no contexto (rotina do sistema) não há controle. Fica fora: NCM e figura fiscal (TDBEdit — só perdem o Tab), "excluir código
+operador no contexto (rotina do sistema) não há controle. NCM (`EDTNCMSH`) e figura fiscal (`EDTCODFIGFISCAL`) entraram no lote 2: no form de CADASTRO o `SetStateOfControlsCadMaster` desabilita também o edit com Tag 1 (4 e 2 operadores sem). Fica fora o "excluir código
 auxiliar" (ninguém tem a opção e a produção exclui por outro caminho). Smoke §268. Mecanismo e fila das outras telas:
 `docs/05-migration-engineering/permissoes-de-controle.md`.
 

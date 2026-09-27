@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -20,6 +21,8 @@ const brl = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', 
  * (baixa de estoque) só existe com BAIXAR_ESTOQUE_NO_SCRAP='S' — no cliente quem baixa é a NF de perda.
  */
 export function ScrapPage() {
+  // as permissões de controle da grade (uCadSCRAP.dfm: btnAdicionarItem / btnExcluirI — docs/05-migration-engineering/permissoes-de-controle.md)
+  const { tem: pode } = useOpcoesDoForm('FRMCADSCRAP');
   const mensagem = useMensagem();
   const [lista, setLista] = useState<ScrapHeader[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -196,7 +199,7 @@ export function ScrapPage() {
             <div className="w-56"><SelectField label="&Motivo" value={novoMotivo} onChange={setNovoMotivo} options={motivos.map((m) => ({ value: String(m.codmotivoop), label: m.descricao }))} placeholder="(motivo da perda)" /></div>
             {usaSetor && <div className="w-48"><SelectField label="&Setor" value={novoSetor} onChange={setNovoSetor} options={(apoio?.setores ?? []).map((x) => ({ value: String(x.codsetor), label: x.nome }))} placeholder="(setor de consumo)" /></div>}
             <div className="w-32"><NumberField label="Produto &filho (id)" value={novoFilho} decimais={0} min={1} onChange={setNovoFilho} /></div>
-            <Button label="&Adicionar item" variant="soft" onClick={addItem} />
+            <Button label="&Adicionar item" variant="soft" disabled={!pode('BTNADICIONARITEM')} onClick={addItem} />
           </div>
         )}
 
@@ -222,7 +225,7 @@ export function ScrapPage() {
                   <td className="p-pad-xs text-right tabular-nums">{it.vr_custo != null ? brl(Number(it.qtde) * Number(it.vr_custo)) : '—'}</td>
                   <td className="p-pad-xs">{motivoLabel(it.codmotivoop)}</td>
                   <td className="p-pad-xs">{apoio?.setores.find((x) => x.codsetor === Number(it.codsetor))?.nome ?? (it.codsetor ? String(it.codsetor) : '—')}</td>
-                  {!aplicado && <td className="p-pad-xs text-right"><Button label="Remover" variant="ghost" onClick={() => removerItem(ix)} /></td>}
+                  {!aplicado && <td className="p-pad-xs text-right"><Button label="Remover" variant="ghost" disabled={!pode('BTNEXCLUIRI')} onClick={() => removerItem(ix)} /></td>}
                 </tr>
               ))}
               {!itens.length && <tr><td colSpan={aplicado ? 6 : 7} className="p-pad-md text-fg-muted">Sem itens. Adicione produto + quantidade + motivo.</td></tr>}

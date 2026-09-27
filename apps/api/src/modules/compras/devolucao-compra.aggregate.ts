@@ -1,4 +1,6 @@
 import { sql } from 'kysely';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirDetalhe } from '../../shared/acesso/controles';
 import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { devolucaoCompraSchema, atualizarDevolucaoCompraSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
@@ -197,6 +199,13 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
     return out;
   },
   validar: async ({ dto, id, db }) => {
+    // permissão de controle da grade: "Excluir item" (btnExcluirItem, Tag 1) desabilitado sem a opção — produção 27/09/2026: 5 de 41
+    // operador×loja sem. Só na tela (operador).
+    if (Array.isArray(dto.itens) && id != null && currentTenant().operadorId != null) {
+      const antigos = ((await db.selectFrom('pedido_devolucao_compra_i').select('codnfprod').where('codpeddevcompra', '=', id).execute()) as Array<{ codnfprod: number }>).map((r) => Number(r.codnfprod));
+      conferirDetalhe(await opcoesConcedidas(db, 'FRMCADPEDIDODEVOLUCAOCOMPRAS'), 'FRMCADPEDIDODEVOLUCAOCOMPRAS', antigos,
+        (dto.itens as Array<Record<string, unknown>>).map((x) => Number(x.codnfprod)), { excluir: 'BTNEXCLUIRITEM', no: 'na devolução', do: 'da devolução' });
+    }
     const emp = currentTenant().empresaId ?? null;
 
     // trava de edição por estado: documento só é editável em EM_DIGITACAO (com NF emitida/finalizado/cancelado

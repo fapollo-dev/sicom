@@ -1,6 +1,7 @@
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirDetalhe } from '../../shared/acesso/controles';
 
 type AnyDB = any;
 const FORM = 'FRMCADPRODUTO';
@@ -16,7 +17,8 @@ const mudou = (a: unknown, b: unknown) => Math.abs(n(a) - n(b)) > 0.000001;
  *  - ativo p/ venda `chbATIVO` e p/ compra `chbAtivoCompra` — do produto (hoje todos têm);
  *  - composição: adicionar `btnAddItem` (12 sem), excluir `btnDelItem` (19), limpar `btnLimparComposicao` (6);
  *  - decomposição: adicionar `btnAddDescomp` (12), excluir `btnExcluiDecomp`, limpar `btnLimpaDecomp`.
- * O NCM e a figura fiscal também têm opção, mas são TDBEdit: o legado só lhes tira o Tab (continuam editáveis) — não travam.
+ * NCM (`edtNCMSH`) e figura fiscal (`edtCodFigFiscal`) também: são TDBEdit, e no form de CADASTRO o `SetStateOfControlsCadMaster` (roda
+ * a cada mudança de estado) desabilita também o edit com Tag 1 sem a opção — só nos forms `TfrmMaster` o edit comum fica digitável.
  * O "excluir código auxiliar" (`btnExcluirCodAuxiliar`) NÃO trava: ninguém tem a opção e a produção excluiu 19 códigos auxiliares
  * pelo cadastro desde 2025 — o binário novo exclui por outro caminho.
  */
@@ -43,6 +45,17 @@ export async function validarPermissoesDoProduto(dto: Record<string, unknown>, i
     if (veio.vrcustorep !== undefined && mudou(veio.vrcustorep, base.vrcustorep)) negar('EDTCUSTOREP', 'alterar o custo de reposição');
   }
 
+  // NCM e figura fiscal (TDBEdit com Tag 1: no form de cadastro o SetStateOfControlsCadMaster também DESABILITA o edit — não só tira o
+  // Tab; produção: 4 e 2 operadores sem a opção)
+  if (dto.ncmsh !== undefined || dto.codfigurafiscal !== undefined) {
+    const atual = id != null
+      ? ((await db.selectFrom('produtos').select(['ncmsh', 'codfigurafiscal']).where('idproduto', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined)
+      : undefined;
+    const txt = (v: unknown) => String(v ?? '').trim();
+    if (dto.ncmsh !== undefined && txt(dto.ncmsh) !== txt(atual?.ncmsh)) negar('EDTNCMSH', 'alterar o NCM');
+    if (dto.codfigurafiscal !== undefined && mudou(dto.codfigurafiscal, atual?.codfigurafiscal)) negar('EDTCODFIGFISCAL', 'alterar a figura fiscal');
+  }
+
   // o ativo do produto (dtsPrincipal)
   if (dto.ativo !== undefined || dto.ativo_compra !== undefined) {
     const atual = id != null
@@ -54,19 +67,15 @@ export async function validarPermissoesDoProduto(dto: Record<string, unknown>, i
   }
 
   // composição e decomposição: incluir, excluir um, limpar todos (o que o dto traz contra o gravado)
-  const detalhe = async (chave: string, tabela: string, add: string, del: string, limpar: string, nome: string) => {
-    if (!Array.isArray(dto[chave])) return;
-    const novos = new Set((dto[chave] as Array<Record<string, unknown>>).map((i) => Number(i.idproduto_01)));
+  for (const [chave, tabela, add, del, limpar, no, de] of [
+    ['composicoes', 'composicao', 'BTNADDITEM', 'BTNDELITEM', 'BTNLIMPARCOMPOSICAO', 'na composição', 'da composição'],
+    ['decomposicoes', 'decomposicao', 'BTNADDDESCOMP', 'BTNEXCLUIDECOMP', 'BTNLIMPADECOMP', 'na decomposição', 'da decomposição'],
+  ] as const) {
+    if (!Array.isArray(dto[chave])) continue;
+    const novos = (dto[chave] as Array<Record<string, unknown>>).map((i) => Number(i.idproduto_01));
     const antigos = id != null
-      ? new Set(((await db.selectFrom(tabela).select('idproduto_01').where('idproduto', '=', id).execute()) as Array<{ idproduto_01: number }>).map((r) => Number(r.idproduto_01)))
-      : new Set<number>();
-    if ([...novos].some((p) => !antigos.has(p))) negar(add, `incluir item na ${nome}`);
-    const removidos = [...antigos].filter((p) => !novos.has(p));
-    if (!removidos.length) return;
-    // tudo fora: basta "Limpar" ou "Excluir"; parte: só "Excluir"
-    if (novos.size === 0 && tem.has(limpar)) return;
-    negar(del, `excluir item da ${nome}`);
-  };
-  await detalhe('composicoes', 'composicao', 'BTNADDITEM', 'BTNDELITEM', 'BTNLIMPARCOMPOSICAO', 'composição');
-  await detalhe('decomposicoes', 'decomposicao', 'BTNADDDESCOMP', 'BTNEXCLUIDECOMP', 'BTNLIMPADECOMP', 'decomposição');
+      ? ((await db.selectFrom(tabela).select('idproduto_01').where('idproduto', '=', id).execute()) as Array<{ idproduto_01: number }>).map((r) => Number(r.idproduto_01))
+      : [];
+    conferirDetalhe(tem, FORM, antigos, novos, { adicionar: add, excluir: del, limpar, no, do: de });
+  }
 }

@@ -1,4 +1,7 @@
 import { operadorSchema, atualizarOperadorSchema, TIPOOP_IDGRUPO } from '@apollo/shared';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { exigirOpcao } from '../../shared/acesso/controles';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -92,6 +95,12 @@ export const operadoresAggregateConfig: AggregateConfig = {
     // esqueletos §4.9: 88 de 88 inclusões de 2025-26 com senha no legado; o app não tinha como definir a de outro operador)
     if (dto.senha != null && dto.confirmacaoSenha != null && dto.senha !== dto.confirmacaoSenha) throw new BusinessRuleError('OPERADOR_SENHA_NAO_CONFERE');
     if (id == null && !String(dto.senha ?? '').length) throw new BusinessRuleError('OPERADOR_SENHA_OBRIGATORIA');
+    // permissão de controle: a senha do retaguarda (edtSenhaRetaguarda, TDBEdit com Tag 1 — no form de cadastro o edit é desabilitado)
+    // só para quem tem a opção — produção 27/09/2026: 9 de 37 operador×loja com acesso à tela sem ela. A troca da PRÓPRIA senha é
+    // outro caminho (/auth). Só na tela (operador).
+    if (String(dto.senha ?? '').length && currentTenant().operadorId != null) {
+      exigirOpcao(await opcoesConcedidas(db, 'FRMCADUSUARIOS'), 'FRMCADUSUARIOS', 'EDTSENHARETAGUARDA', 'definir a senha do retaguarda');
+    }
     if (id != null && (await loginProtegido(db, id))) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });
   },
   // a senha do cadastro vai ao hash forte (a cifra reversível do legado — SENHA/LOGIN_SENHA — não é gravada, como no cutover

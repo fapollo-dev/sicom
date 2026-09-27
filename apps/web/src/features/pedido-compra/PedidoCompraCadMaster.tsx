@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Unlink } from 'lucide-react';
@@ -448,6 +449,7 @@ function ItensSection({
   produtoOptions: Opcao[];
   produtoAliquotas: Record<string, string>;
 }) {
+  const { tem: pode } = useOpcoesDoForm('FRMPEDIDOCOMPRA');
   const { fields, append, update, remove } = useFieldArray<CriarPedidoCompraDto, 'itens', 'fieldId'>({
     control: form.control,
     name: 'itens',
@@ -560,7 +562,8 @@ function ItensSection({
               if (idx >= 0) setEditIdx(idx);
             },
           },
-          {
+          // "F10 - Excluir" (btnExcluirI): desabilitado sem a opção — permissões de controle (6 de 34 operador×loja sem)
+          ...(pode('BTNEXCLUIRI') ? [{
             id: 'remover',
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
@@ -569,7 +572,7 @@ function ItensSection({
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
               if (idx >= 0) remove(idx);
             },
-          },
+          }] : []),
           // mig 314: "Desassociar fornecedor do produto" (uPedidoCompra.pas:2297) — a importação passa a pular o produto
           {
             id: 'desassociar',
@@ -588,14 +591,14 @@ function ItensSection({
         ],
       },
     ],
-    [fields, remove, produtoOptions, lojasPedido.length, codpedcomp, mensagem],
+    [fields, remove, produtoOptions, lojasPedido.length, codpedcomp, mensagem, pode],
   );
 
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap items-center gap-gp-sm">
-          <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
+          <Button label="Adicionar &item" variant="soft" disabled={!pode('BTNADICIONARI')} onClick={() => setEditIdx(-1)} />
           {codpedcomp != null && (
             <>
               <Button label="Importar do fornecedor (&associados)" variant="ghost" onClick={() => void importar('associados')} />

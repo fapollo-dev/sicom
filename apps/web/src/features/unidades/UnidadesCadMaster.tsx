@@ -1,4 +1,5 @@
 import { Controller } from 'react-hook-form';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { unidadeSchema, type CriarUnidadeDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -6,6 +7,8 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 
 /** Cadastro de unidades (UCadUnidade): sigla única, descrição, ativo, produção e fracionado; excluir recusa unidade usada por produto. */
 export function UnidadesCadMaster() {
+  // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
+  const { tem: pode } = useOpcoesDoForm('FRMCADUNIDADE');
   return (
     <CadMaster<CriarUnidadeDto>
       titulo="Unidades"
@@ -28,7 +31,7 @@ export function UnidadesCadMaster() {
           </div>
           {([['ativo', 'Ativo'], ['producao', 'Produção'], ['fracionado', 'Fracionado']] as const).map(([name, label]) => (
             <Controller key={name} control={form.control} name={name} render={({ field }) => (
-              <CheckboxField label={label} value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+              <CheckboxField label={label} value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel || (name === 'ativo' && !pode('CHBATIVO'))} />
             )} />
           ))}
         </div>

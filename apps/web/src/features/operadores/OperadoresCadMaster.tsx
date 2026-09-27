@@ -1,4 +1,5 @@
 import { Controller } from 'react-hook-form';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { CadMasterDet } from '../../shared/cadmaster/CadMasterDet';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -15,6 +16,8 @@ import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@ap
  * A senha do cadastro vai ao hash do servidor (troca no 1º acesso). Perfis/RBAC granular e biometria = cortes seguintes.
  */
 export function OperadoresCadMaster() {
+  // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
+  const { tem: pode } = useOpcoesDoForm('FRMCADUSUARIOS');
   const { data: parceiroOptions = [] } = useResourceOptions(
     'cadastro/parceiros',
     (p: any) => ({ value: String(p.codparceiro ?? p.codigo), label: `${p.codparceiro ?? p.codigo} - ${p.razao ?? ''}` }),
@@ -97,7 +100,7 @@ export function OperadoresCadMaster() {
             type="password"
             autoComplete="new-password"
             maxLength={50}
-            disabled={!editavel}
+            disabled={!editavel || !pode('EDTSENHARETAGUARDA')}
             error={form.formState.errors.senha?.message as string | undefined}
             {...form.register('senha')}
           />
@@ -106,7 +109,7 @@ export function OperadoresCadMaster() {
             type="password"
             autoComplete="new-password"
             maxLength={50}
-            disabled={!editavel}
+            disabled={!editavel || !pode('EDTSENHARETAGUARDA')}
             error={form.formState.errors.confirmacaoSenha?.message as string | undefined}
             {...form.register('confirmacaoSenha')}
           />

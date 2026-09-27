@@ -1,4 +1,6 @@
 import { scrapSchema, atualizarScrapSchema } from '@apollo/shared';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirDetalhe } from '../../shared/acesso/controles';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -145,6 +147,17 @@ export const scrapAggregateConfig: AggregateConfig = {
       antes = s ?? {};
     }
     await validarDocumento(db, dto, id ?? null, antes);
+    // as PERMISSÕES DE CONTROLE da grade (uMaster.SetStateOfControlsMaster sobre o uCadSCRAP.dfm): "Adicionar item"
+    // (btnAdicionarItem), "Excluir" (btnExcluirI) e "Limpar" (btnLimparI) desabilitados para quem não tem a opção — produção
+    // 27/09/2026: de 51 operador×loja com acesso, 9 não excluem e 6 não limpam. Sem operador no contexto, sem controle.
+    if (Array.isArray(dto.itens) && currentTenant().operadorId != null) {
+      const tem = await opcoesConcedidas(db, 'FRMCADSCRAP');
+      const antigos = id != null
+        ? ((await db.selectFrom('scrap_item').select('idproduto').where('codscrap', '=', id).execute()) as Array<{ idproduto: number }>).map((r) => Number(r.idproduto))
+        : [];
+      conferirDetalhe(tem, 'FRMCADSCRAP', antigos, (dto.itens as Array<Record<string, unknown>>).map((i) => Number(i.idproduto)),
+        { adicionar: 'BTNADICIONARITEM', excluir: 'BTNEXCLUIRI', limpar: 'BTNLIMPARI', no: 'no lançamento de perda', do: 'do lançamento de perda' });
+    }
     // o centro de custo da situação do documento (edtCodPLCExit, uCadSCRAP.pas:1311; UCadSituacaoNF.md C5) — cobrado
     // quando a situação ou o centro de custo é informado/alterado
     const mudou = (c: 'codplc' | 'idsituacao_nf') => dto[c] !== undefined && Number(dto[c] ?? 0) !== Number(antes[c] ?? 0);

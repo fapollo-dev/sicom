@@ -1,4 +1,7 @@
 import { parceiroSchema, atualizarParceiroSchema } from '@apollo/shared';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirCampos } from '../../shared/acesso/controles';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { capturarAlteracaoParceiro } from '../sped/sped-alteracoes';
@@ -109,6 +112,24 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // o registro 0175 do SPED: nome, documento, município ou endereço do participante mudou (uCadClientes.pas:2113-2114).
   // No UPDATE o `validar` roda na transação do save, antes da troca dos endereços — lê o endereço ainda gravado.
   validar: async ({ dto, id, db }) => {
+    // as PERMISSÕES DE CONTROLE do cadastro de clientes (UCadClientes.dfm, form de cadastro): os papéis (cliente, fornecedor,
+    // funcionário, convênio, transportadora), o crédito, "livre do indexador" e "realiza troca" desabilitados sem a opção —
+    // produção 27/09/2026: 2 de 49 operador×loja sem as de fornecedor/convênio/transportadora/crédito, 5 sem indexador/troca
+    if (currentTenant().operadorId != null) {
+      const tem = await opcoesConcedidas(db, 'FRMCADCLIENTES');
+      const antes = id != null ? ((await db.selectFrom('parceiros').selectAll().where('codparceiro', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined) : undefined;
+      conferirCampos(tem, 'FRMCADCLIENTES', dto, antes, [
+        // os papéis só na ALTERAÇÃO: na inclusão a tela aberta (clientes, fornecedores…) já traz o seu
+        { campo: 'cli', opcao: 'CHBCLIENTE', acao: 'alterar o papel de cliente' },
+        { campo: 'frn', opcao: 'CHBFORNECEDOR', acao: 'alterar o papel de fornecedor' },
+        { campo: 'fun', opcao: 'CHBFUNCIONARIO', acao: 'alterar o papel de funcionário' },
+        { campo: 'con', opcao: 'CHBCONVENIO', acao: 'alterar o papel de convênio' },
+        { campo: 'tra', opcao: 'CHBTRANSPORTADORA', acao: 'alterar o papel de transportadora' },
+        { campo: 'credito', opcao: 'CCDCREDITO', acao: 'alterar o crédito', padrao: 0, numero: true },
+        { campo: 'retira_fornindex', opcao: 'DBLIVREINDEXADOR', acao: 'alterar o "livre do indexador"' },
+        { campo: 'realiza_troca', opcao: 'JVDBCHECKBOX1', acao: 'alterar o "realiza troca"' },
+      ]);
+    }
     if (id != null) await capturarAlteracaoParceiro(db, id, dto);
     // o ATIVADO de antes (o gatilho REM_PARCEIROS cascateia na gravação do cabeçalho; o detalhe de endereços precisa saber que mudou)
     if (id != null && dto.ativado !== undefined) {

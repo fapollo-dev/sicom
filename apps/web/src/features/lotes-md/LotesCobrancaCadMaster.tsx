@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -103,6 +104,7 @@ function ItensSection({
   form: UseFormReturn<LoteForm>;
   editavel: boolean;
 }) {
+  const { tem: pode } = useOpcoesDoForm('FRMCADLOTECOBRANCA');
   const { fields, append, remove } = useFieldArray<LoteForm, 'itens', 'fieldId'>({
     control: form.control,
     name: 'itens',
@@ -147,21 +149,22 @@ function ItensSection({
         headerName: '',
         type: 'actions',
         width: 80,
-        getActions: ({ row }) => [
+        // "Excluir" (btnExcluirItem, Tag 1): desabilitado sem a opção — permissões de controle
+        getActions: ({ row }) => (pode('BTNEXCLUIRITEM') ? [
           {
             id: 'remover',
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             destructive: true,
-            onClick: (r) => {
+            onClick: (r: unknown) => {
               const idx = fields.findIndex((f) => f.fieldId === (r as any).fieldId);
               if (idx >= 0) remove(idx);
             },
           },
-        ],
+        ] : []),
       },
     ],
-    [fields, remove],
+    [fields, remove, pode],
   );
 
   return (
@@ -177,6 +180,7 @@ function ItensSection({
           <Button
             label="Adicionar &títulos"
             variant="soft"
+            disabled={!pode('BTNADDITEN')}
             onClick={() => setPickerAberto(true)}
           />
         </div>

@@ -1,4 +1,7 @@
 import { loteCobrancaSchema } from '@apollo/shared';
+import { opcoesConcedidas } from '../../shared/acesso/acesso.service';
+import { conferirDetalhe } from '../../shared/acesso/controles';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 
@@ -14,6 +17,16 @@ export const loteCobrancaAggregateConfig: AggregateConfig = {
   view: 'get_lote_cobranca',
   colunas: ['codparceiro', 'data'],
   rbacForm: 'FRMCADLOTECOBRANCA',
+  // permissões de controle da grade (uCadLoteCobranca.dfm, form de cadastro): "Adicionar" (btnAddIten) e "Excluir" (btnExcluirItem)
+  // desabilitados sem a opção — produção 27/09/2026: 5 de 23 operador×loja sem "Excluir". Só na tela (operador).
+  validar: async ({ dto, id, db }) => {
+    if (!Array.isArray(dto.itens) || currentTenant().operadorId == null) return;
+    const antigos = id != null
+      ? ((await db.selectFrom('itens_lotecob').select('codrcb').where('codlotecob', '=', id).execute()) as Array<{ codrcb: number }>).map((r) => Number(r.codrcb))
+      : [];
+    conferirDetalhe(await opcoesConcedidas(db, 'FRMCADLOTECOBRANCA'), 'FRMCADLOTECOBRANCA', antigos, (dto.itens as Array<Record<string, unknown>>).map((x) => Number(x.codrcb)),
+      { adicionar: 'BTNADDITEN', excluir: 'BTNEXCLUIRITEM', no: 'no lote', do: 'do lote' });
+  },
   replica: false,
   detalhes: [
     { tabela: 'itens_lotecob', pk: 'codilotcob', fk: 'codlotecob', colunas: ['codrcb'], chave: 'itens' },

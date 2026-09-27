@@ -25479,6 +25479,46 @@ async function main() {
         await pgPc2.end();
       }
     }
+
+    // ══ §269 PERMISSÕES DE CONTROLE — lote 2 (NCM do produto, papel do cliente, senha do usuário, itens do SCRAP) ══════════════════
+    {
+      const pgL2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tirados: Array<[string, string]> = [];
+      const tirar = async (form: string, opcao: string) => { await pgL2.query(`DELETE FROM permissoes WHERE form = $1 AND opcao = $2 AND codoperador = 7 AND codempresa = 1`, [form, opcao]); tirados.push([form, opcao]); };
+      const put = async (url: string, body: Record<string, unknown>) => {
+        const r = await fetch(`${base}/${url}`, { method: 'PUT', headers: H, body: JSON.stringify(body) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, message: j.message };
+      };
+      let scrap: number | null = null;
+      try {
+        // produto: o NCM (TDBEdit com Tag 1 — no form de cadastro o edit também trava)
+        await tirar('FRMCADPRODUTO', 'EDTNCMSH');
+        const ncm = await put('cadastro/produtos/1', { ncmsh: '22021000' });
+        // cliente: o papel de convênio (checkbox) só na alteração
+        const par = (await pgL2.query(`SELECT codparceiro, coalesce(con, 'N') con FROM parceiros WHERE codparceiro = 22`)).rows[0] as any;
+        await tirar('FRMCADCLIENTES', 'CHBCONVENIO');
+        const papel = await put('cadastro/parceiros/22', { con: par?.con === 'S' ? 'N' : 'S' });
+        // usuário: definir a senha do retaguarda
+        await tirar('FRMCADUSUARIOS', 'EDTSENHARETAGUARDA');
+        const senha = await put('cadastro/operadores/8', { senha: 'nova1234', confirmacaoSenha: 'nova1234' });
+        // SCRAP: sem "Excluir" nem "Limpar", tirar o item é recusado
+        const cr = await fetch(`${base}/cadastro/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: 1, qtde: 2, codmotivoop: 261 }, { idproduto: 2, qtde: 1, codmotivoop: 261 }] }) });
+        scrap = Number(((await cr.json().catch(() => ({}))) as any).codscrap) || null;
+        await tirar('FRMCADSCRAP', 'BTNEXCLUIRI'); await tirar('FRMCADSCRAP', 'BTNLIMPARI');
+        const scr = scrap ? await put(`cadastro/scrap/${scrap}`, { codplc: 3, itens: [{ idproduto: 1, qtde: 2, codmotivoop: 261 }] }) : { status: 0, code: undefined, message: undefined };
+        check('PERMISSÕES §269 [lote 2]: sem a opção, mudar o NCM do produto, o papel de convênio do parceiro, definir a senha de um usuário e tirar item do lançamento de perda são recusados com "Você não tem permissão para …"',
+          ncm.status === 422 && ncm.message === 'Você não tem permissão para alterar o NCM.'
+          && papel.status === 422 && papel.message === 'Você não tem permissão para alterar o papel de convênio.'
+          && senha.status === 422 && senha.message === 'Você não tem permissão para definir a senha do retaguarda.'
+          && cr.status === 201 && scr.status === 422 && scr.message === 'Você não tem permissão para excluir item do lançamento de perda.',
+          { ncm, papel, senha, scrap: [cr.status, scr] });
+      } finally {
+        for (const [f, o] of tirados) await pgL2.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
+        if (scrap) { await pgL2.query(`DELETE FROM scrap_item WHERE codscrap = $1`, [scrap]); await pgL2.query(`DELETE FROM scrap WHERE codscrap = $1`, [scrap]); }
+        await pgL2.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

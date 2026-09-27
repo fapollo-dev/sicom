@@ -611,6 +611,7 @@ function FiscalSection({
   editavel: boolean;
   aliquotaOptions: Opcao[];
 }) {
+  const pode = useContext(PodeCtx);
   return (
     <fieldset className="rounded-radius-md border border-border p-pad-md">
       <legend className="px-pad-xs text-fg-muted">Fiscal</legend>
@@ -619,7 +620,7 @@ function FiscalSection({
           label="&NCM"
           inputMode="numeric"
           maxLength={8}
-          disabled={!editavel}
+          disabled={!editavel || !pode('EDTNCMSH')}
           error={form.formState.errors.ncmsh?.message as string | undefined}
           {...form.register('ncmsh')}
         />
@@ -684,7 +685,7 @@ function FiscalSection({
               onChange={field.onChange}
               decimais={0}
               min={0}
-              disabled={!editavel}
+              disabled={!editavel || !pode('EDTCODFIGFISCAL')}
               error={form.formState.errors.codfigurafiscal?.message as string | undefined}
             />
           )}

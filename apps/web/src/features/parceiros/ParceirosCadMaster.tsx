@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -66,7 +67,12 @@ const PAPEL_TITULO: Record<Papel, string> = {
  * Erros de negócio do back (ex.: "ao menos um papel" → 400; CNPJ duplicado → 409
  * DUPLICADO) sobem como envelope PT e são exibidos pelo <CadMaster> via useMensagem.
  */
+/** as opções de controle dos papéis (UCadClientes.dfm: chbCliente/chbFornecedor/chbFuncionario/chbTransportadora/chbConvenio, Tag 1) */
+const OPCAO_DO_PAPEL: Record<string, string> = { cli: 'CHBCLIENTE', frn: 'CHBFORNECEDOR', fun: 'CHBFUNCIONARIO', tra: 'CHBTRANSPORTADORA', con: 'CHBCONVENIO' };
+
 export function ParceirosCadMaster({ papel }: { papel: Papel }) {
+  // as permissões de controle do cadastro (papéis e crédito) — docs/05-migration-engineering/permissoes-de-controle.md
+  const { tem: pode } = useOpcoesDoForm('FRMCADCLIENTES');
   const flag = PAPEL_FLAG[papel];
   const titulo = PAPEL_TITULO[papel];
 
@@ -258,7 +264,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                           label={p.label}
                           value={field.value as string | undefined}
                           onChange={field.onChange}
-                          disabled={!editavel}
+                          disabled={!editavel || !pode(OPCAO_DO_PAPEL[p.campo])}
                         />
                       )}
                     />
@@ -326,7 +332,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                     label="&Crédito"
                     value={field.value as number | undefined}
                     onChange={field.onChange}
-                    disabled={!editavel}
+                    disabled={!editavel || !pode('CCDCREDITO')}
                     error={form.formState.errors.credito?.message as string | undefined}
                   />
                 )}
