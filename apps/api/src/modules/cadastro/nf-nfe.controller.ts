@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from
 import { cancelarNfSchema, cceNfSchema, type CancelarNfDto, type CceNfDto } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { NfNfeService } from './nf-nfe.service';
 
 /**
@@ -19,6 +19,8 @@ export class NfNfeController {
   @Post(':id/transmitir')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'ENVIARNFE1')
+  // o "Enviar NFe" fica sob o menu "NF-e" (GerarNFe1, Tag 1): sem a opção do menu, o submenu é inalcançável
+  @RequerControle('FRMNF', 'GERARNFE1')
   transmitir(@Param('id', ParseIntPipe) id: number) {
     return this.nfe.transmitir(id);
   }
@@ -26,6 +28,7 @@ export class NfNfeController {
   @Post(':id/cancelar')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'CANCELARNFE1')
+  @RequerControle('FRMNF', 'GERARNFE1') // idem: o "Cancelar NFe" é submenu de "NF-e"
   cancelar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(cancelarNfSchema)) dto: CancelarNfDto,

@@ -2,7 +2,7 @@ import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/
 import { descontoTituloSchema, type DescontoTituloDto } from '@apollo/shared';
 import { DescontoTituloService } from './desconto-titulo.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /** DESCONTO DE TÍTULOS (`FRMDESCONTOTITULO`) — encontro de contas. RBAC: gate de tela. */
@@ -13,6 +13,7 @@ export class DescontoTituloController {
 
   @Get()
   @RequerAcesso('FRMDESCONTOTITULO', 'FRMDESCONTOTITULO')
+  @RequerControle('FRMDESCONTOTITULO', 'BTNCONSULTA') // o botão "Consultar" (Tag 1) — permissões de controle
   listar(@Query(new ZodValidationPipe(descontoTituloSchema)) q: DescontoTituloDto) {
     return this.svc.listar({ dataIni: q.dataIni ?? null, dataFim: q.dataFim ?? null, codparceiro: q.codparceiro ?? null });
   }

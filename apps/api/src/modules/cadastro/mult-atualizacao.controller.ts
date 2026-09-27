@@ -5,7 +5,7 @@ import {
 } from '@apollo/shared';
 import { MultAtualizacaoService } from './mult-atualizacao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -38,6 +38,7 @@ export class MultAtualizacaoController {
   @Post('aplicar')
   @HttpCode(200)
   @RequerAcesso('FRMMULTATUALIZACAO', 'BTNGRAVAR')
+  @RequerControle('FRMMULTATUALIZACAO', 'BTNPROCESSAR') // o botão "Processar" (Tag 1) — permissões de controle
   aplicar(@Body(new ZodValidationPipe(aplicarMultSchema)) body: SimularMultDto, @Req() req: any) {
     return this.svc.aplicar(body, this.operador(req));
   }
@@ -45,6 +46,7 @@ export class MultAtualizacaoController {
   @Post('pis-cofins')
   @HttpCode(200)
   @RequerAcesso('FRMMULTATUALIZACAO', 'BTNGRAVAR')
+  @RequerControle('FRMMULTATUALIZACAO', 'BTNPROCESSAR')
   pisCofins(@Body(new ZodValidationPipe(pisCofinsMultSchema)) body: PisCofinsMultDto, @Req() req: any) {
     return this.svc.aplicarPisCofins(body, this.operador(req));
   }

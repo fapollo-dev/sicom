@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -39,6 +40,7 @@ const hoje = () => hojeNaLoja();
 const inicioMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 export function RentabilidadePage() {
+  const { tem: pode } = useOpcoesDoForm('FRMRENTABILIDADECATEGORIAS'); // o "Consultar" (btnConsulta, Tag 1) — permissões de controle
   const mensagem = useMensagem();
   const [nivel, setNivel] = useState('DEPARTAMENTO');
   const [dataIni, setDataIni] = useState(inicioMes());
@@ -112,7 +114,7 @@ export function RentabilidadePage() {
           <div className="w-40"><Field label="&De" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
           <div className="w-40"><Field label="&até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
           <div className="w-44"><Field label="Despesa operacional (%)" value={desp} onChange={(e) => setDesp(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="a da empresa" /></div>
-          <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
+          <Button label="&Gerar" disabled={ocupado || !pode('BTNCONSULTA')} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
             const win = window.open('', '_blank', 'width=1024,height=768');

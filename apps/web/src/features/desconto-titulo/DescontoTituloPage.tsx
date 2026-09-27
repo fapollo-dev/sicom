@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -36,6 +37,7 @@ const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-
  * reais nos dois títulos e o que sobra de cada um vira título novo.
  */
 export function DescontoTituloPage() {
+  const { tem: pode } = useOpcoesDoForm('FRMDESCONTOTITULO'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const mensagem = useMensagem();
   const [f, setF] = useState({ dataIni: '', dataFim: '', codparceiro: '' });
   const [res, setRes] = useState<Resultado | null>(null);
@@ -166,7 +168,7 @@ export function DescontoTituloPage() {
           <div className="w-40"><Field label="Vencimento &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-40"><Field label="&Parceiro (cód.)" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
-          <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Buscar" disabled={ocupado || !pode('BTNCONSULTA')} onClick={() => void buscar()} />
         </div>
       </section>
 

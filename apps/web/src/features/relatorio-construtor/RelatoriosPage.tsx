@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { useNavigate } from 'react-router-dom';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -40,6 +41,7 @@ const fmtNum = (v: unknown) => (v == null || v === '' ? '' : Number(v).toLocaleS
 const formatar = (v: unknown, f: string) => (f === 'moeda' ? fmtMoeda(v) : f === 'data' ? fmtData(v) : f === 'numero' ? fmtNum(v) : v == null ? '' : String(v));
 
 export function RelatoriosPage() {
+  const { tem: pode } = useOpcoesDoForm('FRMRELATORIO'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const mensagem = useMensagem();
   const navigate = useNavigate();
   const [salvos, setSalvos] = useState<RelatorioSalvo[]>([]);
@@ -154,7 +156,7 @@ export function RelatoriosPage() {
               <Button label="&Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
               <Button label="&Imprimir / PDF" variant="soft" disabled={!res} onClick={imprimir} />
               <Button label="Ed&itar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
-              <Button label="&Novo relatório" variant="soft" onClick={() => navigate('/relatorios/construtor/novo')} />
+              <Button label="&Novo relatório" variant="soft" disabled={!pode('BTNNOVORELATORIO')} onClick={() => navigate('/relatorios/construtor/novo')} />
             </div>
             {semFiltro && <p className="text-body-sm text-fg-muted">Sem filtro, o relatório traz tudo o que a definição dele permite — as condições que o próprio relatório já tem continuam valendo.</p>}
           </div>

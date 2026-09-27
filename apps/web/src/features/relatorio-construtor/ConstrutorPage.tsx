@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import type { DefinicaoRelatorioDto } from '@apollo/shared';
@@ -43,6 +44,7 @@ const rotuloColuna = (c: Coluna) =>
   c.calculado ? `${c.calculado.campo1} ${c.calculado.operacao} ${c.calculado.campo2}` : (c.campo ?? '');
 
 export function ConstrutorPage() {
+  const { tem: pode } = useOpcoesDoForm('FRMRELATORIO'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const { cod } = useParams();
   const navigate = useNavigate();
   const mensagem = useMensagem();
@@ -222,7 +224,7 @@ export function ConstrutorPage() {
       <div className="flex flex-wrap gap-gp-sm">
         <Button label="&Prévia" variant="soft" disabled={ocupado || !colunas.length} onClick={() => void verPrevia()} />
         <Button label="&Gravar" disabled={ocupado || !nome.trim() || !colunas.length} onClick={() => void gravar()} />
-        {codNum != null && <Button label="E&xcluir" variant="soft" disabled={ocupado} onClick={() => void excluir()} />}
+        {codNum != null && <Button label="E&xcluir" variant="soft" disabled={ocupado || !pode('BTNEXCLUIMODELO')} onClick={() => void excluir()} />}
         <Button label="Voltar" variant="soft" onClick={() => navigate('/relatorios/construtor')} />
       </div>
 

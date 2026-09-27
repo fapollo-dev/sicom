@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { CAMPOS_MULT, OPERACOES_MULT, type SimularMultDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -17,6 +18,7 @@ import { multApi, type LinhaSimulada, type ProdutoMult } from './multAtualizacao
 const moeda = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 export function MultAtualizacaoPage() {
+  const { tem: pode } = useOpcoesDoForm('FRMMULTATUALIZACAO'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const mensagem = useMensagem();
   const [f, setF] = useState({ texto: '', codgrupo: '', codsubgrupo: '', codfor: '', somenteAtivos: 'S' });
   const [produtos, setProdutos] = useState<ProdutoMult[]>([]);
@@ -153,7 +155,7 @@ export function MultAtualizacaoPage() {
               <Field label="&Valor" value={alt.valor} onChange={(e) => { setAlt({ ...alt, valor: e.target.value }); setPrevia(null); }} />
             </div>
             <Button label="&Simular" disabled={ocupado || !alt.valor || sel.size === 0} onClick={() => void simular()} />
-            <Button label="&Gravar" disabled={ocupado || !previa || previa.mudam === 0 || comErro.length > 0} onClick={() => void aplicar()} />
+            <Button label="&Gravar" disabled={ocupado || !previa || previa.mudam === 0 || comErro.length > 0 || !pode('BTNPROCESSAR')} onClick={() => void aplicar()} />
           </div>
           <p className="text-body-sm text-fg-muted">
             {sel.size} de {produtos.length} produto(s) selecionado(s).

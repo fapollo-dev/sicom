@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AcessoService } from './acesso.service';
-import { REQUER_ACESSO } from './requer-acesso.decorator';
+import { REQUER_ACESSO, REQUER_CONTROLE } from './requer-acesso.decorator';
 import { ForbiddenActionError, UnauthenticatedError } from '../errors/app-error';
 import { currentTenant } from '../tenant/tenant-context';
 
@@ -31,14 +31,16 @@ export class AcessoGuard implements CanActivate {
       REQUER_ACESSO,
       ctx.getHandler(),
     );
-    if (!meta) return true;
-
-    if (!(await this.acesso.possuiAcesso(meta.form, meta.opcao))) {
-      throw new ForbiddenActionError('SEM_PERMISSAO', {
-        form: meta.form,
-        opcao: meta.opcao,
-        operador: currentTenant().operadorId,
-      });
+    // as permissões de CONTROLE do botão/menu que dispara a rota (além do gate) — `@RequerControle`
+    const controles = this.reflector.get<Array<{ form: string; opcao: string }> | undefined>(REQUER_CONTROLE, ctx.getHandler()) ?? [];
+    for (const req of meta ? [meta, ...controles] : controles) {
+      if (!(await this.acesso.possuiAcesso(req.form, req.opcao))) {
+        throw new ForbiddenActionError('SEM_PERMISSAO', {
+          form: req.form,
+          opcao: req.opcao,
+          operador: currentTenant().operadorId,
+        });
+      }
     }
     return true;
   }

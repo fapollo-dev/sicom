@@ -1,10 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { AcessoService } from '../../shared/acesso/acesso.service';
+import { ForbiddenActionError } from '../../shared/errors/app-error';
 import type { Response } from 'express';
 import { salvarRelatorioSchema, executarRelatorioSchema, type SalvarRelatorioDto, type ExecutarRelatorioDto } from '@apollo/shared';
 import { RelatorioConstrutorService } from './relatorio-construtor.service';
 import { RelatorioImportadorService } from './relatorio-importador.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -19,6 +21,7 @@ export class RelatorioConstrutorController {
   constructor(
     private readonly svc: RelatorioConstrutorService,
     private readonly importador: RelatorioImportadorService,
+    private readonly acesso: AcessoService,
   ) {}
 
   /** o catálogo de fontes — as views que têm rótulo. */
@@ -49,13 +52,18 @@ export class RelatorioConstrutorController {
   @Post()
   @HttpCode(200)
   @RequerAcesso('FRMCADASTRORELATORIO', 'FRMCADASTRORELATORIO')
-  salvar(@Body(new ZodValidationPipe(salvarRelatorioSchema)) body: SalvarRelatorioDto) {
+  async salvar(@Body(new ZodValidationPipe(salvarRelatorioSchema)) body: SalvarRelatorioDto) {
+    // o relatório NOVO nasce do "Novo relatório" (btnNovoRelatorio, Tag 1) da tela de relatórios — permissões de controle
+    if (body.codrelatoriodef == null && !(await this.acesso.possuiAcesso('FRMRELATORIO', 'BTNNOVORELATORIO'))) {
+      throw new ForbiddenActionError('SEM_PERMISSAO', { form: 'FRMRELATORIO', opcao: 'BTNNOVORELATORIO' });
+    }
     return this.svc.salvar({ codrelatoriodef: body.codrelatoriodef ?? null, nome: body.nome, fonte: body.fonte, definicao: body.definicao });
   }
 
   @Delete(':cod')
   @HttpCode(204)
   @RequerAcesso('FRMCADASTRORELATORIO', 'FRMCADASTRORELATORIO')
+  @RequerControle('FRMRELATORIO', 'BTNEXCLUIMODELO') // "Excluir modelo" (Tag 1) na tela de relatórios — permissões de controle
   async remover(@Param('cod', ParseIntPipe) cod: number) {
     await this.svc.remover(cod);
   }

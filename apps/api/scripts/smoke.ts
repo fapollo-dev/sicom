@@ -25519,6 +25519,32 @@ async function main() {
         await pgL2.end();
       }
     }
+
+    // ══ §270 PERMISSÕES DE CONTROLE — lote 3: o botão/menu que dispara a rota (@RequerControle, além do gate) ══════════════════════
+    {
+      const pgL3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tirados: Array<[string, string]> = [];
+      const tirar = async (form: string, opcao: string) => { await pgL3.query(`DELETE FROM permissoes WHERE form = $1 AND opcao = $2 AND codoperador = 7 AND codempresa = 1`, [form, opcao]); tirados.push([form, opcao]); };
+      const req = async (method: string, url: string, body?: unknown) => {
+        const r = await fetch(`${base}/${url}`, { method, headers: H, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, opcao: j.details?.opcao ?? j.detalhes?.opcao };
+      };
+      try {
+        await tirar('FRMNF', 'GERARNFE1');
+        const transmitir = await req('POST', 'fiscal/nf/1/transmitir', {});
+        await tirar('FRMDESCONTOTITULO', 'BTNCONSULTA');
+        const consultar = await req('GET', 'cobranca/desconto-titulo?dataIni=2026-01-01&dataFim=2026-01-31');
+        await tirar('FRMRELATORIO', 'BTNNOVORELATORIO');
+        const novo = await req('POST', 'relatorios/construtor', { nome: 'SEM PERMISSAO', fonte: 'get_apagar', definicao: { colunas: [{ campo: 'valor', posicao: 1 }] } });
+        check('PERMISSÕES §270 [o botão que dispara a rota]: sem a opção do menu "NF-e" (GERARNFE1) transmitir é recusado mesmo com a de "Enviar NFe"; sem "Consultar" a consulta de desconto de título é recusada; sem "Novo relatório" o construtor não cria relatório (403 SEM_PERMISSAO)',
+          transmitir.status === 403 && transmitir.code === 'SEM_PERMISSAO' && consultar.status === 403 && novo.status === 403,
+          { transmitir, consultar, novo });
+      } finally {
+        for (const [f, o] of tirados) await pgL3.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
+        await pgL3.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

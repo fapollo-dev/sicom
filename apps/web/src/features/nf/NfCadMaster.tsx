@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
@@ -1134,6 +1135,7 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
 // ───────────────────────────── NFe / SEFAZ (F6) ─────────────────────────────
 
 function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const { tem: podeNf } = useOpcoesDoForm('FRMNF'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const mensagem = useMensagem();
   const [executando, setExecutando] = useState(false);
   const [modo, setModo] = useState<'cancelar' | 'cce' | null>(null);
@@ -1215,10 +1217,10 @@ function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {naoEnviada && <Button label="&Transmitir NFe" variant="soft" onClick={() => void transmitir()} />}
+        {naoEnviada && <Button label="&Transmitir NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => void transmitir()} />}
         {autorizada && (
           <>
-            <Button label="&Cancelar NFe" variant="soft" onClick={() => { setModo('cancelar'); setTexto(''); }} />
+            <Button label="&Cancelar NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => { setModo('cancelar'); setTexto(''); }} />
             <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
           </>
         )}
