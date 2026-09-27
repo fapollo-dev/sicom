@@ -7,7 +7,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
  * ANÁLISE PEDIDO × NF (Wave 4 corte-2, UanalisaPedComp_NF) — cruzamento/divergências + liberação da conferência de
- * uma NF de entrada vinculada a um pedido. RBAC FRMPEDIDOCOMPRA/BTNLIBERARCONFERENCIA. A liberação COM divergência
+ * uma NF de entrada vinculada a um pedido. RBAC: gate de FRMPEDIDOCOMPRA (sem botão com Tag 1 no legado). A liberação COM divergência
  * exige um SUPERVISOR (login+senha ∈ USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA) — reusa o E8.
  */
 @Controller('compras/analise-pedido-nf')
@@ -17,7 +17,7 @@ export class AnalisePedidoNfController {
 
   /** divergências (preço/INE_PEDIDO) do cruzamento da NF com seu pedido. */
   @Get(':codnf/divergencias')
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNLIBERARCONFERENCIA')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   divergencias(@Param('codnf', ParseIntPipe) codnf: number) {
     return this.svc.divergencias(codnf);
   }
@@ -25,7 +25,7 @@ export class AnalisePedidoNfController {
   /** libera a conferência: sem divergência → direto; com divergência → exige supervisor (login+senha no corpo). */
   @Post(':codnf/liberar')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNLIBERARCONFERENCIA')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   liberar(
     @Param('codnf', ParseIntPipe) codnf: number,
     @Body(new ZodValidationPipe(liberarConferenciaSchema)) body: LiberarConferenciaDto,

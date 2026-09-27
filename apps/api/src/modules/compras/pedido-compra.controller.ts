@@ -12,7 +12,8 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 /**
  * PEDIDO DE COMPRA — controller VERTICAL das transições de ESTADO (fechar/reabrir) + RECEBIMENTO
  * (gerar NF de entrada). Convive no mesmo caminho `compras/pedidos` do controller do agregado (CRUD):
- * as rotas são distintas por método+path. RBAC FRMPEDIDOCOMPRA (BTNFECHAR/BTNREABRIR/BTNGERARNF).
+ * as rotas são distintas por método+path. RBAC FRMPEDIDOCOMPRA: fechar = `MNIFECHARPEDIDO` (Tag 1); reabrir e gerar NF = gate da tela (mniReabrirPedido sem
+ * Tag 1 — quem reabre é a lista USUARIOS_REABREM_PEDIDO_COMPRA).
  */
 @Controller('compras/pedidos')
 @UseGuards(AcessoGuard)
@@ -59,7 +60,7 @@ export class PedidoCompraController {
 
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNREABRIR')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   // mig 303: reabre PARA A LOJA LOGADA. Login e senha só quando a lista USUARIOS_REABREM_PEDIDO_COMPRA está
   // preenchida e o operador não está nela (um dos permitidos autoriza) — corpo opcional
   reabrir(@Param('id', ParseIntPipe) id: number, @Body() body?: { login?: string; senha?: string }) {
@@ -152,7 +153,7 @@ export class PedidoCompraController {
    *  Chamável VÁRIAS vezes até o saldo zerar. Retorna { codnf, codpedcomp, statusQtd }. */
   @Post(':id/gerar-nf')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGERARNF')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   gerarNf(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(gerarNfPedidoSchema)) body: GerarNfPedidoDto,
@@ -162,7 +163,7 @@ export class PedidoCompraController {
 
   /** ANÁLISE PEDIDO×NF (corte-1): saldo por produto do pedido (qtd pedida − Σ recebida nas NFs vinculadas). */
   @Get(':id/saldo')
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGERARNF')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   saldo(@Param('id', ParseIntPipe) id: number) {
     return this.analise.saldo(id);
   }

@@ -25574,6 +25574,54 @@ async function main() {
         await pgSg.end();
       }
     }
+
+    // ══ §272 RBAC FIEL AO LEGADO — o ato sem botão com Tag 1 pede o gate da tela; o que tem pede a opção do componente ═══════════════
+    {
+      const pgRb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      // as opções que o Apollo inventou (não existem na PERMISSOES da produção) — o operador fica só com o que o legado concede
+      const inventadas: Array<[string, string]> = [
+        ['FRMNF', 'BTNPROCESSAR'], ['FRMNF', 'BTNREVERTER'], ['FRMNF', 'BTNCONTABILIZAR'], ['FRMNF', 'BTNESTORNARCONTABIL'],
+        ['FRMETIQUETA', 'BTNGRAVAR'], ['FRMETIQUETA', 'BTNEXCLUIR'], ['FRMEXPORTABALANCA', 'BTNGRAVAR'],
+        ['FRMCADPERFILOPERADOR', 'BTNRELACAO'], ['FRMPEDIDOCOMPRA', 'BTNGERARNF'], ['FRMRELDRECONTABIL', 'BTNVISUALIZAR'],
+        ['FRMCADAGENDAPROMOCAO', 'BTNENCERRAR'], ['FRMCADAGENDAPROMOCAO', 'BTNAPLICARPRECO'],
+      ];
+      const tirados: Array<[string, string]> = [];
+      const tirar = async (form: string, opcao: string) => {
+        const r = await pgRb.query(`DELETE FROM permissoes WHERE form = $1 AND opcao = $2 AND codoperador = 7 AND codempresa = 1`, [form, opcao]);
+        if (r.rowCount) tirados.push([form, opcao]);
+      };
+      const req = async (method: string, url: string, body?: unknown) => {
+        const r = await fetch(`${base}/${url}`, { method, headers: H, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, opcao: j.details?.opcao ?? j.detalhes?.opcao };
+      };
+      try {
+        for (const [f, o] of inventadas) await tirar(f, o);
+        const passa = {
+          fila: await req('GET', 'cadastro/etiqueta/fila'),
+          balanca: await req('GET', 'cadastro/exporta-balanca/configs'),
+          perfil: await req('GET', 'cadastro/perfil-operador/7'),
+          processar: await req('GET', 'fiscal/nf/1/processar/opcoes'),
+          saldo: await req('GET', 'compras/pedidos/1/saldo'),
+          dre: await req('GET', 'cadastro/dre?dataInicio=2026-01-01&dataFim=2026-01-31'),
+        };
+        const semGuarda = Object.values(passa).every((r) => r.status === 200);
+        await tirar('FRMETIQUETA', 'BTNCONSULTAPRECO');
+        const fila = await req('GET', 'cadastro/etiqueta/fila');
+        await tirar('FRMCADPERFILOPERADOR', 'BTNGRAVAR');
+        const vincular = await req('PUT', 'cadastro/perfil-operador', { codoperador: 7, codperfil: 1, atribuido: true });
+        await tirar('FRMCADAGENDAPROMOCAO', 'ENCERRARPROMOCAO');
+        const encerrar = await req('POST', 'cadastro/agenda-promocao/1/encerrar', {});
+        await tirar('FRMNF', 'FRMNF');
+        const semTela = await req('GET', 'fiscal/nf/1/processar/opcoes');
+        check('RBAC §272 [fiel ao legado]: sem as opções que o Apollo inventou (BTNPROCESSAR, BTNRELACAO, BTNVISUALIZAR…) quem tem a tela ainda faz o ato que no legado não tem botão com Tag 1; sem "Consulta Preço" (BTNCONSULTAPRECO) a fila do coletor é recusada, sem BTNGRAVAR o vínculo perfil×operador também, sem "Encerrar Promoção" (ENCERRARPROMOCAO) a agenda não encerra, e sem a tela (FRMNF) não se processa nota',
+          semGuarda && fila.status === 403 && vincular.status === 403 && encerrar.status === 403 && semTela.status === 403,
+          { passa, fila, vincular, encerrar, semTela });
+      } finally {
+        for (const [f, o] of tirados) await pgRb.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
+        await pgRb.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

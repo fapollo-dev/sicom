@@ -28,13 +28,13 @@ export class AnaliseComportamentoController {
 
   @Post('impostos')
   @HttpCode(200)
-  @RequerAcesso('FRMANALISECOMPORTAMENTO', 'BTNGRAVAR')
+  @RequerAcesso('FRMANALISECOMPORTAMENTO', 'FRMANALISECOMPORTAMENTO')
   adicionarImpostos(@Body(new ZodValidationPipe(impostosAdicionarSchema)) b: ImpostosAdicionarDto) {
     return this.svc.adicionarImpostos(b);
   }
 
   @Delete('impostos/:codplc')
-  @RequerAcesso('FRMANALISECOMPORTAMENTO', 'BTNEXCLUIR')
+  @RequerAcesso('FRMANALISECOMPORTAMENTO', 'FRMANALISECOMPORTAMENTO')
   removerImposto(@Param('codplc', ParseIntPipe) codplc: number) {
     return this.svc.removerImposto(codplc);
   }

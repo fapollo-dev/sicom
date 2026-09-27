@@ -23,14 +23,14 @@ export class CnabRemessaController {
 
   @Post('emitir')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFBOLETO', 'BTNBOLETO')
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
   emitir(@Body(new ZodValidationPipe(cnabEmitirSchema)) dto: CnabEmitirDto) {
     return this.svc.emitir(dto.codrcbs);
   }
 
   @Post('gerar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFBOLETO', 'BTNGERARREMESSA')
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
   gerar(@Body(new ZodValidationPipe(cnabGerarSchema)) dto: CnabGerarDto) {
     return this.svc.gerar(dto);
   }
@@ -44,7 +44,7 @@ export class CnabRemessaController {
 
   @Post('boleto')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFBOLETO', 'BTNBOLETO')
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
   boleto(@Body(new ZodValidationPipe(cnabBoletoSchema)) dto: CnabBoletoDto) {
     return this.svc.boleto(dto);
   }

@@ -25,10 +25,10 @@ export class DevolucaoVendasController {
   consultar(@Query(new ZodValidationPipe(devolucaoVendasConsultaSchema)) q: DevolucaoVendasConsultaDto) { return this.svc.consultar(q); }
 
   @Post('registrar')
-  @RequerAcesso('FRMDEVOLUCAOVENDAS', 'BTNESTORNAR')
+  @RequerAcesso('FRMDEVOLUCAOVENDAS', 'FRMDEVOLUCAOVENDAS')
   registrar(@Body(new ZodValidationPipe(devolucaoVendasRegistrarSchema)) b: DevolucaoVendasRegistrarDto) { return this.svc.registrar(b); }
 
   @Post('reverter')
-  @RequerAcesso('FRMDEVOLUCAOVENDAS', 'BTNREVERTER')
+  @RequerAcesso('FRMDEVOLUCAOVENDAS', 'FRMDEVOLUCAOVENDAS')
   reverter(@Body(new ZodValidationPipe(devolucaoVendasReverterSchema)) b: DevolucaoVendasReverterDto) { return this.svc.reverter(b); }
 }

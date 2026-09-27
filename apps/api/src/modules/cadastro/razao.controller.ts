@@ -13,7 +13,7 @@ export class RazaoController {
   constructor(private readonly svc: RazaoService) {}
 
   @Get()
-  @RequerAcesso('FRMRELRAZAOCONTABIL', 'BTNVISUALIZAR')
+  @RequerAcesso('FRMRELRAZAOCONTABIL', 'FRMRELRAZAOCONTABIL')
   gerar(@Query() q: Record<string, string>) {
     const cc = q.codconta != null && q.codconta !== '' ? Number(q.codconta) : undefined;
     return this.svc.gerar(q.dataInicio, q.dataFim, cc, q.semMovimento === 'true' || q.semMovimento === '1');

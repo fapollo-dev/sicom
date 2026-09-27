@@ -28,7 +28,7 @@ export class AjusteEstoqueController {
 
   @Post(':id/estornar')
   @HttpCode(200)
-  @RequerAcesso('FRMAJUSTEESTOQUE', 'BTNESTORNAR')
+  @RequerAcesso('FRMAJUSTEESTOQUE', 'FRMAJUSTEESTOQUE')
   estornar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.estornar(id);
   }

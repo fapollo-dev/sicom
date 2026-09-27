@@ -21,21 +21,21 @@ export class DevolucaoCompraController {
 
   @Post(':id/finalizar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNFINALIZAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
   finalizar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.finalizar(id);
   }
 
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNREABRIR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
   }
 
   @Post(':id/cancelar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNCANCELAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
   cancelar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.cancelar(id);
   }
@@ -43,7 +43,7 @@ export class DevolucaoCompraController {
   /** corte-2: gera a NF de SAÍDA de devolução (finalidade=4) do documento DIGITADO. O operador roda F3/F4 na NF. */
   @Post(':id/gerar-nf')
   @HttpCode(200)
-  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNGERARNF')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
   gerarNf(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerarNf(id);
   }
@@ -51,7 +51,7 @@ export class DevolucaoCompraController {
   /** fatura a devolução → A RECEBER contra o fornecedor: a parcela da nota de devolução vira título no Faturamento (body: `idpgto`) */
   @Post(':id/faturar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNFATURAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
   faturarNf(@Param('id', ParseIntPipe) id: number, @Body() b: { idpgto?: unknown } = {}) {
     const idpgto = b?.idpgto != null && b.idpgto !== '' ? Number(b.idpgto) : undefined;
     return this.svc.faturarNf(id, { idpgto: Number.isInteger(idpgto) && (idpgto as number) > 0 ? idpgto : undefined });

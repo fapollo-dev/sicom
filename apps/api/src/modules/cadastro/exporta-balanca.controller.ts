@@ -13,15 +13,15 @@ export class ExportaBalancaController {
 
   /** configs de balança da empresa. */
   @Get('configs')
-  @RequerAcesso('FRMEXPORTABALANCA', 'BTNGRAVAR')
+  @RequerAcesso('FRMEXPORTABALANCA', 'FRMEXPORTABALANCA')
   configs() {
     return this.svc.configs();
   }
 
-  /** gera os arquivos da config (TXITENS/CADASTRO/ITENSMGV) e devolve p/ download. */
+  /** gera os arquivos da config (TXITENS/CADASTRO/ITENSMGV) e devolve p/ download — o botão "Exportar" (Tag 1). */
   @Post('gerar/:id')
   @HttpCode(200)
-  @RequerAcesso('FRMEXPORTABALANCA', 'BTNGRAVAR')
+  @RequerAcesso('FRMEXPORTABALANCA', 'BTNEXPORTAR')
   gerar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerar(id);
   }

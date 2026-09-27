@@ -115,7 +115,7 @@ export class SpedController {
 
   /** o "reabrir" do legado: apaga para refazer. */
   @Delete('apuracao-pc/:cod')
-  @RequerAcesso('FRMAPURACAOPISCOFINS', 'BTNEXCLUIR')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')
   excluirApuracaoPc(@Param('cod', ParseIntPipe) cod: number) {
     return this.apuracaoConsulta.excluir(cod);
   }

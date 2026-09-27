@@ -15,14 +15,14 @@ export class NfContabilizacaoController {
 
   @Post(':id/contabilizar')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNCONTABILIZAR')
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
   contabilizar(@Param('id', ParseIntPipe) id: number) {
     return this.contab.contabilizar(id);
   }
 
   @Post(':id/estornar-contabilizacao')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNESTORNARCONTABIL')
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
   async estornar(@Param('id', ParseIntPipe) id: number) {
     await this.contab.estornarContabilizacao(id);
     return { codnf: id, contabilizado: null };

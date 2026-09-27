@@ -39,21 +39,21 @@ export class CotacaoController {
   /** lança/atualiza os preços de um fornecedor (matriz fornecedor×produto). */
   @Post(':id/lancar-precos')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNLANCARPRECOS')
+  @RequerAcesso('FRMCADCOTACAO', 'BTNGRAVAR')
   lancarPrecos(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(lancarPrecosCotacaoSchema)) body: LancarPrecosCotacaoDto) {
     return this.svc.lancarPrecos(id, body);
   }
 
   @Post(':id/fechar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNFECHAR')
+  @RequerAcesso('FRMCADCOTACAO', 'FRMCADCOTACAO')
   fechar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.fechar(id);
   }
 
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNREABRIR')
+  @RequerAcesso('FRMCADCOTACAO', 'FRMCADCOTACAO')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
   }
@@ -71,7 +71,7 @@ export class CotacaoController {
   /** apura o vencedor por produto (menor preço líq-ICMS entre os que participam). */
   @Post(':id/apurar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  @RequerAcesso('FRMCADCOTACAO', 'FRMCADCOTACAO')
   apurar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.apurar(id);
   }
@@ -79,7 +79,7 @@ export class CotacaoController {
   /** define manualmente o vencedor de um produto (F5). */
   @Post(':id/definir-ganhador')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  @RequerAcesso('FRMCADCOTACAO', 'FRMCADCOTACAO')
   definirGanhador(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(definirGanhadorCotacaoSchema)) body: DefinirGanhadorCotacaoDto) {
     return this.svc.definirGanhador(id, body);
   }
@@ -87,7 +87,7 @@ export class CotacaoController {
   /** gera os pedidos de compra da apuração (1 por fornecedor vencedor) + fecha a cotação. */
   @Post(':id/gerar-pedido')
   @HttpCode(200)
-  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  @RequerAcesso('FRMCADCOTACAO', 'FRMCADCOTACAO')
   gerarPedido(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerarPedido(id);
   }

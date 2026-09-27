@@ -46,7 +46,7 @@ export class PrecificacaoNfController {
 
   @Post('aplicar')
   @HttpCode(200)
-  @RequerAcesso('FRMPRECIFICACAONF', 'BTNAPLICAR')
+  @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
   aplicar(@Body(new ZodValidationPipe(aplicarPrecificacaoNfSchema)) body: AplicarPrecificacaoNfDto) {
     return this.svc.aplicar(body as never);
   }

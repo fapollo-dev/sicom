@@ -44,7 +44,7 @@ export class NfProcessamentoController {
    */
   @Post(':id/processar')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNPROCESSAR')
+  @RequerAcesso('FRMNF', 'FRMNF')
   async processar(
     @Param('id', ParseIntPipe) id: number,
     @Body() body?: { precos?: { modo?: 'online' | 'lote' | 'nenhum'; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[];
@@ -59,14 +59,14 @@ export class NfProcessamentoController {
 
   /** os padrões da tela de processar (o modo do preço, Individual/Sincronizar e as marcações de cada item) */
   @Get(':id/processar/opcoes')
-  @RequerAcesso('FRMNF', 'BTNPROCESSAR')
+  @RequerAcesso('FRMNF', 'FRMNF')
   opcoesDoProcessar(@Param('id', ParseIntPipe) id: number) {
     return this.proc.opcoesDoProcessar(id);
   }
 
   @Post(':id/reverter')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNREVERTER')
+  @RequerAcesso('FRMNF', 'FRMNF')
   async reverter(@Param('id', ParseIntPipe) id: number, @Body() body?: { liberacaoEstoqueNegativo?: { login?: string; senha?: string } }) {
     await this.proc.reverter(id, { liberacaoEstoqueNegativo: body?.liberacaoEstoqueNegativo });
     return { codnf: id, proc: 'N' };

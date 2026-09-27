@@ -16,6 +16,6 @@ export class GerarFinanceiroLoteController {
   candidatos(@Query(new ZodValidationPipe(candidatosLoteSchema)) q: CandidatosLoteDto) { return this.svc.candidatos(q); }
 
   @Post()
-  @RequerAcesso('FRMGERARFINANCEIROLOTE', 'BTNGERAR')
+  @RequerAcesso('FRMGERARFINANCEIROLOTE', 'FRMGERARFINANCEIROLOTE')
   gerar(@Body(new ZodValidationPipe(gerarFinanceiroLoteSchema)) b: GerarFinanceiroLoteDto) { return this.svc.gerar(b); }
 }

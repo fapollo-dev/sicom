@@ -7,7 +7,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
  * SENHA DE OPERAÇÃO por empresa (E7). Base própria `cadastro/senha-operacao` (evita o :id do CRUD de empresa).
- * `definir` exige RBAC (FRMCADEMPRESA/BTNSENHAOPERACAO); `verificar` é chamável por qualquer operador autenticado
+ * `definir` exige RBAC (FRMCADEMPRESA/BTNGRAVAR — no legado as senhas são campos do cadastro da empresa, gravados pelo Gravar); `verificar` é chamável por qualquer operador autenticado
  * (é o gate de uma ação sensível — quem tem a senha autoriza).
  */
 @Controller('cadastro/senha-operacao')
@@ -17,7 +17,7 @@ export class SenhaOperacaoController {
 
   @Put()
   @HttpCode(200)
-  @RequerAcesso('FRMCADEMPRESA', 'BTNSENHAOPERACAO')
+  @RequerAcesso('FRMCADEMPRESA', 'BTNGRAVAR')
   definir(@Body(new ZodValidationPipe(senhaOperacaoSetSchema)) dto: SenhaOperacaoSetDto) {
     return this.svc.definir(dto.tipo, dto.senha);
   }

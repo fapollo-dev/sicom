@@ -33,7 +33,7 @@ export class CartaoBaixaController {
 
   @Post('estornar-lote/:idlote')
   @HttpCode(200)
-  @RequerAcesso('FRMBAIXACARTAO', 'BTNESTORNAR')
+  @RequerAcesso('FRMBAIXACARTAO', 'BTNCONSULTA')
   estornarLote(@Param('idlote', ParseIntPipe) idlote: number) {
     return this.svc.estornarLote(idlote);
   }

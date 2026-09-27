@@ -20,10 +20,10 @@ export class CongelaEstoqueController {
   situacao() { return this.svc.situacao(); }
 
   @Post('congelar')
-  @RequerAcesso('FRMCONGELAESTOQUE', 'BTNCONGELAR')
+  @RequerAcesso('FRMCONGELAESTOQUE', 'FRMCONGELAESTOQUE')
   congelar() { return this.svc.executar({ acao: 'CONGELAR' }); }
 
   @Post('descongelar')
-  @RequerAcesso('FRMCONGELAESTOQUE', 'BTNDESCONGELAR')
+  @RequerAcesso('FRMCONGELAESTOQUE', 'FRMCONGELAESTOQUE')
   descongelar(@Body(new ZodValidationPipe(congelaEstoqueSchema.partial())) _b: Partial<CongelaEstoqueDto>) { return this.svc.executar({ acao: 'DESCONGELAR' }); }
 }

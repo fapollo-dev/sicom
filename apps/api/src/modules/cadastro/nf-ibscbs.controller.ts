@@ -17,6 +17,6 @@ export class NfIbsCbsController {
   @Get() @RequerAcesso('FRMCADCLASSTRIBIBSCBS', 'FRMCADCLASSTRIBIBSCBS')
   consultar(@Query(new ZodValidationPipe(nfIbsCbsConsultaSchema)) q: NfIbsCbsConsultaDto) { return this.svc.consultar(q); }
 
-  @Post('calcular') @HttpCode(200) @RequerAcesso('FRMCADCLASSTRIBIBSCBS', 'BTNCALCULAR')
+  @Post('calcular') @HttpCode(200) @RequerAcesso('FRMCADCLASSTRIBIBSCBS', 'FRMCADCLASSTRIBIBSCBS')
   calcular(@Body(new ZodValidationPipe(nfIbsCbsCalculoSchema)) b: NfIbsCbsCalculoDto) { return this.svc.calcular(b); }
 }

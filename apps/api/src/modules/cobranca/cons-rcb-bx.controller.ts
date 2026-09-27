@@ -20,7 +20,7 @@ export class ConsRcbBxController {
   lote(@Param('lote', ParseIntPipe) lote: number) { return this.svc.lote(lote); }
 
   @Put('baixa/:codrcbbx/obs')
-  @RequerAcesso('FRMCONSRCBBX', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONSRCBBX', 'FRMCONSRCBBX')
   obs(@Param('codrcbbx', ParseIntPipe) codrcbbx: number, @Body(new ZodValidationPipe(consRcbBxObsSchema)) b: ConsRcbBxObsDto) {
     return this.svc.gravarObs(codrcbbx, b.obs);
   }

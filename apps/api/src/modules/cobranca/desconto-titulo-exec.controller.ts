@@ -12,10 +12,10 @@ export class DescontoTituloExecController {
   constructor(private readonly svc: DescontoTituloExecService) {}
 
   @Post('executar')
-  @RequerAcesso('FRMDESCONTOTITULO', 'BTNGRAVAR')
+  @RequerAcesso('FRMDESCONTOTITULO', 'BTNADICIONARREGISTRO')
   executar(@Body(new ZodValidationPipe(descontoTituloExecutarSchema)) b: DescontoTituloExecutarDto) { return this.svc.executar(b); }
 
   @Post(':operacao/reverter')
-  @RequerAcesso('FRMDESCONTOTITULO', 'BTNREVERTER')
+  @RequerAcesso('FRMDESCONTOTITULO', 'BTNCONSULTA')
   reverter(@Param('operacao', ParseIntPipe) operacao: number) { return this.svc.reverter(operacao); }
 }

@@ -131,3 +131,41 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
   (SENHA 57, SENHA_AUTPDV 203), empresa (as senhas de operação do legado e os hashes, o certificado) e pedido de compra
   (SENHA_NOVO_LIMITE 597). Agora ficam em `colunasOcultasLeitura` (as views de listagem já não as traziam). Smoke §271.
 
+
+## Atos sem opção própria no legado — o gate da tela (27/09/2026)
+
+Cruzando o que o Apollo exige × a PERMISSOES da produção, **46 atos** pediam uma opção que o Apollo inventou (`BTNESTORNAR`,
+`BTNPROCESSAR`, `BTNREABRIR`, `BTNVISUALIZAR`…) e que nenhum operador tem — depois da carga, ninguém faria. A PERMISSOES traz o
+`CAPTION` do componente, e o `.dfm` diz se ele tem Tag 1. A regra aplicada (mig 382, smoke §272):
+
+- o ato **não tem** componente com Tag 1 → vale o **gate da tela** (o legado libera para quem abre o form);
+- **tem** → a opção do componente (o nome dele na PERMISSOES);
+- a gravação em tela de cadastro → `BTNGRAVAR`: o `TfrmCadMaster` confere por **código** `PossuiAcessoForm(Self.Name,'BTNGRAVAR')`
+  (e `BTNEDITAR`/`BTNEXCLUIR`) — não é componente, é checagem no `btnGravarClick`.
+
+| tela | ato no Apollo | exige agora | prova |
+|---|---|---|---|
+| FRMETIQUETA | fila do coletor | `BTNCONSULTAPRECO` | "Consulta Preço" (BitBtn1, Tag 1; na produção "Adicionar registro de etiquetas enviadas pelo coletor") |
+| FRMETIQUETA | pesquisa por ETQ_IMPRESSA | `BTNADICIONARREGISTRO` | "Adicionar Itens" (Tag 1) abre essa pesquisa |
+| FRMETIQUETA | imprimir, tirar da lista, lotes, buscar produto | gate | sem Tag 1 |
+| FRMEXPORTABALANCA | gerar arquivos | `BTNEXPORTAR` | "Exportar" (Tag 1) |
+| FRMCADAGENDAPROMOCAO | encerrar / reabrir | `ENCERRARPROMOCAO` | "Encerrar Promoção" (binário novo) |
+| FRMCADAGENDAPROMOCAO | aplicar preço, vigência | gate | sem componente |
+| FRMBAIXACARTAO | estornar lote | `BTNCONSULTA` | o estorno está no frmConsCRTbx (btnReverterBaixa sem Tag), que só abre por "Consulta baixa" (Tag 1) |
+| FRMDESCONTOTITULO | executar / reverter | `BTNADICIONARREGISTRO` / `BTNCONSULTA` | "Iniciar baixa" (Tag 1); a reversão abre pelo `btnConsultaClick` (Tag 1) |
+| FRMCADPERFILOPERADOR | vínculo perfil×operador | ler: gate · mudar: `BTNGRAVAR` | detalhe do cadastro, persiste no Gravar |
+| FRMCADCOTACAO | lançar preços | `BTNGRAVAR` | digitação na matriz do cadastro, persiste no Gravar |
+| FRMCADCOTACAO | fechar, reabrir, processar | gate | mniFechar/Reabrir/ProcessarCotacao com Tag 0 |
+| FRMCADEMPRESA | senha de operação | `BTNGRAVAR` | campos do cadastro da empresa |
+| FRMNF | contabilizar / estornar | `BTNGRAVAR` | o contábil é detalhe da nota (dsContabilNF), persiste no Gravar |
+| FRMNF | processar / reverter | gate | `mniProcessarNota` (Tag 0), habilitado pelo estado |
+| FRMPEDIDOCOMPRA | reabrir, gerar NF, saldo, importar XML, de-para, liberar conferência | gate | `mniReabrirPedido` Tag 0 (quem reabre é USUARIOS_REABREM_PEDIDO_COMPRA); `LIBERAVALORMAX` fica (supervisor) |
+| FRMCADPEDIDODEVOLUCAOCOMPRAS | finalizar, reabrir, cancelar, faturar, gerar NF | gate | só `btnExcluirItem` tem Tag 1 |
+| FRMAJUSTEESTOQUE, FRMANALISECOMPORTAMENTO, FRMAPURACAOPISCOFINS, FRMCADCLASSTRIBIBSCBS, FRMCONCILIACAOBANCARIA, FRMCONFBOLETO, FRMCONFIGINTEGRACAOCONTABIL, FRMCONGELAESTOQUE, FRMCONSRCBBX, FRMDEVOLUCAOVENDAS, FRMPRECIFICACAONF, FRMRELDRECONTABIL, FRMRELRAZAOCONTABIL, FRMGERARFINANCEIROLOTE | estornar/gravar/excluir/importar/gerar/visualizar | gate | todas `TfrmMaster` (sem checagem por código) e o ato sem Tag 1 |
+
+Lacuna anotada: o legado tem **excluir movimentação OFX** (`FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX`, 27 operadores) e o
+Apollo não tem a ação.
+
+Tela que o Apollo batizou igual ao legado e que **ninguém** tem na produção (FRMCADCONFPLANOCONTAS, FRMCADPRODUCAO,
+FRMPRECIFICACAONFBRUTA…) **não** é erro de mapa: o menu do legado confere o gate e hoje ninguém abre. O que precisa de mapa é a tela
+aberta **por outra tela** (sem gate próprio) — ver a fila A2 em `tools/cutover`.

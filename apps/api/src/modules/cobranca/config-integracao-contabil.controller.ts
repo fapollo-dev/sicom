@@ -19,7 +19,7 @@ export class ConfigIntegracaoContabilController {
 
   @Put()
   @HttpCode(200)
-  @RequerAcesso('FRMCONFIGINTEGRACAOCONTABIL', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONFIGINTEGRACAOCONTABIL', 'FRMCONFIGINTEGRACAOCONTABIL')
   gravar(
     @Body(new ZodValidationPipe(configIntegracaoContabilSchema)) body: ConfigIntegracaoContabilDto,
     @Req() req: any,

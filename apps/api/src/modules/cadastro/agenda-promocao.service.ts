@@ -99,7 +99,7 @@ export class AgendaPromocaoService {
    * VRPROMO=VLRPROMOCAO, CODAGENDA=<agenda>`. A agenda passa a EXECUTANDO ('E') com a DATAEXECUCAO — o que o
    * cdsPrincipalBeforePost carimba quando o status vira 'E'. Só loja com preço do produto (linha em multi_preco).
    * No legado quem liga é um serviço fora do fonte (a agenda muda de 'N' para 'E' na data); aqui é a vigência ou o
-   * operador (BTNAPLICARPRECO). Encerrada ou FECHADA não aplica.
+   * operador (gate da tela — o legado não tem botão com Tag 1 para isso). Encerrada ou FECHADA não aplica.
    */
   async aplicar(codagenda: number): Promise<{ codagenda: number; aplicados: number }> {
     const op = this.op();

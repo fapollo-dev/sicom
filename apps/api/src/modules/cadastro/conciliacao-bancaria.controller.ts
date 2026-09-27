@@ -18,7 +18,7 @@ export class ConciliacaoBancariaController {
   /** importa as linhas do extrato (já parseadas). */
   @Post('importar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNIMPORTAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   importar(@Body(new ZodValidationPipe(importarOfxSchema)) body: ImportarOfxDto) {
     return this.svc.importar({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, linhas: body.linhas });
   }
@@ -26,21 +26,21 @@ export class ConciliacaoBancariaController {
   /** corte-2: importa o arquivo .ofx cru (texto) — o servidor parseia e dedup por FITID. */
   @Post('importar-ofx')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNIMPORTAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   importarOfx(@Body(new ZodValidationPipe(importarOfxArquivoSchema)) body: ImportarOfxArquivoDto) {
     return this.svc.importarArquivo({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, conteudo: body.conteudo });
   }
 
   /** pendentes: extrato não-conciliado × razão não-conciliado da conta. */
   @Get('pendentes')
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   pendentes(@Query('codconta', ParseIntPipe) codconta: number) {
     return this.svc.pendentes(codconta);
   }
 
   /** sugestão automática de casamento (data+valor). */
   @Get('sugestoes')
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   sugestoes(@Query('codconta', ParseIntPipe) codconta: number) {
     return this.svc.sugerir(codconta);
   }
@@ -48,7 +48,7 @@ export class ConciliacaoBancariaController {
   /** a conciliação AUTOMÁTICA confirmada: um evento por par, cada movimento liberado na data da sua emissão */
   @Post('conciliar-automatica')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   conciliarAutomatica(@Body(new ZodValidationPipe(conciliarAutomaticaSchema)) body: ConciliarAutomaticaDto) {
     return this.svc.conciliarAutomatica({ codconta: body.codconta, pares: body.pares });
   }
@@ -56,14 +56,14 @@ export class ConciliacaoBancariaController {
   /** concilia os selecionados (Σ valores iguais) → evento CB + marca os dois lados. */
   @Post('conciliar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   conciliar(@Body(new ZodValidationPipe(conciliarSchema)) body: ConciliarDto) {
     return this.svc.conciliar({ codconta: body.codconta, mboIds: body.mboIds, codmovcontas: body.codmovcontas });
   }
 
   /** as conciliações feitas na conta */
   @Get('conciliadas')
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   conciliadas(@Query('codconta', ParseIntPipe) codconta: number) {
     return this.svc.conciliadas(codconta);
   }
@@ -71,7 +71,7 @@ export class ConciliacaoBancariaController {
   /** desfaz a conciliação (o CB, ou a partir de uma linha do extrato ou de um lançamento conciliado) */
   @Post('desfazer')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   desfazer(@Body() body: { cbId?: unknown; mboId?: unknown; codmovconta?: unknown }) {
     const n = (v: unknown) => (v != null && v !== '' && Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
     const dto = { cbId: n(body?.cbId), mboId: n(body?.mboId), codmovconta: n(body?.codmovconta) };
@@ -82,7 +82,7 @@ export class ConciliacaoBancariaController {
   /** lança e concilia as linhas pendentes que casam com uma regra 'N' da conta (mig 298). */
   @Post('lancamentos-automaticos')
   @HttpCode(200)
-  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   lancamentosAutomaticos(@Body(new ZodValidationPipe(lancarAutomaticosSchema)) body: LancarAutomaticosDto) {
     return this.svc.lancarAutomaticos(body.codconta);
   }

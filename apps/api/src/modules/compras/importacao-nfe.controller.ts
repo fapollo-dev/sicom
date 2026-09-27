@@ -8,7 +8,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 /**
  * RECEBIMENTO — import do XML da NFe do fornecedor → NF de entrada valorada (corte-2). Path próprio
  * `compras/recebimento` porque o import pode ser STANDALONE (sem pedido) ou vinculado (codpedcomp opcional).
- * RBAC FRMPEDIDOCOMPRA/BTNIMPORTARXML (família de compras). O body pode ser grande (NFe com muitos itens);
+ * RBAC: gate de FRMPEDIDOCOMPRA (família de compras; sem botão com Tag 1 no legado). O body pode ser grande (NFe com muitos itens);
  * o teto do body-parser foi elevado p/ 5 MB em main.ts.
  */
 @Controller('compras/recebimento')
@@ -18,7 +18,7 @@ export class ImportacaoNfeController {
 
   @Post('importar-xml')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNIMPORTARXML')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   importarXml(@Body(new ZodValidationPipe(importarXmlNfeSchema)) body: { xml: string; codpedcomp?: number }) {
     return this.recebimento.importarXml(body);
   }
@@ -26,7 +26,7 @@ export class ImportacaoNfeController {
   /** DE-PARA (corte-3): vincula os códigos do fornecedor aos nossos produtos (resolve pendências do import). */
   @Post('vincular-produto')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNVINCULARPRODUTO')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
   vincularProduto(
     @Body(new ZodValidationPipe(vincularProdutosSchema))
     body: { codfor: number; vinculos: Array<{ idproduto: number; cEAN?: string; cProd?: string; fator?: number }> },
