@@ -99,7 +99,12 @@ export const empresasCrudConfig: CrudConfig = {
     ...EMPRESA_CAMPOS_LEGADO.map((c) => c.coluna),
   ], // NÃO inclui idempresa (PK digitada, fornecida no dto)
   // senhas de certificado/e-mail, tokens e CSC: graváveis, nunca devolvidos na leitura
-  colunasOcultasLeitura: EMPRESA_CAMPOS_LEGADO.filter((c) => c.segredo).map((c) => c.coluna),
+  colunasOcultasLeitura: [
+    ...EMPRESA_CAMPOS_LEGADO.filter((c) => c.segredo).map((c) => c.coluna),
+    // as senhas de operação (as do legado, codificadas, e os hashes do Apollo) e os certificados (binário) também não saem
+    'senha_admin_hash', 'senha_desc_hash', 'senha_cancel_hash', 'senha_gaveta_hash', 'senhaadmin', 'senhadesc', 'senhacancel', 'senhagaveta',
+    'senhareducao', 'certificado', 'certificado_mdfe', 'certificado_cte',
+  ],
   colunasPesquisa: ['idempresa', 'razao_social', 'cnpj', 'uf', 'classfiscal'],
   softDelete: false,
   replica: false,

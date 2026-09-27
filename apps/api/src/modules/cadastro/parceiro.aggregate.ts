@@ -109,6 +109,9 @@ export const parceiroAggregateConfig: AggregateConfig = {
     { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
   colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'tipofj', 'cli', 'frn', 'fun', 'tra', 'con'],
+  // as senhas do parceiro não saem na leitura: SENHA (57 na produção), SENHA_HASH e SENHA_AUTPDV (203 — a autorização no PDV; no
+  // legado o campo é mascarado e só aparece pelo menu "Visualizar senha dados financeiros", que exige a opção)
+  colunasOcultasLeitura: ['senha', 'senha_hash', 'senha_autpdv'],
   // o registro 0175 do SPED: nome, documento, município ou endereço do participante mudou (uCadClientes.pas:2113-2114).
   // No UPDATE o `validar` roda na transação do save, antes da troca dos endereços — lê o endereço ainda gravado.
   validar: async ({ dto, id, db }) => {

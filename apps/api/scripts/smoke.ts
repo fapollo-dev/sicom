@@ -25545,6 +25545,35 @@ async function main() {
         await pgL3.end();
       }
     }
+
+    // ══ §271 SEGREDOS NA LEITURA — as senhas que a carga traz não saem no GET do cadastro ═══════════════════════════════════════════
+    {
+      const pgSg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = {
+        op: (await pgSg.query(`SELECT senha, senhapdv, senharetaguarda, login_senha FROM operadores WHERE codoperador = 8`)).rows[0] as any,
+        par: (await pgSg.query(`SELECT senha, senha_autpdv FROM parceiros WHERE codparceiro = 22`)).rows[0] as any,
+        emp: (await pgSg.query(`SELECT senhaadmin, senhareducao FROM empresas WHERE idempresa = 1`)).rows[0] as any,
+      };
+      try {
+        await pgSg.query(`UPDATE operadores SET senha = 'XYZ', senhapdv = 'XYZ', senharetaguarda = 'XYZ', login_senha = 'XYZ' WHERE codoperador = 8`);
+        await pgSg.query(`UPDATE parceiros SET senha = 'XYZ', senha_autpdv = '1234' WHERE codparceiro = 22`);
+        await pgSg.query(`UPDATE empresas SET senhaadmin = 'XYZ', senhareducao = 'XYZ' WHERE idempresa = 1`);
+        const ler = async (url: string) => ((await (await fetch(`${base}/${url}`, { headers: H })).json().catch(() => ({}))) as any);
+        const op = await ler('cadastro/operadores/8');
+        const par = await ler('cadastro/parceiros/22');
+        const emp = await ler('cadastro/empresas/1');
+        const vazou = (o: any, cs: string[]) => cs.filter((c) => o && c in o);
+        const v = [...vazou(op, ['senha', 'senhapdv', 'senharetaguarda', 'login_senha', 'senha_hash']), ...vazou(par, ['senha', 'senha_hash', 'senha_autpdv']),
+                   ...vazou(emp, ['senhaadmin', 'senhareducao', 'senha_admin_hash', 'certificado'])];
+        check('SEGREDOS §271 [as senhas não saem na leitura]: o GET do operador não traz as senhas do legado (SENHA/SENHAPDV/SENHARETAGUARDA/LOGIN_SENHA — codificação reversível, 286 na produção) nem o hash; o do parceiro não traz SENHA nem SENHA_AUTPDV (203 na produção, mascarada no legado); o da empresa não traz as senhas de operação nem o certificado',
+          Number(op.codoperador) === 8 && Number(par.codparceiro) === 22 && Number(emp.idempresa) === 1 && v.length === 0, { vazou: v });
+      } finally {
+        await pgSg.query(`UPDATE operadores SET senha = $1, senhapdv = $2, senharetaguarda = $3, login_senha = $4 WHERE codoperador = 8`, [antes.op?.senha ?? null, antes.op?.senhapdv ?? null, antes.op?.senharetaguarda ?? null, antes.op?.login_senha ?? null]);
+        await pgSg.query(`UPDATE parceiros SET senha = $1, senha_autpdv = $2 WHERE codparceiro = 22`, [antes.par?.senha ?? null, antes.par?.senha_autpdv ?? null]);
+        await pgSg.query(`UPDATE empresas SET senhaadmin = $1, senhareducao = $2 WHERE idempresa = 1`, [antes.emp?.senhaadmin ?? null, antes.emp?.senhareducao ?? null]);
+        await pgSg.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

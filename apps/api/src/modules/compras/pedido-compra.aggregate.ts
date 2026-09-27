@@ -65,6 +65,8 @@ const CD_COLS = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as cons
 
 export const pedidoCompraAggregateConfig: AggregateConfig = {
   tabela: 'pedidocompra',
+  // a senha digitada na liberação do limite (597 preenchidas na produção) não sai na leitura
+  colunasOcultasLeitura: ['senha_novo_limite'],
   pk: 'codpedcomp',
   view: 'get_pedidocompra',
   rbacForm: 'FRMPEDIDOCOMPRA',

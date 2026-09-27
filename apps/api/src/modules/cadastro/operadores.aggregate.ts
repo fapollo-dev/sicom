@@ -62,7 +62,9 @@ export const operadoresAggregateConfig: AggregateConfig = {
     await db.deleteFrom('permissoes').where('codoperador', '=', id).execute();
   },
   // senha_hash (070) NUNCA sai no read/echo — a allowlist `colunas` só filtra a escrita; o read faz selectAll.
-  colunasOcultasLeitura: ['senha_hash'],
+  // + as senhas do LEGADO (SENHA, SENHAPDV, SENHARETAGUARDA, LOGIN_SENHA — codificação reversível: César +13) que a carga traz:
+  // 286/93/45/286 preenchidas na produção. Só o hash do Apollo autentica; nenhuma delas sai na leitura.
+  colunasOcultasLeitura: ['senha_hash', 'senha', 'senhapdv', 'senharetaguarda', 'login_senha'],
   empresaScoped: false, // operador é global no schema
   replica: false,
   colunasPesquisa: ['codoperador', 'nome', 'login', 'tipoop'],

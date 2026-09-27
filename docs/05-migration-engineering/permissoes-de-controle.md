@@ -41,7 +41,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCADSCRAP (54.015) | `BTNEXCLUIRI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 42/51 | ✅ |
 | FRMCADSCRAP (54.015) | `BTNLIMPARI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 45/51 | ✅ |
 | FRMAPAGAR (38.546) | `CLETOTALNF` | TJvCalcEdit | TfrmMaster | DESABILITA — mas o código religa | 47/47 | 🪦 o código religa |
-| FRMAPAGAR (38.546) | `EDTPAGO` | TJvCalcEdit | TfrmMaster | DESABILITA | 47/47 | ⏳ |
+| FRMAPAGAR (38.546) | `EDTPAGO` | TJvCalcEdit | TfrmMaster | DESABILITA | 47/47 | 🪦 campo só de leitura (ReadOnly no .dfm) — a permissão não muda nada |
 | FRMAPAGAR (38.546) | `EDTVALOR` | TJvDBCalcEdit → VALOR | TfrmMaster | DESABILITA — mas o código religa | 47/47 | 🪦 o código religa |
 | FRMCADPRODUTO (38.185) | `BITBTN1` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 17/51 | "Buscar figura fiscal" — o campo já trava por `EDTCODFIGFISCAL` |
 | FRMCADPRODUTO (38.185) | `BITBTN2` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 40/51 | "Alt. estoque": a ação não existe na tela do Apollo |
@@ -63,13 +63,13 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCADPRODUTO (38.185) | `PRECIFICAODOCUSTO1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 46/51 | abre a Precificação pelo custo. que tem o gate próprio |
 | FRMEXPORTABALANCA (28.674) | `BTNCONFIGURABAL` | TBitBtn | TfrmMaster | DESABILITA | 45/44 | ⏳ |
 | FRMEXPORTABALANCA (28.674) | `BTNEXPORTAR` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 48/44 | 🪦 o código religa |
-| FRMPEDIDOCOMPRA (26.385) | `BTNADDBONI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ⏳ |
+| FRMPEDIDOCOMPRA (26.385) | `BTNADDBONI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | coberto pela grade única de itens (os mesmos 6 operadores não têm BTNADICIONARI) |
 | FRMPEDIDOCOMPRA (26.385) | `BTNADICIONARI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
-| FRMPEDIDOCOMPRA (26.385) | `BTNBAIXAR` | TButton | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ⏳ |
-| FRMPEDIDOCOMPRA (26.385) | `BTNEXCLUIRBONI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ⏳ |
+| FRMPEDIDOCOMPRA (26.385) | `BTNBAIXAR` | TButton | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | "Baixar pedidos em lote" não existe no Apollo |
+| FRMPEDIDOCOMPRA (26.385) | `BTNEXCLUIRBONI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | idem (BTNEXCLUIRI) |
 | FRMPEDIDOCOMPRA (26.385) | `BTNEXCLUIRI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
 | FRMPEDIDOCOMPRA (26.385) | `BTNLIMPARI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
-| FRMPEDIDOCOMPRA (26.385) | `MNIATUALIZARTABELAFORNECEDOR` | TMenuItem | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 6/34 | ⏳ |
+| FRMPEDIDOCOMPRA (26.385) | `MNIATUALIZARTABELAFORNECEDOR` | TMenuItem | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 6/34 | a tabela do fornecedor não existe no Apollo (desligada no cliente) |
 | FRMCADCLIENTES (21.288) | `BTNSALVARNOVOFLEX` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ⏳ |
 | FRMCADCLIENTES (21.288) | `CCDCREDITO` | TJvDBCalcEdit → CREDITO | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ✅ |
 | FRMCADCLIENTES (21.288) | `CHBCLIENTE` | TJvDBCheckBox → CLI | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 49/49 | ✅ |
@@ -79,12 +79,12 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCADCLIENTES (21.288) | `CHBTRANSPORTADORA` | TJvDBCheckBox → TRA | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ✅ |
 | FRMCADCLIENTES (21.288) | `DBLIVREINDEXADOR` | TJvDBCheckBox → RETIRA_FORNINDEX | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 44/49 | ✅ |
 | FRMCADCLIENTES (21.288) | `JVDBCHECKBOX1` | TJvDBCheckBox → REALIZA_TROCA | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 44/49 | ✅ |
-| FRMCADCLIENTES (21.288) | `VISUALIZARSENHADADOSFINANCEIROS1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ⏳ |
-| FRMCADCLIENTES (21.288) | `VISUALIZARSENHARALACIONAMENTOS1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ⏳ |
-| FRMBAIXAAPAGAR (8.512) | `BTNADDRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 36/36 | ⏳ |
+| FRMCADCLIENTES (21.288) | `VISUALIZARSENHADADOSFINANCEIROS1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | o Apollo não mostra a senha: SENHA_AUTPDV não sai mais na leitura (§271) |
+| FRMCADCLIENTES (21.288) | `VISUALIZARSENHARALACIONAMENTOS1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | idem (a do relacionamento nunca saiu: fora das colunas do detalhe) |
+| FRMBAIXAAPAGAR (8.512) | `BTNADDRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 36/36 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
 | FRMBAIXAAPAGAR (8.512) | `BTNCONSULTA` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 36/36 | 🪦 o código religa |
-| FRMBAIXAAPAGAR (8.512) | `BTNDELRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 29/36 | ⏳ |
-| FRMBAIXAAPAGAR (8.512) | `BTNPOSTRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 36/36 | ⏳ |
+| FRMBAIXAAPAGAR (8.512) | `BTNDELRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 29/36 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
+| FRMBAIXAAPAGAR (8.512) | `BTNPOSTRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 36/36 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
 | FRMCONTROLECONTASBANCARIAS (7.617) | `BTNTROCAVALORES` | TBitBtn | TfrmMaster | DESABILITA | 35/35 | ⏳ |
 | FRMBAIXACARTAO (7.589) | `BTNCONSULTA` | TBitBtn | TCollection | DESABILITA — mas o código religa | 27/27 | 🪦 o código religa |
 | FRMPRIFICACAOCUSTO (3.346) | `BTNSINCCUSTONAVENDA` | TBitBtn | TfrmMaster | DESABILITA | 28/28 | o campo/ação não existe na tela do Apollo (lacuna de funcionalidade) |
@@ -92,10 +92,10 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMPRIFICACAOCUSTO (3.346) | `CHATIVOCOMPRA` | TJvDBCheckBox → ATIVO_COMPRA | TfrmMaster | DESABILITA | 28/28 | o campo/ação não existe na tela do Apollo (lacuna de funcionalidade) |
 | FRMPRIFICACAOCUSTO (3.346) | `EDTMARKUPFIXO` | TJvDBCalcEdit → MARKUPFIXO | TfrmMaster | DESABILITA | 28/28 | o campo/ação não existe na tela do Apollo (lacuna de funcionalidade) |
 | FRMPRIFICACAOCUSTO (3.346) | `EDTVRVENDA` | TJvDBCalcEdit → VRVENDA | TfrmMaster | DESABILITA | 28/28 | ✅ |
-| FRMBAIXAARECEBER (3.197) | `BTNADDRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 30/30 | ⏳ |
+| FRMBAIXAARECEBER (3.197) | `BTNADDRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 30/30 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
 | FRMBAIXAARECEBER (3.197) | `BTNCONSULTA` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 30/30 | 🪦 o código religa |
-| FRMBAIXAARECEBER (3.197) | `BTNDELRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 29/30 | ⏳ |
-| FRMBAIXAARECEBER (3.197) | `BTNPOSTRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 30/30 | ⏳ |
+| FRMBAIXAARECEBER (3.197) | `BTNDELRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 29/30 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
+| FRMBAIXAARECEBER (3.197) | `BTNPOSTRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 30/30 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
 | FRMAGRUPACONTASARECEBER (2.789) | `BTNEXCLUIRDOC` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 9/35 | 🪦 o código religa o botão ao carregar os documentos (uAgrupaContasAReceber.pas:486) — a permissão não vale |
 | FRMCADPEDIDODEVOLUCAOCOMPRAS (2.527) | `BTNEXCLUIRITEM` | TBitBtn | TRelDevolucaoCompras | DESABILITA | 36/41 | ✅ |
 | FRMCADUSUARIOS (1.807) | `EDTSENHARETAGUARDA` | TDBEdit → SENHARETAGUARDA | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 28/37 | ✅ |
@@ -126,3 +126,8 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 - **Lote 2 (27/09/2026)**: NCM e figura fiscal do produto (edit com Tag 1 em tela de cadastro), a grade do SCRAP e do pedido de compra,
   papéis/crédito/indexador/troca do cliente (papéis só na alteração — a tela aberta traz o seu na inclusão), ativo da unidade,
   alíquota do CFOP, itens do lote de cobrança e da devolução, e a senha no cadastro de usuários (9 de 37 sem). Smoke §269.
+- **Segredos na leitura (27/09/2026)** — achado ao conferir o "Visualizar senha" do cliente: o `GET` do cadastro devolvia as senhas que
+  a carga traz — operador (SENHA/SENHAPDV/SENHARETAGUARDA/LOGIN_SENHA, codificação reversível: 286/93/45/286 na produção), parceiro
+  (SENHA 57, SENHA_AUTPDV 203), empresa (as senhas de operação do legado e os hashes, o certificado) e pedido de compra
+  (SENHA_NOVO_LIMITE 597). Agora ficam em `colunasOcultasLeitura` (as views de listagem já não as traziam). Smoke §271.
+
