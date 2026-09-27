@@ -25417,6 +25417,68 @@ async function main() {
         await pgTf.end();
       }
     }
+
+    // ══ §268 PERMISSÕES DE CONTROLE — o cadastro de produto (uMaster.SetStateOfControlsMaster) ═══════════════════════════════════
+    {
+      const pgPc2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ean = (b12: string) => { const d = b12.split('').map(Number); const sm = d.reduce((a, x, i) => a + x * (i % 2 ? 3 : 1), 0); return b12 + String((10 - (sm % 10)) % 10); };
+      const tirar = (opcao: string) => pgPc2.query(`DELETE FROM permissoes WHERE form = 'FRMCADPRODUTO' AND opcao = $1 AND codoperador = 7 AND codempresa = 1`, [opcao]);
+      const dar = (opcao: string) => pgPc2.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMCADPRODUTO', $1::varchar, 7, 1
+                                                   WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMCADPRODUTO' AND opcao = $1::varchar AND codoperador = 7 AND codempresa = 1)`, [opcao]);
+      const OPS = ['EDTVRVENDA', 'EDTCUSTO', 'EDTCUSTOREP', 'BTNADDITEM', 'BTNDELITEM', 'BTNLIMPARCOMPOSICAO'];
+      const criados: number[] = [];
+      const novo = async (sufixo: string, desc: string) => {
+        const r = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codbarra: ean(`78900992680${sufixo}`), descricao: desc, unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL, precos: [PRECO_MIN] }) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        if (j.idproduto) criados.push(Number(j.idproduto));
+        return Number(j.idproduto);
+      };
+      const put = async (id: number, body: Record<string, unknown>) => {
+        const r = await fetch(`${base}/cadastro/produtos/${id}`, { method: 'PUT', headers: H, body: JSON.stringify(body) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, message: j.message };
+      };
+      const opcoes = async () => ((await (await fetch(`${base}/cadastro/acesso/opcoes/FRMCADPRODUTO`, { headers: H })).json().catch(() => ({}))) as any).opcoes ?? [];
+      try {
+        const kit = await novo('1', 'PERM KIT');
+        const b = await novo('2', 'PERM COMP B');
+        const c = await novo('3', 'PERM COMP C');
+        const comGrant = await opcoes();
+        await tirar('EDTVRVENDA');
+        const semGrant = await opcoes();
+        const preco = await put(kit, { precos: [{ idempresa: 1, vrvenda: 9.99, vrcusto: 1, vrcustorep: 1 }] });
+        const semMudar = await put(kit, { descricao: 'PERM KIT ALTERADO', precos: [{ idempresa: 1, vrvenda: 1, vrcusto: 1, vrcustorep: 1 }] });
+        await dar('EDTVRVENDA');
+        await tirar('EDTCUSTO');
+        const custo = await put(kit, { precos: [{ idempresa: 1, vrvenda: 1, vrcusto: 2, vrcustorep: 1 }] });
+        await dar('EDTCUSTO');
+        check('PERMISSÕES §268.1 [preço e custo]: a tela recebe as opções do operador (GET /cadastro/acesso/opcoes — sem EDTVRVENDA ela some da lista); sem a opção, mudar o preço de venda é recusado ("Você não tem permissão para alterar o preço de venda."), e gravar outro campo com o preço igual passa; sem EDTCUSTO, mudar o custo é recusado',
+          comGrant.includes('EDTVRVENDA') && !semGrant.includes('EDTVRVENDA')
+          && preco.status === 422 && preco.code === 'SEM_PERMISSAO_CONTROLE' && preco.message === 'Você não tem permissão para alterar o preço de venda.'
+          && semMudar.status === 200 && custo.status === 422 && custo.message === 'Você não tem permissão para alterar o custo.',
+          { comGrant: comGrant.length, semGrant: semGrant.includes('EDTVRVENDA'), preco, semMudar, custo });
+
+        await tirar('BTNADDITEM');
+        const addSem = await put(kit, { composicoes: [{ idproduto_01: b, qtde: 1, valor: 1 }] });
+        await dar('BTNADDITEM');
+        const addCom = await put(kit, { composicoes: [{ idproduto_01: b, qtde: 1, valor: 1 }, { idproduto_01: c, qtde: 1, valor: 1 }] });
+        await tirar('BTNDELITEM'); await tirar('BTNLIMPARCOMPOSICAO');
+        const delSem = await put(kit, { composicoes: [{ idproduto_01: b, qtde: 1, valor: 1 }] });
+        await dar('BTNLIMPARCOMPOSICAO');
+        const limpar = await put(kit, { composicoes: [] });
+        check('PERMISSÕES §268.2 [composição]: sem "Adicionar" o item novo é recusado; com ele entra; sem "Excluir" tirar um item é recusado e, com só "Limpar", tirar todos passa',
+          addSem.status === 422 && addSem.message === 'Você não tem permissão para incluir item na composição.' && addCom.status === 200
+          && delSem.status === 422 && delSem.message === 'Você não tem permissão para excluir item da composição.' && limpar.status === 200,
+          { addSem, addCom, delSem, limpar });
+      } finally {
+        for (const o of OPS) await dar(o);
+        if (criados.length) {
+          await pgPc2.query(`DELETE FROM composicao WHERE idproduto = ANY($1::int[]) OR idproduto_01 = ANY($1::int[])`, [criados]);
+        }
+        await pgPc2.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

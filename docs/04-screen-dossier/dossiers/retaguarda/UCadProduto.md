@@ -434,3 +434,16 @@ O cadastro edita a linha de preço da **loja da sessão** e mexe nas outras a pa
   dispara o trigger). A sessão não ganha HISTORICO_DINAMICO — no legado ela é relida já gravada e o diff sai vazio.
 - ADIADO: sincronização do atacarejo (MULTI_PRECO_ATACAREJO), a tela de diferenças (EXIBIR_TELA_SINCRONICACAO_MULTIPRECO='N'
   no cliente), os triggers de custo (UPDATE_CUSTO_MULTI_PRECO, REM_MULTI_PRECO) e as AUDIT_* (decisão transversal pendente).
+
+## Permissões de controle (27/09/2026)
+
+O `SetStateOfControlsMaster` do form-base desabilita os controles com Tag 1 cujo nome é uma opção de PERMISSOES para quem não a tem.
+No cadastro de produto: preço de venda (`EDTVRVENDA`), custo (`EDTCUSTO`), custo de reposição (`EDTCUSTOREP`), ativo p/ venda e p/
+compra (`CHBATIVO`, `CHBATIVOCOMPRA`), "Precificação" (`BTNPRECIFICACAO`) e os botões de composição (`BTNADDITEM`, `BTNDELITEM`,
+`BTNLIMPARCOMPOSICAO`) e decomposição (`BTNADDDESCOMP`, `BTNEXCLUIDECOMP`, `BTNLIMPADECOMP`). Produção: de 134 operador×loja com acesso,
+6 não mudam o preço, 8 o custo, 12 não incluem na composição, 19 não excluem, 69 sem precificação. A tela desabilita
+(`useOpcoesDoForm`) e a gravação recusa com "Você não tem permissão para …" (`produto-permissoes.ts`, 422 SEM_PERMISSAO_CONTROLE); sem
+operador no contexto (rotina do sistema) não há controle. Fica fora: NCM e figura fiscal (TDBEdit — só perdem o Tab), "excluir código
+auxiliar" (ninguém tem a opção e a produção exclui por outro caminho). Smoke §268. Mecanismo e fila das outras telas:
+`docs/05-migration-engineering/permissoes-de-controle.md`.
+

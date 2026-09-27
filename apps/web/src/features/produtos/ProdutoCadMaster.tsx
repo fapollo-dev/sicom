@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, createContext, useContext } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -35,6 +35,7 @@ import { getProdutosFilhos, type ProdutoFilho } from './produtoFilhosApi';
 import { getPosicaoEstoque, type EstoqueSaldo, type EstoqueMovimento } from './produtoEstoqueApi';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { getSessao } from '../../shared/auth/session';
 
 /**
@@ -57,7 +58,14 @@ const empresaF2 = (): number => getSessao()?.empresa ?? 1;
  * Erros de negócio do back (obrigatórios, CEST-STB, NCM) sobem como envelope PT e são
  * exibidos pelo <CadMaster> via useMensagem. Validação de formato é do `produtoSchema`.
  */
+/**
+ * as PERMISSÕES DE CONTROLE da tela (uMaster.SetStateOfControlsMaster sobre o UCadProduto.dfm): preço, custo, custo de reposição,
+ * ativo, precificação e os botões de composição/decomposição só ficam habilitados para quem tem a opção. A gravação confere de novo.
+ */
+const PodeCtx = createContext<(opcao: string) => boolean>(() => true);
+
 export function ProdutoCadMaster() {
+  const acesso = useOpcoesDoForm('FRMCADPRODUTO');
   // ── LOOKUPs do master (data-bound, espelham os combos do legado) ──
   // Unidade: guarda codunidade (FK) E unidade (sigla — o schema exige a sigla).
   const { data: unidadeOptions = [] } = useResourceOptions(
@@ -185,6 +193,7 @@ export function ProdutoCadMaster() {
         { campo: 'ativo', label: 'Ativo', tipo: 'status', largura: 100 },
       ]}
       campos={({ form, editavel }) => (
+        <PodeCtx.Provider value={acesso.tem}>
         <div className="flex flex-col gap-form-gap">
           <PrincipalSection
             form={form}
@@ -233,6 +242,7 @@ export function ProdutoCadMaster() {
             <RefFornecedorSection idproduto={Number(form.watch('idproduto' as never)) || undefined} editavel={editavel} />
           </fieldset>
         </div>
+        </PodeCtx.Provider>
       )}
     />
   );
@@ -318,6 +328,7 @@ function PrincipalSection({
   dptoOptions: Opcao[];
   secaoOptions: Opcao[];
 }) {
+  const pode = useContext(PodeCtx);
   // dica visual: só sinaliza inválido quando há conteúdo (a obrigatoriedade é do schema).
   const ehBalanca = form.watch('balanca') === 'S';
 
@@ -479,7 +490,7 @@ function PrincipalSection({
                 label="&Ativo"
                 value={field.value}
                 onChange={field.onChange}
-                disabled={!editavel}
+                disabled={!editavel || !pode('CHBATIVO')}
               />
             )}
           />
@@ -491,7 +502,7 @@ function PrincipalSection({
                 label="Ativo p/ &compra"
                 value={field.value}
                 onChange={field.onChange}
-                disabled={!editavel}
+                disabled={!editavel || !pode('CHBATIVOCOMPRA')}
               />
             )}
           />
@@ -742,6 +753,7 @@ function PrecosSection({
   editavel: boolean;
   aliquotaOptions: Opcao[];
 }) {
+  const pode = useContext(PodeCtx);
   const mensagem = useMensagem();
   // alíquota do produto: default da alíquota de saída e do cálculo de venda (como no legado).
   const produtoAliquota = form.watch('aliquota');
@@ -820,6 +832,7 @@ function PrecosSection({
                 label="&Custo"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
+                disabled={!pode('EDTCUSTO')}
                 error={form.formState.errors.precos?.[0]?.vrcusto?.message as string | undefined}
               />
             )}
@@ -832,6 +845,7 @@ function PrecosSection({
                 label="Custo &reposição"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
+                disabled={!pode('EDTCUSTOREP')}
                 error={
                   form.formState.errors.precos?.[0]?.vrcustorep?.message as string | undefined
                 }
@@ -876,6 +890,7 @@ function PrecosSection({
                 label="Valor &venda"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
+                disabled={!pode('EDTVRVENDA')}
                 error={form.formState.errors.precos?.[0]?.vrvenda?.message as string | undefined}
               />
             )}
@@ -904,7 +919,7 @@ function PrecosSection({
               onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))}
             />
           </div>
-          <Button label="&Calcular venda" variant="soft" onClick={() => void calcularVenda()} />
+          <Button label="&Calcular venda" variant="soft" disabled={!pode('BTNPRECIFICACAO')} onClick={() => void calcularVenda()} />
         </div>
 
         {/* Motor completo (corte precificação): custo líquido / PMZ / margem líquida / lucro. */}
@@ -1224,6 +1239,7 @@ function ComposicaoSection({
   editavel: boolean;
   produtoOptions: Opcao[];
 }) {
+  const pode = useContext(PodeCtx);
   const { fields, append, update, remove } = useFieldArray<
     CriarProdutoDto,
     'composicoes',
@@ -1280,7 +1296,7 @@ function ComposicaoSection({
               if (idx >= 0) setEditIdx(idx);
             },
           },
-          {
+          ...(pode('BTNDELITEM') ? [{
             id: 'remover',
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
@@ -1289,11 +1305,11 @@ function ComposicaoSection({
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
               if (idx >= 0) remove(idx);
             },
-          },
+          }] : []),
         ],
       },
     ],
-    [fields, remove, produtoOptions],
+    [fields, remove, produtoOptions, pode],
   );
 
   return (
@@ -1306,6 +1322,7 @@ function ComposicaoSection({
           <Button
             label="Adicionar &componente"
             variant="soft"
+            disabled={!pode('BTNADDITEM')}
             onClick={() => setEditIdx(-1)}
           />
         </div>
@@ -1358,6 +1375,7 @@ function DecomposicaoSection({
   editavel: boolean;
   produtoOptions: Opcao[];
 }) {
+  const pode = useContext(PodeCtx);
   const { fields, append, update, remove } = useFieldArray<
     CriarProdutoDto,
     'decomposicoes',
@@ -1413,7 +1431,7 @@ function DecomposicaoSection({
               if (idx >= 0) setEditIdx(idx);
             },
           },
-          {
+          ...(pode('BTNEXCLUIDECOMP') ? [{
             id: 'remover',
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
@@ -1422,11 +1440,11 @@ function DecomposicaoSection({
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
               if (idx >= 0) remove(idx);
             },
-          },
+          }] : []),
         ],
       },
     ],
-    [fields, remove, produtoOptions],
+    [fields, remove, produtoOptions, pode],
   );
 
   return (
@@ -1439,6 +1457,7 @@ function DecomposicaoSection({
           <Button
             label="Adicionar &resultante"
             variant="soft"
+            disabled={!pode('BTNADDDESCOMP')}
             onClick={() => setEditIdx(-1)}
           />
         </div>

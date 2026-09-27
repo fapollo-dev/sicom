@@ -3,6 +3,7 @@ import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { validarGravacaoProduto } from './produto-gravar';
+import { validarPermissoesDoProduto } from './produto-permissoes';
 import { hashPaf, hashProduto } from '../shared/hash-paf';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -155,6 +156,8 @@ export const produtoAggregateConfig: AggregateConfig = {
   // F4 — regra do legado (chbATIVOClick): não desativar produto que é COMPONENTE de algum kit.
   // + o preço da loja da sessão (modo lote/on-line): ver produto-lojas.ts.
   validar: async ({ dto, id, db }) => {
+    // as permissões de CONTROLE (campos e botões com Tag 1 — produto-permissoes.ts), antes de a linha da sessão ser preparada
+    await validarPermissoesDoProduto(dto, id ?? undefined, db);
     // A LINHA DA LOJA DA SESSÃO (produto-lojas.ts): o que mudou nela e, no modo lote (HABILITA_GERACAO_LOTE_PRODUTO,
     // resolvida com o escopo Módulo), a reversão do VRVENDA/PROMOCAO no dto — fiel a UCadProduto.pas:3087-3115. Só em UPDATE.
     if (id != null) await prepararPrecoDaSessao(dto, id, db);
