@@ -27,8 +27,8 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | tela (acessos) | opção | componente | tipo de tela | efeito no legado | com/total | Apollo |
 |---|---|---|---|---|---:|---|
 | FRMETIQUETA (2.418.712) | `BTNIMPORT` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 53/53 | 🪦 o código religa |
-| FRMMANIFESTODFE (67.138) | `BTNPESQUISAAVANCADA` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ⏳ |
-| FRMMANIFESTODFE (67.138) | `BTNPESQUISARULTIMAS` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ⏳ |
+| FRMMANIFESTODFE (67.138) | `BTNPESQUISAAVANCADA` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ✅ a lista com filtro de fornecedor/chave |
+| FRMMANIFESTODFE (67.138) | `BTNPESQUISARULTIMAS` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ✅ a lista (o Apollo pedia BTNBUSCARNOTAS, que é a consulta à SEFAZ) |
 | FRMNF (56.567) | `BTNIMPRIMIRNFE` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a impressão do DANFE não existe no Apollo (infra externa) |
 | FRMNF (56.567) | `BTNINUTILIZARNFE` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a inutilização é a tela própria (FRMNFEINUTILIZADA), com o gate dela |
 | FRMNF (56.567) | `CANCELARNFEPELOXML1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a ação não existe no Apollo (consulta de status / cancelamento pelo XML) |
@@ -61,7 +61,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCADPRODUTO (38.185) | `EDTVRVENDA` | TJvDBCalcEdit → VRVENDA | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 49/51 | ✅ |
 | FRMCADPRODUTO (38.185) | `MNIDUPLICARPRODUTO` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/51 | "Duplicar produto": a ação não existe na tela do Apollo |
 | FRMCADPRODUTO (38.185) | `PRECIFICAODOCUSTO1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 46/51 | abre a Precificação pelo custo. que tem o gate próprio |
-| FRMEXPORTABALANCA (28.674) | `BTNCONFIGURABAL` | TBitBtn | TfrmMaster | DESABILITA | 45/44 | ⏳ |
+| FRMEXPORTABALANCA (28.674) | `BTNCONFIGURABAL` | TBitBtn | TfrmMaster | DESABILITA | 45/44 | 🪦 marginal: a configuração da balança mudou pela última vez em 24/05/2024 (LOG); o Apollo não tem a tela de configuração |
 | FRMEXPORTABALANCA (28.674) | `BTNEXPORTAR` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 48/44 | 🪦 o código religa |
 | FRMPEDIDOCOMPRA (26.385) | `BTNADDBONI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | coberto pela grade única de itens (os mesmos 6 operadores não têm BTNADICIONARI) |
 | FRMPEDIDOCOMPRA (26.385) | `BTNADICIONARI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
@@ -70,7 +70,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMPEDIDOCOMPRA (26.385) | `BTNEXCLUIRI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
 | FRMPEDIDOCOMPRA (26.385) | `BTNLIMPARI` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 28/34 | ✅ |
 | FRMPEDIDOCOMPRA (26.385) | `MNIATUALIZARTABELAFORNECEDOR` | TMenuItem | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 6/34 | a tabela do fornecedor não existe no Apollo (desligada no cliente) |
-| FRMCADCLIENTES (21.288) | `BTNSALVARNOVOFLEX` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ⏳ |
+| FRMCADCLIENTES (21.288) | `BTNSALVARNOVOFLEX` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | 🪦 HISTORICO_FLEX vazia na produção — o saldo flex nunca foi usado |
 | FRMCADCLIENTES (21.288) | `CCDCREDITO` | TJvDBCalcEdit → CREDITO | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ✅ |
 | FRMCADCLIENTES (21.288) | `CHBCLIENTE` | TJvDBCheckBox → CLI | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 49/49 | ✅ |
 | FRMCADCLIENTES (21.288) | `CHBCONVENIO` | TJvDBCheckBox → CON | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 47/49 | ✅ |
@@ -85,7 +85,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMBAIXAAPAGAR (8.512) | `BTNCONSULTA` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 36/36 | 🪦 o código religa |
 | FRMBAIXAAPAGAR (8.512) | `BTNDELRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 29/36 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
 | FRMBAIXAAPAGAR (8.512) | `BTNPOSTRECURSO` | TBitBtn | TfrmMaster | DESABILITA | 36/36 | 🪦 o código religa (`btnDelRecurso.Enabled := not status`, UBaixaApagar.pas:215 / UBaixaAreceber.pas:2893) — a permissão não vale |
-| FRMCONTROLECONTASBANCARIAS (7.617) | `BTNTROCAVALORES` | TBitBtn | TfrmMaster | DESABILITA | 35/35 | ⏳ |
+| FRMCONTROLECONTASBANCARIAS (7.617) | `BTNTROCAVALORES` | TBitBtn | TfrmMaster | DESABILITA | 35/35 | 🪦 TROCA_VALORES vazia na produção — a troca de valores nunca foi usada |
 | FRMBAIXACARTAO (7.589) | `BTNCONSULTA` | TBitBtn | TCollection | DESABILITA — mas o código religa | 27/27 | 🪦 o código religa |
 | FRMPRIFICACAOCUSTO (3.346) | `BTNSINCCUSTONAVENDA` | TBitBtn | TfrmMaster | DESABILITA | 28/28 | o campo/ação não existe na tela do Apollo (lacuna de funcionalidade) |
 | FRMPRIFICACAOCUSTO (3.346) | `CHATIVO` | TJvDBCheckBox → ATIVO | TfrmMaster | DESABILITA | 28/28 | o campo/ação não existe na tela do Apollo (lacuna de funcionalidade) |
@@ -112,7 +112,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCONSCLIRCB (64) | `EDTJURO` | TJvCalcEdit | TfrmMaster | DESABILITA | 27/27 | a consulta do Apollo não tem a taxa editável |
 | FRMMULTATUALIZACAO (63) | `BTNDESFAZER` | TBitBtn | TfrmMaster | DESABILITA | 23/17 | a ação não existe no Apollo |
 | FRMMULTATUALIZACAO (63) | `BTNPROCESSAR` | TBitBtn | TfrmMaster | DESABILITA | 23/17 | ✅ aplicar e PIS/COFINS |
-| FRMCONSPROD (25) | `BTNCADASTRO` | TBitBtn | TfrmMaster | DESABILITA | 23/23 | ⏳ |
+| FRMCONSPROD (25) | `BTNCADASTRO` | TBitBtn | TfrmMaster | DESABILITA | 23/23 | o atalho "Cadastro" da consulta não existe na tela do Apollo |
 | FRMCADLOTECOBRANCA (20) | `BTNADDITEN` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 23/23 | ✅ |
 | FRMCADLOTECOBRANCA (20) | `BTNEXCLUIRITEM` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 18/23 | ✅ |
 | FRMCADUNIDADE (5) | `CHBATIVO` | TJvDBCheckBox → ATIVO | TfrmCadMaster | DESABILITA (CadMaster: edits também) | 19/19 | ✅ |

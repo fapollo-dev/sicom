@@ -1,8 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { AcessoService } from '../../shared/acesso/acesso.service';
 import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { ManifestoPrevisaoService } from './manifesto-previsao.service';
-import { BusinessRuleError } from '../../shared/errors/app-error';
+import { BusinessRuleError, ForbiddenActionError } from '../../shared/errors/app-error';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
 import { manifestarSchema, type ManifestarDto } from '@apollo/shared';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -17,6 +18,7 @@ export class ManifestoDfeController {
     private readonly svc: ManifestoDfeService,
     private readonly sefaz: SefazDfeService,
     private readonly previsao: ManifestoPrevisaoService,
+    private readonly acesso: AcessoService,
   ) {}
 
   /** a previsão de A Pagar da nota (binário novo): as parcelas sugeridas — a grade financeira, o XML ou o total */
@@ -38,10 +40,17 @@ export class ManifestoDfeController {
     return this.previsao.gerar(cod, { parcelas: parcelas?.map((p) => ({ nrparcela: p.nrparcela, valor: Number(p.valor), dtvenc: String(p.dtvenc) })) });
   }
 
+  /**
+   * a lista das notas guardadas: no legado é o "Pesquisar últimas" (btnPesquisarUltimas → PesquisarNotasFiscais) e, com filtros, a
+   * "Pesquisa avançada" (btnPesquisaAvancada) — ambos Tag 1. O "Buscar notas" (BTNBUSCARNOTAS) é a consulta à SEFAZ (o `sincronizar`).
+   */
   @Post('listar')
   @HttpCode(200)
-  @RequerAcesso('FRMMANIFESTODFE', 'BTNBUSCARNOTAS')
-  listar(@Body(new ZodValidationPipe(manifestoListarSchema)) dto: ManifestoListarDto) {
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNPESQUISARULTIMAS')
+  async listar(@Body(new ZodValidationPipe(manifestoListarSchema)) dto: ManifestoListarDto) {
+    if ((dto.fornecedor?.trim() || dto.chave?.trim()) && !(await this.acesso.possuiAcesso('FRMMANIFESTODFE', 'BTNPESQUISAAVANCADA'))) {
+      throw new ForbiddenActionError('SEM_PERMISSAO', { form: 'FRMMANIFESTODFE', opcao: 'BTNPESQUISAAVANCADA' });
+    }
     return this.svc.listar(dto);
   }
 
