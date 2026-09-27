@@ -316,7 +316,10 @@ export const produtosRelSchema = z.object({
   tipo: z.enum([
     'ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE', 'ALTERACOES_PRECO',
     'ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA',
+    'PRODUTOS_FORNECEDOR',
   ]),
+  /** corte-2: o `cbbAtivo` — ativos/inativos p/ compra, p/ venda ou os dois (sem = "Todos") */
+  ativoModo: z.enum(['COMPRA_S', 'VENDA_S', 'COMPRA_N', 'VENDA_N', 'AMBOS_S', 'AMBOS_N']).nullish(),
   /** corte-2: as empresas marcadas ("1,2"), recortadas às do operador; vazio = a do login */
   empresas: z.preprocess(
     (v) => (v == null || v === '' ? undefined : Array.isArray(v) ? v : String(v).split(',').map((x) => x.trim()).filter(Boolean)),

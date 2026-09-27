@@ -13,7 +13,7 @@ import { hojeNaLoja } from '../../shared/tempo';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 type TipoC1 = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO';
-type TipoC2 = 'ESTOQUE_VENDAS_PERIODO' | 'ESTOQUE_POR_DATA' | 'MIX_ESTOQUE_LOJA' | 'MIX_ESTOQUE_GIROS' | 'LOTES_VALIDADES' | 'PERCAS' | 'LISTA_CONFERENCIA' | 'INATIVOS_AGENDA';
+type TipoC2 = 'ESTOQUE_VENDAS_PERIODO' | 'ESTOQUE_POR_DATA' | 'MIX_ESTOQUE_LOJA' | 'MIX_ESTOQUE_GIROS' | 'LOTES_VALIDADES' | 'PERCAS' | 'LISTA_CONFERENCIA' | 'INATIVOS_AGENDA' | 'PRODUTOS_FORNECEDOR';
 type Tipo = TipoC1 | TipoC2;
 interface Linha {
   idproduto: number; codbarra: string; descricao: string; ativo: string; unidade: string;
@@ -45,10 +45,17 @@ const TIPOS: Array<{ v: Tipo; rotulo: string; ajuda: string }> = [
   { v: 'ALTERACOES_PRECO', rotulo: 'Alterações de preço', ajuda: 'quem mudou o preço, quando, e de quanto para quanto' },
   { v: 'INATIVOS_AGENDA', rotulo: 'Produtos inativos em agenda de promoções', ajuda: 'os itens desativados das agendas de promoção, com o preço de venda e o da promoção' },
   { v: 'ESTOQUE_VENDAS_PERIODO', rotulo: 'Estoque atual/vendas período', ajuda: 'o estoque de hoje ao lado do que vendeu no período e dos preços médios praticados' },
+  { v: 'PRODUTOS_FORNECEDOR', rotulo: 'Produtos por fornecedor', ajuda: 'cada produto sob o fornecedor da última nota de entrada: custo, quantidade e data da nota, o vendido desde então e o estoque logo depois da entrada' },
   { v: 'MIX_ESTOQUE_LOJA', rotulo: 'Comparativo de mix (estoque × loja)', ajuda: 'o que a empresa em que você está tem em estoque e está sem estoque nas lojas marcadas' },
   { v: 'MIX_ESTOQUE_GIROS', rotulo: 'Comparativo de mix (estoque × giros)', ajuda: 'o que a empresa em que você está tem em estoque e não girou no período nas empresas marcadas' },
 ];
-const C2: readonly Tipo[] = ['ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA'];
+const C2: readonly Tipo[] = ['ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA', 'PRODUTOS_FORNECEDOR'];
+/** o `cbbAtivo` do legado, na ordem do combo */
+const ATIVO_MODOS: Array<{ v: string; rotulo: string }> = [
+  { v: '', rotulo: 'Todos' }, { v: 'COMPRA_S', rotulo: 'Ativos p/ compra' }, { v: 'VENDA_S', rotulo: 'Ativos p/ venda' },
+  { v: 'COMPRA_N', rotulo: 'Inativos p/ compra' }, { v: 'VENDA_N', rotulo: 'Inativos p/ venda' },
+  { v: 'AMBOS_S', rotulo: 'Ativos p/ compra e venda' }, { v: 'AMBOS_N', rotulo: 'Inativos p/ compra e venda' },
+];
 const ehC2 = (t: Tipo): t is TipoC2 => C2.includes(t);
 
 type Fmt = 'txt' | 'qtd' | 'moeda' | 'pct' | 'data' | 'marca';
@@ -90,6 +97,12 @@ const COLS_C2: Record<TipoC2, ColC2[]> = {
     { c: 'empresa', t: 'Empresa', w: 150 }, { c: 'fornecedor', t: 'Fornecedor', w: 200 }, { c: 'codbarra', t: 'Cód. barras', w: 130 },
     { c: 'descricao', t: 'Descrição' }, { c: 'unidade', t: 'Un.', w: 60 }, { c: 'qtde_dep', t: 'Qtd. dep.', fmt: 'qtd' }, { c: 'qtde', t: 'Qtd. estoque', fmt: 'qtd' },
   ],
+  PRODUTOS_FORNECEDOR: [
+    { c: 'fantasia', t: 'Fornecedor', w: 200 }, { c: 'idempresa', t: 'Emp.', w: 60 }, { c: 'codprodnota', t: 'Cód. no fornecedor', w: 140 },
+    { c: 'descricao', t: 'Descrição (na nota)' }, { c: 'vrcusto', t: 'Custo', fmt: 'moeda' }, { c: 'fatorembal', t: 'Fator emb.', fmt: 'qtd', w: 90 },
+    { c: 'ult_nronf', t: 'Últ. NF', w: 90 }, { c: 'ult_data', t: 'Data últ. NF', fmt: 'data', w: 110 }, { c: 'ult_qtde', t: 'Qtde últ. NF', fmt: 'qtd' },
+    { c: 'qtd_vendida', t: 'Vendida desde', fmt: 'qtd' }, { c: 'estoque_atual', t: 'Estoque atual', fmt: 'qtd' }, { c: 'estoque_dt_entrada', t: 'Estoque na entrada', fmt: 'qtd' },
+  ],
   INATIVOS_AGENDA: [
     { c: 'codbarra', t: 'EAN', w: 130 }, { c: 'descricao', t: 'Descrição' }, { c: 'unidade', t: 'Un.', w: 60 }, { c: 'depto', t: 'Depto', w: 140 },
     { c: 'atualizacao_grupo', t: 'At/Gr', fmt: 'marca', w: 70 }, { c: 'tv', t: 'TV', fmt: 'marca', w: 60 }, { c: 'radio', t: 'Rádio', fmt: 'marca', w: 70 },
@@ -102,7 +115,7 @@ const TOTAIS_C2: Record<string, { t: string; fmt: Fmt }> = {
   itens: { t: 'Itens', fmt: 'txt' }, qtde: { t: 'Qtde', fmt: 'qtd' }, qtdeDep: { t: 'Qtde depósito', fmt: 'qtd' }, totalCusto: { t: 'Custo em estoque', fmt: 'moeda' },
   totalVenda: { t: 'Venda em estoque', fmt: 'moeda' }, qtdeVendida: { t: 'Qtde vendida', fmt: 'qtd' }, vendaPeriodo: { t: 'Venda no período', fmt: 'moeda' },
   saldo: { t: 'Saldo', fmt: 'qtd' }, custo: { t: 'Custo', fmt: 'moeda' }, venda: { t: 'Venda', fmt: 'moeda' }, estoque: { t: 'Estoque', fmt: 'qtd' },
-  produtos: { t: 'Produtos', fmt: 'txt' }, qtdPercas: { t: 'Perca (qtde)', fmt: 'qtd' }, valorPercas: { t: 'Perca (R$)', fmt: 'moeda' }, entradas: { t: 'Entradas', fmt: 'qtd' },
+  produtos: { t: 'Produtos', fmt: 'txt' }, fornecedores: { t: 'Fornecedores', fmt: 'txt' }, qtdPercas: { t: 'Perca (qtde)', fmt: 'qtd' }, valorPercas: { t: 'Perca (R$)', fmt: 'moeda' }, entradas: { t: 'Entradas', fmt: 'qtd' },
 };
 /** que filtros cada relatório do corte 2 lê (o resto o legado desabilita) */
 const USA: Record<TipoC2, { periodo?: 'ambos' | 'fim'; estoque?: boolean; saldo?: boolean; ativo?: boolean; secao?: boolean; fornecedor?: boolean; lotes?: boolean; empresas?: boolean }> = {
@@ -114,6 +127,7 @@ const USA: Record<TipoC2, { periodo?: 'ambos' | 'fim'; estoque?: boolean; saldo?
   PERCAS: { periodo: 'ambos', fornecedor: true, empresas: true },
   LISTA_CONFERENCIA: { estoque: true, ativo: true, fornecedor: true, empresas: true },
   INATIVOS_AGENDA: { fornecedor: true },
+  PRODUTOS_FORNECEDOR: { estoque: true, ativo: true, secao: true, fornecedor: true, empresas: true },
 };
 
 /** o `cmbFiltro` do legado, na ordem do combo. */
@@ -161,7 +175,7 @@ export function ProdutosRelPage() {
     coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', produto: '', diasSemVenda: '',
     dataIni: `${hojeNaLoja().slice(0, 7)}-01`, dataFim: hojeNaLoja(),
     // corte 2
-    empresas: '', estoqueEm: '', estoqueSinal: '>', estoqueQtde: '0', local: '', lotes: '',
+    empresas: '', estoqueEm: '', estoqueSinal: '>', estoqueQtde: '0', local: '', lotes: '', ativoModo: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [res2, setRes2] = useState<ResultadoC2 | null>(null);
@@ -189,7 +203,7 @@ export function ProdutosRelPage() {
         const set = (k: string, v: string, quando = true) => { if (quando && v.trim() !== '') q.set(k, v.trim()); };
         set('empresas', f.empresas, !!u.empresas);
         set('produto', f.produto); set('coddpto', f.coddpto); set('codgrupo', f.codgrupo); set('codsubgrupo', f.codsubgrupo);
-        set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativo', f.ativo, !!u.ativo);
+        set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativoModo', f.ativoModo, !!u.ativo);
         set('dataIni', f.dataIni, u.periodo === 'ambos'); set('dataFim', f.dataFim, !!u.periodo);
         if (u.estoque) { set('filtroEstoque', f.filtroEstoque); set('estoqueEm', f.estoqueEm); set('local', f.local); }
         if (u.estoque && f.estoqueEm) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
@@ -201,7 +215,7 @@ export function ProdutosRelPage() {
         return;
       }
       Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
-      ['empresas', 'estoqueEm', 'estoqueSinal', 'estoqueQtde', 'local', 'lotes', 'codsubgrupo', 'codsecao'].forEach((k) => q.delete(k));
+      ['empresas', 'estoqueEm', 'estoqueSinal', 'estoqueQtde', 'local', 'lotes', 'codsubgrupo', 'codsecao', 'ativoModo'].forEach((k) => q.delete(k));
       if (f.tipo !== 'RUPTURA') q.delete('diasSemVenda');
       if (f.tipo !== 'ALTERACOES_PRECO') { q.delete('dataIni'); q.delete('dataFim'); q.delete('filtroEstoque'); q.set('filtroEstoque', f.filtroEstoque); }
       if (f.tipo === 'ALTERACOES_PRECO') { q.delete('filtroEstoque'); q.delete('ativo'); }
@@ -319,7 +333,16 @@ export function ProdutosRelPage() {
               </select>
             </label>
           )}
-          {(!usa || usa.ativo) && (
+          {usa?.ativo && (
+            <label className="flex flex-col gap-gp-xs text-body-sm">
+              Ativo
+              <select className="rounded border border-border px-1 py-1" value={f.ativoModo}
+                onChange={(e) => setF({ ...f, ativoModo: e.target.value })}>
+                {ATIVO_MODOS.map((o) => <option key={o.v} value={o.v}>{o.rotulo}</option>)}
+              </select>
+            </label>
+          )}
+          {!usa && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Situação
               <select className="rounded border border-border px-1 py-1" value={f.ativo}

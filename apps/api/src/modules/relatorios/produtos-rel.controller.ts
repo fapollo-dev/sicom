@@ -22,7 +22,7 @@ export class ProdutosRelController {
       return this.svc2.gerar({
         tipo: q.tipo as TipoProdutosRel2, empresas: q.empresas ?? null, produto: q.produto ?? null,
         coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null, codsecao: q.codsecao ?? null,
-        codfor: q.codfor ?? null, ativo: q.ativo ?? null, filtroEstoque: q.filtroEstoque ?? null,
+        codfor: q.codfor ?? null, ativo: q.ativo ?? null, ativoModo: q.ativoModo ?? null, filtroEstoque: q.filtroEstoque ?? null,
         estoqueEm: q.estoqueEm ?? null, estoqueSinal: q.estoqueSinal ?? null, estoqueQtde: q.estoqueQtde ?? null,
         local: q.local ?? null, lotes: q.lotes ?? null, dataIni: q.dataIni ?? null, dataFim: q.dataFim ?? null,
       });

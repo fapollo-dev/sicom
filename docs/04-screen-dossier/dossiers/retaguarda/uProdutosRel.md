@@ -28,12 +28,12 @@ constavam aqui. A numeração abaixo é o `ItemIndex` (base 0) do Pascal.
 | 14 | Inativos em agenda | ~~0 produtos inativos~~ → o filtro é o **item** da agenda inativo: **953**, 83 em 2026 | ✅ corte-2 |
 | 15 | Estoque atual/vendas período | VENDAS 19 M, ~7 mil/dia | ✅ corte-2 |
 | 16 | Validade de inventário | FAMILIAS_PROD_AREA 0 linhas; 1 produto com seção | 🪦 morto |
-| 17 | Produtos por fornecedor | vivo, semântica frágil ("última NF" = maior CODNF: errada em 4,4%; estoque na entrada com sinal trocado) | ⏳ redesenhar sobre o HISTORICO_PROD |
+| 17 | Produtos por fornecedor | vivo, semântica frágil ("última NF" = maior CODNF: errada em 4,4%; estoque na entrada com sinal trocado) | ✅ corte-2b (redesenhado sobre o dado — §7) |
 | 18 | Comparativo de mix (estoque × loja) | 5.053 produtos com estoque na 1 e sem na 2 | ✅ corte-2 |
 | 19 | Comparativo de mix (estoque × giros) | MOVIMENTACAO_DIARIA 4,05 M (a rotina GIROS rodou hoje) | ✅ corte-2 |
 | 20 | Coletados para promoção | LOTE_PRODUTO_VALIDADE_PROMO 0 linhas | 🪦 morto |
 
-**Placar: 12 de 21 entregues**; 6 mortos/marginais medidos; o 7 não se converte fiel (defeitos que o 6 não tem); o 17 pede redesenho.
+**Placar: 13 de 21 entregues**; 6 mortos/marginais medidos; o 7 não se converte fiel (defeitos que o 6 não tem).
 
 ## 2. ⚠️ Duas tabelas gêmeas de estoque, e escolher a errada zera o relatório
 
@@ -110,6 +110,15 @@ Smoke §264 (7 checks). Cada relatório com a regra do legado e o que foi decidi
   meio quebradas no fonte (dataset desligado); aqui a grade e a impressão mostram tudo.
 - **1 Lista para conferência** — a folha de contagem por empresa e fornecedor com as duas colunas em branco (a impressão da tela).
 - **14 Inativos em agenda** — o item de agenda desativado, todo o histórico, preço da empresa do login.
+- **17 Produtos por fornecedor** (corte-2b, §265) — o produto sob o emitente da ÚLTIMA nota de entrada, com código/descrição NA
+  nota, custo, fator, quantidade e data, vendido desde, estoque atual e na entrada. Redesenhado onde a conta do legado erra: última nota
+  pela data e por empresa (o MAX(CODNF) do legado erra 4,4%); estoque na entrada = o saldo que o kardex gravou naquela nota (o legado
+  faz atual − vendido, sinal trocado, 0 sem venda; 94% das entradas de uma semana de set/2026 têm o movimento no kardex); vendido desde
+  = giro da mesma empresa (o legado soma todas e conta duas vezes as NF de saída que o giro já inclui).
+
+**Correção do filtro de ativo (corte-2b):** o `cbbAtivo` tem 7 opções (Todos + ativos/inativos p/ compra, p/ venda, p/ os dois) e lê a
+MULTI_PRECO quando a config ATIVO_PELA_MULTIPRECO é 'S'. Na produção ela é 'N' na base e **'S' no override "Modulo / Todos"** — o recon
+que leu só a base concluiu "pelo produto", e o corte-2 saiu assim. Agora o `ConfigService` resolve o override e as 7 opções estão na tela.
 
 **Achado colateral: a MOVIMENTACAO_DIARIA não era regenerada no Apollo.** O giro (19), a perca (9) e o DDE leem a tabela que o
 processo GIROS do legado refaz todo dia (`GERA_MOVIMENTACAO_DIARIA`, fórmula conferida em 100% das linhas de 5 janelas). Virou rotina
@@ -117,7 +126,7 @@ do `rotinas-do-banco.agendador.ts` (mig 378, smoke §263) — ver `procedures-do
 
 ## 8. O que falta
 
-O **17** (produtos por fornecedor) redesenhado sobre o HISTORICO_PROD; salvar/carregar layout; o `rgDisponivelEm` (qual das três
+Salvar/carregar layout; o `rgDisponivelEm` (qual das três
 colunas de saldo o 6 imprime — a API devolve as três).
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

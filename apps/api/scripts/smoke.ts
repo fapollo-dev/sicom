@@ -25246,6 +25246,61 @@ async function main() {
         await pgPr2.end();
       }
     }
+
+    // ══ §265 RELATÓRIOS DE PRODUTOS — 17 produtos por fornecedor + o filtro de ativo do legado (ATIVO_PELA_MULTIPRECO) ═══════════════
+    {
+      const pgPf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const P = 992651;
+      const notas: number[] = [];
+      const rel = async (q: Record<string, string>) => {
+        const r = await fetch(`${base}/relatorios/produtos?${new URLSearchParams({ tipo: 'PRODUTOS_FORNECEDOR', coddpto: '99265', ...q })}`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, linhas: (j.linhas ?? []) as any[] };
+      };
+      try {
+        await pgPf.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (99265, 'D', 'DEPTO SMOKE 265') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgPf.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ativo_compra, coddpto) VALUES
+                            ($1, '7899000992651', 'REL265 PRODUTO', 'UN', 2, 'T01', 'S', 'S', 99265) ON CONFLICT (idproduto) DO NOTHING`, [P]);
+        await pgPf.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo, ativo_compra) VALUES ($1, 1, 3, 6, 'N', 'S')
+                          ON CONFLICT (idproduto, idempresa) DO UPDATE SET ativo = 'N', ativo_compra = 'S'`, [P]);
+        await pgPf.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1, 1, 10) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = 10`, [P]);
+        const nfE = async (parc: number, data: string, q: number, cod: string) => {
+          const r = await pgPf.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, finalidade)
+                                      VALUES (1, $1, $2, 55, '1', 'E', 'S', 'N', $3, $3, '1102', '1') RETURNING codnf`, [parc, `F265${notas.length}`, data]);
+          const c = Number(r.rows[0].codnf); notas.push(c);
+          await pgPf.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, cfop, codprodnota, descricao) VALUES ($1, $2, $3, 6, 6, 3, '1102', $4, 'PRODUTO NA NOTA')`, [c, P, q, cod]);
+          return c;
+        };
+        const nfRecente = await nfE(22, '2052-01-10', 5, 'F-1');   // a mais recente pela data (código menor)
+        await nfE(20, '2052-01-05', 7, 'F-OLD');                     // código MAIOR e data anterior — o MAX(CODNF) do legado pegaria esta
+        await pgPf.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, codnf, data)
+                          VALUES ($1, 1, 'E', 30, -18, 12, 'NF', $2, '2052-01-10 10:00:00-03')`, [P, nfRecente]);
+        await pgPf.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde) VALUES (1, $1, '2052-01-12', 2), (1, $1, '2052-01-10', 9), (2, $1, '2052-01-12', 4)
+                          ON CONFLICT (idempresa, codproduto, data) DO UPDATE SET qtde = EXCLUDED.qtde`, [P]);
+        const pf = await rel({ empresas: '1' });
+        const l = pf.linhas[0];
+        const porCodNota = await rel({ empresas: '1', produto: 'F-1' });
+        const doOutro = await rel({ empresas: '1', codfor: '20' });
+        const ativosVenda = await rel({ empresas: '1', ativoModo: 'VENDA_S' });
+        const inativosVenda = await rel({ empresas: '1', ativoModo: 'VENDA_N' });
+        const ativosCompra = await rel({ empresas: '1', ativoModo: 'AMBOS_N' });
+        check('PRODUTOS §265 [17 produtos por fornecedor + ativo]: o produto sai sob o emitente da nota de entrada MAIS RECENTE (a de 10/01, não a de código maior e data anterior), com o código e a descrição NA NOTA, a quantidade (5) e a data dela, o vendido DEPOIS da nota na mesma empresa (2 — o do próprio dia e o da outra loja não), o estoque atual (10) e o estoque logo depois da entrada pelo kardex (12); acha pelo código do fornecedor; o fornecedor da nota antiga não o traz · o "Ativo" segue a config (MULTI_PRECO): inativo p/ venda na loja → sai em "Inativos p/ venda", não em "Ativos p/ venda"; "Inativos p/ compra e venda" exige os dois',
+          pf.status === 200 && pf.linhas.length === 1 && Number(l?.codparceiro) === 22 && l?.codprodnota === 'F-1' && l?.descricao === 'PRODUTO NA NOTA'
+          && Number(l?.ult_qtde) === 5 && l?.ult_data === '2052-01-10' && Number(l?.ult_codnf) === nfRecente && Number(l?.qtd_vendida) === 2
+          && Number(l?.estoque_atual) === 10 && Number(l?.estoque_dt_entrada) === 12 && Number(l?.fatorembal) === 6
+          && porCodNota.linhas.length === 1 && doOutro.linhas.length === 0
+          && ativosVenda.linhas.length === 0 && inativosVenda.linhas.length === 1 && ativosCompra.linhas.length === 0,
+          { l, porCodNota: porCodNota.linhas.length, doOutro: doOutro.linhas.length, ativos: [ativosVenda.linhas.length, inativosVenda.linhas.length, ativosCompra.linhas.length] });
+      } finally {
+        await pgPf.query(`DELETE FROM movimentacao_diaria WHERE codproduto = $1`, [P]);
+        await pgPf.query(`DELETE FROM historico_prod WHERE idproduto = $1`, [P]);
+        if (notas.length) { await pgPf.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]); await pgPf.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]); }
+        await pgPf.query(`DELETE FROM estoque WHERE idproduto = $1`, [P]);
+        await pgPf.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [P]);
+        await pgPf.query(`DELETE FROM produtos WHERE idproduto = $1`, [P]);
+        await pgPf.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

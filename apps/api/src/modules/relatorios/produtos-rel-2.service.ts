@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FUSO_LOJA } from '../../shared/tempo/hoje';
 import type { FiltroEstoque } from './produtos-rel.service';
+import { ConfigService } from '../cadastro/config.service';
 
 type AnyDB = Kysely<any>;
 type Linha = Record<string, unknown>;
@@ -21,11 +22,16 @@ export type TipoProdutosRel2 =
   | 'LOTES_VALIDADES' //       11 Lotes e validades
   | 'PERCAS' //                 9 Percas
   | 'LISTA_CONFERENCIA' //      1 Lista para conferência
-  | 'INATIVOS_AGENDA'; //      14 Produtos inativos em agenda de promoções
+  | 'INATIVOS_AGENDA' //       14 Produtos inativos em agenda de promoções
+  | 'PRODUTOS_FORNECEDOR'; //  17 Produtos por fornecedor
 
 export const TIPOS_PRODUTOS_REL_2: readonly TipoProdutosRel2[] = [
   'ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA',
+  'PRODUTOS_FORNECEDOR',
 ];
+
+/** o `cbbAtivo` do legado: "Todos" (sem filtro) e as seis combinações de compra/venda (P:1107-1118) */
+export type AtivoModo = 'COMPRA_S' | 'VENDA_S' | 'COMPRA_N' | 'VENDA_N' | 'AMBOS_S' | 'AMBOS_N';
 
 export interface FiltroProdutosRel2 {
   tipo: TipoProdutosRel2;
@@ -37,6 +43,8 @@ export interface FiltroProdutosRel2 {
   codsubgrupo?: number | null;
   codsecao?: number | null;
   codfor?: number | null;
+  /** o `cbbAtivo` (as 6 combinações); o `ativo` S/N do corte-1 equivale a "ativos/inativos p/ venda" */
+  ativoModo?: AtivoModo | null;
   ativo?: 'S' | 'N' | null;
   filtroEstoque?: FiltroEstoque | null;
   /** o `cbbEstoque` × `cbbSinal` × `edtEstoqueQtde`: sem `estoqueEm`, sem filtro (o combo nasce vazio a cada troca de relatório) */
@@ -68,7 +76,10 @@ export interface ResultadoProdutosRel2 {
  */
 @Injectable()
 export class ProdutosRel2Service {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -100,8 +111,8 @@ export class ProdutosRel2Service {
       : sql`${sql.ref(`${alias}.descricao`)} ILIKE ${`%${t}%`}`;
   }
 
-  /** família, fornecedor e ativo do cadastro; o ativo do legado conta o NULL dos dois lados (`… OR ATIVO IS NULL`, P:1107-1118) */
-  private filtrosCadastro(f: FiltroProdutosRel2, alias: string, opts: { secao?: boolean; fornecedor?: boolean; ativo?: boolean } = {}): RawBuilder<unknown>[] {
+  /** família e fornecedor do cadastro (o produto do filtro também) */
+  private filtrosCadastro(f: FiltroProdutosRel2, alias: string, opts: { secao?: boolean; fornecedor?: boolean } = {}): RawBuilder<unknown>[] {
     const c = (col: string) => sql.ref(`${alias}.${col}`);
     const out: RawBuilder<unknown>[] = [];
     if (f.produto?.trim()) out.push(this.produto(alias, f.produto));
@@ -110,20 +121,46 @@ export class ProdutosRel2Service {
     if (f.codsubgrupo) out.push(sql`${c('codsubgrupo')} = ${f.codsubgrupo}`);
     if (opts.secao !== false && f.codsecao) out.push(sql`${c('codsecao')} = ${f.codsecao}`);
     if (opts.fornecedor !== false && f.codfor) out.push(sql`${c('codfor')} = ${f.codfor}`);
-    if (opts.ativo !== false && f.ativo) out.push(sql`(${c('ativo')} = ${f.ativo} OR ${c('ativo')} IS NULL)`);
     return out;
+  }
+
+  /**
+   * O `cbbAtivo` (P:1107-1118): ATIVO_COMPRA e/ou ATIVO, cada um contando o NULL dos dois lados (`… OR ATIVO IS NULL`), lidos da
+   * MULTI_PRECO da linha quando a config ATIVO_PELA_MULTIPRECO = 'S' e do PRODUTO senão. Na produção a config é 'N' na base e 'S' no
+   * override "Modulo / Todos" → efetivo 'S' (o recon que leu só a base errou); o `ConfigService` resolve o override como o legado.
+   */
+  private async filtroAtivo(f: FiltroProdutosRel2, aliasProduto: string, aliasMulti: string | null): Promise<RawBuilder<unknown>[]> {
+    const modo: AtivoModo | null = f.ativoModo ?? (f.ativo === 'S' ? 'VENDA_S' : f.ativo === 'N' ? 'VENDA_N' : null);
+    if (!modo) return [];
+    const pelaMulti = aliasMulti != null
+      && String((await this.config.resolver('ATIVO_PELA_MULTIPRECO', { empresaId: this.emp() })) ?? 'N').toUpperCase() === 'S';
+    const a = pelaMulti ? aliasMulti! : aliasProduto;
+    const cond = (col: 'ativo' | 'ativo_compra', v: 'S' | 'N') => sql`(${sql.ref(`${a}.${col}`)} = ${v} OR ${sql.ref(`${a}.${col}`)} IS NULL)`;
+    switch (modo) {
+      case 'COMPRA_S': return [cond('ativo_compra', 'S')];
+      case 'VENDA_S': return [cond('ativo', 'S')];
+      case 'COMPRA_N': return [cond('ativo_compra', 'N')];
+      case 'VENDA_N': return [cond('ativo', 'N')];
+      case 'AMBOS_S': return [cond('ativo_compra', 'S'), cond('ativo', 'S')];
+      case 'AMBOS_N': return [cond('ativo_compra', 'N'), cond('ativo', 'N')];
+    }
   }
 
   /** os filtros de estoque do núcleo genérico (B = ESTOQUE, DE = ESTOQUE_DEP da empresa da linha) */
   private filtrosEstoque(f: FiltroProdutosRel2): RawBuilder<unknown>[] {
+    return this.filtrosEstoqueAlias(f, 'b', 'de');
+  }
+
+  private filtrosEstoqueAlias(f: FiltroProdutosRel2, aliasB: string, aliasDe: string): RawBuilder<unknown>[] {
+    const b = (c: string) => sql.ref(`${aliasB}.${c}`), d = (c: string) => sql.ref(`${aliasDe}.${c}`);
     const out: RawBuilder<unknown>[] = [];
     const sinal = sql.raw(f.estoqueSinal === '<' ? '<' : f.estoqueSinal === '=' ? '=' : '>');
     const n = Number(f.estoqueQtde ?? 0);
     // "Todos" exige as DUAS (loja e depósito) — com o ESTOQUE_DEP zerado, "Todos > 0" não traz nada, como no legado
-    if (f.estoqueEm === 'TODOS') out.push(sql`coalesce(b.qtde, 0) ${sinal} ${n} AND coalesce(de.qtde, 0) ${sinal} ${n}`);
-    if (f.estoqueEm === 'ESTOQUE') out.push(sql`coalesce(b.qtde, 0) ${sinal} ${n}`);
-    if (f.estoqueEm === 'DEPOSITO') out.push(sql`coalesce(de.qtde, 0) ${sinal} ${n}`);
-    const q = sql`coalesce(b.qtde, 0)`, mi = sql`coalesce(b.minimo, 0)`, ma = sql`coalesce(b.maximo, 0)`;
+    if (f.estoqueEm === 'TODOS') out.push(sql`coalesce(${b('qtde')}, 0) ${sinal} ${n} AND coalesce(${d('qtde')}, 0) ${sinal} ${n}`);
+    if (f.estoqueEm === 'ESTOQUE') out.push(sql`coalesce(${b('qtde')}, 0) ${sinal} ${n}`);
+    if (f.estoqueEm === 'DEPOSITO') out.push(sql`coalesce(${d('qtde')}, 0) ${sinal} ${n}`);
+    const q = sql`coalesce(${b('qtde')}, 0)`, mi = sql`coalesce(${b('minimo')}, 0)`, ma = sql`coalesce(${b('maximo')}, 0)`;
     const cmp: Partial<Record<FiltroEstoque, RawBuilder<unknown>>> = {
       MENOR_IGUAL_MINIMO: sql`${q} <= ${mi}`, MENOR_MINIMO: sql`${q} < ${mi}`, MAIOR_IGUAL_MINIMO: sql`${q} >= ${mi}`, MAIOR_MINIMO: sql`${q} > ${mi}`,
       IGUAL_MINIMO: sql`${q} = ${mi}`, MENOR_IGUAL_MAXIMO: sql`${q} <= ${ma}`, MENOR_MAXIMO: sql`${q} < ${ma}`, MAIOR_IGUAL_MAXIMO: sql`${q} >= ${ma}`,
@@ -132,7 +169,7 @@ export class ProdutosRel2Service {
     };
     const c = f.filtroEstoque ? cmp[f.filtroEstoque] : undefined;
     if (c) out.push(c);
-    if (f.local?.trim()) out.push(sql`b.local ILIKE ${`%${f.local.trim()}%`}`);
+    if (f.local?.trim()) out.push(sql`${b('local')} ILIKE ${`%${f.local.trim()}%`}`);
     return out;
   }
 
@@ -147,6 +184,7 @@ export class ProdutosRel2Service {
       case 'PERCAS': return this.percas(db, f);
       case 'LISTA_CONFERENCIA': return this.listaConferencia(db, f);
       case 'INATIVOS_AGENDA': return this.inativosAgenda(db, f);
+      case 'PRODUTOS_FORNECEDOR': return this.produtosFornecedor(db, f);
     }
   }
 
@@ -160,8 +198,8 @@ export class ProdutosRel2Service {
   private async estoqueVendasPeriodo(db: AnyDB, f: FiltroProdutosRel2): Promise<ResultadoProdutosRel2> {
     const { ini, fim } = this.periodo(f);
     const emps = await this.empresas(db, f.empresas);
-    const filtroVenda = this.filtrosCadastro(f, 'p', { fornecedor: false, ativo: false });
-    const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(f, 'a', { secao: false }), ...this.filtrosEstoque(f)];
+    const filtroVenda = this.filtrosCadastro(f, 'p', { fornecedor: false });
+    const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(f, 'a', { secao: false }), ...(await this.filtroAtivo(f, 'a', 'm')), ...this.filtrosEstoque(f)];
     const linhas = (await sql<Linha>`
       WITH vp AS (
         SELECT codproduto, idempresa, qtde, total_venda, total_custo,
@@ -219,7 +257,7 @@ export class ProdutosRel2Service {
     const emps = await this.empresas(db, f.empresas);
     const sinal = sql.raw(f.estoqueSinal === '<' ? '<' : f.estoqueSinal === '=' ? '=' : '>');
     const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(f, 'p', { secao: false, fornecedor: false }),
-      sql`s.saldo ${sinal} ${Number(f.estoqueQtde ?? 0)}`];
+      ...(await this.filtroAtivo(f, 'p', 'm')), sql`s.saldo ${sinal} ${Number(f.estoqueQtde ?? 0)}`];
     const linhas = (await sql<Linha>`
       WITH s AS (
         SELECT DISTINCT ON (h.idempresa, h.idproduto) h.idempresa, h.idproduto, h.saldo_novo AS saldo
@@ -264,6 +302,7 @@ export class ProdutosRel2Service {
       sql`(coalesce(e.qtde, 0) + coalesce(ed.qtde, 0)) <= 0`,
       sql`e.idempresa IN (${sql.join(lojas)})`,
       ...this.filtrosCadastro(f, 'p'),
+      ...(await this.filtroAtivo(f, 'p', 'mcd')), // a MULTI_PRECO do CD (o legado a liga ao ESTOQUE_DEP do CD)
     ];
     const linhas = (await sql<Linha>`
       SELECT idproduto, codbarra, descricao, qtde, string_agg(idempresa::text, ', ' ORDER BY idempresa) AS lojas_sem_estoque
@@ -271,6 +310,7 @@ export class ProdutosRel2Service {
                 FROM produtos p
                 LEFT JOIN estoque_dep del ON del.idproduto = p.idproduto AND del.idempresa = ${cd}
                 LEFT JOIN estoque eel     ON eel.idproduto = p.idproduto AND eel.idempresa = ${cd}
+                LEFT JOIN multi_preco mcd ON mcd.idproduto = p.idproduto AND mcd.idempresa = ${cd}
                 JOIN estoque e            ON e.idproduto = p.idproduto
                 LEFT JOIN estoque_dep ed  ON ed.idproduto = p.idproduto AND ed.idempresa = e.idempresa
                WHERE ${sql.join(onde, sql` AND `)}) x
@@ -290,7 +330,7 @@ export class ProdutosRel2Service {
     const { ini, fim } = this.periodo(f);
     const cd = this.emp();
     const emps = await this.empresas(db, f.empresas);
-    const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(f, 'p')];
+    const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(f, 'p'), ...(await this.filtroAtivo(f, 'p', 'm'))];
     const linhas = (await sql<Linha>`
       SELECT x.idproduto, x.codbarra, x.descricao, x.idempresa, em.razao_social, x.total_estoque
         FROM (SELECT p.idproduto, p.codbarra, p.descricao, m.idempresa, coalesce(e.qtde, 0) + coalesce(d.qtde, 0) AS total_estoque
@@ -321,7 +361,7 @@ export class ProdutosRel2Service {
     const { ini, fim } = this.periodo(f);
     const emps = await this.empresas(db, f.empresas);
     const onde = [sql`nf.idempresa IN (${sql.join(emps)})`, sql`nl.dtvalidade BETWEEN ${ini}::date AND ${fim}::date`,
-      ...this.filtrosCadastro(f, 'a', { ativo: false })];
+      ...this.filtrosCadastro(f, 'a')];
     const lotes = (f.lotes ?? '').split(';').map((l) => l.trim()).filter(Boolean);
     if (lotes.length) onde.push(sql`nl.lote IN (${sql.join(lotes)})`);
     const linhas = (await sql<Linha>`
@@ -361,7 +401,7 @@ export class ProdutosRel2Service {
     const { ini, fim } = this.periodo(f);
     const emps = await this.empresas(db, f.empresas);
     const E = sql.join(emps);
-    const onde = this.filtrosCadastro(f, 'pr', { secao: false, ativo: false });
+    const onde = this.filtrosCadastro(f, 'pr', { secao: false });
     const noDia = (col: string) => sql`${sql.ref(col)} >= (${ini}::date::timestamp AT TIME ZONE ${FUSO_LOJA}) AND ${sql.ref(col)} < ((${fim}::date + 1)::timestamp AT TIME ZONE ${FUSO_LOJA})`;
     const linhas = (await sql<Linha>`
       WITH perca AS (
@@ -443,7 +483,7 @@ export class ProdutosRel2Service {
    */
   private async inativosAgenda(db: AnyDB, f: FiltroProdutosRel2): Promise<ResultadoProdutosRel2> {
     const emp = this.emp();
-    const onde = [sql`ag_i.ativo = 'N'`, ...this.filtrosCadastro(f, 'pr', { secao: false, ativo: false })];
+    const onde = [sql`ag_i.ativo = 'N'`, ...this.filtrosCadastro(f, 'pr', { secao: false })];
     const linhas = (await sql<Linha>`
       SELECT ag.codagenda, ag.nomepromo, pr.idproduto, pr.codbarra, pr.descricao, pr.unidade, d.descricao AS depto,
              ag_i.atualizacao_grupo, ag_i.tv, ag_i.radio, ag_i.tabloide, ag_i.interno, m.vrvenda, ag_i.vlrpromocao,
@@ -457,5 +497,63 @@ export class ProdutosRel2Service {
        ORDER BY ag.codagenda, ag.nomepromo, pr.descricao
        LIMIT 20001`.execute(db)).rows;
     return { tipo: f.tipo, linhas, totais: { itens: linhas.length } };
+  }
+
+  /**
+   * 17 — PRODUTOS POR FORNECEDOR (`GetSQLProdutosPorFornecedor`, P:1999-2131): cada produto sob o fornecedor da sua ÚLTIMA NOTA DE
+   * ENTRADA (o emitente — não o CODFOR do cadastro), com o código e a descrição do produto NA NOTA, custo, fator, a quantidade e a data
+   * daquela nota, a quantidade vendida desde então, o estoque atual e o estoque logo depois da entrada. Nota: tipo 'E', não cancelada,
+   * finalidade normal (processada ou não, como no legado). Filtro de produto também pelo código do fornecedor (`X.CODPRODNOTA`).
+   *
+   * Redesenhado sobre o dado onde a conta do legado erra (recon 25/09/2026, produção):
+   *  - "última nota" = a mais recente por data contábil (desempate pelo código), POR EMPRESA — o legado pega MAX(CODNF) para todas as
+   *    empresas marcadas juntas: errado em 868 de 19.615 produtos (4,4%) na empresa 1, e some com o produto da loja se a última compra
+   *    foi na outra;
+   *  - "estoque na data de entrada" = o saldo que o kardex (HISTORICO_PROD) gravou naquela nota para o produto — o legado faz
+   *    COALESCE(ESTOQUE_ATUAL − QTD_VENDIDA, 0): o sinal é o contrário (estoque na entrada = atual + vendido) e sem venda posterior dá 0;
+   *  - "vendida desde" = a MOVIMENTACAO_DIARIA da MESMA empresa depois da data da nota — o legado soma todas as empresas marcadas e
+   *    ainda soma de novo as NF de saída das mesmas CFOPs, que a MOVIMENTACAO_DIARIA já contém (a procedure do GIROS as inclui);
+   *  - custo e fator da linha (o legado SOMA VRCUSTO e FATOREMBAL quando o produto aparece em duas linhas da mesma nota); a quantidade
+   *    soma; o número da nota vai junto com o código interno (o .fr3 imprime o CODNF como "Ult.NroNF").
+   */
+  private async produtosFornecedor(db: AnyDB, f: FiltroProdutosRel2): Promise<ResultadoProdutosRel2> {
+    const emps = await this.empresas(db, f.empresas);
+    const onde: RawBuilder<unknown>[] = [...this.filtrosCadastro({ ...f, produto: null, codfor: null }, 'p'), ...(await this.filtroAtivo(f, 'p', 'm')),
+      ...this.filtrosEstoqueAlias(f, 'e', 'de')];
+    if (f.codfor) onde.push(sql`u.codparceiro = ${f.codfor}`);
+    if (f.produto?.trim()) onde.push(sql`(i.codprodnota = ${f.produto.trim()} OR ${this.produto('p', f.produto)})`);
+    const linhas = (await sql<Linha>`
+      WITH u AS (
+        SELECT DISTINCT ON (n.idempresa, np.codproduto)
+               n.idempresa, np.codproduto, n.codnf, n.nronf, n.dtcontabil, n.codparceiro
+          FROM nf n
+          JOIN nf_prod np ON np.codnf = n.codnf
+         WHERE n.idempresa IN (${sql.join(emps)}) AND n.tipo = 'E' AND n.cancelada = 'N' AND coalesce(n.finalidade, '1') = '1'
+         ORDER BY n.idempresa, np.codproduto, n.dtcontabil DESC, n.codnf DESC),
+      i AS (
+        SELECT u.idempresa, u.codproduto, min(np.codprodnota) AS codprodnota, min(np.descricao) AS descricao_nf,
+               sum(np.quantidade) AS ult_qtde, max(np.vrcusto) AS vrcusto, max(np.fatorembal) AS fatorembal
+          FROM u JOIN nf_prod np ON np.codnf = u.codnf AND np.codproduto = u.codproduto
+         GROUP BY u.idempresa, u.codproduto)
+      SELECT u.codparceiro, coalesce(pa.fantasia, pa.razao) AS fantasia, u.idempresa, i.codprodnota, u.codproduto AS idproduto,
+             p.codbarra, coalesce(i.descricao_nf, p.descricao) AS descricao, i.vrcusto, i.fatorembal,
+             u.codnf AS ult_codnf, u.nronf AS ult_nronf, to_char(u.dtcontabil, 'YYYY-MM-DD') AS ult_data, i.ult_qtde,
+             coalesce(e.qtde, 0) AS estoque_atual,
+             (SELECT coalesce(sum(z.qtde), 0) FROM movimentacao_diaria z
+               WHERE z.codproduto = u.codproduto AND z.idempresa = u.idempresa AND z.data > u.dtcontabil) AS qtd_vendida,
+             (SELECT h.saldo_novo FROM historico_prod h
+               WHERE h.codnf = u.codnf AND h.idproduto = u.codproduto AND h.idempresa = u.idempresa
+               ORDER BY h.data DESC, h.codmov DESC LIMIT 1) AS estoque_dt_entrada
+        FROM u
+        JOIN i                   ON i.idempresa = u.idempresa AND i.codproduto = u.codproduto
+        LEFT JOIN produtos p     ON p.idproduto = u.codproduto
+        LEFT JOIN multi_preco m  ON m.idproduto = u.codproduto AND m.idempresa = u.idempresa
+        LEFT JOIN estoque e      ON e.idproduto = u.codproduto AND e.idempresa = u.idempresa
+        LEFT JOIN estoque_dep de ON de.idproduto = u.codproduto AND de.idempresa = u.idempresa
+        LEFT JOIN parceiros pa   ON pa.codparceiro = u.codparceiro
+       ${onde.length ? sql`WHERE ${sql.join(onde, sql` AND `)}` : sql``}
+       ORDER BY fantasia, descricao
+       LIMIT 20001`.execute(db)).rows;
+    return { tipo: f.tipo, linhas, totais: { itens: linhas.length, fornecedores: new Set(linhas.map((l) => l.codparceiro)).size } };
   }
 }
