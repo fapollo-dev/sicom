@@ -11,11 +11,12 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 /**
  * ⚠️ RBAC: a nossa tela ÚNICA de caixa é DUAS no legado — `FRMFECHAMENTOCAIXA` (417 grants: abrir, fechar,
  * reabrir) e `FRMMOVCAIXA` (227: o movimento). Como a permissão lá é por TELA, cada ação aqui responde à sua,
- * e com isso 644 concessões reais do cliente voltam a valer (§7w do plano de carga). O que ficou em `FRMCAIXA`
- * — contabilizar, estornar, conferência de PDV — não tem permissão própria no legado e espera decisão.
+ * e com isso 644 concessões reais do cliente voltam a valer (§7w do plano de carga). Estornar um movimento é, no
+ * legado, excluí-lo no FRMMOVCAIXA (`BTNEXCLUIR`, conferido por código no cadastro); contabilizar a quebra não tem
+ * botão lá (a integração contabiliza) — fica no gate do FRMFECHAMENTOCAIXA.
  * CAIXA — corte-1 (sessão + movimento manual). Controller VERTICAL (o service filtra por
  * codempresa + operador). Path `cobranca/caixa` (coberto pelo TenantMiddleware). Leituras livres
- * (como a fábrica CRUD); as AÇÕES exigem RBAC FRMCAIXA. `GET /atual` é declarado ANTES de `GET /:id`
+ * (como a fábrica CRUD); as AÇÕES exigem o RBAC da tela do legado de cada uma. `GET /atual` é declarado ANTES de `GET /:id`
  * (senão 'atual' cairia no ParseIntPipe).
  */
 @Controller('cobranca/caixa')
@@ -61,7 +62,7 @@ export class CaixaController {
 
   @Post('mov/:codmov/estornar')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNESTORNAR')
+  @RequerAcesso('FRMMOVCAIXA', 'BTNEXCLUIR') // no legado o estorno é excluir o movimento (TfrmMovCaixa é cadastro: BTNEXCLUIR por código)
   estornarMovimento(@Param('codmov', ParseIntPipe) codmov: number) {
     return this.svc.estornarMovimento(codmov);
   }
@@ -87,14 +88,14 @@ export class CaixaController {
   /** Contabiliza a quebra/sobra do fechamento no DIÁRIO (corte-2d). */
   @Post(':id/contabilizar')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZAR')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'FRMFECHAMENTOCAIXA') // sem botão no legado (a integração contabiliza o fechamento)
   contabilizar(@Param('id', ParseIntPipe) id: number) {
     return this.contabil.contabilizarFechamento(id);
   }
 
   @Post(':id/estornar-contabil')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNESTORNARCONTABIL')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'FRMFECHAMENTOCAIXA')
   estornarContabil(@Param('id', ParseIntPipe) id: number) {
     return this.contabil.estornarFechamento(id);
   }

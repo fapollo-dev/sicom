@@ -5,7 +5,7 @@ import {
 } from '@apollo/shared';
 import { PosicaoProdutoService } from './posicao-produto.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -24,7 +24,7 @@ export class PosicaoProdutoController {
   }
 
   @Get('posicao/:idproduto')
-  @RequerAcesso('FRMPOSICAOPRODUTO', 'FRMPOSICAOPRODUTO')
+  @RequerAcessoDeAlgum(['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMCONSPROD', 'BTNCADASTRO'], ['FRMCADCOTACAO', 'FRMCADCOTACAO'], ['FRMCADANALISECONCORRENTES', 'FRMCADANALISECONCORRENTES'])
   posicao(
     @Param('idproduto') idproduto: string,
     @Query(new ZodValidationPipe(posicaoProdutoSchema.omit({ idproduto: true }))) q: Omit<PosicaoProdutoDto, 'idproduto'>,
@@ -33,7 +33,7 @@ export class PosicaoProdutoController {
   }
 
   @Get('kardex/:idproduto')
-  @RequerAcesso('FRMPOSICAOPRODUTO', 'FRMPOSICAOPRODUTO')
+  @RequerAcessoDeAlgum(['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMCONSPROD', 'BTNCADASTRO'], ['FRMCADCOTACAO', 'FRMCADCOTACAO'], ['FRMCADANALISECONCORRENTES', 'FRMCADANALISECONCORRENTES'])
   kardex(
     @Param('idproduto') idproduto: string,
     @Query(new ZodValidationPipe(kardexProdutoQuerySchema)) q: KardexProdutoQueryDto,

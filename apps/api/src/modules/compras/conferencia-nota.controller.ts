@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards }
 import { conferenciaAprovarSchema, conferenciaCancelarSchema, type ConferenciaAprovarDto, type ConferenciaCancelarDto } from '@apollo/shared';
 import { ConferenciaNotaService } from './conferencia-nota.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -16,7 +16,7 @@ export class ConferenciaNotaController {
 
   /** itens da NF com o que o coletor conferiu + contadores (aprovados / pendentes / conferidos). */
   @Get(':codnf')
-  @RequerAcesso('FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA')
+  @RequerAcessoDeAlgum(['FRMMANIFESTODFE', 'FRMMANIFESTODFE'], ['FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA'])
   listar(@Param('codnf', ParseIntPipe) codnf: number) {
     return this.svc.listar(codnf);
   }
@@ -24,7 +24,7 @@ export class ConferenciaNotaController {
   /** aprova os itens selecionados — exige login+senha de um AUTORIZADOR da lista. */
   @Post('aprovar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA')
+  @RequerAcessoDeAlgum(['FRMMANIFESTODFE', 'FRMMANIFESTODFE'], ['FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA'])
   aprovar(@Body(new ZodValidationPipe(conferenciaAprovarSchema)) dto: ConferenciaAprovarDto) {
     return this.svc.aprovar(dto);
   }
@@ -32,7 +32,7 @@ export class ConferenciaNotaController {
   /** "Análise produto": os itens selecionados voltam a LIBERADO (a esteira desmarca coleta e conferência). */
   @Post('analisar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA')
+  @RequerAcessoDeAlgum(['FRMMANIFESTODFE', 'FRMMANIFESTODFE'], ['FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA'])
   analisar(@Body(new ZodValidationPipe(conferenciaCancelarSchema)) dto: ConferenciaCancelarDto) {
     return this.svc.analisar(dto);
   }
@@ -40,7 +40,7 @@ export class ConferenciaNotaController {
   /** cancela a aprovação dos itens selecionados (volta a pendente). */
   @Post('cancelar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA')
+  @RequerAcessoDeAlgum(['FRMMANIFESTODFE', 'FRMMANIFESTODFE'], ['FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA'])
   cancelar(@Body(new ZodValidationPipe(conferenciaCancelarSchema)) dto: ConferenciaCancelarDto) {
     return this.svc.cancelar(dto);
   }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { DatabaseProvider } from '../database/database.provider';
 import { currentTenant } from '../tenant/tenant-context';
+import { SenhaOperacaoService } from '../../modules/cadastro/senha-operacao.service';
 
 /** Modo de controle (legado: CONFIGURACOES.CONTROLE_PERMISSOES). PINHEIRAO = 'usuario'. */
 export type ModoPermissao = 'usuario' | 'perfil' | 'ambos';
@@ -76,6 +77,23 @@ export class AcessoService {
   /** as opções do FORM concedidas ao operador corrente (a tela desabilita/oculta o controle que não está aqui) */
   async opcoesDoForm(form: string): Promise<string[]> {
     return [...(await opcoesConcedidas(this.dbp.forTenantRead(), form))].sort();
+  }
+
+  /**
+   * `SenhaAdministrativa('ADM')` do legado (uSenhaAdmin.pas) para a tela de configurações. `DESABILITA_OPERACOES_BASICAS`
+   * barra antes (Configuraes1Click); depois, a senha ADM da empresa — pelo `SenhaOperacaoService`, com o lockout dele,
+   * como os outros pontos que pedem a senha administrativa (meta diária do pedido, parcelas da NF, controle de contas).
+   * O legado também aceita a SENHARETAGUARDA de qualquer operador e `SYSAPOLLO<dia><mês>`: são as senhas-mestras que o
+   * Apollo decidiu não reimplementar (shared/auth/crypto.ts).
+   */
+  async senhaAdministrativa(senha: string | undefined): Promise<'ok' | 'ausente' | 'invalida' | 'operacoes_basicas'> {
+    const { operadorId } = currentTenant();
+    const op = (await (this.dbp.forTenantRead() as AnyDB).selectFrom('operadores').select(['desabilita_operacoes_basicas'])
+      .where('codoperador', '=', operadorId ?? -1).executeTakeFirst()) as { desabilita_operacoes_basicas: string | null } | undefined;
+    if (op?.desabilita_operacoes_basicas === 'S') return 'operacoes_basicas';
+    if (!senha) return 'ausente';
+    const { ok } = await new SenhaOperacaoService(this.dbp).verificar('admin', senha);
+    return ok ? 'ok' : 'invalida';
   }
 }
 

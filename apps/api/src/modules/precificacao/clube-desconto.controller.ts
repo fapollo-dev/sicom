@@ -14,18 +14,18 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 export class ClubeDescontoController {
   constructor(private readonly svc: ClubeDescontoService) {}
 
-  @Get() @RequerAcesso('FRMCLUBEDESCONTO', 'FRMCLUBEDESCONTO')
+  @Get() @RequerAcesso('FRMCADPROMOCAO', 'FRMCADPROMOCAO')
   buscar(@Query(new ZodValidationPipe(clubeDescontoConsultaSchema)) q: ClubeDescontoConsultaDto) { return this.svc.buscar(q); }
 
-  @Get(':id') @RequerAcesso('FRMCLUBEDESCONTO', 'FRMCLUBEDESCONTO')
+  @Get(':id') @RequerAcesso('FRMCADPROMOCAO', 'FRMCADPROMOCAO')
   obter(@Param('id', ParseIntPipe) id: number) { return this.svc.obter(id); }
 
-  @Post() @RequerAcesso('FRMCLUBEDESCONTO', 'BTNGRAVAR')
+  @Post() @RequerAcesso('FRMCADPROMOCAO', 'BTNGRAVAR')
   criar(@Body(new ZodValidationPipe(clubeDescontoSchema)) b: ClubeDescontoDto) { return this.svc.gravar(b); }
 
-  @Put(':id') @RequerAcesso('FRMCLUBEDESCONTO', 'BTNGRAVAR')
+  @Put(':id') @RequerAcesso('FRMCADPROMOCAO', 'BTNGRAVAR')
   atualizar(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(clubeDescontoSchema)) b: ClubeDescontoDto) { return this.svc.gravar(b, id); }
 
-  @Delete(':id') @RequerAcesso('FRMCLUBEDESCONTO', 'BTNEXCLUIR')
+  @Delete(':id') @RequerAcesso('FRMCADPROMOCAO', 'BTNEXCLUIR')
   excluir(@Param('id', ParseIntPipe) id: number) { return this.svc.excluir(id); }
 }

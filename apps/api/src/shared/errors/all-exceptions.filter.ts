@@ -872,6 +872,9 @@ const CODE_PT: Record<string, string> = {
   // autorização / autenticação (OPERADORES corte-3a — auth)
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',
+  // a tela de configurações do legado (uSenhaAdmin.pas): senha administrativa, não PERMISSOES
+  SENHA_ADMINISTRATIVA_OBRIGATORIA: 'Favor informar a senha.',
+  OPERACOES_BASICAS_DESABILITADAS: 'Seu usuário está com as operações básicas desabilitadas — a tela de configurações não abre.',
   NAO_AUTENTICADO: 'Autenticação necessária. Faça login novamente.',
   CREDENCIAIS_INVALIDAS: 'Usuário ou senha inválidos.',
   SESSAO_EXPIRADA: 'Sua sessão expirou. Faça login novamente.',

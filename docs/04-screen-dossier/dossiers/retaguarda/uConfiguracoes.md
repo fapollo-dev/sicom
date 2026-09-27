@@ -33,3 +33,11 @@ O ambiente de emissão NFe **NÃO vem de `AMBIENTE_NF`** no retaguarda — vem d
 ## Riscos / notas
 - Precedência reconstruída (não cravada no fonte). `AMBIENTE_NF` órfão — não confiar como fonte de ambiente.
 - Oracle read-only; nenhuma DML em homolog.
+
+## Acesso à tela (27/09/2026)
+- No legado a tela **não usa PERMISSOES**: `TfrmMenuSuperior.Configuraes1Click` sai se `OPERADORES.DESABILITA_OPERACOES_BASICAS='S'`
+  e `TdmPrincipal.TelaConfiguracao` pede `SenhaAdministrativa('ADM')` (uSenhaAdmin.pas) — senha ADM da empresa, ou a
+  SENHARETAGUARDA de qualquer operador, ou `SYSAPOLLO<dia><mês>`.
+- O Apollo exigia `FRMCONFIGURA/BTNGRAVAR` (ninguém tem na produção). Agora `@RequerSenhaAdministrativa` (catálogo, overrides,
+  default e as listas `USUARIOS_*` de liberação): a senha ADM da empresa, com lockout; as duas senhas-mestras ficam de fora
+  (decisão de shared/auth/crypto.ts). A tela web pede a senha ao abrir e a esquece ao fechar. Smoke §273.

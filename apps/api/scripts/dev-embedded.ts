@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
+import { hashSenha } from '../src/shared/auth/crypto';
 
 /**
  * Servidor de DESENVOLVIMENTO persistente: sobe o Postgres embarcado (migrations +
@@ -31,7 +32,8 @@ async function provisionarLoginDev(): Promise<void> {
   const CRUD_OPCOES = ['BTNGRAVAR', 'BTNEXCLUIR', 'BTNEDITAR', 'BTNADICIONARREGISTRO', 'BTNVISUALIZAR'];
   // Pares específicos dos controllers verticais (@RequerAcesso), enumerados do código.
   const PARES: Array<[string, string]> = [
-    ['FRMCADAGENDAPROMOCAO', 'ENCERRARPROMOCAO'], ['FRMETIQUETA', 'FRMETIQUETA'], ['FRMETIQUETA', 'BTNCONSULTAPRECO'], ['FRMETIQUETA', 'BTNADICIONARREGISTRO'],
+    ['FRMCADAGENDAPROMOCAO', 'ENCERRARPROMOCAO'], ['FRMCONSPROD', 'FRMCONSPROD'], ['FRMCONSPROD', 'BTNCADASTRO'], ['FRMMANIFESTODFE', 'FRMMANIFESTODFE'],
+    ['FRMMOVCAIXA', 'FRMMOVCAIXA'], ['FRMMOVCAIXA', 'BTNEXCLUIR'], ['FRMFECHAMENTOCAIXA', 'FRMFECHAMENTOCAIXA'], ['FRMCADPROMOCAO', 'FRMCADPROMOCAO'], ['FRMCADPROMOCAO', 'BTNGRAVAR'], ['FRMETIQUETA', 'FRMETIQUETA'], ['FRMETIQUETA', 'BTNCONSULTAPRECO'], ['FRMETIQUETA', 'BTNADICIONARREGISTRO'],
     ['FRMEXPORTABALANCA', 'FRMEXPORTABALANCA'], ['FRMEXPORTABALANCA', 'BTNEXPORTAR'], ['FRMCADCOTACAO', 'FRMCADCOTACAO'], ['FRMCADCOTACAO', 'BTNGRAVAR'],
     ['FRMAJUSTEESTOQUE', 'BTNOK'], ['FRMAJUSTEESTOQUE', 'FRMAJUSTEESTOQUE'],
     ['FRMAPAGAR', 'BTNBAIXAR'], ['FRMAPAGAR', 'BTNESTORNARBAIXA'], ['FRMAPAGAR', 'BTNEXCLUIR'], ['FRMAPAGAR', 'BTNGRAVAR'],
@@ -39,7 +41,7 @@ async function provisionarLoginDev(): Promise<void> {
     ['FRMCADPERFILOPERADOR', 'BTNPERMISSOES'],
     ['FRMCADPLANOCONTAS', 'BTNEXCLUIR'], ['FRMCADPLANOCONTAS', 'BTNGRAVAR'],
     ['FRMCADPRODUTO', 'BTNEDITAR'],
-    ['FRMCAIXA', 'BTNABRIR'], ['FRMCAIXA', 'BTNCONTABILIZAR'], ['FRMCAIXA', 'BTNESTORNAR'], ['FRMCAIXA', 'BTNESTORNARCONTABIL'], ['FRMCAIXA', 'BTNFECHAR'], ['FRMCAIXA', 'BTNMOVIMENTAR'], ['FRMCAIXA', 'BTNREABRIR'],
+    ['FRMCAIXA', 'BTNABRIR'], ['FRMCAIXA', 'BTNFECHAR'], ['FRMCAIXA', 'BTNMOVIMENTAR'], ['FRMCAIXA', 'BTNREABRIR'],
     ['FRMRELDRECONTABIL', 'FRMRELDRECONTABIL'],
     ['FRMLIBERACOES', 'BTNCONSULTAR'], ['FRMLIBERACOES', 'BTNPERMISSOES'],
     ['FRMNF', 'CANCELARNFE1'], ['FRMNF', 'BTNCARTACORRECAO'], ['FRMNF', 'FRMNF'], ['FRMNF', 'BTNESTORNARFATURAMENTO'], ['FRMNF', 'BTNFATURAMENTO'], ['FRMNF', 'ENVIARNFE1'],
@@ -68,6 +70,9 @@ async function provisionarLoginDev(): Promise<void> {
               senha_hash='scrypt$16384$8$3$1bb0a7c3887660f9030b2abd8d792c56$ab7ec09340f2a7d7c7e08caa3f5bc2fda773878ea255d8f13dd8c35b7a15c596acb6393008aacee6a504929801b5ea24d046c25d387f7db660e48a36ad128425'
         WHERE codoperador=1 AND upper(login)='ADMIN'`,
     );
+    // a tela de configurações pede a SENHA ADMINISTRATIVA da empresa (TelaConfiguracao do legado) — no dev, a mesma do ADMIN
+    // (apollosg). Só aqui, nunca numa migration.
+    await pool.query(`UPDATE empresas SET senha_admin_hash = $1 WHERE idempresa = 1 AND senha_admin_hash IS NULL`, [hashSenha('apollosg')]);
     // vínculo op 7 (SMOKE) e op 1 (ADMIN) → empresa 1 (login empresa-scoped; a empresa 1 vem das migrations).
     for (const op of [7, 1]) {
       await pool.query(

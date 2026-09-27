@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AcessoService } from './acesso.service';
-import { REQUER_ACESSO, REQUER_CONTROLE } from './requer-acesso.decorator';
+import { REQUER_ACESSO, REQUER_ACESSO_ALGUM, REQUER_CONTROLE, REQUER_SENHA_ADM } from './requer-acesso.decorator';
 import { ForbiddenActionError, UnauthenticatedError } from '../errors/app-error';
 import { currentTenant } from '../tenant/tenant-context';
 
@@ -41,6 +41,20 @@ export class AcessoGuard implements CanActivate {
           operador: currentTenant().operadorId,
         });
       }
+    }
+    // tela aberta de dentro de outras (sem gate próprio): basta um dos pares — `@RequerAcessoDeAlgum`
+    const algum = this.reflector.get<Array<{ form: string; opcao: string }> | undefined>(REQUER_ACESSO_ALGUM, ctx.getHandler());
+    if (algum?.length) {
+      let tem = false;
+      for (const p of algum) if (await this.acesso.possuiAcesso(p.form, p.opcao)) { tem = true; break; }
+      if (!tem) throw new ForbiddenActionError('SEM_PERMISSAO', { pares: algum, operador: currentTenant().operadorId });
+    }
+    // a tela de configurações: senha administrativa, não PERMISSOES — `@RequerSenhaAdministrativa`
+    if (this.reflector.get<boolean | undefined>(REQUER_SENHA_ADM, ctx.getHandler())) {
+      const h = ctx.switchToHttp().getRequest<{ headers: Record<string, string | string[] | undefined> }>().headers['x-senha-administrativa'];
+      const r = await this.acesso.senhaAdministrativa(Array.isArray(h) ? h[0] : h);
+      if (r === 'operacoes_basicas') throw new ForbiddenActionError('OPERACOES_BASICAS_DESABILITADAS');
+      if (r !== 'ok') throw new ForbiddenActionError(r === 'ausente' ? 'SENHA_ADMINISTRATIVA_OBRIGATORIA' : 'SENHA_ADMINISTRATIVA_INVALIDA');
     }
     return true;
   }

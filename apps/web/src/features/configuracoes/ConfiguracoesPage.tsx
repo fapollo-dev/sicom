@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { getSessao } from '../../shared/auth/session';
 import {
+  definirSenhaAdministrativa,
   listarConfiguracoes,
   setOverrideEmpresa,
   removerOverrideEmpresa,
@@ -19,6 +20,7 @@ const SEM_OVERRIDE = '__PADRAO__'; // sentinela do select = "usar o valor padrã
  * por categoria; para cada chave o operador define o OVERRIDE da empresa corrente (ou volta ao padrão).
  * O "valor efetivo" é o que a NF/processos veem (mesmo resolver). Escopos Usuario/Modulo ficam para a
  * tela avançada; aqui edita-se o escopo Empresa (o mais comum).
+ * Como no legado, a tela abre com a SENHA ADMINISTRATIVA da empresa (não é permissão de PERMISSOES).
  */
 export function ConfiguracoesPage() {
   const mensagem = useMensagem();
@@ -26,6 +28,9 @@ export function ConfiguracoesPage() {
   const [itens, setItens] = useState<ConfigItem[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [textos, setTextos] = useState<Record<string, string>>({}); // rascunho dos campos de texto livre
+  const [liberada, setLiberada] = useState(false);
+  const [senha, setSenha] = useState('');
+  useEffect(() => () => definirSenhaAdministrativa(null), []); // fechou a tela, a senha vai embora (o legado pede a cada abertura)
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -33,13 +38,25 @@ export function ConfiguracoesPage() {
       const lista = await listarConfiguracoes();
       setItens(lista);
       setTextos(Object.fromEntries(lista.filter((c) => !c.opcoes).map((c) => [c.codigo, c.overrideEmpresa ?? ''])));
+      setLiberada(true);
     } catch (e) {
+      const code = (e as { envelope?: { code?: string } }).envelope?.code ?? '';
+      if (code.startsWith('SENHA_ADMINISTRATIVA') || code === 'OPERACOES_BASICAS_DESABILITADAS') {
+        definirSenhaAdministrativa(null);
+        setLiberada(false);
+      }
       mensagem.erro(e);
     } finally {
       setCarregando(false);
     }
   }, [mensagem]);
-  useEffect(() => { void carregar(); }, [carregar]);
+
+  const entrar = useCallback(async () => {
+    if (!senha.trim()) { mensagem.erro(new Error('Favor informar a senha.')); return; }
+    definirSenhaAdministrativa(senha);
+    setSenha('');
+    await carregar();
+  }, [senha, carregar, mensagem]);
 
   const grupos = useMemo(() => {
     const m = new Map<string, ConfigItem[]>();
@@ -80,6 +97,20 @@ export function ConfiguracoesPage() {
   );
 
   const podeEmpresa = (c: ConfigItem) => c.escoposPermitidos.includes('Empresa');
+
+  if (!liberada) {
+    return (
+      <div className="flex flex-col gap-form-gap max-w-md">
+        <PageHeader title="Configurações" description="Informe a senha administrativa da empresa para abrir as configurações." />
+        <form className="flex items-end gap-gp-sm" onSubmit={(e) => { e.preventDefault(); void entrar(); }}>
+          <div className="w-56">
+            <Field label="&Senha administrativa" type="password" autoFocus value={senha} onChange={(e) => setSenha(e.target.value)} />
+          </div>
+          <Button label="&Entrar" type="submit" disabled={carregando} />
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-form-gap max-w-4xl">

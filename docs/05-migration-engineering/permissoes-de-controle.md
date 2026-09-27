@@ -112,7 +112,7 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMCONSCLIRCB (64) | `EDTJURO` | TJvCalcEdit | TfrmMaster | DESABILITA | 27/27 | a consulta do Apollo não tem a taxa editável |
 | FRMMULTATUALIZACAO (63) | `BTNDESFAZER` | TBitBtn | TfrmMaster | DESABILITA | 23/17 | a ação não existe no Apollo |
 | FRMMULTATUALIZACAO (63) | `BTNPROCESSAR` | TBitBtn | TfrmMaster | DESABILITA | 23/17 | ✅ aplicar e PIS/COFINS |
-| FRMCONSPROD (25) | `BTNCADASTRO` | TBitBtn | TfrmMaster | DESABILITA | 23/23 | o atalho "Cadastro" da consulta não existe na tela do Apollo |
+| FRMCONSPROD (25) | `BTNCADASTRO` | TBitBtn | TfrmMaster | DESABILITA | 23/23 | ✅ é o "Análise geral do Produto" (legenda na produção: "Analisar Produto") — abre a posição do produto |
 | FRMCADLOTECOBRANCA (20) | `BTNADDITEN` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 23/23 | ✅ |
 | FRMCADLOTECOBRANCA (20) | `BTNEXCLUIRITEM` | TBitBtn | TfrmCadMasterDet | DESABILITA (CadMaster: edits também) | 18/23 | ✅ |
 | FRMCADUNIDADE (5) | `CHBATIVO` | TJvDBCheckBox → ATIVO | TfrmCadMaster | DESABILITA (CadMaster: edits também) | 19/19 | ✅ |
@@ -166,6 +166,33 @@ Cruzando o que o Apollo exige × a PERMISSOES da produção, **46 atos** pediam 
 Lacuna anotada: o legado tem **excluir movimentação OFX** (`FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX`, 27 operadores) e o
 Apollo não tem a ação.
 
-Tela que o Apollo batizou igual ao legado e que **ninguém** tem na produção (FRMCADCONFPLANOCONTAS, FRMCADPRODUCAO,
-FRMPRECIFICACAONFBRUTA…) **não** é erro de mapa: o menu do legado confere o gate e hoje ninguém abre. O que precisa de mapa é a tela
-aberta **por outra tela** (sem gate próprio) — ver a fila A2 em `tools/cutover`.
+## Telas sem grant nenhum, telas abertas por outras e a tela de configurações (27/09/2026, parte 2)
+
+**Sem grant nenhum na produção** (FRMCADCONFPLANOCONTAS, FRMCADPRODUCAO, FRMPRECIFICACAONFBRUTA, FRMPENDENCIASOPERADOR,
+FRMTROCAMERCADORIAFOR, FRMRELANALISECOMPORTAMENTOPERIODO, FRMFLUXOCARTOES, FRMRELANALISEITENSNF, FRMANALISECOMPRAVENDACASACARNE,
+FRMCADCONFIGCONCILIADOR…): o Apollo usa o mesmo nome da classe do legado, e o menu (`TfrmMenuSuperior.CreateForm`) confere
+`PossuiAcessoForm(FormName, FormName)` antes de abrir — **fiel, sem remapear**. O MENUEXPRESS mostra que essas 25 telas foram
+usadas até 12/05–25/06/2026 (a coluna DATAACESSO só existe desde mai/2026) e pararam: os grants saíram. Os "candidatos" que o
+script de equivalência sugeria (FRMCADPLANOCONTAS, FRMLOTEPRODUCAO, FRMLIBERACAOPEDIDO, FRMCADOPERADORAS, FRMRELTROCAMERCADORIAFOR…)
+são **classes próprias** no fonte — outras telas, não renomeação.
+
+**Abertas de dentro de outras** (`TfrmX.Create(Self)`, sem o gate do menu) → `@RequerAcessoDeAlgum` (basta um dos pares):
+
+| tela | abre por | exige (qualquer um) |
+|---|---|---|
+| análise geral do produto (FRMPOSICAOPRODUTO) + kardex | cadastro de produto (F7, Tag 0) · consulta de produto ("Análise geral", Tag 1) · cotação (F6, Tag 0) · análise de concorrentes (F6, Tag 0) | FRMCADPRODUTO · FRMCONSPROD.`BTNCADASTRO` · FRMCADCOTACAO · FRMCADANALISECONCORRENTES |
+| conferência da nota (FRMCONFERENCIANOTA) | botão da grade do manifesto (UManifestoDFe:812) · menu | FRMMANIFESTODFE · FRMCONFERENCIANOTA |
+| esteira da nota (NF_STATUS_PROCESSO) | clique no status da nota (uNF:9253) · duplo-clique no processo do manifesto (UManifestoDFe:932) | FRMNF · FRMMANIFESTODFE |
+| histórico de processamento da NF | **sem prova** (a tabela é posterior ao fonte e nenhuma tela com grant a mostra) — quem vê a nota ou o produto | FRMNF · FRMCADPRODUTO |
+
+Outros: o **clube de desconto** é detalhe da promoção (`CLUBE_DESCONTO.IDPROMOCAO`) → FRMCADPROMOCAO; **estornar movimento de
+caixa** é excluir no FRMMOVCAIXA (cadastro → `BTNEXCLUIR` por código); **contabilizar a quebra** não tem botão (a integração
+contabiliza) → gate de FRMFECHAMENTOCAIXA. O **log de liberações** (LOG_LIBERACOES) é tela nossa: fica com a opção própria
+`FRMLIBERACOES.BTNCONSULTAR`, que o admin concede.
+
+**A tela de configurações não é de PERMISSOES.** `TfrmMenuSuperior.Configuraes1Click` barra `DESABILITA_OPERACOES_BASICAS='S'` e
+`TdmPrincipal.TelaConfiguracao` pede `SenhaAdministrativa('ADM')` (uSenhaAdmin.pas). O Apollo exigia FRMCONFIGURA/`BTNGRAVAR`, que
+ninguém tem. Agora `@RequerSenhaAdministrativa` (header `x-senha-administrativa`) no catálogo, nos overrides e no default, e também
+na gestão das listas `USUARIOS_*` de liberação (moram nas CONFIGURACOES). Aceita a senha ADM da empresa (pelo `SenhaOperacaoService`,
+com lockout, como a meta diária do pedido e as parcelas da NF). O legado aceita também a SENHARETAGUARDA de **qualquer** operador e
+`SYSAPOLLO<dia><mês>` — as senhas-mestras que o Apollo já tinha decidido não reimplementar (shared/auth/crypto.ts). Smoke §273.

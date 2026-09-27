@@ -47,6 +47,17 @@ const H = {
 };
 // operador 999 não tem grant em PERMISSOES → deve ser negado (RBAC).
 const H_SEM_ACESSO = { ...H, 'x-operador-id': '999' };
+// a tela de configurações (e as listas USUARIOS_* de liberação, que moram nas CONFIGURACOES) pede a SENHA ADMINISTRATIVA
+// da empresa, não PERMISSOES (TdmPrincipal.TelaConfiguracao). `hAdm` arma a senha ADM da empresa do header (limpa o lockout
+// e define) e devolve os headers com `x-senha-administrativa` — a senha ADM muda ao longo da corrida.
+const SENHA_ADM_SMOKE = 'smoke-adm-cfg';
+async function hAdm(h: Record<string, string> = H): Promise<Record<string, string>> {
+  const emp = Number(h['x-empresa-id'] ?? 1);
+  const p = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+  try { await p.query(`DELETE FROM empresas_senha_lockout WHERE idempresa = $1 AND tipo = 'admin'`, [emp]); } finally { await p.end(); }
+  await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: h, body: JSON.stringify({ tipo: 'admin', senha: SENHA_ADM_SMOKE }) });
+  return { ...h, 'x-senha-administrativa': SENHA_ADM_SMOKE };
+}
 // o gravar do produto valida como o legado (produto-gravar.ts): NCM existente, PIS/COFINS fora do Simples, custo ≠ 0 na linha da loja
 const PROD_FISCAL = { ncmsh: '17019900', pis: 'S', idpiscofins: 9 };
 const PRECO_MIN = { idempresa: 1, vrcusto: 1, vrcustorep: 1, markup: 0, vrvenda: 1, promocao: 'N', ativo: 'S', ativo_compra: 'S' };
@@ -6130,7 +6141,7 @@ async function main() {
         // o autorizador é o op 8 (login OP8), mesmo fixture do §75: hash copiado do op 7 e grant pela API
         await pgRv.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
         const semLib = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'smoke123' }) });
-        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: true }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: true }) });
         const senhaErrada = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'errada' }) });
         const okAprov = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'smoke123' }) });
         const okJ = (await okAprov.json().catch(() => ({}))) as any;
@@ -6177,12 +6188,12 @@ async function main() {
           { semColeta: semColeta.status, smuggle: smJ.aprovados, saida: saida.status, cancelada: cancelada.status });
 
         // grant de OUTRA chave não serve para aprovar conferência (escopo do grant por chave)
-        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: false }) });
-        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: true }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: false }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: true }) });
         const outraChave = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it2], login: 'OP8', senha: 'smoke123' }) });
         check('CONFERÊNCIA: grant de OUTRA chave de liberação não autoriza aprovar conferência → 422 (o grant é por-chave, não um passe geral)',
           outraChave.status === 422, { status: outraChave.status });
-        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: false }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: false }) });
         await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
         await pgRv.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`);
@@ -9377,14 +9388,14 @@ async function main() {
 
       // 75.2) corte-2 — GRANTS por-usuário (quem-libera-o-quê). chaves + matriz + set + reflexo em usuariosPermitidos.
       const CHAVE = 'USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO';
-      const chaves = (await (await fetch(`${base}/operadores/liberacoes/chaves`, { headers: H })).json().catch(() => [])) as any[];
+      const chaves = (await (await fetch(`${base}/operadores/liberacoes/chaves`, { headers: await hAdm() })).json().catch(() => [])) as any[];
       check('LIBERAÇÃO §75.2: GET chaves → lista as chaves de liberação seedadas (inclui VALOR_MAX_EXCEDIDO)',
         Array.isArray(chaves) && chaves.some((c) => c.codigo === CHAVE), { n: chaves.length });
-      const permAntes = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: H })).json().catch(() => ({}))) as any;
+      const permAntes = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: await hAdm() })).json().catch(() => ({}))) as any;
       const op7Antes = (permAntes.operadores ?? []).find((o: any) => Number(o.codoperador) === 7);
       // concede ao operador 7
-      const setOn = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: true }) });
-      const permDepois = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: H })).json().catch(() => ({}))) as any;
+      const setOn = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: true }) });
+      const permDepois = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: await hAdm() })).json().catch(() => ({}))) as any;
       const op7Depois = (permDepois.operadores ?? []).find((o: any) => Number(o.codoperador) === 7);
       // grava na configuracoes_especificas (tipo Usuario, chave 7, valor S)?
       const ce = (await pgLib.query(`SELECT ce.valor FROM configuracoes_especificas ce JOIN configuracoes c ON c.id=ce.id WHERE c.codigo=$1 AND ce.tipo='Usuario' AND ce.chave='7'`, [CHAVE])).rows[0] as any;
@@ -9392,11 +9403,11 @@ async function main() {
         setOn.status === 200 && op7Antes?.concedido === false && op7Depois?.concedido === true && ce?.valor === 'S',
         { antes: op7Antes?.concedido, depois: op7Depois?.concedido, ce: ce?.valor });
       // revoga
-      const setOff = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: false }) });
+      const setOff = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: false }) });
       const ceOff = (await pgLib.query(`SELECT count(*)::int AS n FROM configuracoes_especificas ce JOIN configuracoes c ON c.id=ce.id WHERE c.codigo=$1 AND ce.tipo='Usuario' AND ce.chave='7'`, [CHAVE])).rows[0] as any;
       check('LIBERAÇÃO §75.2: PUT revoga grant → apaga a linha (0)', setOff.status === 200 && Number(ceOff?.n) === 0, { n: ceOff?.n });
       // chave inválida → 422; PUT sem grant → 403
-      const setBad = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'CHAVE_QUE_NAO_EXISTE', codoperador: 7, concedido: true }) });
+      const setBad = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: 'CHAVE_QUE_NAO_EXISTE', codoperador: 7, concedido: true }) });
       const setSem = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: true }) });
       check('LIBERAÇÃO §75.2: chave inválida → 422 LIBERACAO_CHAVE_INVALIDA; sem grant → 403',
         setBad.status === 422 && ((await setBad.json().catch(() => ({}))) as any).code === 'LIBERACAO_CHAVE_INVALIDA' && setSem.status === 403,
@@ -9404,7 +9415,7 @@ async function main() {
 
       // 75.3) corte-3 — VALIDAR (ChamaLiberacaoLogin): supervisor op 8 (senha = a do op 7 'smoke123') COM grant.
       await pgLib.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
-      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
       const valOk = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'TESTE LIBERACAO' }) });
       const valOkJ = (await valOk.json().catch(() => ({}))) as any;
       const logSup = (await pgLib.query(`SELECT usuario_sistema, usuario_liberou FROM log_liberacoes WHERE liberacao='TESTE LIBERACAO' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
@@ -9417,13 +9428,13 @@ async function main() {
       const logNeg = (await pgLib.query(`SELECT liberacao FROM log_liberacoes WHERE liberacao LIKE 'NEGADO:%TENTATIVA X' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
       check('LIBERAÇÃO §75.3: senha errada → {liberado:false} + LOG de negação (NEGADO:)', valBad.status === 200 && valBadJ.liberado === false && !!logNeg, { body: valBadJ, neg: logNeg?.liberacao });
       // supervisor SEM grant (revoga op 8) → liberado:false
-      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: false }) });
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: false }) });
       const valNoGrant = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'SEM GRANT' }) });
       check('LIBERAÇÃO §75.3: supervisor sem grant → {liberado:false}', valNoGrant.status === 200 && ((await valNoGrant.json().catch(() => ({}))) as any).liberado === false, { status: valNoGrant.status });
 
       // 75.4) FOLD ALTA: o validar reusa o LOCKOUT do corte-3c (não é canal de força-bruta). Re-grant op 8 +
       // zera; 5 tentativas de senha errada → bloqueia; senha CORRETA depois → ainda {liberado:false} (bloqueado).
-      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: await hAdm(), body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
       await pgLib.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`);
       for (let i = 0; i < 5; i++) await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'errada', liberacao: 'BRUTE' }) });
       const bloq = (await pgLib.query(`SELECT bloqueado_ate FROM operadores WHERE codoperador=8`)).rows[0] as any;
@@ -9962,6 +9973,9 @@ async function main() {
       // 80.2) loader aplica o hash em empresas.senha_admin_hash (empresa 1); verify (API c1) confirma a senha REAL.
       const pgSo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
+        // pré-condição: a empresa 1 sem senha ADM (o loader não sobrescreve — §80.3); seções anteriores a armam (hAdm)
+        await pgSo.query(`UPDATE empresas SET senha_admin_hash = NULL WHERE idempresa = 1`);
+        await pgSo.query(`DELETE FROM empresas_senha_lockout WHERE idempresa = 1 AND tipo = 'admin'`);
         const load1 = await loadSenhasEmpresa(pgSo, migrar, 7);
         const vOk = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: '081223' }) })).json().catch(() => ({}))) as any;
         const vBad = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'errada' }) })).json().catch(() => ({}))) as any;
@@ -14141,9 +14155,11 @@ async function main() {
     }
 
     // 89) CONFIGURAÇÕES (gestão da camada chave-valor — tela UConfigura). Catálogo + valor EFETIVO (resolver)
-    // + overrides por escopo (Empresa/Usuario/Modulo) + default global. RBAC FRMCONFIGURA/BTNGRAVAR nas escritas.
+    // + overrides por escopo (Empresa/Usuario/Modulo) + default global. A tela pede a senha administrativa (§273).
     const CFG = 'cadastro/configuracoes';
-    const cfgList = async (h = H): Promise<any[]> => (await (await fetch(`${base}/${CFG}`, { headers: h })).json()) as any[];
+    const HA = await hAdm();
+    const HA2 = await hAdm(H2);
+    const cfgList = async (h: Record<string, string> = HA): Promise<any[]> => (await (await fetch(`${base}/${CFG}`, { headers: h })).json()) as any[];
     const cfgFind = (arr: any[], cod: string) => arr.find((c) => c.codigo === cod);
     const cfgCode = async (r: any) => ((await r.json().catch(() => ({}))) as any).code;
     // 89.1) lista: 6 chaves catalogadas, metadados fiéis (categoria/opções/escopos) e AMBIENTE_NF já com override
@@ -14159,42 +14175,42 @@ async function main() {
     check('CFG: AMBIENTE_NF — override de Empresa (emp1→H) vence o default global (P)',
       ambiente?.valor === 'P' && ambiente?.valorEfetivo === 'H' && ambiente?.overrideEmpresa === 'H', { ambiente });
     // 89.2) grava override de Empresa (emp1) PERMITE='N' → valor efetivo vira 'N' (mesmo resolver que a NF vê).
-    const cfgSet = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'N' }) });
+    const cfgSet = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'N' }) });
     const permiteAp = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
     check('CFG: PUT override Empresa (PERMITE=N) → 200 + valor efetivo=N', cfgSet.status === 200 && permiteAp?.valorEfetivo === 'N' && permiteAp?.overrideEmpresa === 'N', { status: cfgSet.status, ef: permiteAp?.valorEfetivo });
     // 89.3) isolamento por empresa: override na emp 2 (via H2, que tem grant) NÃO muda o efetivo da emp 1.
-    const cfgSet2 = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H2, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
-    const permiteEmp2 = cfgFind(await cfgList(H2), 'PERMITE_PROC_NF_ESTOQUE_NEG');
-    const permiteEmp1 = cfgFind(await cfgList(H), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    const cfgSet2 = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA2, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
+    const permiteEmp2 = cfgFind(await cfgList(HA2), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    const permiteEmp1 = cfgFind(await cfgList(HA), 'PERMITE_PROC_NF_ESTOQUE_NEG');
     check('CFG: override por empresa é isolado (emp2 vê N; emp1 mantém seu próprio override)', cfgSet2.status === 200 && permiteEmp2?.valorEfetivo === 'N' && permiteEmp2?.overrideEmpresa === 'N' && permiteEmp1?.overrideEmpresa === 'N', { emp2: permiteEmp2?.valorEfetivo });
     // 89.4) validações: valor fora de VALORESPOSSIVEIS → 422; escopo ≠ Empresa (esta tela só Empresa) → 422; chave inexistente → 422.
-    const cfgBad = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'X' }) });
-    const cfgEsc = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Usuario', chave: 7, valor: 'S' }) });
-    const cfgNao = await fetch(`${base}/${CFG}/NAO_EXISTE/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'S' }) });
+    const cfgBad = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'X' }) });
+    const cfgEsc = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Usuario', chave: 7, valor: 'S' }) });
+    const cfgNao = await fetch(`${base}/${CFG}/NAO_EXISTE/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'S' }) });
     check('CFG: validações (valor inválido→422; escopo Usuario mesmo permitido na chave→422; chave inexistente→422)',
       cfgBad.status === 422 && (await cfgCode(cfgBad)) === 'CONFIG_VALOR_INVALIDO'
       && cfgEsc.status === 422 && (await cfgCode(cfgEsc)) === 'CONFIG_ESCOPO_NAO_PERMITIDO'
       && cfgNao.status === 422 && (await cfgCode(cfgNao)) === 'CONFIG_NAO_ENCONTRADA',
       { bad: cfgBad.status, esc: cfgEsc.status, nao: cfgNao.status });
     // 89.4b) FOLD [MÉDIA] cross-empresa: op da emp 1 NÃO grava override de OUTRA empresa (chave≠empresa da sessão) → 422.
-    const cfgCross = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
+    const cfgCross = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
     check('CFG: cross-empresa (emp1 grava chave=2) → 422 CONFIG_EMPRESA_INVALIDA', cfgCross.status === 422 && (await cfgCode(cfgCross)) === 'CONFIG_EMPRESA_INVALIDA', { status: cfgCross.status });
-    // 89.5) RBAC: sem grant (op 999) → 403.
+    // 89.5) sem a senha administrativa (op 999, sem header) → 403 — a tela não é de PERMISSOES.
     const cfgRbac = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'S' }) });
-    check('CFG: PUT override sem grant RBAC → 403', cfgRbac.status === 403, { status: cfgRbac.status });
+    check('CFG: PUT override sem a senha administrativa → 403', cfgRbac.status === 403, { status: cfgRbac.status });
     // 89.6) overrides (detalhe) lista os grants da chave (Empresa/1/N + Empresa/2/N).
-    const cfgOv = (await (await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/overrides`, { headers: H })).json()) as any[];
+    const cfgOv = (await (await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/overrides`, { headers: HA })).json()) as any[];
     check('CFG: GET overrides lista os grants por escopo', cfgOv.length === 2 && cfgOv.every((o) => o.tipo === 'Empresa' && o.valor === 'N'), { ov: cfgOv });
     // 89.7) default global: PUT altera CONFIGURACOES.VALOR; restaura em seguida (ESTORNA_FINANCEIRO_NF é lido no cancelamento).
-    const cfgDef = await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 'S' }) });
+    const cfgDef = await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: HA, body: JSON.stringify({ valor: 'S' }) });
     const estornaAp = cfgFind(await cfgList(), 'ESTORNA_FINANCEIRO_NF');
     check('CFG: PUT default global → 200 + valor default atualizado', cfgDef.status === 200 && estornaAp?.valor === 'S', { status: cfgDef.status, valor: estornaAp?.valor });
-    await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 'N' }) }); // restaura
+    await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: HA, body: JSON.stringify({ valor: 'N' }) }); // restaura
     // 89.8) remover override → volta ao default; limpa os overrides de teste.
-    const cfgDel = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=1`, { method: 'DELETE', headers: H });
+    const cfgDel = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=1`, { method: 'DELETE', headers: HA });
     const permiteDef = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
     check('CFG: DELETE override → 204 + valor efetivo volta ao default (S)', cfgDel.status === 204 && permiteDef?.valorEfetivo === 'S' && permiteDef?.overrideEmpresa === null, { status: cfgDel.status, ef: permiteDef?.valorEfetivo });
-    await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=2`, { method: 'DELETE', headers: H2 }); // limpa o override da emp 2
+    await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=2`, { method: 'DELETE', headers: HA2 }); // limpa o override da emp 2
 
     // 90) LIVRO RAZÃO contábil (uRelRazaoContabil) — relatório read-only do DIÁRIO por conta/período.
     // Conta de teste DEDICADA (99001, classe='A') p/ determinismo total — nenhuma outra seção a toca.
@@ -25620,6 +25636,58 @@ async function main() {
       } finally {
         for (const [f, o] of tirados) await pgRb.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
         await pgRb.end();
+      }
+    }
+
+    // ══ §273 A TELA DE CONFIGURAÇÕES pede a SENHA ADMINISTRATIVA; a tela aberta de dentro de outras aceita o gate de qualquer uma ══
+    {
+      const pgSa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tirados: Array<[string, string]> = [];
+      const tirar = async (form: string, opcao: string) => {
+        const r = await pgSa.query(`DELETE FROM permissoes WHERE form = $1 AND opcao = $2 AND codoperador = 7 AND codempresa = 1`, [form, opcao]);
+        if (r.rowCount) tirados.push([form, opcao]);
+      };
+      const devolver = async (form: string, opcao: string) => {
+        await pgSa.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [form, opcao]);
+      };
+      const req = async (url: string, headers: Record<string, string>) => {
+        const r = await fetch(`${base}/${url}`, { headers });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code };
+      };
+      try {
+        await tirar('FRMCONFIGURA', 'BTNGRAVAR'); await tirar('FRMCONFIGURA', 'FRMCONFIGURA'); // a tela do legado não é de PERMISSOES
+        const HA = await hAdm();
+        const comSenha = await req('cadastro/configuracoes', HA);
+        const semSenha = await req('cadastro/configuracoes', H);
+        const errada = await req('cadastro/configuracoes', { ...H, 'x-senha-administrativa': 'nao-e-esta' });
+        await pgSa.query(`UPDATE operadores SET desabilita_operacoes_basicas = 'S' WHERE codoperador = 7`);
+        const basicas = await req('cadastro/configuracoes', await hAdm());
+        await pgSa.query(`UPDATE operadores SET desabilita_operacoes_basicas = NULL WHERE codoperador = 7`);
+        const listas = await req('operadores/liberacoes/chaves', await hAdm());
+        check('CONFIGURAÇÕES §273 [senha administrativa, não PERMISSOES]: sem grant algum de FRMCONFIGURA, com a senha ADM da empresa a tela abre (TelaConfiguracao → SenhaAdministrativa(\'ADM\')); sem a senha → "Favor informar a senha"; senha errada → recusa; operador com DESABILITA_OPERACOES_BASICAS não abre nem com a senha; as listas USUARIOS_* de liberação seguem a mesma regra',
+          comSenha.status === 200 && semSenha.status === 403 && semSenha.code === 'SENHA_ADMINISTRATIVA_OBRIGATORIA'
+          && errada.status === 403 && errada.code === 'SENHA_ADMINISTRATIVA_INVALIDA'
+          && basicas.status === 403 && basicas.code === 'OPERACOES_BASICAS_DESABILITADAS' && listas.status === 200,
+          { comSenha, semSenha, errada, basicas, listas });
+
+        // a análise geral do produto abre pelo cadastro de produto, pela consulta ("Análise geral", Tag 1), pela cotação e pela análise de concorrentes
+        for (const [f, o] of [['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMCONSPROD', 'BTNCADASTRO'], ['FRMCADCOTACAO', 'FRMCADCOTACAO'], ['FRMCADANALISECONCORRENTES', 'FRMCADANALISECONCORRENTES']] as const) await tirar(f, o);
+        const posSem = await req('relatorios/consulta-produto/posicao/1', H);
+        await devolver('FRMCONSPROD', 'BTNCADASTRO');
+        const posConsulta = await req('relatorios/consulta-produto/posicao/1', H);
+        // a esteira abre do status da nota (FRMNF) e do manifesto
+        await tirar('FRMNF', 'FRMNF'); await tirar('FRMMANIFESTODFE', 'FRMMANIFESTODFE');
+        const estSem = await req('cadastro/nf-esteira', H);
+        await devolver('FRMMANIFESTODFE', 'FRMMANIFESTODFE');
+        const estManifesto = await req('cadastro/nf-esteira', H);
+        check('RBAC §273 [tela aberta de dentro de outras]: sem nenhuma das telas de onde a análise geral do produto abre → 403, só com o "Análise geral" da consulta (FRMCONSPROD.BTNCADASTRO) → passa; a esteira da nota sem FRMNF nem manifesto → 403, com o manifesto → passa',
+          posSem.status === 403 && posConsulta.status !== 403 && estSem.status === 403 && estManifesto.status !== 403,
+          { posSem, posConsulta, estSem, estManifesto });
+      } finally {
+        await pgSa.query(`UPDATE operadores SET desabilita_operacoes_basicas = NULL WHERE codoperador = 7`);
+        for (const [f, o] of tirados) await devolver(f, o);
+        await pgSa.end();
       }
     }
   } finally {

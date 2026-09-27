@@ -25,8 +25,18 @@ export interface ConfigItem {
   overrideEmpresa: string | null; // override de Empresa da empresa corrente (null = usa default)
 }
 
+/**
+ * A senha administrativa da tela aberta (legado: `TelaConfiguracao` pede `SenhaAdministrativa('ADM')` ao abrir). Só em
+ * memória, enquanto a tela está aberta; vai no header `x-senha-administrativa` de toda chamada.
+ */
+let senhaAdm: string | null = null;
+export function definirSenhaAdministrativa(senha: string | null): void {
+  senhaAdm = senha;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: apiHeaders(init?.headers as Record<string, string>) });
+  const extra = { ...(init?.headers as Record<string, string> | undefined), ...(senhaAdm ? { 'x-senha-administrativa': senhaAdm } : {}) };
+  const res = await fetch(url, { ...init, headers: apiHeaders(extra) });
   handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
