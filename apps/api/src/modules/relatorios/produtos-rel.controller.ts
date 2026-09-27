@@ -28,7 +28,7 @@ export class ProdutosRelController {
       });
     }
     return this.svc.gerar({
-      tipo: q.tipo as 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO', filtroEstoque: q.filtroEstoque ?? null, ativo: q.ativo ?? null,
+      tipo: q.tipo as 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO', filtroEstoque: q.filtroEstoque ?? null, ativo: q.ativo ?? null, ativoModo: q.ativoModo ?? null,
       coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null,
       codsecao: q.codsecao ?? null, codfor: q.codfor ?? null, produto: q.produto ?? null,
       diasSemVenda: q.diasSemVenda ?? null,

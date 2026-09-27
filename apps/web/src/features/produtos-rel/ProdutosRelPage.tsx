@@ -171,7 +171,7 @@ const fmtC2 = (v: unknown, fmt: Fmt = 'txt') => {
 export function ProdutosRelPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS', ativo: 'S',
+    tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS',
     coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', produto: '', diasSemVenda: '',
     dataIni: `${hojeNaLoja().slice(0, 7)}-01`, dataFim: hojeNaLoja(),
     // corte 2
@@ -215,10 +215,10 @@ export function ProdutosRelPage() {
         return;
       }
       Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
-      ['empresas', 'estoqueEm', 'estoqueSinal', 'estoqueQtde', 'local', 'lotes', 'codsubgrupo', 'codsecao', 'ativoModo'].forEach((k) => q.delete(k));
+      ['empresas', 'estoqueEm', 'estoqueSinal', 'estoqueQtde', 'local', 'lotes', 'codsubgrupo', 'codsecao', 'ativo'].forEach((k) => q.delete(k));
       if (f.tipo !== 'RUPTURA') q.delete('diasSemVenda');
       if (f.tipo !== 'ALTERACOES_PRECO') { q.delete('dataIni'); q.delete('dataFim'); q.delete('filtroEstoque'); q.set('filtroEstoque', f.filtroEstoque); }
-      if (f.tipo === 'ALTERACOES_PRECO') { q.delete('filtroEstoque'); q.delete('ativo'); }
+      if (f.tipo === 'ALTERACOES_PRECO') { q.delete('filtroEstoque'); q.delete('ativoModo'); }
       setRes((await buscar(q)) as Resultado);
       setRes2(null);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
@@ -333,23 +333,12 @@ export function ProdutosRelPage() {
               </select>
             </label>
           )}
-          {usa?.ativo && (
+          {(usa ? usa.ativo : f.tipo !== 'ALTERACOES_PRECO') && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Ativo
               <select className="rounded border border-border px-1 py-1" value={f.ativoModo}
                 onChange={(e) => setF({ ...f, ativoModo: e.target.value })}>
                 {ATIVO_MODOS.map((o) => <option key={o.v} value={o.v}>{o.rotulo}</option>)}
-              </select>
-            </label>
-          )}
-          {!usa && (
-            <label className="flex flex-col gap-gp-xs text-body-sm">
-              Situação
-              <select className="rounded border border-border px-1 py-1" value={f.ativo}
-                onChange={(e) => setF({ ...f, ativo: e.target.value })}>
-                <option value="S">Só ativos</option>
-                <option value="N">Só inativos</option>
-                <option value="">Todos</option>
               </select>
             </label>
           )}

@@ -66,6 +66,32 @@ export interface ResultadoProdutosRel2 {
 }
 
 /**
+ * O `cbbAtivo` do legado (P:1107-1118, e igual nos itens 17-20): ATIVO_COMPRA e/ou ATIVO, cada um contando o NULL dos dois lados
+ * (`… OR ATIVO IS NULL`), lidos da MULTI_PRECO da linha quando a config ATIVO_PELA_MULTIPRECO = 'S' e do PRODUTO senão. Na produção a
+ * config é 'N' na base e 'S' no override "Modulo / Todos" → efetivo 'S' (um recon que leu só a base errou); o `ConfigService` resolve o
+ * override como o legado. O `ativo` S/N antigo equivale a "ativos/inativos p/ venda". Usado pelos dois cortes da tela.
+ */
+export async function filtroAtivoLegado(
+  config: ConfigService, empresaId: number, f: { ativoModo?: AtivoModo | null; ativo?: 'S' | 'N' | null },
+  aliasProduto: string, aliasMulti: string | null,
+): Promise<RawBuilder<unknown>[]> {
+  const modo: AtivoModo | null = f.ativoModo ?? (f.ativo === 'S' ? 'VENDA_S' : f.ativo === 'N' ? 'VENDA_N' : null);
+  if (!modo) return [];
+  const pelaMulti = aliasMulti != null
+    && String((await config.resolver('ATIVO_PELA_MULTIPRECO', { empresaId })) ?? 'N').toUpperCase() === 'S';
+  const a = pelaMulti ? aliasMulti! : aliasProduto;
+  const cond = (col: 'ativo' | 'ativo_compra', v: 'S' | 'N') => sql`(${sql.ref(`${a}.${col}`)} = ${v} OR ${sql.ref(`${a}.${col}`)} IS NULL)`;
+  switch (modo) {
+    case 'COMPRA_S': return [cond('ativo_compra', 'S')];
+    case 'VENDA_S': return [cond('ativo', 'S')];
+    case 'COMPRA_N': return [cond('ativo_compra', 'N')];
+    case 'VENDA_N': return [cond('ativo', 'N')];
+    case 'AMBOS_S': return [cond('ativo_compra', 'S'), cond('ativo', 'S')];
+    case 'AMBOS_N': return [cond('ativo_compra', 'N'), cond('ativo', 'N')];
+  }
+}
+
+/**
  * RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — **corte 2**: os oito relatórios do combo que o dado da produção prova vivos (recon de
  * 25/09/2026, só leitura; o dossiê dava três deles como mortos por ter medido a tabela errada). Numeração do combo = `ItemIndex`.
  *
@@ -124,26 +150,8 @@ export class ProdutosRel2Service {
     return out;
   }
 
-  /**
-   * O `cbbAtivo` (P:1107-1118): ATIVO_COMPRA e/ou ATIVO, cada um contando o NULL dos dois lados (`… OR ATIVO IS NULL`), lidos da
-   * MULTI_PRECO da linha quando a config ATIVO_PELA_MULTIPRECO = 'S' e do PRODUTO senão. Na produção a config é 'N' na base e 'S' no
-   * override "Modulo / Todos" → efetivo 'S' (o recon que leu só a base errou); o `ConfigService` resolve o override como o legado.
-   */
   private async filtroAtivo(f: FiltroProdutosRel2, aliasProduto: string, aliasMulti: string | null): Promise<RawBuilder<unknown>[]> {
-    const modo: AtivoModo | null = f.ativoModo ?? (f.ativo === 'S' ? 'VENDA_S' : f.ativo === 'N' ? 'VENDA_N' : null);
-    if (!modo) return [];
-    const pelaMulti = aliasMulti != null
-      && String((await this.config.resolver('ATIVO_PELA_MULTIPRECO', { empresaId: this.emp() })) ?? 'N').toUpperCase() === 'S';
-    const a = pelaMulti ? aliasMulti! : aliasProduto;
-    const cond = (col: 'ativo' | 'ativo_compra', v: 'S' | 'N') => sql`(${sql.ref(`${a}.${col}`)} = ${v} OR ${sql.ref(`${a}.${col}`)} IS NULL)`;
-    switch (modo) {
-      case 'COMPRA_S': return [cond('ativo_compra', 'S')];
-      case 'VENDA_S': return [cond('ativo', 'S')];
-      case 'COMPRA_N': return [cond('ativo_compra', 'N')];
-      case 'VENDA_N': return [cond('ativo', 'N')];
-      case 'AMBOS_S': return [cond('ativo_compra', 'S'), cond('ativo', 'S')];
-      case 'AMBOS_N': return [cond('ativo_compra', 'N'), cond('ativo', 'N')];
-    }
+    return filtroAtivoLegado(this.config, this.emp(), f, aliasProduto, aliasMulti);
   }
 
   /** os filtros de estoque do núcleo genérico (B = ESTOQUE, DE = ESTOQUE_DEP da empresa da linha) */

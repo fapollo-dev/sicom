@@ -3,6 +3,8 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { ConfigService } from '../cadastro/config.service';
+import { filtroAtivoLegado, type AtivoModo } from './produtos-rel-2.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -25,6 +27,8 @@ export interface FiltroProdutosRel {
   tipo: TipoProdutosRel;
   filtroEstoque?: FiltroEstoque | null;
   ativo?: 'S' | 'N' | null;
+  /** o `cbbAtivo` do legado (as 6 combinações de compra/venda) — ver `filtroAtivoLegado` */
+  ativoModo?: AtivoModo | null;
   coddpto?: number | null;
   codgrupo?: number | null;
   codsubgrupo?: number | null;
@@ -61,7 +65,10 @@ export interface FiltroProdutosRel {
  */
 @Injectable()
 export class ProdutosRelService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -165,8 +172,8 @@ export class ProdutosRelService {
     }
 
     const onde = [sql`e.idempresa = ${emp}`];
-    // 'ativo' é do CADASTRO do produto, não do estoque
-    if (f.ativo) onde.push(sql`coalesce(pr.ativo, 'S') = ${f.ativo}`);
+    // o "ativo" do legado: ATIVO/ATIVO_COMPRA da MULTI_PRECO da loja (config ATIVO_PELA_MULTIPRECO efetiva 'S') ou do produto
+    onde.push(...(await filtroAtivoLegado(this.config, emp, f, 'pr', 'm')));
     if (f.coddpto) onde.push(sql`pr.coddpto = ${f.coddpto}`);
     if (f.codgrupo) onde.push(sql`pr.codgrupo = ${f.codgrupo}`);
     if (f.codsubgrupo) onde.push(sql`pr.codsubgrupo = ${f.codsubgrupo}`);

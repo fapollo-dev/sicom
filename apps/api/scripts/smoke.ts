@@ -12207,7 +12207,8 @@ async function main() {
             VALUES ($1,$2,9951,'UN',2,'T01',$3) RETURNING idproduto`, [cod, desc, ativo])).rows[0].idproduto);
           await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo, dtvenda)
             VALUES ($1,1,$2,$3,$4, ${diasUltVenda == null ? 'NULL' : `current_date - ${diasUltVenda}`})`, [id, qtde, minimo, maximo]);
-          await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,1,$2,$3)`, [id, custo, venda]);
+          // o "ativo" do relatório é o da LOJA (MULTI_PRECO — config ATIVO_PELA_MULTIPRECO efetiva 'S', como na produção)
+          await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo) VALUES ($1,1,$2,$3,$4)`, [id, custo, venda, ativo]);
           return id;
         };
         const pNeg = await mk('7009000006661', 'EST NEGATIVO', -5, 0, 0, 'S', 6.00, 10.00, 3);
@@ -12255,7 +12256,7 @@ async function main() {
 
         const soInativos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951&ativo=N');
         const todos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951');
-        check('RELATÓRIO DE PRODUTOS §108.4 [o "ativo" é do CADASTRO, não do estoque]: o produto inativo tem 7 em estoque e some do relatório padrão — mas ele existe, e o estoque dele também. Pedindo só inativos ele aparece sozinho; sem filtro, os cinco aparecem. Um produto inativo com estoque é justamente o que o operador precisa achar antes do inventário',
+        check('RELATÓRIO DE PRODUTOS §108.4 [o "ativo" é o da LOJA (MULTI_PRECO, config ATIVO_PELA_MULTIPRECO efetiva S), não o do estoque]: o produto inativo tem 7 em estoque e some do relatório padrão — mas ele existe, e o estoque dele também. Pedindo só inativos ele aparece sozinho; sem filtro, os cinco aparecem. Um produto inativo com estoque é justamente o que o operador precisa achar antes do inventário',
           Number(soInativos.j.totais.itens) === 1
           && String((soInativos.j.linhas ?? [])[0]?.descricao) === 'EST INATIVO'
           && Number(todos.j.totais.itens) === 5,

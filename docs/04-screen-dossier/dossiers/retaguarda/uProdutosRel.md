@@ -119,6 +119,8 @@ Smoke §264 (7 checks). Cada relatório com a regra do legado e o que foi decidi
 **Correção do filtro de ativo (corte-2b):** o `cbbAtivo` tem 7 opções (Todos + ativos/inativos p/ compra, p/ venda, p/ os dois) e lê a
 MULTI_PRECO quando a config ATIVO_PELA_MULTIPRECO é 'S'. Na produção ela é 'N' na base e **'S' no override "Modulo / Todos"** — o recon
 que leu só a base concluiu "pelo produto", e o corte-2 saiu assim. Agora o `ConfigService` resolve o override e as 7 opções estão na tela.
+Vale também para os relatórios do corte-1 (estoque atual, ruptura, análise), que liam `coalesce(PRODUTOS.ATIVO, 'S')` e abriam em "Só ativos" — o
+legado abre em "Todos" (config REL_PRODUTOS_DEF_ATIVO_COMPRA_VENDA) e lê a MULTI_PRECO; o §108.4 dizia "o ativo é do cadastro" e foi corrigido.
 
 **Achado colateral: a MOVIMENTACAO_DIARIA não era regenerada no Apollo.** O giro (19), a perca (9) e o DDE leem a tabela que o
 processo GIROS do legado refaz todo dia (`GERA_MOVIMENTACAO_DIARIA`, fórmula conferida em 100% das linhas de 5 janelas). Virou rotina
