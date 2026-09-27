@@ -38,7 +38,7 @@ async function cfgValor(db: any, codigo: string, emp: number | null): Promise<st
 /**
  * A GERAÇÃO POR GRUPO DE PREÇO (`AtualizaGrupoPreco`, uCadAgendaPromocao.pas:286-417), no gravar:
  *  - o item MESTRE ('M', o "Atualizar Grupo" marcado) puxa todos os produtos do seu grupo de preço: o que não está na lista
- *    entra como irmão ('S', CODGRUPO do grupo, as lojas e as opções do mestre); o que está tem o VLRPROMOCAO sobrescrito
+ *    entra como irmão ('S', as lojas e as opções do mestre; CODGRUPO nulo, como o legado grava); o que está tem o VLRPROMOCAO sobrescrito
  *    (inclusive o próprio mestre) — com o % do cabeçalho, VRVENDA − VRVENDA × %/100; sem ele, o preço promocional do mestre;
  *  - o mestre DESMARCADO ('M' → 'N') tira os irmãos 'S' do grupo (o `AtualizaAtivo(False)` + `Delete`); o preço que eles
  *    ligaram sai no aposGravar (a reversão do item removido).
@@ -73,7 +73,9 @@ async function gerarGrupoDePreco(trx: any, lista: Array<Record<string, unknown>>
       const ja = lista.find((x) => Number(x.idproduto) === Number(r.p));
       if (ja) { ja.vlrpromocao = vlr; continue; }
       lista.push({
-        idproduto: Number(r.p), vlrpromocao: vlr, vrvenda: r.v != null ? vrvenda : null, empresas: mestre.empresas, codgrupo: g,
+        // CODGRUPO fica nulo: o CODGRUPOPRECO do item no legado é campo derivado do produto (`ProviderFlags = []`,
+        // udmCadAgendaPromocao.dfm:144) — a coluna nunca é gravada (0 de 46.981 itens na produção, 5.619 irmãos inclusive)
+        idproduto: Number(r.p), vlrpromocao: vlr, vrvenda: r.v != null ? vrvenda : null, empresas: mestre.empresas, codgrupo: null,
         atualizacao_grupo: 'S', opcoes: header.opcoes != null ? String(header.opcoes) : mestre.opcoes ?? null, ativo: null, dtativo: null,
         tv: 'F', radio: 'F', tabloide: 'F', interno: 'F',
       });

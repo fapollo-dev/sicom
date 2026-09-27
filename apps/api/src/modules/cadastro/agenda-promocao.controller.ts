@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { AgendaPromocaoService } from './agenda-promocao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -24,6 +24,13 @@ export class AgendaPromocaoController {
   @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNENCERRAR')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
+  }
+
+  /** clonar agenda (miClonarAgenda): o rascunho da agenda nova — a gravação é o POST normal. Clonar é incluir registro. */
+  @Get(':id/clone')
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNADICIONARREGISTRO')
+  clone(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.clone(id);
   }
 
   /** corte-2: aplica o preço promocional dos itens ativos ao multi_preco (PROMOCAO='S'/VRPROMO). */

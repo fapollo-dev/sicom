@@ -22013,8 +22013,8 @@ async function main() {
         const crJ = (await cr.json().catch(() => ({}))) as any;
         const cod = Number(crJ.codagenda) || 0;
         const itens = (await pgAg.query(`SELECT idproduto, atualizacao_grupo, codgrupo, vlrpromocao::float AS v, vrvenda::float AS vv, empresas, ativo FROM agenda_promocao_itens WHERE codagenda=$1 ORDER BY idproduto`, [cod])).rows as any[];
-        check('AGENDA §204.1 [geração por grupo de preço]: o item mestre (M) com 10% no cabeçalho puxa o grupo — B e C entram como irmãos S (CODGRUPO, as lojas do mestre, ATIVO nulo como na produção) e os três saem a 9,00 (10 − 10%); VRVENDA é a foto do preço cheio (10)',
-          cr.status === 201 && itens.length === 3 && itens[0].atualizacao_grupo === 'M' && itens.slice(1).every((i) => i.atualizacao_grupo === 'S' && Number(i.codgrupo) === 99204 && i.ativo == null)
+        check('AGENDA §204.1 [geração por grupo de preço]: o item mestre (M) com 10% no cabeçalho puxa o grupo — B e C entram como irmãos S (as lojas do mestre; CODGRUPO e ATIVO nulos como na produção — 0 de 46.981 itens com CODGRUPO) e os três saem a 9,00 (10 − 10%); VRVENDA é a foto do preço cheio (10)',
+          cr.status === 201 && itens.length === 3 && itens[0].atualizacao_grupo === 'M' && itens.slice(1).every((i) => i.atualizacao_grupo === 'S' && i.codgrupo == null && i.ativo == null)
           && itens.every((i) => i.v === 9 && i.vv === 10 && String(i.empresas).replace(/ /g, '') === '1'),
           { status: cr.status, crJ, itens });
 
@@ -25300,6 +25300,48 @@ async function main() {
         await pgPf.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [P]);
         await pgPf.query(`DELETE FROM produtos WHERE idproduto = $1`, [P]);
         await pgPf.end();
+      }
+    }
+
+    // ══ §266 AGENDA DE PROMOÇÃO — clonar agenda (miClonarAgenda) ══════════════════════════════════════════════════════════════════
+    {
+      const pgCl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const [A, B, C, D, E] = [992661, 992662, 992663, 992664, 992665];
+      let cod: number | null = null;
+      try {
+        await pgCl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+            (${A}, '7899000992661', 'CLONE A', 'UN', 2, 'T01', 'S'), (${B}, '7899000992662', 'CLONE B', 'UN', 2, 'T01', 'S'),
+            (${C}, '7899000992663', 'CLONE C', 'UN', 2, 'T01', 'S'), (${D}, '7899000992664', 'CLONE D', 'UN', 2, 'T01', 'S'),
+            (${E}, '7899000992665', 'CLONE E', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgCl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1, 1, 2, 6), ($2, 1, 2, 6), ($3, 1, 2, 6), ($4, 1, 2, 6)
+                          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 6`, [A, B, C, D]);
+        const ag = await pgCl.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao, opcoes, obs)
+                                     VALUES (1, 'AGENDA DE ORIGEM', '2053-01-01 00:00:00-03', '2053-01-10 23:59:59-03', 2, 'OBS DA ORIGEM') RETURNING codagenda`);
+        cod = Number(ag.rows[0].codagenda);
+        await pgCl.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao, vrclube_fidelidade, ativo, dtativo, tv, radio, atualizacao_grupo) VALUES
+            ($1, $2, 4, 3, 'S', now(), 'T', 'F', 'M'),
+            ($1, $3, 5, NULL, 'N', now() - interval '10 days', 'F', 'T', 'N'),
+            ($1, $4, 5, NULL, 'N', now() - interval '400 days', 'F', 'F', 'N'),
+            ($1, $5, 4, NULL, NULL, NULL, 'F', 'F', 'S'),
+            ($1, $6, 4, NULL, 'S', now(), 'F', 'F', 'N')`, [cod, A, B, C, D, E]);
+        const r = await fetch(`${base}/cadastro/agenda-promocao/${cod}/clone`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const semAcesso = await fetch(`${base}/cadastro/agenda-promocao/${cod}/clone`, { headers: H_SEM_ACESSO });
+        await pgCl.query(`UPDATE agenda_promocao SET nomepromo = $2 WHERE codagenda = $1`, [cod, 'N'.repeat(148)]);
+        const longo = (await (await fetch(`${base}/cadastro/agenda-promocao/${cod}/clone`, { headers: H })).json().catch(() => ({}))) as any;
+        const ids = (j.itens ?? []).map((i: any) => Number(i.idproduto));
+        const ia = (j.itens ?? []).find((i: any) => Number(i.idproduto) === A);
+        check('AGENDA §266 [clonar agenda]: o rascunho leva o nome + " - CLONE" (cortado em 150), as opções e a observação, sem datas nem lojas; os itens são os ATIVOS e os desativados há até 365 dias (AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO), com preço na loja da agenda, sem os irmãos gerados pelo grupo — o mestre (M) vai e os gera de novo; de cada item: promocional, clube, ativo, mídias e as opções do cabeçalho; sem permissão de incluir → 403',
+          r.status === 200 && j.nomepromo === 'AGENDA DE ORIGEM - CLONE' && Number(j.opcoes) === 2 && j.obs === 'OBS DA ORIGEM' && !('dtiniciopromocao' in j)
+          && ids.length === 2 && ids.includes(A) && ids.includes(B) && Number(ia?.vlrpromocao) === 4 && Number(ia?.vrclube_fidelidade) === 3 && ia?.tv === 'T'
+          && ia?.atualizacao_grupo === 'M' && Number(ia?.opcoes) === 2 && Number(ia?.vrvenda) === 6
+          && semAcesso.status === 403 && String(longo.nomepromo).length === 150,
+          { status: r.status, j: { ...j, itens: undefined }, ids, ia, semAcesso: semAcesso.status, longo: String(longo.nomepromo).length });
+      } finally {
+        if (cod) { await pgCl.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = $1`, [cod]); await pgCl.query(`DELETE FROM agenda_promocao WHERE codagenda = $1`, [cod]); }
+        await pgCl.query(`DELETE FROM multi_preco WHERE idproduto IN (${A}, ${B}, ${C}, ${D}, ${E})`);
+        await pgCl.query(`DELETE FROM produtos WHERE idproduto IN (${A}, ${B}, ${C}, ${D}, ${E})`);
+        await pgCl.end();
       }
     }
   } finally {

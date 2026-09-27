@@ -45,6 +45,16 @@ export function obterAgenda(id: number): Promise<AgendaPromocao> {
   return req(`${AP}/${id}`);
 }
 
+/** o rascunho da agenda clonada (miClonarAgenda): nome + " - CLONE", opções, observação e os itens — sem datas nem lojas */
+export interface AgendaClone {
+  nomepromo: string; opcoes: number | string | null; obs: string | null;
+  itens: Array<{ idproduto: number; vrvenda: number | null; vlrpromocao: number; vrclube_fidelidade: number | null; ativo: string | null;
+    tv: string | null; radio: string | null; tabloide: string | null; interno: string | null; atualizacao_grupo: string | null; opcoes: number | string | null }>;
+}
+export function clonarAgenda(id: number): Promise<AgendaClone> {
+  return req(`${AP}/${id}/clone`);
+}
+
 export function criarAgenda(dto: AgendaPromocaoDto): Promise<AgendaPromocao> {
   return req(AP, { method: 'POST', body: JSON.stringify(dto) });
 }

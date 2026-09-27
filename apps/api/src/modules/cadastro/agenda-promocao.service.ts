@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { gravarHistorico } from '../../shared/crud/historico';
 import { lojasDaAgenda, lojasDoCsv } from './agenda-promocao-lojas';
+import { ConfigService } from './config.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown): number => {
@@ -20,7 +21,10 @@ const ALVO_MP = { tabela: 'multi_preco', pk: 'idproduto', origem: 'FRMCADAGENDAP
  */
 @Injectable()
 export class AgendaPromocaoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -189,5 +193,48 @@ export class AgendaPromocaoService {
       }
     }
     return { aplicadas, desaplicadas };
+  }
+
+  /**
+   * CLONAR AGENDA (`miClonarAgendaClick`, uCadAgendaPromocao.pas:1461): a agenda nova nasce em inclusão, sem gravar, com o nome
+   * + " - CLONE" (até 150), as opções e a observação da original — as datas e as lojas o operador informa (o legado não copia o
+   * EMPRESAS dos itens e pergunta as lojas ao gravar). Os itens vêm da consulta da grade (`sqqAgendaPromocaoItem`): os ativos e os
+   * desativados há até AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO dias (365; produção 365), com MULTI_PRECO na loja da agenda, SEM os irmãos
+   * gerados pelo grupo (ATUALIZACAO_GRUPO 'S' — o mestre os gera de novo). De cada item: o preço de venda (o do item ou o da loja),
+   * o promocional, o do clube, o ATIVO, as mídias e a marca de grupo; as opções do item = as do cabeçalho quando houver
+   * (`CarregarItens(…, pClone = True)`). Produção: 14 clones em 2025, 6 em 2026.
+   */
+  async clone(codagenda: number): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ag = (await sql<{ idempresa: number; nomepromo: string | null; opcoes: string | null; obs: string | null }>`
+      SELECT idempresa, nomepromo, opcoes, obs FROM agenda_promocao
+       WHERE codagenda = ${codagenda} AND coalesce(indr, 'I') <> 'E'`.execute(db)).rows[0];
+    if (!ag) throw new BusinessRuleError('PROMOCAO_NAO_ENCONTRADA', { codagenda });
+    const dias = Number.parseInt(String((await this.config.resolver('AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO', { empresaId: emp })) ?? ''), 10);
+    const janela = Number.isFinite(dias) ? dias : 365;
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT x.idproduto, z.codbarra, z.descricao, coalesce(x.vrvenda, m.vrvenda) AS vrvenda, x.vlrpromocao, x.vrclube_fidelidade,
+             x.ativo, x.tv, x.radio, x.tabloide, x.interno, x.atualizacao_grupo
+        FROM agenda_promocao_itens x
+        LEFT JOIN produtos z       ON z.idproduto = x.idproduto
+        JOIN multi_preco m         ON m.idproduto = x.idproduto AND m.idempresa = ${ag.idempresa}
+        LEFT JOIN familias_prod d  ON d.codfamilia = z.coddpto AND d.tipo = 'D'
+       WHERE x.codagenda = ${codagenda}
+         AND (x.ativo = 'S' OR (x.ativo = 'N' AND x.dtativo >= now() - make_interval(days => ${janela}::int)))
+         AND coalesce(x.atualizacao_grupo, 'N') <> 'S'
+       ORDER BY d.descricao, z.descricao`.execute(db)).rows;
+    const opcoes = ag.opcoes != null && String(ag.opcoes).trim() !== '' ? ag.opcoes : null;
+    return {
+      nomepromo: `${String(ag.nomepromo ?? '').trim()} - CLONE`.trim().slice(0, 150),
+      opcoes, obs: ag.obs,
+      itens: itens.map((i) => ({
+        idproduto: Number(i.idproduto), codbarra: i.codbarra, descricao: i.descricao,
+        vrvenda: i.vrvenda != null ? Number(i.vrvenda) : null, vlrpromocao: Number(i.vlrpromocao ?? 0),
+        vrclube_fidelidade: i.vrclube_fidelidade != null ? Number(i.vrclube_fidelidade) : null,
+        ativo: i.ativo, tv: i.tv, radio: i.radio, tabloide: i.tabloide, interno: i.interno,
+        atualizacao_grupo: i.atualizacao_grupo ?? 'N', opcoes,
+      })),
+    };
   }
 }

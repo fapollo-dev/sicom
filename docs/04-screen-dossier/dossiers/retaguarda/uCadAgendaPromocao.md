@@ -43,7 +43,7 @@ shared build · api tsc 0 · api test 145 · **smoke 527/0** (§76: criar+itens 
 
 - **Efeito-PDV** (depende do PDV): seleção do preço promocional no caixa (`uVendas`), `VRCLUBE_FIDELIDADE`/`MAXIMO` na venda, fila de etiquetas `LOTEPRECO`/`LTPRECO_PROCESSADO`, flags de mídia (publicação).
 - ~~**Multi-empresa**~~ → **convertido no corte-3 (§5)**. A premissa ("cross-docking", número da homologação) caiu como no pedido de compra: em 2026, 185 de 468 agendas valem para mais de uma loja.
-- **Atualização por grupo de preço** (`ATUALIZACAO_GRUPO`/`CODGRUPO`): aplica o preço promo a todos os produtos de um grupo. Adiado.
+- ~~**Atualização por grupo de preço**~~ → convertida em 24/09/2026 (seção "o agendador e o grupo de preço" abaixo).
 - **Outras promoções**: `PROMOCAO` combo (38), `PROMOCAO_ACUMULATIVA` (4), `PROMOCAO_DEPARTAMENTO` (0) — telas próprias, baixo uso.
 
 ## 5. Corte-3 (ENTREGUE, 2026-09-23, mig 312) — MULTI-LOJA e o ciclo do status
@@ -89,8 +89,9 @@ ativo/inativo, colunas Lojas e Status na lista.
 retirar loja (reverte só a loja 2; E→N; leitura [1]) · transições do status · sobreposição por loja e contra FECHADA ·
 agenda da loja 2 visível na loja 1, loja inexistente 422, flags T/F.
 
-**Continua adiado:** atualização por grupo de preço (`ATUALIZACAO_GRUPO`/`CODGRUPO`), opções obrigatórias
-(`OpcoesAgendaPromocaoObrigatorio`), relatórios, clonar e etiquetas.
+**Continua adiado:** ~~atualização por grupo de preço~~ (24/09) · ~~clonar~~ (27/09, abaixo) · relatórios e etiquetas.
+Opções obrigatórias (`OpcoesAgendaPromocaoObrigatorio`): 🪦 desligada na prática — 428 de 472 agendas de 2026 e 7.207 de 7.276 itens
+sem opção (a config vale "NÃO").
 
 ## Corte "o agendador e o grupo de preço" (24/09/2026) — auditoria de esqueletos §4.4
 
@@ -101,10 +102,21 @@ agenda da loja 2 visível na loja 1, loja inexistente 422, flags T/F.
   preço. Antes, nada chamava a vigência fora do botão: a agenda não ligava no início e a aplicada à mão não desligava no fim.
   Produção 2025-26: 1.144 de 1.153 agendas executadas pelo serviço; a 31185 ligou nas lojas 1 e 2 às 05:00:48.
 - **A geração por grupo de preço** (`AtualizaGrupoPreco`, uCadAgendaPromocao.pas:286-417): o item com "Atualizar grupo"
-  (ATUALIZACAO_GRUPO 'M') puxa, ao gravar, os produtos do seu grupo de preço — os de fora entram como irmãos 'S' (CODGRUPO,
-  as lojas e as opções do mestre, ATIVO nulo como na produção); os que já estão têm o VLRPROMOCAO sobrescrito (inclusive o
+  (ATUALIZACAO_GRUPO 'M') puxa, ao gravar, os produtos do seu grupo de preço — os de fora entram como irmãos 'S' (as lojas e
+  as opções do mestre, ATIVO nulo como na produção; ⚠️ CODGRUPO **nulo** — corrigido em 27/09: o CODGRUPOPRECO do item no legado é
+  campo derivado, `ProviderFlags = []`, e a coluna nunca é gravada: 0 de 46.981 itens na produção, 5.619 irmãos inclusive); os que já estão têm o VLRPROMOCAO sobrescrito (inclusive o
   mestre): com o % do cabeçalho (JvCalcEdit1, `percentualDesconto`, não é coluna), VRVENDA − VRVENDA × %/100; sem ele, o preço
   do mestre. Desmarcar o mestre tira os irmãos (e o aposGravar desliga o preço deles). Produção 2025-26: 520 mestres, 3.465
   irmãos em 230 agendas.
 - VRVENDA do item sem valor = a foto do MULTI_PRECO da primeira loja do item (o legado preenche 100%).
 - Smoke §204. ADIADO: LOG por item (14.487) e AUDIT_AGENDAPROMOCAOITENS (decisão transversal das AUDIT_*).
+
+## Clonar agenda (27/09/2026)
+
+`GET cadastro/agenda-promocao/:id/clone` (permissão de incluir) + botão "Clonar agenda" na tela. Fiel ao `miClonarAgendaClick`
+(uCadAgendaPromocao.pas:1461) e ao `CarregarItens(…, pClone = True)`: nome + " - CLONE" (150), opções e observação da original; período
+e lojas o operador informa (o legado não copia o EMPRESAS dos itens e pergunta as lojas ao gravar). Itens = a consulta da grade: ativos
+e desativados há até AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO dias (365 na produção), com MULTI_PRECO na loja da agenda, **sem os irmãos do
+grupo** (o mestre os regera); de cada um: venda, promocional, clube, ATIVO, mídias e a marca de grupo; opções do item = as do
+cabeçalho. Produção: 14 clones em 2025, 6 em 2026. Smoke §266.
+

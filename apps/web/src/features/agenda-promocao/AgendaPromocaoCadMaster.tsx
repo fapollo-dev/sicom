@@ -12,7 +12,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
-import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
+import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -154,6 +154,27 @@ export function AgendaPromocaoCadMaster() {
         atualizacao_grupo: (it as { atualizacao_grupo?: 'M' | 'N' | 'S' | null }).atualizacao_grupo ?? undefined,
         codgrupo: (it as { codgrupo?: number | null }).codgrupo ?? undefined,
       }) as AgendaPromocaoItemDto));
+    } catch (e) {
+      mensagem.erro(e);
+    }
+  };
+
+  // "Clonar agenda" (miClonarAgenda, uCadAgendaPromocao.pas:1461): a agenda aberta vira uma NOVA em inclusão — nome + " - CLONE",
+  // opções, observação e os itens (sem os irmãos gerados pelo grupo); período e lojas o operador informa, como no legado
+  const clonar = async () => {
+    if (editando == null) return;
+    try {
+      const c = await clonarAgenda(editando);
+      setEditando(null); setStatusAtual(undefined); setStatus(undefined); setLojas([]); setDtini(''); setDtfim(''); setPct(undefined);
+      setNome(c.nomepromo); setOpcoes(c.opcoes != null ? Number(c.opcoes) : undefined); setObs(c.obs ?? '');
+      setItens(c.itens.map((it) => ({
+        idproduto: it.idproduto, vlrpromocao: n(it.vlrpromocao), vrvenda: it.vrvenda != null ? n(it.vrvenda) : undefined,
+        vrclube_fidelidade: it.vrclube_fidelidade != null ? n(it.vrclube_fidelidade) : undefined,
+        ativo: it.ativo === 'N' ? 'N' : 'S', tv: snParaTf(tfParaSn(it.tv)), radio: snParaTf(tfParaSn(it.radio)),
+        tabloide: snParaTf(tfParaSn(it.tabloide)), interno: snParaTf(tfParaSn(it.interno)),
+        atualizacao_grupo: (it.atualizacao_grupo === 'M' ? 'M' : 'N') as 'M' | 'N',
+      }) as AgendaPromocaoItemDto));
+      mensagem.sucesso('Agenda clonada: informe o período e as lojas e grave.');
     } catch (e) {
       mensagem.erro(e);
     }
@@ -307,6 +328,7 @@ export function AgendaPromocaoCadMaster() {
         )}
 
         <div className="mt-form-gap flex justify-end gap-gp-sm">
+          {editando != null && <Button label="C&lonar agenda" variant="soft" onClick={() => void clonar()} />}
           {editando != null && <Button label="&Cancelar" variant="ghost" onClick={limparForm} />}
           <Button label={salvando ? 'Gravando…' : editando != null ? `Gravar agenda ${editando}` : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar()} />
         </div>
