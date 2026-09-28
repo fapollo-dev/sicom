@@ -3,7 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, type Etiqueta } from './etiquetaApi';
+import { listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, etiquetasDaAgenda, type Etiqueta } from './etiquetaApi';
 import { SelectField } from '../../shared/ui/SelectField';
 import { printEtiquetas } from './printLabels';
 
@@ -32,7 +32,8 @@ export function EtiquetaPage() {
       const fila = await listarFila();
       setLinhas(fila.map(paraLinha));
     } catch (e) {
-      mensagem.erro(e);
+      // sem a opção "Consulta Preço" (BTNCONSULTAPRECO) o legado deixa o botão desabilitado — a lista só fica sem a fila
+      if ((e as { status?: number }).status !== 403) mensagem.erro(e);
     } finally {
       setCarregando(false);
     }
@@ -46,6 +47,19 @@ export function EtiquetaPage() {
     void etiquetasDosLotes(pend.codlotes, !!pend.semPromocao).then((r) => {
       setLinhas((xs) => [...r.map((e) => ({ ...paraLinha(e), idetiqueta: undefined })), ...xs.filter((x) => !r.some((e) => e.idproduto === x.idproduto))]);
       mensagem.sucesso(`${r.length} etiqueta(s) dos lotes do Ajuste de Preços na lista.`);
+    }).catch((e) => mensagem.erro(e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // vindo da agenda de promoção (botão Etiquetas): os itens ativos da agenda entram na lista
+  useEffect(() => {
+    let pend: { codagenda?: number; preco?: string } | null = null;
+    try { pend = JSON.parse(sessionStorage.getItem('apollo.etiquetas.agenda') ?? 'null'); sessionStorage.removeItem('apollo.etiquetas.agenda'); } catch { pend = null; }
+    if (!pend?.codagenda) return;
+    const cod = pend.codagenda;
+    void etiquetasDaAgenda(cod, pend.preco ?? 'status').then((r) => {
+      setLinhas((xs) => [...r.map((e) => ({ ...paraLinha(e), idetiqueta: undefined })), ...xs.filter((x) => !r.some((e) => e.idproduto === x.idproduto))]);
+      mensagem.sucesso(`${r.length} etiqueta(s) da agenda ${cod} na lista.`);
     }).catch((e) => mensagem.erro(e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

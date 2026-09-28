@@ -4,12 +4,13 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { RelVendasService } from './rel-vendas.service';
+import { ConfigService } from '../cadastro/config.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-export const TIPOS_REL_AGENDA = ['vendidos', 'tv', 'radio', 'tabloide', 'interno', 'totais', 'totais-itens', 'por-loja', 'fim-promocao', 'inativos'] as const;
+export const TIPOS_REL_AGENDA = ['agenda', 'vendidos', 'tv', 'radio', 'tabloide', 'interno', 'totais', 'totais-itens', 'por-loja', 'fim-promocao', 'inativos'] as const;
 export type TipoRelAgenda = (typeof TIPOS_REL_AGENDA)[number];
 
 export interface FiltroRelAgenda {
@@ -24,6 +25,9 @@ export interface FiltroRelAgenda {
   empresas?: number[];
   /** o filtro "Exibir produtos" da grade (RdgExibirProdutosAtivos, padrão Ambos) — entra só nos relatórios por mídia */
   exibir?: 'S' | 'N' | 'T';
+  /** imprimir a agenda agrupada por departamento — no legado é config da ESTAÇÃO ("AGENDA DE PROMOCAO AGRUPAR VALORES PELO
+   *  DEPARTAMENTO", ConfigDB.xml local, não no banco; ausente = o leiaute simples) — aqui, a escolha na hora de imprimir */
+  agrupar?: 'S' | 'N';
 }
 
 /** a coluna de mídia de cada relatório "oferta em …" (GeralRel: `FiltroPadrao + ' AND TV = ''T'''`, :1891-1909) */
@@ -48,6 +52,7 @@ export class AgendaPromocaoRelService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly relVendas: RelVendasService,
+    private readonly config: ConfigService,
   ) {}
 
   private emp(): number {
@@ -78,6 +83,7 @@ export class AgendaPromocaoRelService {
       .executeTakeFirst()) as { codagenda: number; nomepromo: string | null; flagpromocao: string | null; dtini: string; dtfim: string; hini: string; hfim: string } | undefined;
     if (!ag) throw new BusinessRuleError('AGENDA_NAO_ENCONTRADA', { codagenda });
     const agenda = { codagenda: ag.codagenda, nomepromo: ag.nomepromo };
+    if (f.tipo === 'agenda') return { agenda: { ...agenda, flagpromocao: ag.flagpromocao, dtini: ag.dtini, hini: ag.hini, dtfim: ag.dtfim, hfim: ag.hfim }, tipo: f.tipo, ...(await this.imprimirAgenda(db, emp, codagenda, f)) };
 
     if (f.tipo === 'inativos') return { agenda, tipo: f.tipo, linhas: await this.itensComPreco(db, emp, { codagenda, inativos: true }) };
     const dtfim = f.dtfim ?? ag.dtfim;
@@ -112,6 +118,45 @@ export class AgendaPromocaoRelService {
     }
     if (f.tipo === 'totais' || f.tipo === 'totais-itens') return { ...cab, linhas: await this.rebaixa(db, ini, fim, empresas, produtos, f.tipo === 'totais-itens') };
     return { ...cab, ...(await this.porLoja(db, ini, fim, empresas, produtos)) };
+  }
+
+  /**
+   * IMPRIMIR A AGENDA (`btnImprimirClick`, uCadAgendaPromocao.pas:787). Os itens são os da GRADE — `sqqAgendaPromocaoItem`:
+   * com MULTI_PRECO na loja, ativos ou inativados há até AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO dias — sob o filtro da grade
+   * (`ATUALIZACAO_GRUPO <> 'S'`). O leiaute simples (ListagemAgendaPromocao) força "Exibir produtos = Ativos"; o agrupado
+   * (RelatorioAgendaPromocaoAgrupadoDepto) imprime a grade como está e soma o VALOR PROMOCIONAL por departamento de TODOS os
+   * itens (`sqqVendaPromocaoAgrupado`). Vr. venda = o do item, senão o da loja (`COALESCE(X.VRVENDA, M.VRVENDA)`).
+   */
+  private async imprimirAgenda(db: AnyDB, emp: number, codagenda: number, f: FiltroRelAgenda) {
+    const agrupar = f.agrupar === 'S';
+    const diasCfg = Number.parseInt(String((await this.config.resolver('AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO', { empresaId: emp })) ?? ''), 10);
+    const dias = Number.isFinite(diasCfg) ? diasCfg : 365;
+    const desc2 = sql`coalesce(m.vrdescpreco2, coalesce(z.vrdescpreco2, 0))`;
+    let q = db.selectFrom('agenda_promocao_itens as x')
+      .leftJoin('produtos as z', 'z.idproduto', 'x.idproduto')
+      .innerJoin('multi_preco as m', (j) => j.onRef('m.idproduto', '=', 'x.idproduto').on('m.idempresa', '=', emp))
+      .leftJoin('familias_prod as d', (j) => j.onRef('d.codfamilia', '=', 'z.coddpto').on('d.tipo', '=', 'D'))
+      .select(['x.codagenda', 'x.idproduto', 'z.codbarra', 'z.descricao', 'z.unidade', sql`d.descricao`.as('depto'), 'x.empresas', 'x.vlrpromocao', 'x.ativo',
+        sql`coalesce(x.vrvenda, m.vrvenda)`.as('vrvenda'),
+        sql`case when ${desc2} <> 0 then case when z.tpdescpreco2 = 'D' then m.vrvenda + ${desc2}
+                                          when z.tpdescpreco2 = 'P' then m.vrvenda + (m.vrvenda * ${desc2} / 100) else 0 end else 0 end`.as('preco2')])
+      .where('x.codagenda', '=', codagenda)
+      .where((eb) => eb.or([eb('x.ativo', '=', 'S'), eb.and([eb('x.ativo', '=', 'N'), eb('x.dtativo', '>=', sql<Date>`now() - make_interval(days => ${dias})`)])]))
+      .where(sql`coalesce(x.atualizacao_grupo, 'N')`, '<>', 'S');
+    if (!agrupar) q = q.where('x.ativo', '=', 'S');
+    else if (f.exibir === 'S' || f.exibir === 'N') q = q.where('x.ativo', '=', f.exibir);
+    const itens = ((await q.orderBy(sql`d.descricao`).orderBy('z.descricao').execute()) as Record<string, unknown>[])
+      .map((r) => ({ ...r, vrvenda: r2(num(r.vrvenda)), vlrpromocao: r2(num(r.vlrpromocao)), preco2: r2(num(r.preco2)) }));
+    if (!agrupar) return { agrupar: false, linhas: itens };
+    const departamentos = ((await sql<Record<string, unknown>>`
+      SELECT d.descricao AS depto, sum(x.vlrpromocao) AS vr_total_depto
+        FROM agenda_promocao_itens x
+        LEFT JOIN produtos z ON z.idproduto = x.idproduto
+        JOIN multi_preco m ON m.idproduto = x.idproduto AND m.idempresa = ${emp}
+        LEFT JOIN familias_prod d ON d.codfamilia = z.coddpto AND d.tipo = 'D'
+       WHERE x.codagenda = ${codagenda}
+       GROUP BY d.descricao ORDER BY d.descricao`.execute(db)).rows).map((r) => ({ ...r, vr_total_depto: r2(num(r.vr_total_depto)) }));
+    return { agrupar: true, linhas: itens, departamentos };
   }
 
   /** o valor bruto da linha de venda, como o legado arredonda (IAT 'A' = round, senão trunc) */

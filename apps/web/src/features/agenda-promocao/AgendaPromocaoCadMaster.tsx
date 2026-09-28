@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { DataTable, type DataTableColumnDef, FormFieldCheckbox, PageHeader } from '@apollosg/design-system';
@@ -47,6 +48,8 @@ const paraLocal = (iso: unknown) => {
  */
 export function AgendaPromocaoCadMaster() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
+  const [precoEtiqueta, setPrecoEtiqueta] = useState<'status' | 'venda' | 'promocional'>('status');
   const [lista, setLista] = useState<AgendaPromocao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -158,6 +161,13 @@ export function AgendaPromocaoCadMaster() {
     } catch (e) {
       mensagem.erro(e);
     }
+  };
+
+  // "Etiquetas" (btnEtiquetas / ImprimeEtiqueta): a tela de etiquetas abre com os itens ativos da agenda
+  const etiquetas = () => {
+    if (editando == null) return;
+    try { sessionStorage.setItem('apollo.etiquetas.agenda', JSON.stringify({ codagenda: editando, preco: precoEtiqueta })); } catch { /* sem storage: a tela abre sem a agenda */ }
+    navigate('/estoque/etiquetas');
   };
 
   // "Clonar agenda" (miClonarAgenda, uCadAgendaPromocao.pas:1461): a agenda aberta vira uma NOVA em inclusão — nome + " - CLONE",
@@ -329,6 +339,11 @@ export function AgendaPromocaoCadMaster() {
         )}
 
         <div className="mt-form-gap flex justify-end gap-gp-sm">
+          {editando != null && (
+            <div className="w-56"><SelectField label="Preço da etiqueta" value={precoEtiqueta} onChange={(v) => setPrecoEtiqueta(v as 'status' | 'venda' | 'promocional')}
+              options={[{ value: 'status', label: 'Pela situação da agenda' }, { value: 'venda', label: 'Utilizar valor de venda' }, { value: 'promocional', label: 'Utilizar valor promocional' }]} /></div>
+          )}
+          {editando != null && <Button label="E&tiquetas" variant="soft" onClick={etiquetas} />}
           {editando != null && <Button label="C&lonar agenda" variant="soft" onClick={() => void clonar()} />}
           {editando != null && <Button label="&Cancelar" variant="ghost" onClick={limparForm} />}
           <Button label={salvando ? 'Gravando…' : editando != null ? `Gravar agenda ${editando}` : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar()} />

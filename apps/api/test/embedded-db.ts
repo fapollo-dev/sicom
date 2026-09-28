@@ -427,6 +427,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('382_rbac_fiel_ao_legado.sql'));
   await pool.query(sql('383_rbac_telas_abertas_por_outras.sql'));
   await pool.query(sql('384_excluir_ofx_fixture.sql'));
+  await pool.query(sql('385_etiqueta_grupo_preco_view.sql'));
   await pool.end();
   return pg;
 }

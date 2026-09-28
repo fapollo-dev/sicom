@@ -56,6 +56,10 @@ export function pesquisarPorSituacao(situacao: 'N' | 'S' | 'T', busca?: string):
 }
 
 /** as etiquetas dos lotes do Ajuste de Preços (expandidas pelo grupo de preço) */
+/** as etiquetas da agenda de promoção (o botão Etiquetas da agenda) */
+export function etiquetasDaAgenda(codagenda: number, preco: string): Promise<Etiqueta[]> {
+  return req('/cadastro/etiqueta/da-agenda', { method: 'POST', body: JSON.stringify({ codagenda, preco }) });
+}
 export function etiquetasDosLotes(codlotes: number[], semPromocao: boolean): Promise<Etiqueta[]> {
   return req('/cadastro/etiqueta/dos-lotes', { method: 'POST', body: JSON.stringify({ codlotes, semPromocao }) });
 }

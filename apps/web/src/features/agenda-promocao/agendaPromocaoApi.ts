@@ -79,16 +79,17 @@ export function aplicarAgenda(id: number): Promise<{ codagenda: number; aplicado
 }
 
 /** os relatórios do menu "Outros" (GeralRel / GerarRelProdInativos) — sem período, valem as datas/horas da agenda */
-export type TipoRelAgenda = 'vendidos' | 'tv' | 'radio' | 'tabloide' | 'interno' | 'totais' | 'totais-itens' | 'por-loja' | 'fim-promocao' | 'inativos';
+export type TipoRelAgenda = 'agenda' | 'vendidos' | 'tv' | 'radio' | 'tabloide' | 'interno' | 'totais' | 'totais-itens' | 'por-loja' | 'fim-promocao' | 'inativos';
 export interface RelAgendaResposta {
-  agenda: { codagenda: number; nomepromo: string | null };
+  agenda: { codagenda: number; nomepromo: string | null; flagpromocao?: string | null; dtini?: string; hini?: string; dtfim?: string; hfim?: string };
+  agrupar?: boolean;
   tipo: TipoRelAgenda;
   dtini?: string; dtfim?: string; horaIni?: string; horaFim?: string; data?: string; empresas?: number[];
   linhas: Array<Record<string, unknown>>;
   departamentos?: Array<Record<string, unknown>>;
   porProduto?: Array<{ codproduto: number; codbarra: unknown; descricao: unknown; lojas: Record<string, { qtde: number; vrcusto: number; vrvenda: number }> }>;
 }
-export function relatorioAgenda(id: number, p: { tipo: TipoRelAgenda; dtini?: string; dtfim?: string; horaIni?: string; horaFim?: string }): Promise<RelAgendaResposta> {
+export function relatorioAgenda(id: number, p: { tipo: TipoRelAgenda; dtini?: string; dtfim?: string; horaIni?: string; horaFim?: string; agrupar?: 'S' | 'N' }): Promise<RelAgendaResposta> {
   const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v != null && v !== '') as Array<[string, string]>);
   return req(`/relatorios/agenda-promocao/${id}?${q.toString()}`);
 }

@@ -25797,6 +25797,53 @@ async function main() {
         await pgAr.end();
       }
     }
+
+    // ══ §276 AGENDA DE PROMOÇÃO — imprimir a agenda (simples/agrupada) e as etiquetas (ImprimeEtiqueta) ════════════════════════════
+    {
+      const pgEt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let ag = 0;
+      const tirados: Array<[string, string]> = [];
+      try {
+        await pgEt.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (992760, 'P', 'GRUPO 276'), (992769, 'D', 'DEPTO 276') ON CONFLICT (codfamilia) DO NOTHING`);
+        for (const [id, desc, grupo] of [[992761, 'ETQ AGENDA P1', 992760], [992762, 'ETQ AGENDA P2', 992760], [992763, 'ETQ AGENDA P3', null], [992764, 'ETQ AGENDA P4', null]] as const) {
+          await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco, coddpto) VALUES ($1, $2, $3, 'UN', 1, 'T01', 'S', $4, 992769) ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco = EXCLUDED.codgrupopreco, coddpto = EXCLUDED.coddpto`, [id, `70000${id}`, desc, grupo]);
+          await pgEt.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, promocao) VALUES ($1, 1, 10, 'N') ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 10`, [id]);
+        }
+        ag = Number((await pgEt.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao, flagpromocao, indr) VALUES (1, 'AGENDA ETQ 276', '2026-08-01 08:00-03', '2026-08-05 20:00-03', 'N', 'I') RETURNING codagenda`)).rows[0].codagenda);
+        // P1 = mestre do grupo, P2 = irmão gerado ('S'), P3 inativado ontem, P4 ativo com preço de venda próprio no item
+        await pgEt.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao, vrvenda, ativo, dtativo, atualizacao_grupo, tv, radio, tabloide, interno) VALUES
+          ($1, 992761, 7, NULL, 'S', NULL, 'M', 'F','F','F','F'), ($1, 992762, 7, NULL, 'S', NULL, 'S', 'F','F','F','F'),
+          ($1, 992763, 6, NULL, 'N', now() - interval '1 day', 'N', 'F','F','F','F'), ($1, 992764, 5, 12, 'S', NULL, 'N', 'F','F','F','F')`, [ag]);
+        const rel = async (q: string) => ((await (await fetch(`${base}/relatorios/agenda-promocao/${ag}?${q}`, { headers: H })).json().catch(() => ({}))) as any);
+        const simples = await rel('tipo=agenda');
+        const agrupada = await rel('tipo=agenda&agrupar=S');
+        const etq = async (preco: string) => ((await (await fetch(`${base}/cadastro/etiqueta/da-agenda`, { method: 'POST', headers: H, body: JSON.stringify({ codagenda: ag, preco }) })).json().catch(() => [])) as any[]);
+        const porStatus = await etq('status');
+        const porVenda = await etq('venda');
+        await pgEt.query(`UPDATE agenda_promocao SET flagpromocao = 'J' WHERE codagenda = $1`, [ag]);
+        const fechada = await etq('status');
+        const promoFechada = await etq('promocional');
+        const id = (xs: any[]) => xs.map((x) => Number(x.idproduto ?? x.idproduto)).sort();
+        const achar = (xs: any[], i: number) => xs.find((x) => Number(x.idproduto) === i);
+        // a tela de etiquetas aberta pela agenda imprime sem o gate dela (o legado a abre por Create)
+        const r = await pgEt.query(`DELETE FROM permissoes WHERE form = 'FRMETIQUETA' AND opcao = 'FRMETIQUETA' AND codoperador = 7 AND codempresa = 1`);
+        if (r.rowCount) tirados.push(['FRMETIQUETA', 'FRMETIQUETA']);
+        const imprimirSemEtq = await fetch(`${base}/cadastro/etiqueta/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [] }) });
+        check('AGENDA §276 [imprimir a agenda e etiquetas]: a impressão simples traz só os itens ATIVOS e fora dos irmãos de grupo (P1 e P4, Vr. venda do item quando há); a agrupada imprime a grade (com o inativado recente) e soma o valor promocional de TODOS os itens por departamento (R$ 25); as etiquetas saem dos itens ativos com o mestre do grupo expandido para o irmão, uma por código de barras, com o preço promocional pela situação (agenda aberta) e o de venda quando fechada ou no "valor de venda"; a tela de etiquetas aberta pela agenda imprime sem o gate dela',
+          JSON.stringify(id(simples.linhas ?? [])) === JSON.stringify([992761, 992764]) && Number(achar(simples.linhas ?? [], 992764)?.vrvenda) === 12
+          && (agrupada.linhas ?? []).length === 3 && !!achar(agrupada.linhas ?? [], 992763)
+          && Number((agrupada.departamentos ?? []).find((d: any) => d.depto === 'DEPTO 276')?.vr_total_depto) === 25
+          && JSON.stringify(id(porStatus)) === JSON.stringify([992761, 992762, 992764]) && Number(achar(porStatus, 992761)?.valor_venda_promocao) === 7
+          && Number(achar(porVenda, 992764)?.valor_venda_promocao) === 12
+          && Number(achar(fechada, 992761)?.valor_venda_promocao) === 10 && Number(achar(promoFechada, 992761)?.valor_venda_promocao) === 7
+          && imprimirSemEtq.status !== 403,
+          { simples: (simples.linhas ?? []).map((l: any) => [l.idproduto, l.vrvenda]), agrupada: { n: (agrupada.linhas ?? []).length, dep: agrupada.departamentos }, porStatus: porStatus.map((x) => [x.idproduto, x.valor_venda_promocao]), porVenda: porVenda.map((x) => [x.idproduto, x.valor_venda_promocao]), fechada: fechada.map((x) => [x.idproduto, x.valor_venda_promocao]), imprimir: imprimirSemEtq.status });
+      } finally {
+        for (const [f, o] of tirados) await pgEt.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
+        if (ag) { await pgEt.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = $1`, [ag]); await pgEt.query(`DELETE FROM agenda_promocao WHERE codagenda = $1`, [ag]); }
+        await pgEt.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

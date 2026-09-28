@@ -2,8 +2,9 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Que
 import { etiquetaAdicionarSchema, etiquetaImprimirSchema, type EtiquetaAdicionarDto, type EtiquetaImprimirDto } from '@apollo/shared';
 import { EtiquetaService } from './etiqueta.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 
 /**
  * ETIQUETAS DE PREÇO (FRMETIQUETA) — fila do coletor + busca por codbarra + imprimir (log + marca + layout).
@@ -36,9 +37,21 @@ export class EtiquetaController {
   /** as etiquetas dos lotes marcados no Ajuste de Preços (o botão "Etiquetas"), expandidas pelo grupo de preço */
   @Post('dos-lotes')
   @HttpCode(200)
-  @RequerAcesso('FRMETIQUETA', 'FRMETIQUETA')
+  // o Ajuste de Preços abre a tela de etiquetas por Create (uAjustePrecos.pas:123), sem o gate do menu
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
   dosLotes(@Body() body: { codlotes?: number[]; semPromocao?: boolean }) {
     return this.svc.dosLotes(Array.isArray(body?.codlotes) ? body.codlotes : [], !!body?.semPromocao);
+  }
+
+  /** as etiquetas da agenda de promoção (o botão "Etiquetas" da agenda, que abre a tela de etiquetas sem o gate dela) */
+  @Post('da-agenda')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO')
+  daAgenda(@Body() body: { codagenda?: unknown; preco?: unknown }) {
+    const cod = Number(body?.codagenda);
+    if (!Number.isInteger(cod) || cod <= 0) throw new BusinessRuleError('AGENDA_NAO_ENCONTRADA', { codagenda: body?.codagenda });
+    const preco = body?.preco === 'venda' || body?.preco === 'promocional' ? body.preco : 'status';
+    return this.svc.daAgenda(cod, preco);
   }
 
   @Get('produto')
@@ -65,7 +78,8 @@ export class EtiquetaController {
   /** imprime: grava log + marca IMPRESSA='S' + devolve as etiquetas p/ o layout imprimível. */
   @Post('imprimir')
   @HttpCode(200)
-  @RequerAcesso('FRMETIQUETA', 'FRMETIQUETA')
+  // quem chega pela agenda de promoção ou pelo Ajuste de Preços imprime sem o gate da tela de etiquetas (o legado a abre por Create)
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
   imprimir(@Body(new ZodValidationPipe(etiquetaImprimirSchema)) body: EtiquetaImprimirDto) {
     return this.svc.imprimir({ itens: body.itens });
   }

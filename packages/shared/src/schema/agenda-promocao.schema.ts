@@ -119,7 +119,7 @@ export interface AgendaPromocao {
 }
 
 /** os relatórios da agenda (menu "Outros" do uCadAgendaPromocao — GeralRel / GerarRelProdInativos) */
-export const TIPOS_REL_AGENDA_PROMOCAO = ['vendidos', 'tv', 'radio', 'tabloide', 'interno', 'totais', 'totais-itens', 'por-loja', 'fim-promocao', 'inativos'] as const;
+export const TIPOS_REL_AGENDA_PROMOCAO = ['agenda', 'vendidos', 'tv', 'radio', 'tabloide', 'interno', 'totais', 'totais-itens', 'por-loja', 'fim-promocao', 'inativos'] as const;
 const dataRel = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const horaRel = z.string().regex(/^\d{2}:\d{2}$/);
 export const agendaPromocaoRelSchema = z.object({
@@ -130,5 +130,7 @@ export const agendaPromocaoRelSchema = z.object({
   horaFim: horaRel.optional(),
   empresas: z.preprocess((v) => (typeof v === 'string' ? v.split(',').filter(Boolean) : v), z.array(z.coerce.number().int().positive())).optional(),
   exibir: z.enum(['S', 'N', 'T']).optional(),
+  /** imprimir a agenda: o leiaute agrupado por departamento (config de estação do legado, ConfigDB.xml) */
+  agrupar: z.enum(['S', 'N']).optional(),
 });
 export type AgendaPromocaoRelDto = z.infer<typeof agendaPromocaoRelSchema>;

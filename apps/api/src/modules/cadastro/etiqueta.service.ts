@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { ConfigService } from './config.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -33,7 +34,10 @@ export interface Etiqueta {
  */
 @Injectable()
 export class EtiquetaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -151,6 +155,62 @@ export class EtiquetaService {
       if (vistos.has(cb)) continue;
       vistos.add(cb);
       out.push(this.montar(r));
+    }
+    return out;
+  }
+
+  /**
+   * AS ETIQUETAS DA AGENDA DE PROMOÇÃO (`ImprimeEtiqueta`, uCadAgendaPromocao.pas:2302): o botão "Etiquetas" abre a tela de
+   * etiquetas com os itens ATIVOS da agenda que têm preço na loja, uma etiqueta por código de barras (qtde 1). O preço impresso
+   * depende do botão: `status` (o clique direto) = preço de VENDA se a agenda está FECHADA (cbbStatus índice 2 = 'J'), senão o
+   * promocional; `venda` / `promocional` = os itens do menu do botão. Item MESTRE de grupo de preço (ATUALIZACAO_GRUPO = 'M',
+   * o GRUPOPRECOSEL) com grupo > 0 expande para os itens da agenda do mesmo grupo (`sqqProdGrupoPreco`: família TIPO 'P',
+   * produto ativo pela config ATIVO_PELA_MULTIPRECO; preço de venda da loja), e sem nenhum cai no próprio item. A config de
+   * estação "desconsiderar grupo de preço na agenda" (ConfigDB.xml, fora do banco) fica no padrão do legado: expandir.
+   */
+  async daAgenda(codagenda: number, preco: 'status' | 'venda' | 'promocional'): Promise<Etiqueta[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ag = (await db.selectFrom('agenda_promocao').select(['flagpromocao']).where('codagenda', '=', codagenda)
+      .where(sql`coalesce(indr, 'I')`, '<>', 'E').executeTakeFirst()) as { flagpromocao: string | null } | undefined;
+    if (!ag) throw new BusinessRuleError('AGENDA_NAO_ENCONTRADA', { codagenda });
+    const fechada = String(ag.flagpromocao ?? '') === 'J';
+    const itens = (await db.selectFrom('agenda_promocao_itens as x')
+      .leftJoin('produtos as z', 'z.idproduto', 'x.idproduto')
+      .innerJoin('multi_preco as m', (j: any) => j.onRef('m.idproduto', '=', 'x.idproduto').on('m.idempresa', '=', emp))
+      .leftJoin('familias_prod as d', (j: any) => j.onRef('d.codfamilia', '=', 'z.coddpto').on('d.tipo', '=', 'D'))
+      .select(['x.idproduto', 'x.atualizacao_grupo', 'z.codgrupopreco', 'z.codbarra', 'z.descricao', 'z.unidade', 'x.vlrpromocao',
+        sql`coalesce(x.vrvenda, m.vrvenda)`.as('vrvenda')])
+      .where('x.codagenda', '=', codagenda).where('x.ativo', '=', 'S')
+      .orderBy(sql`d.descricao`).orderBy('z.descricao')
+      .execute()) as Array<Record<string, unknown>>;
+    const ativoMp = String((await this.config.resolver('ATIVO_PELA_MULTIPRECO', { empresaId: emp })) ?? 'N').toUpperCase() === 'S';
+    const out: Etiqueta[] = [];
+    const vistos = new Set<string>();
+    const pos = (r: Record<string, unknown>) => {
+      const cb = String(r.codbarra ?? r.idproduto);
+      if (vistos.has(cb)) return;
+      vistos.add(cb);
+      const venda = r2(num(r.vrvenda));
+      const promo = r2(num(r.vlrpromocao));
+      const usaVenda = preco === 'venda' || (preco === 'status' && fechada);
+      out.push({ idproduto: Number(r.idproduto), codbarra: (r.codbarra as string) ?? null, descricao: String(r.descricao ?? '').trim(), unidade: (r.unidade as string) ?? null,
+        fator: 1, qtde: 1, valor_venda: venda, valor_promocao: promo, valor_venda_promocao: usaVenda ? venda : promo, promocao: usaVenda ? 'N' : 'S' });
+    };
+    for (const it of itens) {
+      const g = Number(it.codgrupopreco ?? 0);
+      if (g > 0 && String(it.atualizacao_grupo ?? '') === 'M') {
+        const grupo = (await sql<Record<string, unknown>>`
+          SELECT DISTINCT x.idproduto, z.codbarra, z.descricao, z.unidade, m.vrvenda, x.vlrpromocao
+            FROM agenda_promocao_itens x
+            LEFT JOIN produtos z ON z.idproduto = x.idproduto
+            JOIN multi_preco m ON m.idproduto = x.idproduto AND m.idempresa = ${emp}
+            JOIN familias_prod f ON f.codfamilia = z.codgrupopreco AND f.tipo = 'P'
+           WHERE z.codgrupopreco = ${g} AND x.codagenda = ${codagenda}
+             AND ${ativoMp ? sql`coalesce(m.ativo, 'S') = 'S'` : sql`coalesce(z.ativo, 'S') = 'S'`}`.execute(db)).rows;
+        if (grupo.length) { for (const r of grupo) pos(r); continue; }
+      }
+      pos(it);
     }
     return out;
   }
