@@ -89,7 +89,7 @@ ativo/inativo, colunas Lojas e Status na lista.
 retirar loja (reverte só a loja 2; E→N; leitura [1]) · transições do status · sobreposição por loja e contra FECHADA ·
 agenda da loja 2 visível na loja 1, loja inexistente 422, flags T/F.
 
-**Continua adiado:** ~~atualização por grupo de preço~~ (24/09) · ~~clonar~~ (27/09, abaixo) · relatórios e etiquetas.
+**Continua adiado:** ~~atualização por grupo de preço~~ (24/09) · ~~clonar~~ (27/09, abaixo) · ~~relatórios~~ (27/09, `uCadAgendaPromocao-relatorios.md`) · imprimir a agenda e etiquetas.
 Opções obrigatórias (`OpcoesAgendaPromocaoObrigatorio`): 🪦 desligada na prática — 428 de 472 agendas de 2026 e 7.207 de 7.276 itens
 sem opção (a config vale "NÃO").
 

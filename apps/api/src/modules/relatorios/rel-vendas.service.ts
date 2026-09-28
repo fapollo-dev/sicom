@@ -26,6 +26,8 @@ export interface FiltroRelVendas {
   // CkbExibirProdutosFilhos: troca a CHAVE de agrupamento do relatório para o produto FILHO
   // (`COALESCE(A.IDPRODUTO_FILHO, A.CODPRODUTO)`, uVendas.pas:1867 no SELECT e :1986 no GROUP BY).
   exibirFilhos?: boolean;
+  // os produtos da agenda de promoção (`AND V.CODPRODUTO IN (…)`, uCadAgendaPromocao.GeralRel) — lista vazia = nenhum
+  produtos?: number[];
 }
 
 /**
@@ -60,13 +62,15 @@ export class RelVendasService {
     return e;
   }
 
-  async produtosVendidos(f: FiltroRelVendas): Promise<{ linhas: Record<string, unknown>[]; totais: Record<string, number | null>; filtro: Record<string, unknown> }> {
+  async produtosVendidos(f: FiltroRelVendas, opts?: { empresasPermitidas?: number[] }): Promise<{ linhas: Record<string, unknown>[]; totais: Record<string, number | null>; filtro: Record<string, unknown> }> {
     const emp = this.emp();
     if (!f.dtini || !f.dtfim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
     if (String(f.dtini) > String(f.dtfim)) throw new BusinessRuleError('PERIODO_INVERTIDO', { dtini: f.dtini, dtfim: f.dtfim }); // fiel :485
     const db = this.dbp.forTenantRead() as AnyDB;
     // empresas: as pedidas ∩ a do tenant (o GetMultiEmpresa do legado é multi-seleção; aqui o escopo é o tenant).
-    const empresas = (f.empresas?.length ? f.empresas.map(Number) : [emp]).filter((e) => e === emp);
+    // quem chama pode alargar o escopo às lojas do operador (a agenda de promoção, que é da rede — GetMultiEmpresa)
+    const permitidas = opts?.empresasPermitidas?.length ? opts.empresasPermitidas : [emp];
+    const empresas = (f.empresas?.length ? f.empresas.map(Number) : [emp]).filter((e) => permitidas.includes(e));
     if (!empresas.length) throw new BusinessRuleError('EMPRESA_FORA_DO_ESCOPO', { empresas: f.empresas });
     // custo: VRCUSTO (default) ou VRCUSTOREP (radio) — a config dá o default (fiel ao StringReplace global).
     const custoRepDefault = String((await this.config.resolver('VENDAS_FILTRO_CUSTO', { empresaId: emp })) ?? 'C').toUpperCase() === 'R';
@@ -139,6 +143,7 @@ export class RelVendasService {
     // crua. Testar `v.desc_promocao` sozinho perdia a linha cujo único desconto é desc_acre_medio negativo.
     if (f.descontos === 'COM') q = q.where(desc, '>', 0);
     if (f.descontos === 'SEM') q = q.where(desc, '=', 0);
+    if (f.produtos) q = f.produtos.length ? q.where('v.codproduto', 'in', f.produtos.map(Number)) : q.where(sql<boolean>`false`);
     if (f.produto) q = q.where(sql`upper(p.descricao)`, 'like', `%${f.produto.toUpperCase()}%`);
     if (f.fornecedor) q = q.where(sql`upper(forn.razao)`, 'like', `%${f.fornecedor.toUpperCase()}%`);
     if (f.departamentos?.length) q = q.where('p.coddpto', 'in', f.departamentos.map(Number));

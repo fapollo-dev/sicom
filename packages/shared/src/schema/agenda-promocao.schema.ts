@@ -117,3 +117,18 @@ export interface AgendaPromocao {
   qtde_itens?: number | string | null;
   itens?: AgendaPromocaoItemDto[];
 }
+
+/** os relatórios da agenda (menu "Outros" do uCadAgendaPromocao — GeralRel / GerarRelProdInativos) */
+export const TIPOS_REL_AGENDA_PROMOCAO = ['vendidos', 'tv', 'radio', 'tabloide', 'interno', 'totais', 'totais-itens', 'por-loja', 'fim-promocao', 'inativos'] as const;
+const dataRel = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const horaRel = z.string().regex(/^\d{2}:\d{2}$/);
+export const agendaPromocaoRelSchema = z.object({
+  tipo: z.enum(TIPOS_REL_AGENDA_PROMOCAO),
+  dtini: dataRel.optional(),
+  dtfim: dataRel.optional(),
+  horaIni: horaRel.optional(),
+  horaFim: horaRel.optional(),
+  empresas: z.preprocess((v) => (typeof v === 'string' ? v.split(',').filter(Boolean) : v), z.array(z.coerce.number().int().positive())).optional(),
+  exibir: z.enum(['S', 'N', 'T']).optional(),
+});
+export type AgendaPromocaoRelDto = z.infer<typeof agendaPromocaoRelSchema>;

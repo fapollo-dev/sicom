@@ -77,3 +77,18 @@ export function reabrirAgenda(id: number): Promise<{ codagenda: number; situacao
 export function aplicarAgenda(id: number): Promise<{ codagenda: number; aplicados: number }> {
   return req(`${AP}/${id}/aplicar`, { method: 'POST' });
 }
+
+/** os relatórios do menu "Outros" (GeralRel / GerarRelProdInativos) — sem período, valem as datas/horas da agenda */
+export type TipoRelAgenda = 'vendidos' | 'tv' | 'radio' | 'tabloide' | 'interno' | 'totais' | 'totais-itens' | 'por-loja' | 'fim-promocao' | 'inativos';
+export interface RelAgendaResposta {
+  agenda: { codagenda: number; nomepromo: string | null };
+  tipo: TipoRelAgenda;
+  dtini?: string; dtfim?: string; horaIni?: string; horaFim?: string; data?: string; empresas?: number[];
+  linhas: Array<Record<string, unknown>>;
+  departamentos?: Array<Record<string, unknown>>;
+  porProduto?: Array<{ codproduto: number; codbarra: unknown; descricao: unknown; lojas: Record<string, { qtde: number; vrcusto: number; vrvenda: number }> }>;
+}
+export function relatorioAgenda(id: number, p: { tipo: TipoRelAgenda; dtini?: string; dtfim?: string; horaIni?: string; horaFim?: string }): Promise<RelAgendaResposta> {
+  const q = new URLSearchParams(Object.entries(p).filter(([, v]) => v != null && v !== '') as Array<[string, string]>);
+  return req(`/relatorios/agenda-promocao/${id}?${q.toString()}`);
+}

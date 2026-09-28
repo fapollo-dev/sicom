@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { RelVendasController } from './rel-vendas.controller';
 import { RelVendasService } from './rel-vendas.service';
+import { AgendaPromocaoRelService } from './agenda-promocao-rel.service';
+import { AgendaPromocaoRelController } from './agenda-promocao-rel.controller';
 import { PreviaFornecedorController } from './previa-fornecedor.controller';
 import { PreviaFornecedorService } from './previa-fornecedor.service';
 import { RelFinalizadorasController } from './rel-finalizadoras.controller';
@@ -93,7 +95,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
+  controllers: [AgendaPromocaoRelController, RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
     // FRMRELATORIO + FRMCADASTRORELATORIO — o construtor: catálogo de fontes, definição salva e execução.
     RelatorioConstrutorController,
     // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).
@@ -132,6 +134,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     RelEntSaiController,
     // FRMANALISEENTRADAXSAIDA — por fornecedor, saída de venda ou pedido (68 acessos).
     AnaliseEntradaSaidaController],
-  providers: [RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRelService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
+  providers: [AgendaPromocaoRelService, RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRelService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
 })
 export class RelatoriosModule {}

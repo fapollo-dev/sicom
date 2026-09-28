@@ -166,6 +166,10 @@ Cruzando o que o Apollo exige × a PERMISSOES da produção, **46 atos** pediam 
 **Excluir movimentação OFX** (`FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX`, 27 operadores) — a lacuna desta auditoria —
 convertida em seguida (mig 384, smoke §274): ver o dossiê da conciliação bancária.
 
+`FRMCADAGENDAPROMOCAO.CUSTOREPOSICAO` ("Custo de Reposição", 22 operadores): componente do binário novo (não está no .dfm de
+2020) e as tabelas da agenda não têm coluna de custo — o efeito não é provável pelo dado. A agenda do Apollo não mostra custo de
+reposição: não há o que travar. Se a tela passar a mostrá-lo, entra atrás desta opção.
+
 ## Telas sem grant nenhum, telas abertas por outras e a tela de configurações (27/09/2026, parte 2)
 
 **Sem grant nenhum na produção** (FRMCADCONFPLANOCONTAS, FRMCADPRODUCAO, FRMPRECIFICACAONFBRUTA, FRMPENDENCIASOPERADOR,

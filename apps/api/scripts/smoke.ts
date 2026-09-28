@@ -25732,6 +25732,71 @@ async function main() {
         await pgEx.end();
       }
     }
+
+    // ══ §275 RELATÓRIOS DA AGENDA DE PROMOÇÃO — o menu "Outros" (GeralRel / GerarRelProdInativos) ═══════════════════════════════
+    {
+      const pgAr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const agendas: number[] = [];
+      try {
+        for (const [id, desc] of [[992751, 'AGENDA REL P1'], [992752, 'AGENDA REL P2'], [992753, 'AGENDA REL P3'], [992754, 'FORA DA AGENDA']] as const) {
+          await pgAr.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES ($1, $2, $3, 'UN', 1, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`, [id, `70000${id}`, desc]);
+        }
+        await pgAr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, promocao, vrdescpreco2) VALUES (992751,1,10,'N',1), (992752,1,20,'N',NULL), (992753,1,30,'N',NULL), (992754,1,5,'N',NULL) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = EXCLUDED.vrvenda, vrdescpreco2 = EXCLUDED.vrdescpreco2`);
+        await pgAr.query(`UPDATE produtos SET tpdescpreco2 = 'D' WHERE idproduto = 992751`);
+        const novaAgenda = async (nome: string, indr: string) => Number((await pgAr.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao, flagpromocao, indr) VALUES (1, $1, '2026-07-10 08:00-03', '2026-07-12 20:00-03', 'N', $2) RETURNING codagenda`, [nome, indr])).rows[0].codagenda);
+        const ag = await novaAgenda('AGENDA REL 275', 'I');
+        const excluida = await novaAgenda('AGENDA REL 275 EXCLUIDA', 'E');
+        agendas.push(ag, excluida);
+        await pgAr.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao, ativo, tv, radio, tabloide, interno, atualizacao_grupo) VALUES
+          ($1, 992751, 8, 'S', 'F', 'F', 'F', 'F', 'N'), ($1, 992752, 15, 'S', 'T', 'F', 'F', 'F', 'N'), ($1, 992753, 25, 'N', 'F', 'F', 'F', 'F', 'N'),
+          ($2, 992754, 4, 'S', 'F', 'F', 'F', 'F', 'N')`, [ag, excluida]);
+        // vendas da loja 1: P1 2×8 em promoção + 1×10 fora; P2 1×15 em promoção + 5 canceladas; P1 antes da hora; produto fora da agenda
+        await pgAr.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, promocao) VALUES
+          (1, '2026-07-10 12:00-03', '1', 27501, 1, 992751, 2, 8, 5, 'A', '5102', 'N', 'S', 'P', 'S'),
+          (1, '2026-07-10 03:00-03', '1', 27502, 1, 992751, 1, 8, 5, 'A', '5102', 'N', 'S', 'P', 'S'),
+          (1, '2026-07-11 12:00-03', '1', 27503, 1, 992752, 1, 15, 9, 'A', '5102', 'N', 'S', 'P', 'S'),
+          (1, '2026-07-11 13:00-03', '1', 27504, 1, 992752, 5, 15, 9, 'A', '5102', 'S', 'S', 'P', 'S'),
+          (1, '2026-07-12 14:00-03', '1', 27505, 1, 992751, 1, 10, 5, 'A', '5102', 'N', 'S', 'P', 'N'),
+          (1, '2026-07-11 12:00-03', '1', 27506, 1, 992754, 3, 4, 2, 'A', '5102', 'N', 'S', 'P', 'S')`);
+        const rel = async (q: string) => {
+          const r = await fetch(`${base}/relatorios/agenda-promocao/${ag}?${q}`, { headers: H });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const per = 'dtini=2026-07-10&dtfim=2026-07-12&horaIni=08:00&horaFim=20:00';
+        const vend = await rel(`tipo=vendidos&${per}`);
+        const lin = (r: any, id: number) => (r.j.linhas ?? []).find((l: any) => Number(l.idproduto ?? l.codproduto) === id);
+        const tv = await rel(`tipo=tv&${per}`);
+        const tot = await rel(`tipo=totais&${per}`);
+        const totIt = await rel(`tipo=totais-itens&${per}`);
+        const loja = await rel(`tipo=por-loja&${per}`);
+        const padrao = await rel('tipo=totais'); // sem período: as datas e horas da própria agenda
+        const inat = await rel('tipo=inativos');
+        const fimP = await rel('tipo=fim-promocao&dtfim=2026-07-12');
+        const semAcesso = await fetch(`${base}/relatorios/agenda-promocao/${ag}?tipo=vendidos`, { headers: H_SEM_ACESSO });
+        const t0 = (tot.j.linhas ?? [])[0] ?? {};
+        check('AGENDA §275 [relatórios do menu Outros]: "vendidos" = rel 01 só dos produtos da agenda na janela data+hora (P1 3 un/R$ 26, P2 1 un/R$ 15; fora da hora, cancelada e produto de fora não entram) com o resumo por departamento; "oferta em TV" só o item com a flag; "totais" = venda EM PROMOÇÃO (R$ 31) e a diferença contra o preço de venda atual (R$ 9 → 29,03%); "com itens" por produto; "por loja" pivota a loja; sem período usa as datas/horas da agenda; "inativos" só o item inativo com o preço da loja; "fim da promoção" lista os itens das agendas abertas que terminam na data, com o preço 2 — e não a agenda EXCLUÍDA; sem a tela → 403',
+          vend.status === 200 && Number(lin(vend, 992751)?.qtde) === 3 && Number(lin(vend, 992751)?.total_venda) === 26 && Number(lin(vend, 992752)?.total_venda) === 15 && !lin(vend, 992754)
+          && (vend.j.departamentos ?? []).reduce((a: number, d: any) => a + Number(d.vr_total_venda), 0) === 41
+          && tv.status === 200 && (tv.j.linhas ?? []).length === 1 && !!lin(tv, 992752)
+          && tot.status === 200 && Number(t0.vr_total_venda) === 31 && Number(t0.vr_total_dif_venda_promo) === 9 && Number(t0.vr_total_venda_promo) === 22 && Number(t0.vr_total_perc_dif_venda_promo) === 29.03
+          && (totIt.j.linhas ?? []).length === 2 && Number(lin(totIt, 992751)?.vr_total_dif_venda_promo) === 4
+          && Number((loja.j.porProduto ?? []).find((p: any) => p.codproduto === 992751)?.lojas?.['1']?.qtde) === 2
+          && Number(((padrao.j.linhas ?? [])[0] ?? {}).vr_total_venda) === 31 && padrao.j.horaIni === '08:00' && padrao.j.horaFim === '20:00'
+          && (inat.j.linhas ?? []).length === 1 && Number(inat.j.linhas[0].idproduto) === 992753 && Number(inat.j.linhas[0].vrvenda) === 30
+          && fimP.status === 200 && (fimP.j.linhas ?? []).filter((l: any) => Number(l.codagenda) === ag).length === 3
+          && !(fimP.j.linhas ?? []).some((l: any) => Number(l.codagenda) === excluida)
+          && Number((fimP.j.linhas ?? []).find((l: any) => Number(l.idproduto) === 992751)?.preco2) === 11
+          && semAcesso.status === 403,
+          { vend: { s: vend.status, p1: lin(vend, 992751), p2: lin(vend, 992752)?.total_venda, dep: vend.j.departamentos, e: vend.j.code }, tv: (tv.j.linhas ?? []).length, tot: t0, totIt: totIt.j.linhas, loja: loja.j.porProduto, padrao: { l: padrao.j.linhas, hi: padrao.j.horaIni, hf: padrao.j.horaFim }, inat: inat.j.linhas, fim: (fimP.j.linhas ?? []).map((l: any) => [l.codagenda, l.idproduto, l.preco2]), semAcesso: semAcesso.status });
+      } finally {
+        await pgAr.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 27501 AND 27506`);
+        if (agendas.length) {
+          await pgAr.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = ANY($1::int[])`, [agendas]);
+          await pgAr.query(`DELETE FROM agenda_promocao WHERE codagenda = ANY($1::int[])`, [agendas]);
+        }
+        await pgAr.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

@@ -12,6 +12,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { AgendaPromocaoRelatorios } from './AgendaPromocaoRelatorios';
 import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
@@ -41,8 +42,8 @@ const paraLocal = (iso: unknown) => {
  * REDE com workflow (editar/aplicar/encerrar/reabrir/excluir).
  * mig 312: as lojas participantes (obrigatórias — "Selecione as Empresas participantes") valem para todos os itens; o
  * status é o ciclo do legado ABERTA → EXECUTANDO → FECHADA, e o combo só deixa voltar a ABERTA.
- * ADIADO (documentado): Grupo-Preço/Atualizar-Grupo/Departamento, % promoção/% fidelidade, relatórios/Clonar/
- * Etiquetas/Histórico ("Outros").
+ * "Outros": clonar e os relatórios (AgendaPromocaoRelatorios). ADIADO (documentado): Grupo-Preço/Atualizar-Grupo/
+ * Departamento, % promoção/% fidelidade, imprimir a agenda, etiquetas, histórico.
  */
 export function AgendaPromocaoCadMaster() {
   const mensagem = useMensagem();
@@ -333,6 +334,8 @@ export function AgendaPromocaoCadMaster() {
           <Button label={salvando ? 'Gravando…' : editando != null ? `Gravar agenda ${editando}` : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar()} />
         </div>
       </section>
+
+      {editando != null && <AgendaPromocaoRelatorios codagenda={editando} />}
 
       {/* Lista de agendas */}
       <DataTable persistId="agenda-promocao-2" savedViewsService={gradeLayoutService} rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.codagenda)} />
