@@ -25952,6 +25952,24 @@ async function main() {
             count(*) FILTER (WHERE v.valor_liquido <> r.valor + coalesce(b.juros,0) + coalesce(b.acre_desc,0))::int liq_errado,
             count(*) FILTER (WHERE r.quitada <> 'S' OR coalesce(b.indr,'I') = 'E')::int fora
           FROM get_areceberbx v JOIN areceber_bx b ON b.codrcbbx = v.codigo_documentobx JOIN areceber r ON r.codrcb = b.codrcb`)).rows[0] as any;
+        // as fontes na ÍNTEGRA do legado (mig 388): as colunas de ALL_TAB_COLUMNS (+ as extras do Apollo no fim)
+        const ncols = async (v: string) => Number((await pgVb.query(`SELECT count(*)::int n FROM information_schema.columns WHERE table_name = $1`, [v])).rows[0].n);
+        const nRcb = await ncols('get_rcb'), nCp = await ncols('get_cp_cen'), nApb = await ncols('get_apagarbx'), nArb = await ncols('get_areceberbx');
+        const tipoSit = (await pgVb.query(`SELECT data_type FROM information_schema.columns WHERE table_name = 'get_rcb' AND column_name = 'codigo_situacao_documento'`)).rows[0]?.data_type;
+        const rcb = (await pgVb.query(`SELECT r.codigo, r.cliente_completo, r.codigo_cliente, p.fantasia, p.razao FROM get_rcb r JOIN parceiros p ON p.codparceiro = r.codigo_cliente WHERE r.cliente_completo IS NOT NULL LIMIT 1`)).rows[0] as any;
+        const formatoCliente = rcb ? rcb.cliente_completo === `${rcb.codigo_cliente} - ${rcb.fantasia ?? rcb.razao}` : false;
+        // juro de título vencido há 30 dias, 3% a.m., sem tolerância: taxa diária arredondada (0,10) × 30 × 100 / 100 = 3,00
+        const tolAntes = (await pgVb.query(`SELECT tolerancia FROM parceiros WHERE codparceiro = 20`)).rows[0]?.tolerancia ?? null;
+        await pgVb.query(`UPDATE parceiros SET tolerancia = 0 WHERE codparceiro = 20`);
+        const venc = (await pgVb.query(`INSERT INTO areceber (codparceiro, codempresa, valor, txjuros, dtvenda, dtvenc, quitada, duplicata, agrupado, cadastrado_manualmente, consiliado, gerado)
+          VALUES (20, 1, 100, 3, current_date - 40, current_date - 30, 'N', 'JURO279', 'N', 'S', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb;
+        const juro = (await pgVb.query(`SELECT juro, dias_atrazo, total FROM get_rcb WHERE codigo = $1`, [venc])).rows[0] as any;
+        await pgVb.query(`DELETE FROM areceber WHERE codrcb = $1`, [venc]);
+        await pgVb.query(`UPDATE parceiros SET tolerancia = $1 WHERE codparceiro = 20`, [tolAntes]);
+        check('RELATÓRIOS §279b [as fontes na íntegra do legado]: GET_RCB com as 73 colunas do legado (+2 do Apollo), CODIGO_SITUACAO_DOCUMENTO com a DESCRIÇÃO (a lista de colunas da view manda), CLIENTE_COMPLETO "código - fantasia", juro de 30 dias a 3% = 3,00 (taxa diária arredondada a 2 casas) e total 103; GET_CP_CEN com as 41 (+3), GET_APAGARBX com as 37 (+2), GET_ARECEBERBX com as 44 (+2)',
+          nRcb === 75 && nCp === 44 && nApb === 39 && nArb === 46 && tipoSit !== 'integer' && formatoCliente
+          && Number(juro?.dias_atrazo) === 30 && Number(juro?.juro) === 3 && Number(juro?.total) === 103,
+          { nRcb, nCp, nApb, nArb, tipoSit, rcb, juro });
         check('RELATÓRIOS §279 [as views das baixas como o legado]: GET_APAGARBX com VALOR_DOCUMENTO = valor + vendor − desconto e ACRES_DESC = acréscimo − desconto, só título quitado e baixa ativa (todas as baixas assim entram); GET_ARECEBERBX com VALOR_LIQUIDO = valor + juros + acréscimo, só quitado e não excluída',
           Number(ap.n) > 0 && Number(ap.n) === apFora && ap.doc_errado === 0 && ap.acre_errado === 0 && ap.fora === 0
           && Number(ar.n) > 0 && ar.liq_errado === 0 && ar.fora === 0,
