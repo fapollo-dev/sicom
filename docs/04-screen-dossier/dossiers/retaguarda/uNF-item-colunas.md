@@ -238,7 +238,7 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
 - **SINCRONIZADO_CFOP / _ALIQ / _CST** := 'S' na tela Sincronizar (`uSincronizaCFOPNotaFiscal.pas:176`, `:234`, `:289`). Apollo: o de-para de CFOP existe
   (`nf-processamento.service.ts:~100-115`) mas não marca o flag; ALIQUOTA/CST não portados.
 - **CODOPERADOR_LIB_ESTOQUENEG** := usuário que autorizou (ou o logado se a config permite) ao **reverter** com estoque negativo
-  (`PermiteReverterComProdutoEstoqueNeg`, `udmNF.pas:11600-11690`, chamado em `uNF.pas:8994`). Apollo: override por senha adiado (cabeçalho do `nf-processamento.service.ts`).
+  (`PermiteReverterComProdutoEstoqueNeg`, `udmNF.pas:11600-11690`, chamado em `uNF.pas:8994`). Apollo: ✅ `liberarEstoqueNegativo` (`nf-processamento.service.ts`) no processar e no reverter — com 'N' a liberação por login dos usuários da config, gravada no item.
 - **IDSITUACAO_NF** — **já coberto**: `nf.aggregate.ts:340-344` (`UPDATE nf_prod SET idsituacao_nf = n.idsituacao_nf … IS NULL`), espelho de `uItensNF.pas:3887`,
   `uNF.pas:13700/16043`. Falso positivo do conferidor (não está em `colunas`).
 - **ESPECIFICACAO** — falso positivo (ver §0).
@@ -294,7 +294,7 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
   do manifesto (GetMaiorPedidoCompraPelaChaveNFe), o destinatário (outra loja/nenhuma → recusa), o fornecedor sem FRN marcado (o Apollo
   recusava) com CODPARCEIRO_END, e a transportadora (TRA 'S'; sem cadastro → recusa com os dados). E o **TOTALNF do legado**
   (`nf-total.ts`: + FCP-ST + serviço + outros + desconto final − desonerado; complementar = IPI + ST) — 98,7% das notas de 2026 (a conta
-  antiga, 93%). Smoke §238. Falta na web: abrir o cadastro de parceiro com os dados que a recusa traz.
+  antiga, 93%). Smoke §238. ✅ A web abre o cadastro com os dados da recusa (`ImportarXmlModal`); o fornecedor traz o IDCIDADE do `cMun`, a transportadora pelo município + UF (28/09).
 - **CSOSN/CST/CSTPISCOFINS do item importado**: o legado deixa CSOSN e CSTPISCOFINS NULL na entrada (99,9% / 100%) e o CST final
   sai da análise do item (indexador — corte 5); o Apollo grava os do XML, e o SPED de PIS/COFINS depende do CSTPISCOFINS.
 

@@ -612,4 +612,4 @@ editáveis enquanto não há recurso, totais, CCs com o padrão da empresa, recu
 DINHEIRO —, valor sugerido = restante, histórico `REFERENTE A BAIXA DO LOTE: N`), avisos de data (não bloqueiam), parcial
 com a pergunta do legado e o vencimento do saldo. Manutenção: botão na consulta de baixas → `?manutencao=<lote>` (valida o
 `ReversaoPermitida` sem reverter, traz documentos e data, aloca lote novo). O painel "baixar título" do cadastro de Contas a
-Pagar (invenção do Apollo) virou atalho para a tela. Falta: o recibo (`recibopagar.fr3`).
+Pagar (invenção do Apollo) virou atalho para a tela. ✅ O recibo (`recibopagar.fr3`): `GET cobranca/baixa-apagar/recibo/:lote` + `imprimirRecibo.ts`.

@@ -18389,15 +18389,15 @@
     },
     "valor_documento": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": null,
+     "escala": null,
      "nulo": true,
      "default": null
     },
     "valor_bruto_documento": {
      "tipo": "numeric",
-     "tam": null,
-     "escala": null,
+     "tam": 13,
+     "escala": 2,
      "nulo": true,
      "default": null
     },
@@ -18431,7 +18431,7 @@
     },
     "operador_baixa": {
      "tipo": "character varying",
-     "tam": 80,
+     "tam": 50,
      "escala": null,
      "nulo": true,
      "default": null
@@ -18451,22 +18451,22 @@
      "default": null
     },
     "nr_parcela": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
      "nulo": true,
      "default": null
     },
     "nr_nf": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
      "nulo": true,
      "default": null
     },
     "tipo_documento": {
      "tipo": "character varying",
-     "tam": 25,
+     "tam": null,
      "escala": null,
      "nulo": true,
      "default": null
@@ -18494,7 +18494,7 @@
     },
     "tx_juros": {
      "tipo": "numeric",
-     "tam": 13,
+     "tam": 15,
      "escala": 2,
      "nulo": true,
      "default": null
@@ -18516,6 +18516,27 @@
     "indr": {
      "tipo": "character varying",
      "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "acrescimo_desconto": {
+     "tipo": "numeric",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "nome_retorno": {
+     "tipo": "character varying",
+     "tam": 50,
      "escala": null,
      "nulo": true,
      "default": null
@@ -18914,7 +18935,7 @@
     },
     "operador_baixa": {
      "tipo": "character varying",
-     "tam": 80,
+     "tam": 50,
      "escala": null,
      "nulo": true,
      "default": null
@@ -18984,7 +19005,7 @@
     },
     "tipo": {
      "tipo": "character varying",
-     "tam": 25,
+     "tam": null,
      "escala": null,
      "nulo": true,
      "default": null
@@ -19012,7 +19033,7 @@
     },
     "tx_juros": {
      "tipo": "numeric",
-     "tam": 13,
+     "tam": 15,
      "escala": 2,
      "nulo": true,
      "default": null
@@ -19026,6 +19047,55 @@
     },
     "indr": {
      "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "operador": {
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "obs_editavel": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "vr_antecipacao": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "tx_antecipacao": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "txmulta": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "valor_perc_multa": {
+     "tipo": "character",
      "tam": 1,
      "escala": null,
      "nulo": true,

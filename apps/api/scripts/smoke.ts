@@ -25937,6 +25937,29 @@ async function main() {
         await pgDe.end();
       }
     }
+
+    // ══ §279 AS VIEWS DAS BAIXAS (GET_APAGARBX / GET_ARECEBERBX) com a semântica do legado — relatórios do construtor e recibo ══════
+    {
+      const pgVb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ap = (await pgVb.query(`SELECT count(*)::int n,
+            count(*) FILTER (WHERE v.valor_documento <> a.valor + coalesce(a.vendor,0) - coalesce(a.desconto,0))::int doc_errado,
+            count(*) FILTER (WHERE v.acres_desc <> coalesce(b.acre_desc,0) - coalesce(a.desconto,0))::int acre_errado,
+            count(*) FILTER (WHERE a.quitada <> 'S' OR coalesce(b.indr,'I') <> 'I')::int fora
+          FROM get_apagarbx v JOIN apagar_bx b ON b.codapgbx = v.codigo_documentobx JOIN apagar a ON a.codapg = b.codapg`)).rows[0] as any;
+        const apFora = Number((await pgVb.query(`SELECT count(*)::int n FROM apagar_bx b JOIN apagar a ON a.codapg = b.codapg WHERE a.quitada = 'S' AND coalesce(b.indr,'I') = 'I'`)).rows[0].n);
+        const ar = (await pgVb.query(`SELECT count(DISTINCT v.codigo_documentobx)::int n,
+            count(*) FILTER (WHERE v.valor_liquido <> r.valor + coalesce(b.juros,0) + coalesce(b.acre_desc,0))::int liq_errado,
+            count(*) FILTER (WHERE r.quitada <> 'S' OR coalesce(b.indr,'I') = 'E')::int fora
+          FROM get_areceberbx v JOIN areceber_bx b ON b.codrcbbx = v.codigo_documentobx JOIN areceber r ON r.codrcb = b.codrcb`)).rows[0] as any;
+        check('RELATÓRIOS §279 [as views das baixas como o legado]: GET_APAGARBX com VALOR_DOCUMENTO = valor + vendor − desconto e ACRES_DESC = acréscimo − desconto, só título quitado e baixa ativa (todas as baixas assim entram); GET_ARECEBERBX com VALOR_LIQUIDO = valor + juros + acréscimo, só quitado e não excluída',
+          Number(ap.n) > 0 && Number(ap.n) === apFora && ap.doc_errado === 0 && ap.acre_errado === 0 && ap.fora === 0
+          && Number(ar.n) > 0 && ar.liq_errado === 0 && ar.fora === 0,
+          { ap, apFora, ar });
+      } finally {
+        await pgVb.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

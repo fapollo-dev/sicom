@@ -429,6 +429,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('384_excluir_ofx_fixture.sql'));
   await pool.query(sql('385_etiqueta_grupo_preco_view.sql'));
   await pool.query(sql('386_parceiro_endereco_travas.sql'));
+  await pool.query(sql('387_baixas_views_fieis.sql'));
   await pool.end();
   return pg;
 }
