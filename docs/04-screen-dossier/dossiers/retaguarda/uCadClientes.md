@@ -559,10 +559,19 @@ Acordo gera financeiro (APAGAR/ARECEBER) e arquivos (`ARQUIVO_ACORDO`); PKs por 
 - "Contabilizado não exclui" (:1660): no fonte o `btnExcluirClick` do cliente chama `inherited` (que já exclui) **antes** de testar
   — a trava não segura nada; e a LOG não tem nenhuma exclusão de parceiro. Não portada, com esse motivo.
 
-**Ainda ADIADO:** os campos obrigatórios do endereço (`DadosEnderecoPreenchidos`: logradouro, bairro, CEP, cidade/UF do IBGE,
-país; CPF/CNPJ por `VALIDA_CPF_CNPJ_VAZIO`, 'A' na produção; o modo estrangeiro) e "endereço obrigatório" — corte próprio
-(atinge toda gravação de parceiro). A checagem "país ≠ Brasil" do estrangeiro depende da `PAIS`, que a triagem deixou de fora
-(EQUIVALENTE — o SPED usa 1058 fixo; 2 parceiros estrangeiros na produção).
+**Os dados do endereço — ENTREGUE (28/09/2026, smoke §278, `parceiro-enderecos.ts`):**
+- "Preenchimento dos dados de endereço obrigatórios" (btnGravarClick :2013): sem endereço só a ENTIDADE (TIPOFJ 'E') grava —
+  conferido depois das travas (no legado o excluir do endereço vem antes do Gravar).
+- `DadosEnderecoPreenchidos` (:4942): nacional — logradouro, bairro, CEP, cidade, UF e país (a mensagem do legado, campo a
+  campo); CPF (F/R) e CNPJ (J/G) por `VALIDA_CPF_CNPJ_VAZIO` (C/J/A; 'A' na produção; sem a config nada é exigido, como o
+  `ValorConfiguracao` vazio). Estrangeiro — cidade, país (≠ BRASIL) e o registro (salvo 'N').
+- Cidade × UF no IBGE (:2041): com a UF conhecida, o IDCIDADE tem de ser dela.
+- O país vem da UF (`cmbUFExit` → `UF.CODPAI`): toda UF brasileira dá **33** (o BRASIL da PAIS; 19.023 endereços na produção);
+  a gravação preenche quando não vem. A `PAIS` não migra (EQUIVALENTE); o 33 é o dado, documentado em `CODPAIS_BRASIL`.
+- Qual endereço: o legado confere o **corrente** na gravação; aqui, cada endereço **novo ou alterado** — os gravados que não mudam
+  (inclusive os da carga, que podem estar incompletos) ficam como vieram.
+- A importação de NF-e devolve a transportadora sem cadastro já com o IDCIDADE (nome do município + UF, sem acento), para o
+  cadastro feito pela tela passar no IBGE.
 
 **ADIADO (histórico) — regras do legado a NÃO perder (implementar quando a dependência existir):**
 - **(B) Travas de integridade — dependem de NF/NFC/INDEXADOR_TRIBUTARIO/PLANO_CONTAS (não migradas):**

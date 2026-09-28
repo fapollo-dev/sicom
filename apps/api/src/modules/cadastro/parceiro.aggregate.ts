@@ -5,7 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { capturarAlteracaoParceiro } from '../sped/sped-alteracoes';
-import { validarEnderecosDoParceiro } from './parceiro-enderecos';
+import { validarEnderecosDoParceiro, CODPAIS_BRASIL } from './parceiro-enderecos';
+import { UFS } from '@apollo/shared';
 import { configNaTrx } from '../compras/pedido-heranca';
 
 /**
@@ -99,7 +100,9 @@ export const parceiroAggregateConfig: AggregateConfig = {
       // de voltar com o que a tela carregou
       derivarItensTrx: async (itens, _trx, _emp, header) => {
         const novo = (header as Record<string, unknown> | undefined)?._ativadoMudou;
-        return novo === undefined ? itens : itens.map((it) => ({ ...it, ativado: novo }));
+        // o país vem da UF (cmbUFExit → UF.CODPAI = o BRASIL em toda UF brasileira): endereço sem país numa UF nossa recebe o BRASIL
+        const comPais = itens.map((it) => (it.codpais == null && UFS.some((u) => u.sigla === String(it.uf ?? '').trim().toUpperCase()) ? { ...it, codpais: CODPAIS_BRASIL } : it));
+        return novo === undefined ? comPais : comPais.map((it) => ({ ...it, ativado: novo }));
       },
     },
     // F2 — sub-recursos 1:N (engine grava todos na mesma transação; substitui no update)
@@ -138,7 +141,14 @@ export const parceiroAggregateConfig: AggregateConfig = {
     // as travas do endereço (NF/NFC-e/indexador) e o documento repetido (uCadClientes — parceiro-enderecos.ts)
     const ctxCfg = { empresaId: currentTenant().empresaId ?? null, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
     const bloquearRepetido = String((await configNaTrx(db, 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE', ctxCfg)) ?? 'N').toUpperCase() === 'S';
-    await validarEnderecosDoParceiro(db, id ?? null, dto as Record<string, unknown>, bloquearRepetido);
+    const validaCpfCnpj = String((await configNaTrx(db, 'VALIDA_CPF_CNPJ_VAZIO', ctxCfg)) ?? '').toUpperCase();
+    const gravado = id != null ? ((await db.selectFrom('parceiros').select(['tipofj', 'estrangeiro']).where('codparceiro', '=', id).executeTakeFirst()) as { tipofj?: string | null; estrangeiro?: string | null } | undefined) : undefined;
+    await validarEnderecosDoParceiro(db, id ?? null, dto as Record<string, unknown>, {
+      bloquearRepetido, validaCpfCnpj,
+      tipofj: String(dto.tipofj ?? gravado?.tipofj ?? 'F'),
+      estrangeiro: String(dto.estrangeiro ?? gravado?.estrangeiro ?? 'N') === 'S',
+      criando: id == null,
+    });
     if (id != null) await capturarAlteracaoParceiro(db, id, dto);
     // o ATIVADO de antes (o gatilho REM_PARCEIROS cascateia na gravação do cabeçalho; o detalhe de endereços precisa saber que mudou)
     if (id != null && dto.ativado !== undefined) {

@@ -47,6 +47,8 @@ const H = {
 };
 // operador 999 não tem grant em PERMISSOES → deve ser negado (RBAC).
 const H_SEM_ACESSO = { ...H, 'x-operador-id': '999' };
+// um endereço COMPLETO de parceiro (DadosEnderecoPreenchidos do legado: logradouro, bairro, CEP, cidade/UF do IBGE)
+const END_OK = { endereco: 'RUA SMOKE', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP' };
 // a tela de configurações (e as listas USUARIOS_* de liberação, que moram nas CONFIGURACOES) pede a SENHA ADMINISTRATIVA
 // da empresa, não PERMISSOES (TdmPrincipal.TelaConfiguracao). `hAdm` arma a senha ADM da empresa do header (limpa o lockout
 // e define) e devolve os headers com `x-senha-administrativa` — a senha ADM muda ao longo da corrida.
@@ -385,7 +387,7 @@ async function main() {
         tipofj: 'J',
         cli: 'S',
         enderecos: [
-          { endereco: 'RUA SMOKE', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000161', endereco_padrao: 'S' },
+          { endereco: 'RUA SMOKE', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000161', endereco_padrao: 'S' },
         ],
       }),
     });
@@ -414,7 +416,7 @@ async function main() {
         pronta_entrega: 'S',
         realiza_troca: 'S',
         retira_fornindex: 'N',
-        enderecos: [{ endereco: 'RUA FORN', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000242', endereco_padrao: 'S' }],
+        enderecos: [{ ...END_OK, endereco: 'RUA FORN', cnpj_cpf: '11444777000242', endereco_padrao: 'S' }],
       }),
     });
     const fornDados = (await fornPost.json()) as any;
@@ -446,7 +448,7 @@ async function main() {
     const histParResp = await fetch(`${base}/cadastro/parceiros`, {
       method: 'POST',
       headers: H,
-      body: JSON.stringify({ razao: 'HIST FIN SMOKE LTDA', tipofj: 'J', cli: 'S', frn: 'S', credito: 30, enderecos: [] }),
+      body: JSON.stringify({ razao: 'HIST FIN SMOKE LTDA', tipofj: 'J', cli: 'S', frn: 'S', credito: 30, enderecos: [{ ...END_OK, endereco_padrao: 'S' }] }),
     });
     const histPar = (await histParResp.json()) as any;
     const histCod = Number(histPar.codparceiro);
@@ -513,6 +515,7 @@ async function main() {
         razao: 'CLIENTE F2 SMOKE LTDA',
         tipofj: 'J',
         cli: 'S',
+        enderecos: [{ ...END_OK, endereco_padrao: 'S' }],
         bancos: [{ codbco: 1, agencia: '1', nrconta: '9' }],
         relacionamentos: [{ nome: 'CONTATO SMOKE', tiporel: 'FIN', telefone: '98988880001' }],
         vendedores: [{ codvendedor: 1 }],
@@ -559,7 +562,7 @@ async function main() {
         apuracao: 'M',
         classificacao: 'F',
         // endereço SEM cnpj_cpf (evita índice único por doc) + IE SP VÁLIDA em rg_insc.
-        enderecos: [{ uf: 'SP', rg_insc: '110042490114', endereco_padrao: 'S' }],
+        enderecos: [{ ...END_OK, uf: 'SP', rg_insc: '110042490114', endereco_padrao: 'S' }],
       }),
     });
     const f3 = (await f3Post.json()) as any;
@@ -9822,7 +9825,7 @@ async function main() {
       // Alterou só com o que mudou (5.50 do banco = 5.5 do formulário não é mudança); nada mudou → nada grava.
       const lpc = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({
         razao: 'PARCEIRO DO LOG LTDA', fantasia: 'LOG ANTES', tipofj: 'J', frn: 'S', desconto_pedidos: 5.5,
-        enderecos: [{ endereco: 'RUA LOG', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000323', endereco_padrao: 'S' }] }) });
+        enderecos: [{ ...END_OK, endereco: 'RUA LOG', cnpj_cpf: '11444777000323', endereco_padrao: 'S' }] }) });
       const lpcJ = (await lpc.json().catch(() => ({}))) as any;
       const cpl = Number(lpcJ.codparceiro);
       await fetch(`${base}/cadastro/parceiros/${cpl}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lpcJ, fantasia: 'LOG DEPOIS' }) });
@@ -22165,8 +22168,8 @@ async function main() {
         const cr = await fetch(`${base}/${PA}`, { method: 'POST', headers: H, body: JSON.stringify({
           razao: 'CODEND ESTAVEL LTDA', tipofj: 'J', cli: 'S',
           enderecos: [
-            { endereco: 'RUA A', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '20720720700033', endereco_padrao: 'S', tipo_endereco: 'P' },
-            { endereco: 'RUA COBRANCA', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'C' },
+            { endereco: 'RUA A', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '20720720700033', endereco_padrao: 'S', tipo_endereco: 'P' },
+            { endereco: 'RUA COBRANCA', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'C' },
           ],
         }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
@@ -22386,7 +22389,7 @@ async function main() {
 
     // ══ §214 PARCEIRO DA REDE (auditoria de esqueletos §4.5, lacuna 2): o parceiro cadastrado numa loja aparece nas outras
     {
-      const cr = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO DA REDE', tipofj: 'F', cli: 'S', enderecos: [] }) });
+      const cr = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO DA REDE', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] }) });
       const crJ = (await cr.json().catch(() => ({}))) as any;
       const cod = Number(crJ.codparceiro) || 0;
       const naLoja2 = await fetch(`${base}/cadastro/parceiros/${cod}`, { headers: H_EMP2 });
@@ -22833,7 +22836,7 @@ async function main() {
         await pgBx.query(`INSERT INTO perfil (codperfil, perfil, ativo, tipo) VALUES (99218, 'PERFIL CLIENTE SMOKE', 'S', 'PARCEIRO') ON CONFLICT (codperfil) DO NOTHING`);
         const cp = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: J, body: JSON.stringify({
           razao: 'PARCEIRO BAIXA 218', tipofj: 'F', cli: 'S', codperfil_parceiro: 99218,
-          enderecos: [{ endereco: 'RUA 218', cidade: 'UBERLANDIA', idcidade: 3170206, uf: 'MG', cnpj_cpf: '52998224725', endereco_padrao: 'S' }] }) });
+          enderecos: [{ endereco: 'RUA 218', bairro: 'CENTRO', cep: '38400000', cidade: 'UBERLANDIA', idcidade: 3170206, uf: 'MG', cnpj_cpf: '52998224725', endereco_padrao: 'S' }] }) });
         const cpJ = (await cp.json().catch(() => ({}))) as any;
         const pr = (await pgBx.query(`SELECT codperfil_parceiro, dtultalteracao FROM parceiros WHERE codparceiro = $1`, [Number(cpJ.codparceiro)])).rows[0];
         const logEnd = (await pgBx.query(`SELECT acao, historico FROM log WHERE tabela = 'PARCEIROS_END' AND valor = $1`, [Number(cpJ.codparceiro)])).rows as any[];
@@ -23183,7 +23186,7 @@ async function main() {
     {
       const pgPo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        const cp = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO 226', tipofj: 'F', cli: 'S', enderecos: [] }) });
+        const cp = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO 226', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] }) });
         const cpJ = (await cp.json().catch(() => ({}))) as any;
         const codp = Number(cpJ.codparceiro);
         const r1 = (await pgPo.query(`SELECT soma_st_bonificacao, habilita_retencao_senar_nf, visualiza_pc_parc, participa_cotacao, clubefidelidade, idempresa FROM parceiros WHERE codparceiro = $1`, [codp])).rows[0] as any;
@@ -23676,6 +23679,8 @@ async function main() {
       try {
         await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = '44.555.666/0001-72' WHERE codend = 6`);
         await pgXh.query(`UPDATE parceiros SET frn = 'N' WHERE codparceiro = 22`);
+        // a cidade da transportadora do XML (o cadastro confere cidade × UF no IBGE; a semente do banco de teste tem 5 cidades)
+        await pgXh.query(`INSERT INTO cidades (idcidade, iduf, cidade) VALUES (2103000, 21, 'CAXIAS') ON CONFLICT (idcidade) DO NOTHING`);
         const outraLoja = await importar(xml('00000000009100'));
         const semLoja = await importar(xml('99888777000166'));
         const semTransp = await importar(xml('11222333000181'));
@@ -23683,7 +23688,7 @@ async function main() {
         const d = (semTransp.j.detalhe?.parceiro ?? {}) as Record<string, any>;
         const cadTr = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({
           razao: d.razao, fantasia: d.fantasia, tipofj: d.tipofj, tra: 'S', placa: d.placa, ufplaca: d.ufplaca,
-          enderecos: [{ endereco: d.endereco, bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep, cnpj_cpf: d.cnpj_cpf, rg_insc: d.rg_insc, endereco_padrao: 'S', ativado: 'S' }] }) });
+          enderecos: [{ endereco: d.endereco, bairro: d.bairro, cidade: d.cidade, idcidade: d.idcidade ?? undefined, uf: d.uf, cep: d.cep, cnpj_cpf: d.cnpj_cpf, rg_insc: d.rg_insc, endereco_padrao: 'S', ativado: 'S' }] }) });
         const cadTrJ = (await cadTr.json().catch(() => ({}))) as any;
         codTransp = Number(cadTrJ.codparceiro) || 0;
         const ok = await importar(xml('11222333000181'));
@@ -25855,7 +25860,7 @@ async function main() {
           const r = await fetch(`${base}/${url}`, { method, headers: H, body: JSON.stringify(body) });
           return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
         };
-        const end = (cpf: string, extra: Record<string, unknown> = {}) => ({ cnpj_cpf: cpf, endereco: 'RUA 277', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'PRINCIPAL', endereco_padrao: 'S', ativado: 'S', ...extra });
+        const end = (cpf: string, extra: Record<string, unknown> = {}) => ({ cnpj_cpf: cpf, endereco: 'RUA 277', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'PRINCIPAL', endereco_padrao: 'S', ativado: 'S', ...extra });
         const cria = await env('POST', 'cadastro/parceiros', { razao: 'CLIENTE 277', tipofj: 'F', cli: 'S', enderecos: [end('27700011168')] });
         const cod = Number(cria.j.codparceiro); criados.push(cod);
         const codend = Number((await pgPe.query(`SELECT codend FROM parceiros_end WHERE codparceiro = $1`, [cod])).rows[0]?.codend);
@@ -25888,6 +25893,48 @@ async function main() {
       } finally {
         await pgPe.query(`DELETE FROM vendas WHERE nrocupom = 27701`);
         await pgPe.end();
+      }
+    }
+
+    // ══ §278 CLIENTES — os dados do endereço (DadosEnderecoPreenchidos + IBGE + VALIDA_CPF_CNPJ_VAZIO + estrangeiro) ═══════════════════
+    {
+      const pgDe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let cfgCriada = false;
+      try {
+        const post = async (body: unknown) => {
+          const r = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const semEndereco = await post({ razao: 'SEM ENDERECO 278', tipofj: 'F', cli: 'S', enderecos: [] });
+        const entidade = await post({ razao: 'ENTIDADE 278', tipofj: 'E', cli: 'S', enderecos: [] });
+        const semBairro = await post({ razao: 'SEM BAIRRO 278', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, bairro: '', endereco_padrao: 'S' }] });
+        const ibge = await post({ razao: 'IBGE 278', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, idcidade: 3170206, endereco_padrao: 'S' }] });
+        const estrBrasil = await post({ razao: 'ESTRANGEIRO 278', tipofj: 'F', cli: 'S', estrangeiro: 'S', enderecos: [{ ...END_OK, uf: 'EX', codpais: 33, endereco_padrao: 'S' }] });
+        const ok = await post({ razao: 'COMPLETO 278', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const codOk = Number(ok.j.codparceiro);
+        const pais = (await pgDe.query(`SELECT codpais FROM parceiros_end WHERE codparceiro = $1`, [codOk])).rows[0]?.codpais;
+        // VALIDA_CPF_CNPJ_VAZIO = 'A' (a produção): pessoa física sem CPF não grava
+        if (!(await pgDe.query(`SELECT 1 FROM configuracoes WHERE codigo = 'VALIDA_CPF_CNPJ_VAZIO'`)).rows.length) {
+          await pgDe.query(`INSERT INTO configuracoes (id, codigo, valor) SELECT coalesce(max(id), 0) + 1, 'VALIDA_CPF_CNPJ_VAZIO', 'A' FROM configuracoes`);
+          cfgCriada = true;
+        }
+        const semCpf = await post({ razao: 'SEM CPF 278', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        // o endereço gravado que não muda fica como veio (os da carga): um incompleto não barra a alteração do cabeçalho
+        await pgDe.query(`UPDATE parceiros_end SET bairro = NULL, cep = NULL WHERE codparceiro = $1`, [codOk]);
+        const lido = (await (await fetch(`${base}/cadastro/parceiros/${codOk}`, { headers: H })).json().catch(() => ({}))) as any;
+        const semMudar = await fetch(`${base}/cadastro/parceiros/${codOk}`, { method: 'PUT', headers: H, body: JSON.stringify({ fantasia: 'SO O CABECALHO', enderecos: lido.enderecos }) });
+        check('CLIENTES §278 [dados do endereço]: sem endereço não grava (só a ENTIDADE), sem bairro "Necessário informar o bairro.", cidade de outra UF recusa pelo IBGE, estrangeiro não pode ter o Brasil, o endereço completo grava com o país (33, BRASIL) vindo da UF; com VALIDA_CPF_CNPJ_VAZIO=A a pessoa física sem CPF não grava; e o endereço gravado que não mudou (incompleto, como os da carga) não barra a alteração',
+          semEndereco.status === 422 && semEndereco.j.code === 'PARCEIRO_ENDERECO_OBRIGATORIO' && entidade.status === 201
+          && semBairro.status === 422 && semBairro.j.code === 'PARCEIRO_ENDERECO_INCOMPLETO' && semBairro.j.message === 'Necessário informar o bairro.'
+          && ibge.status === 422 && ibge.j.code === 'PARCEIRO_CIDADE_IBGE'
+          && estrBrasil.status === 422 && estrBrasil.j.code === 'PARCEIRO_ESTRANGEIRO_BRASIL'
+          && ok.status === 201 && Number(pais) === 33
+          && semCpf.status === 422 && semCpf.j.message === 'Necessário informar o CPF.'
+          && semMudar.status === 200,
+          { semEndereco: [semEndereco.status, semEndereco.j.code], entidade: [entidade.status, entidade.j.code], semBairro: [semBairro.status, semBairro.j.message], ibge: [ibge.status, ibge.j.code], estrBrasil: [estrBrasil.status, estrBrasil.j.code], ok: [ok.status, ok.j.code, ok.j.message], pais, semCpf: [semCpf.status, semCpf.j.message], semMudar: semMudar.status });
+      } finally {
+        if (cfgCriada) await pgDe.query(`DELETE FROM configuracoes WHERE codigo = 'VALIDA_CPF_CNPJ_VAZIO'`);
+        await pgDe.end();
       }
     }
   } finally {

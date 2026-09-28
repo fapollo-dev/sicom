@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { UFS } from '@apollo/shared';
 
 type AnyDB = any;
 const txt = (v: unknown) => (v == null ? '' : String(v).trim());
@@ -30,16 +31,39 @@ export async function enderecoTravado(db: AnyDB, codend: number | null, cnpj: st
  *    `confirmarDocumentoRepetido` no corpo. (O índice único parcial da mig 178 barrava o que o legado deixa confirmar.)
  * Os endereços do corpo casam com os gravados como o motor casa (`pkEstavel`): pelo CODEND enviado, depois pelo tipo de endereço.
  */
+export interface RegrasEndereco {
+  /** BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE = 'S' */
+  bloquearRepetido: boolean;
+  /** VALIDA_CPF_CNPJ_VAZIO: N / C (CPF) / J (CNPJ) / A (ambos) — sem a config, nada é exigido (o ValorConfiguracao devolve '') */
+  validaCpfCnpj: string;
+  /** o TIPOFJ e o ESTRANGEIRO efetivos (do corpo, senão os gravados) */
+  tipofj: string;
+  estrangeiro: boolean;
+  /** criando o parceiro (não há endereço gravado) */
+  criando: boolean;
+}
+
+/** o BRASIL da PAIS do legado (CODPAI 33, CODPAIS_SEFAZ 1058): é o que o `cmbUFExit` grava (UF.CODPAI) em toda UF brasileira */
+export const CODPAIS_BRASIL = 33;
+const COLS_ENDERECO = ['endereco', 'numero', 'complemento', 'bairro', 'cidade', 'idcidade', 'uf', 'cep', 'cnpj_cpf', 'rg_insc', 'codpais', 'ativado', 'tipo_endereco'];
+
 export async function validarEnderecosDoParceiro(
   db: AnyDB,
   id: number | null | undefined,
   dto: Record<string, unknown>,
-  bloquearRepetido: boolean,
+  regras: RegrasEndereco,
 ): Promise<void> {
+  const bloquearRepetido = regras.bloquearRepetido;
   const itens = dto.enderecos as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(itens)) return;
+  const entidade = regras.tipofj === 'E';
+  // "Preenchimento dos dados de endereço obrigatórios" (btnGravarClick :2013): sem endereço só a ENTIDADE grava — conferido depois
+  // das travas (no legado o excluir do endereço, com a trava dele, acontece antes do Gravar)
+  if (!Array.isArray(itens)) {
+    if (!entidade && regras.criando) throw new BusinessRuleError('PARCEIRO_ENDERECO_OBRIGATORIO');
+    return;
+  }
   const antigos = id != null
-    ? ((await db.selectFrom('parceiros_end').select(['codend', 'cnpj_cpf', 'uf', 'tipo_endereco']).where('codparceiro', '=', id).orderBy('codend').execute()) as Array<Record<string, unknown>>)
+    ? ((await db.selectFrom('parceiros_end').select(['codend', ...COLS_ENDERECO]).where('codparceiro', '=', id).orderBy('codend').execute()) as Array<Record<string, unknown>>)
     : [];
 
   // o casamento do motor: CODEND primeiro, depois a n-ésima ocorrência do mesmo tipo de endereço
@@ -92,5 +116,52 @@ export async function validarEnderecosDoParceiro(
       throw new BusinessRuleError('PARCEIRO_DOCUMENTO_EXISTENTE', { documento: docNovo, tipo, razao: outro.razao ?? '', confirmar: 'confirmarDocumentoRepetido' },
         `O parceiro "${outro.razao ?? ''}" já foi cadastrado com o ${tipo} informado. Deseja continuar?`);
     }
+  }
+  if (!entidade && itens.length === 0) throw new BusinessRuleError('PARCEIRO_ENDERECO_OBRIGATORIO');
+  // os DADOS do endereço (DadosEnderecoPreenchidos :4942 e a conferência do IBGE :2041) — no legado, do endereço corrente na
+  // gravação; aqui, de cada endereço novo ou alterado (os gravados que não mudaram ficam como vieram, inclusive os da carga)
+  if (entidade) return;
+  for (let ix = 0; ix < itens.length; ix++) {
+    const i = itens[ix];
+    const a = par[ix];
+    const val = (c: string) => (i[c] !== undefined ? i[c] : a?.[c]);
+    if (a && COLS_ENDERECO.every((c) => txt(val(c)).toUpperCase() === txt(a[c]).toUpperCase())) continue;
+    await conferirDadosDoEndereco(db, val, regras);
+  }
+}
+
+const faltou = (campo: string, msg: string) => new BusinessRuleError('PARCEIRO_ENDERECO_INCOMPLETO', { campo }, msg);
+
+async function conferirDadosDoEndereco(db: AnyDB, val: (c: string) => unknown, regras: RegrasEndereco): Promise<void> {
+  const doc = txt(val('cnpj_cpf'));
+  const codpais = Number(val('codpais') ?? 0);
+  const ufSigla = txt(val('uf')).toUpperCase();
+  const uf = UFS.find((u) => u.sigla === ufSigla);
+  if (regras.estrangeiro) {
+    if (!txt(val('cidade'))) throw faltou('cidade', 'Necessário informar a cidade.');
+    if (!(codpais > 0)) throw faltou('codpais', 'Necessário informar o País.');
+    if (codpais === CODPAIS_BRASIL) throw new BusinessRuleError('PARCEIRO_ESTRANGEIRO_BRASIL');
+    if (!doc && regras.validaCpfCnpj !== 'N') throw faltou('cnpj_cpf', 'Necessário informar o registro de estrangeiro.');
+  } else {
+    if (!txt(val('endereco'))) throw faltou('endereco', 'Necessário informar o logradouro.');
+    if (!txt(val('bairro'))) throw faltou('bairro', 'Necessário informar o bairro.');
+    if (!txt(val('cep'))) throw faltou('cep', 'Necessário informar o CEP.');
+    if (!txt(val('cidade'))) throw faltou('cidade', 'Necessário informar a cidade.');
+    if (!ufSigla) throw faltou('uf', 'Necessário informar a UF.');
+    // o país vem da UF (cmbUFExit → UF.CODPAI): UF brasileira sem país recebe o BRASIL na gravação (derivarItensTrx)
+    if (!(codpais > 0) && !uf) throw faltou('codpais', 'Necessário informar o País.');
+    if (!doc) {
+      const v = regras.validaCpfCnpj;
+      if ((v === 'C' || v === 'A') && (regras.tipofj === 'F' || regras.tipofj === 'R')) throw faltou('cnpj_cpf', 'Necessário informar o CPF.');
+      if ((v === 'J' || v === 'A') && (regras.tipofj === 'J' || regras.tipofj === 'G')) throw faltou('cnpj_cpf', 'Necessário informar o CNPJ.');
+    }
+  }
+  // "Cidade e UF não conferem com a tabela do IBGE" (:2041): com a UF conhecida, a cidade (IDCIDADE) tem de ser dela
+  if (uf) {
+    const idcidade = Number(val('idcidade') ?? 0);
+    const achou = idcidade > 0
+      ? await db.selectFrom('cidades').select('idcidade').where('idcidade', '=', idcidade).where('iduf', '=', uf.iduf).executeTakeFirst()
+      : undefined;
+    if (!achou) throw new BusinessRuleError('PARCEIRO_CIDADE_IBGE', { idcidade: idcidade || null, uf: uf.sigla });
   }
 }

@@ -709,6 +709,7 @@ describe('11ª — PARCEIROS unificado (multi-papel + endereços; da rede; dup C
           {
             endereco: 'RUA X',
             bairro: 'CENTRO',
+            cep: '01001000',
             cidade: 'SAO PAULO',
             idcidade: 3550308,
             uf: 'SP',
@@ -770,12 +771,13 @@ describe('12ª — PARCEIROS F2 (sub-recursos + colunas por papel)', () => {
 
   let cod: number;
   it('CREATE com sub-recursos + colunas por papel: tudo numa transação; round-trip', async () => {
-    // sem `enderecos` → evita o índice único em parceiros_end.cnpj_cpf (a dup é por doc).
+    // endereço sem documento (o legado exige um endereço completo — DadosEnderecoPreenchidos)
     cod = await withTenant(() =>
       eng().createAggregate(cfg, {
         razao: 'CLIENTE F2 TESTE',
         tipofj: 'J',
         cli: 'S',
+        enderecos: [{ endereco: 'RUA F2', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', endereco_padrao: 'S' }],
         classfornecedor: 3,
         contribuinte_icms: 'S',
         bancos: [{ codbco: 1, agencia: '1', nrconta: '9' }],
@@ -837,7 +839,7 @@ describe('13ª — PARCEIROS F3 (config fiscal)', () => {
         perc_aliquota_issqn: 3.25,
         classificacao: 'C',
         codparceiro_ent_issqn: 1,
-        enderecos: [{ endereco: 'RUA F3', uf: 'SP', endereco_padrao: 'S', ativado: 'S' }],
+        enderecos: [{ endereco: 'RUA F3', bairro: 'CENTRO', cep: '01001000', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', endereco_padrao: 'S', ativado: 'S' }],
       }),
     );
     const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;

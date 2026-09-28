@@ -8,6 +8,7 @@ import { NfParcelasService } from '../cadastro/nf-parcelas.service';
 import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { UFS } from '@apollo/shared';
 import { pedidoParaReceber } from './pedido-lojas';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
 import { itemImportado, type ProdutoImportacao } from './nfe-item-importacao';
@@ -381,11 +382,22 @@ export class RecebimentoService {
         .select(['p.codparceiro as codtransp', 'e.codend as codtransp_end', 'p.tra'])
         .where(sql`regexp_replace(e.cnpj_cpf, '[^0-9]', '', 'g')`, '=', tr.cnpjCpf).orderBy('e.codend').executeTakeFirst()) as typeof transp;
       if (!transp) {
+        const cidadeTr = tr.xMun || (nfe.emit.xMun ?? '').toUpperCase() || null;
+        const ufTr = tr.UF || nfe.transp.veic?.UF || nfe.emit.UF || null;
+        // o cadastro da tela confere cidade × UF no IBGE (uCadClientes :2041): o XML da transportadora só traz o nome do município
+        const ufIbge = UFS.find((u) => u.sigla === String(ufTr ?? '').toUpperCase());
+        // sem acento dos dois lados: o XML traz "São Luís", a tabela do IBGE "SAO LUIS"
+        const semAcento = String(cidadeTr ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        const cid = cidadeTr && ufIbge
+          ? ((await db.selectFrom('cidades').select('idcidade')
+              .where(sql`upper(translate(cidade, 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇáàâãäéèêëíìîïóòôõöúùûüç', 'AAAAAEEEEIIIIOOOOOUUUUCaaaaaeeeeiiiiooooouuuuc'))`, '=', semAcento)
+              .where('iduf', '=', ufIbge.iduf).executeTakeFirst()) as { idcidade?: number } | undefined)
+          : undefined;
         throw new BusinessRuleError('NFE_TRANSPORTADORA_NAO_ENCONTRADA', {
           cnpj: tr.cnpjCpf,
           parceiro: { razao: tr.xNome.toUpperCase(), fantasia: tr.xNome.toUpperCase(), tra: 'S', tipofj: tr.cnpjCpf.length === 14 ? 'J' : 'F', cnpj_cpf: tr.cnpjCpf,
             rg_insc: tr.IE ?? null, endereco: tr.xEnder || 'NÃO INFORMADO', bairro: 'NÃO INFORMADO', cep: '99999999',
-            cidade: tr.xMun || (nfe.emit.xMun ?? '').toUpperCase() || null, uf: tr.UF || nfe.transp.veic?.UF || nfe.emit.UF || null,
+            cidade: cidadeTr, uf: ufTr, idcidade: cid?.idcidade ?? null,
             placa: nfe.transp.veic?.placa ?? null, ufplaca: nfe.transp.veic?.UF ?? null },
         });
       }
