@@ -331,6 +331,8 @@ const CODE_PT: Record<string, string> = {
   NF_FINANCEIRO_BAIXADO: 'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
   NF_EXCLUIR_FINANCEIRO_SEM_PERMISSAO: 'Você não possui permissão para excluir documentos financeiros pela nota fiscal! \nPermissão no configurador geral, Retaguarda, Nota fiscal.',
   CONCILIACAO_NAO_ENCONTRADA: 'Conciliação não encontrada.',
+  OFX_LINHA_INDISPONIVEL: 'Linha do extrato não encontrada nesta conta, já conciliada ou excluída.',
+  OFX_CONCILIADA_NAO_EXCLUI: 'Linha do extrato já conciliada: desfaça a conciliação antes de excluí-la.',
   CFOP_TIPO_OBRIGATORIO: 'Informe o tipo do CFOP: entrada ou saída.',
   PRODUTO_NCM_OBRIGATORIO: 'O NCM é obrigatorio!',
   FAMILIA_DEPARTAMENTO_INATIVO: 'O departamento informado não está ativo!',

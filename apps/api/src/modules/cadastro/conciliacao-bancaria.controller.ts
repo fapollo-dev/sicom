@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, conciliarAutomaticaSchema, lancarAutomaticosSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto, type ConciliarAutomaticaDto, type LancarAutomaticosDto } from '@apollo/shared';
+import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, conciliarAutomaticaSchema, lancarAutomaticosSchema, excluirOfxSchema, type ExcluirOfxDto, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto, type ConciliarAutomaticaDto, type LancarAutomaticosDto } from '@apollo/shared';
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -29,6 +29,14 @@ export class ConciliacaoBancariaController {
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   importarOfx(@Body(new ZodValidationPipe(importarOfxArquivoSchema)) body: ImportarOfxArquivoDto) {
     return this.svc.importarArquivo({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, conteudo: body.conteudo });
+  }
+
+  /** exclui linhas do extrato (não conciliadas) — "Excluir movimentação OFX", opção própria no legado (27 operadores). */
+  @Post('excluir-ofx')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNPERMISSAOEXCLUIROFX')
+  excluirOfx(@Body(new ZodValidationPipe(excluirOfxSchema)) body: ExcluirOfxDto) {
+    return this.svc.excluirOfx({ codconta: body.codconta, mboIds: body.mboIds });
   }
 
   /** pendentes: extrato não-conciliado × razão não-conciliado da conta. */

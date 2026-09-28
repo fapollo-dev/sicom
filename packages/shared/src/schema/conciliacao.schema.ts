@@ -53,3 +53,10 @@ export type ConciliarAutomaticaDto = z.infer<typeof conciliarAutomaticaSchema>;
 /** LANÇAMENTO AUTOMÁTICO DO EXTRATO (mig 298): aplica as regras 'N' da conta às linhas pendentes. */
 export const lancarAutomaticosSchema = z.object({ codconta: z.coerce.number().int().positive() });
 export type LancarAutomaticosDto = z.infer<typeof lancarAutomaticosSchema>;
+
+/** excluir linhas do extrato OFX (a "Excluir movimentação OFX" do binário novo — FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX) */
+export const excluirOfxSchema = z.object({
+  codconta: z.coerce.number().int().positive(),
+  mboIds: z.array(z.coerce.number().int().positive()).min(1).max(2000),
+});
+export type ExcluirOfxDto = z.infer<typeof excluirOfxSchema>;

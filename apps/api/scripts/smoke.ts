@@ -25690,6 +25690,48 @@ async function main() {
         await pgSa.end();
       }
     }
+
+    // ══ §274 EXCLUIR MOVIMENTAÇÃO OFX — linha do extrato sai da conciliação (INDR='E') e o FITID zera para reimportar ══════════════
+    {
+      const pgEx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CO = 'cadastro/conciliacao-bancaria';
+      const post = async (url: string, body: unknown, h: Record<string, string> = H) => {
+        const r = await fetch(`${base}/${url}`, { method: 'POST', headers: h, body: JSON.stringify(body) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        const codconta = Number((await pgEx.query(`SELECT codconta FROM contas_bancarias WHERE idempresa=1 ORDER BY codconta LIMIT 1`)).rows[0].codconta);
+        const linhas = [
+          { data: '2026-07-01', valor: 11.11, credito_debito: 'C', descricao: 'EXC A', transacao_id: 'EXC274A', check_num: 'K1' },
+          { data: '2026-07-01', valor: 22.22, credito_debito: 'C', descricao: 'EXC B', transacao_id: 'EXC274B', check_num: 'K2' },
+          { data: '2026-07-01', valor: 33.33, credito_debito: 'C', descricao: 'EXC C', transacao_id: 'EXC274C', check_num: 'K3' },
+        ];
+        await post(`${CO}/importar`, { codconta, nomeArquivo: 'exc274.ofx', linhas });
+        const id = async (fit: string) => Number((await pgEx.query(`SELECT mbo_id FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id=$2`, [codconta, fit])).rows[0].mbo_id);
+        const [a, b, c] = [await id('EXC274A'), await id('EXC274B'), await id('EXC274C')];
+        const mv = Number((await pgEx.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtemissao, dtcadastro) VALUES ($1,1,33.33,'C','EXC274','2026-07-01','2026-07-01',now()) RETURNING codmovconta`, [codconta])).rows[0].codmovconta);
+        await post(`${CO}/conciliar`, { codconta, mboIds: [c], codmovcontas: [mv] });
+
+        const semOpcao = await post(`${CO}/excluir-ofx`, { codconta, mboIds: [a] }, H_SEM_ACESSO);
+        const conciliada = await post(`${CO}/excluir-ofx`, { codconta, mboIds: [a, c] });
+        const exc = await post(`${CO}/excluir-ofx`, { codconta, mboIds: [a] });
+        const linhaA = (await pgEx.query(`SELECT indr, indr_usuario, indr_data IS NOT NULL AS tem_data, mbo_transacao_id, mbo_check_num FROM movimentacao_bancaria_ofx WHERE mbo_id=$1`, [a])).rows[0] as any;
+        const pend = (await (await fetch(`${base}/${CO}/pendentes?codconta=${codconta}`, { headers: H })).json().catch(() => ({}))) as any;
+        const ids = new Set((pend.ofx ?? []).map((o: any) => Number(o.mbo_id)));
+        const deNovo = await post(`${CO}/excluir-ofx`, { codconta, mboIds: [a] });
+        const conciliarExcluida = await post(`${CO}/conciliar`, { codconta, mboIds: [a], codmovcontas: [mv] });
+        const reimp = await post(`${CO}/importar`, { codconta, nomeArquivo: 'exc274.ofx', linhas });
+        check('CONCILIAÇÃO §274 [excluir movimentação OFX]: sem a opção (BTNPERMISSAOEXCLUIROFX) → 403; com uma linha conciliada na seleção → 422 e nada sai; a excluída fica INDR=E com operador/data e FITID+CHECKNUM zerados (como as 1.227 da produção), some dos pendentes, não se exclui de novo nem se concilia; reimportar o arquivo traz de volta só a excluída (1 inserida, 2 duplicadas)',
+          semOpcao.status === 403 && conciliada.status === 422 && conciliada.j.code === 'OFX_CONCILIADA_NAO_EXCLUI'
+          && exc.status === 200 && Number(exc.j.excluidas) === 1
+          && linhaA?.indr === 'E' && Number(linhaA?.indr_usuario) === 7 && linhaA?.tem_data === true && linhaA?.mbo_transacao_id == null && linhaA?.mbo_check_num == null
+          && !ids.has(a) && ids.has(b) && deNovo.status === 422 && conciliarExcluida.status === 422
+          && reimp.status === 200 && Number(reimp.j.inseridas) === 1 && Number(reimp.j.duplicadas) === 2,
+          { semOpcao: semOpcao.status, conciliada: conciliada.j.code, exc: exc.j, linhaA, pendenteA: ids.has(a), deNovo: deNovo.status, conciliarExcluida: conciliarExcluida.status, reimp: reimp.j });
+      } finally {
+        await pgEx.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

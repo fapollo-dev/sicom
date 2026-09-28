@@ -34,6 +34,10 @@ export function sugestoes(codconta: number): Promise<{ pares: Par[]; lotes: Lote
 export function conciliar(codconta: number, mboIds: number[], codmovcontas: number[]): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
   return req('/cadastro/conciliacao-bancaria/conciliar', { method: 'POST', body: JSON.stringify({ codconta, mboIds, codmovcontas }) });
 }
+/** "Excluir movimentação OFX": tira do extrato as linhas selecionadas (não conciliadas) — opção BTNPERMISSAOEXCLUIROFX. */
+export function excluirOfx(codconta: number, mboIds: number[]): Promise<{ codconta: number; excluidas: number }> {
+  return req('/cadastro/conciliacao-bancaria/excluir-ofx', { method: 'POST', body: JSON.stringify({ codconta, mboIds }) });
+}
 /** mig 298: lança e concilia as linhas pendentes que casam com uma regra de lançamento automático da conta. */
 export function lancarAutomaticos(codconta: number): Promise<{ codconta: number; lancados: number }> {
   return req('/cadastro/conciliacao-bancaria/lancamentos-automaticos', { method: 'POST', body: JSON.stringify({ codconta }) });

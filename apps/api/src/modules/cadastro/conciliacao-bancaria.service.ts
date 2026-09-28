@@ -116,12 +116,41 @@ export class ConciliacaoBancariaService {
     return { ...r, lidas: linhas.length };
   }
 
+  /**
+   * EXCLUIR MOVIMENTAÇÃO OFX (binário novo; opção `BTNPERMISSAOEXCLUIROFX`, 27 operadores): tira linhas do extrato da
+   * conciliação. Reconstruído do dado — a tela é posterior ao fonte de 2020: na produção, as 1.227 linhas excluídas têm
+   * INDR='E' + INDR_USUARIO + INDR_DATA **e o FITID e o CHECKNUM zerados** (0 das 66 mil vivas sem FITID) — é o que deixa
+   * reimportar o arquivo corrigido sem o dedup barrar. Só linha NÃO conciliada (as 1.225 desde 2022; a conciliada se
+   * desfaz primeiro). Sem LOG: todo LOG de MOVIMENTACAO_BANCARIA_OFX na produção é da reversão.
+   */
+  async excluirOfx(dto: { codconta: number; mboIds: number[] }): Promise<{ codconta: number; excluidas: number }> {
+    const emp = this.emp();
+    const op = this.op();
+    const ids = Array.from(new Set(dto.mboIds.map(Number)));
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.contaDaEmpresa(trx, dto.codconta, emp);
+      const linhas = (await trx.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_conciliado'])
+        .where('mbo_id', 'in', ids).where('codconta', '=', dto.codconta).where('idempresa', '=', emp)
+        .where(sql`coalesce(indr, ' ')`, '<>', 'E').forUpdate().execute()) as Array<{ mbo_id: number; mbo_conciliado: string | null }>;
+      if (linhas.length !== ids.length) {
+        const achados = new Set(linhas.map((l) => Number(l.mbo_id)));
+        throw new BusinessRuleError('OFX_LINHA_INDISPONIVEL', { esperado: ids.length, achado: linhas.length, faltam: ids.filter((i) => !achados.has(i)) });
+      }
+      const conciliadas = linhas.filter((l) => (l.mbo_conciliado ?? 'N') === 'S').map((l) => Number(l.mbo_id));
+      if (conciliadas.length) throw new BusinessRuleError('OFX_CONCILIADA_NAO_EXCLUI', { mboIds: conciliadas });
+      await trx.updateTable('movimentacao_bancaria_ofx')
+        .set({ indr: 'E', indr_usuario: op, indr_data: sql`now()`, mbo_transacao_id: null, mbo_check_num: null })
+        .where('mbo_id', 'in', ids).where('idempresa', '=', emp).execute();
+      return { codconta: dto.codconta, excluidas: ids.length };
+    });
+  }
+
   /** pendentes: linhas do extrato não-conciliadas × lançamentos do razão não-conciliados da conta. */
   async pendentes(codconta: number): Promise<{ ofx: Record<string, unknown>[]; mov: Record<string, unknown>[] }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.contaDaEmpresa(db, codconta, emp);
-    const ofx = (await db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').orderBy('mbo_data').orderBy('mbo_id').limit(2000).execute()) as Record<string, unknown>[];
+    const ofx = (await db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').where(sql`coalesce(indr, ' ')`, '<>', 'E').orderBy('mbo_data').orderBy('mbo_id').limit(2000).execute()) as Record<string, unknown>[];
     // a data do movimento é a EMISSÃO (`TRUNC(DTEMISSAO)`, UDMConciliacaoBancaria.dfm:166-172) — DATA_FECHAMENTO é do
     // fechamento de caixa e está nula em 73% das linhas de 2025-26
     const mov = (await db.selectFrom('mov_contas_bancarias')
@@ -219,7 +248,7 @@ export class ConciliacaoBancariaService {
     const mboIds = Array.from(new Set(mboIdsIn.map(Number)));
     const movIds = Array.from(new Set(movIdsIn.map(Number)));
     // trava + valida as linhas do extrato (da conta, não-conciliadas).
-    const ofx = (await trx.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_valor', 'mbo_credito_debito', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('data')]).where('mbo_id', 'in', mboIds).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').orderBy('mbo_id').forUpdate().execute()) as Array<{ mbo_id: number; mbo_valor: unknown; mbo_credito_debito: string; data: string }>;
+    const ofx = (await trx.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_valor', 'mbo_credito_debito', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('data')]).where('mbo_id', 'in', mboIds).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').where(sql`coalesce(indr, ' ')`, '<>', 'E').orderBy('mbo_id').forUpdate().execute()) as Array<{ mbo_id: number; mbo_valor: unknown; mbo_credito_debito: string; data: string }>;
     if (ofx.length !== mboIds.length) throw new BusinessRuleError('OFX_LINHA_INDISPONIVEL', { esperado: mboIds.length, achado: ofx.length });
     // trava + valida os lançamentos do razão (da conta, não-conciliados).
     const mov = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'valor', 'tipomovimento', 'idlote']).where('codmovconta', 'in', movIds).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N').forUpdate().execute()) as Array<{ codmovconta: number; valor: unknown; tipomovimento: string }>;
@@ -360,6 +389,7 @@ export class ConciliacaoBancariaService {
         .select(['mbo_id', 'mbo_data', 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao'])
         .where('codconta', '=', codconta).where('idempresa', '=', emp)
         .where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N')
+        .where(sql`coalesce(indr, ' ')`, '<>', 'E')
         .orderBy('mbo_data').orderBy('mbo_id')
         .forUpdate()
         .execute()) as Array<{ mbo_id: number; mbo_data: unknown; mbo_valor: unknown; mbo_credito_debito: string; mbo_descricao: string | null }>;

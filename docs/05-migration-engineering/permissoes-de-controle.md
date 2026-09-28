@@ -163,8 +163,8 @@ Cruzando o que o Apollo exige × a PERMISSOES da produção, **46 atos** pediam 
 | FRMCADPEDIDODEVOLUCAOCOMPRAS | finalizar, reabrir, cancelar, faturar, gerar NF | gate | só `btnExcluirItem` tem Tag 1 |
 | FRMAJUSTEESTOQUE, FRMANALISECOMPORTAMENTO, FRMAPURACAOPISCOFINS, FRMCADCLASSTRIBIBSCBS, FRMCONCILIACAOBANCARIA, FRMCONFBOLETO, FRMCONFIGINTEGRACAOCONTABIL, FRMCONGELAESTOQUE, FRMCONSRCBBX, FRMDEVOLUCAOVENDAS, FRMPRECIFICACAONF, FRMRELDRECONTABIL, FRMRELRAZAOCONTABIL, FRMGERARFINANCEIROLOTE | estornar/gravar/excluir/importar/gerar/visualizar | gate | todas `TfrmMaster` (sem checagem por código) e o ato sem Tag 1 |
 
-Lacuna anotada: o legado tem **excluir movimentação OFX** (`FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX`, 27 operadores) e o
-Apollo não tem a ação.
+**Excluir movimentação OFX** (`FRMCONCILIACAOBANCARIA.BTNPERMISSAOEXCLUIROFX`, 27 operadores) — a lacuna desta auditoria —
+convertida em seguida (mig 384, smoke §274): ver o dossiê da conciliação bancária.
 
 ## Telas sem grant nenhum, telas abertas por outras e a tela de configurações (27/09/2026, parte 2)
 

@@ -3,7 +3,8 @@ import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, type Conciliada } from './conciliacaoApi';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
+import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, excluirOfx, type Conciliada } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -15,6 +16,7 @@ const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().joi
  */
 export function ConciliacaoBancariaPage() {
   const mensagem = useMensagem();
+  const { tem: pode } = useOpcoesDoForm('FRMCONCILIACAOBANCARIA'); // "Excluir movimentação OFX" é opção própria no legado
   const [contas, setContas] = useState<ContaBancaria[]>([]);
   const [conta, setConta] = useState('');
   const [ofx, setOfx] = useState<OfxLinha[]>([]);
@@ -119,6 +121,17 @@ export function ConciliacaoBancariaPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  const excluirSel = async () => {
+    if (busy || !conta || !selOfx.size) return;
+    if (!window.confirm(`Excluir ${selOfx.size} linha(s) do extrato? Elas saem da conciliação e o arquivo pode ser importado de novo.`)) return;
+    setBusy(true);
+    try {
+      const r = await excluirOfx(Number(conta), [...selOfx]);
+      mensagem.sucesso(`${r.excluidas} linha(s) do extrato excluída(s).`);
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
       <PageHeader title="Conciliação Bancária (OFX)" />
@@ -130,6 +143,7 @@ export function ConciliacaoBancariaPage() {
         {paresAuto.length > 0 && <Button label={`Confirmar a&utomática (${paresAuto.length})`} variant="soft" disabled={busy} onClick={() => void confirmarAuto()} />}
         <Button label="&Lançamentos automáticos" variant="ghost" disabled={busy || !conta || !ofx.length} onClick={() => void lancarAuto()} />
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
+        <Button label="E&xcluir do extrato" variant="ghost" disabled={busy || !selOfx.size || !pode('BTNPERMISSAOEXCLUIROFX')} onClick={() => void excluirSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>
         <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. O lote só concilia INTEIRO (uma baixa em lote vira um movimento no extrato). Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
       </div>
