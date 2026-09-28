@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { capturarAlteracaoParceiro } from '../sped/sped-alteracoes';
+import { validarEnderecosDoParceiro } from './parceiro-enderecos';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 /**
  * PARCEIROS (Cliente/Fornecedor/Funcionário/Transportador/Convênio) — tela UNIFICADA,
@@ -133,6 +135,10 @@ export const parceiroAggregateConfig: AggregateConfig = {
         { campo: 'realiza_troca', opcao: 'JVDBCHECKBOX1', acao: 'alterar o "realiza troca"' },
       ]);
     }
+    // as travas do endereço (NF/NFC-e/indexador) e o documento repetido (uCadClientes — parceiro-enderecos.ts)
+    const ctxCfg = { empresaId: currentTenant().empresaId ?? null, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    const bloquearRepetido = String((await configNaTrx(db, 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE', ctxCfg)) ?? 'N').toUpperCase() === 'S';
+    await validarEnderecosDoParceiro(db, id ?? null, dto as Record<string, unknown>, bloquearRepetido);
     if (id != null) await capturarAlteracaoParceiro(db, id, dto);
     // o ATIVADO de antes (o gatilho REM_PARCEIROS cascateia na gravação do cabeçalho; o detalhe de endereços precisa saber que mudou)
     if (id != null && dto.ativado !== undefined) {

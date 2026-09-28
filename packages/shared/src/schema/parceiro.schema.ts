@@ -292,6 +292,8 @@ const parceiroBase = z.object({
   ufplaca: z.string().trim().max(2).optional(),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
+  /** o "Deseja continuar?" do legado quando o CPF/CNPJ já está em endereço ativo de outro cadastro (edtCNPJ_CPFExit) — não grava */
+  confirmarDocumentoRepetido: z.boolean().optional(),
   bancos: z.array(bancoParceiroSchema).optional().default([]),
   pgtos: z.array(pgtoParceiroSchema).optional().default([]),
   relacionamentos: z.array(relParceiroSchema).optional().default([]),

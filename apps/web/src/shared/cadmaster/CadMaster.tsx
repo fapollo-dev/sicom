@@ -140,7 +140,14 @@ export function CadMaster<T extends FieldValues>({
     try {
       await cad.gravar(dto);
     } catch (e) {
-      mensagem.erro(e);
+      // a pergunta do legado ("Deseja continuar?"): a regra devolve no detalhe o campo que confirma — sim reenvia com ele em true
+      const env = (e as { envelope?: { message?: string; detalhe?: { confirmar?: unknown } } }).envelope;
+      const confirmar = typeof env?.detalhe?.confirmar === 'string' ? env.detalhe.confirmar : null;
+      if (confirmar && window.confirm(env?.message ?? 'Deseja continuar?')) {
+        try { await cad.gravar({ ...dto, [confirmar]: true } as typeof dto); } catch (e2) { mensagem.erro(e2); }
+        return;
+      }
+      if (!confirmar) mensagem.erro(e);
     }
   });
   const onNovo = () => {

@@ -742,7 +742,7 @@ describe('11ª — PARCEIROS unificado (multi-papel + endereços; da rede; dup C
     expect(lista2.length).toBe(lista1.length);
   });
 
-  it('DUP de CNPJ é rejeitada pelo índice único (vira 409 DUPLICADO no HTTP)', async () => {
+  it('CNPJ já em endereço ativo, sem confirmar, é recusado (PARCEIRO_DOCUMENTO_EXISTENTE — o "Deseja continuar?" do legado)', async () => {
     await expect(
       withTenant(() =>
         eng().createAggregate(cfg, {

@@ -547,7 +547,24 @@ Acordo gera financeiro (APAGAR/ARECEBER) e arquivos (`ARQUIVO_ACORDO`); PKs por 
 - **F2:** sub-recursos 1:N (bancos/pgto/relacionamentos/vendedores) como detalhes do agregado + abas condicionais por papel (Fornecedor/Cliente/Funcionário).
 - **F3 (config fiscal):** flags de retenção de ENTRADA (PIS/COFINS/CSLL/IR/INSS/ISSQN/FUNRURAL), alíquotas IR/ISSQN, entidade ISSQN (lookup `TIPOFJ='E'`), `CONTRIBUINTE_ICMS` (combo Sintegra **1/2/9**, corrigido de S/N), `CLASSFISCAL` (ME/LR/SN/LP), `ENVIANFE`, `DEVOLUCAO_ZERA_IMPOSTO_ICMSST`, `IRRF`/`APURACAO`/`CLASSIFICACAO`, `ESTRANGEIRO` (bloqueia consulta CEP). **Validador de IE por UF** (27 UFs) aplicado quando `TIPOFJ<>'F'` e IE≠isenta. **Paridade:** alíquotas são sempre editáveis (o legado NÃO amarra alíquota↔flag — não inventar).
 
-**ADIADO — regras do legado a NÃO perder (implementar quando a dependência existir):**
+**Travas do endereço e documento repetido — ENTREGUE (28/09/2026, mig 386, smoke §277, `parceiro-enderecos.ts`):**
+- `CNPJLiberadoParaEdicao` (:4707): endereço com NF, NFC-e ou indexador do CNPJ (parceiro com endereço ativo) **não se exclui**
+  (`btnDelEndClick` — a saída do legado é desativar: ATIVADO='N', ENDERECO_PADRAO='N') e **não troca CPF/CNPJ nem UF**
+  (`btnSaveEndClick`; o indexador é testado com o documento novo). A NFC é do PDV: o endereço dela vem na carga em
+  `vendas.codparceiro_end_nfc` (ligação da mig 299) — 749 endereços na produção, 672 travados só por ela.
+- Documento repetido (`edtCNPJ_CPFExit` :2946): CPF/CNPJ em endereço ATIVO de qualquer parceiro, com o endereço novo ou o
+  documento trocado → com `BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE='S'` recusa; senão pergunta "Deseja continuar?" (produção:
+  'N'; 1.042 grupos com documento repetido, 14 criados em 2023-24). O índice único parcial da mig 178 barrava o que o legado deixa
+  confirmar — caiu; a tela pergunta e reenvia (`confirmarDocumentoRepetido`, genérico no CadMaster via `detalhe.confirmar`).
+- "Contabilizado não exclui" (:1660): no fonte o `btnExcluirClick` do cliente chama `inherited` (que já exclui) **antes** de testar
+  — a trava não segura nada; e a LOG não tem nenhuma exclusão de parceiro. Não portada, com esse motivo.
+
+**Ainda ADIADO:** os campos obrigatórios do endereço (`DadosEnderecoPreenchidos`: logradouro, bairro, CEP, cidade/UF do IBGE,
+país; CPF/CNPJ por `VALIDA_CPF_CNPJ_VAZIO`, 'A' na produção; o modo estrangeiro) e "endereço obrigatório" — corte próprio
+(atinge toda gravação de parceiro). A checagem "país ≠ Brasil" do estrangeiro depende da `PAIS`, que a triagem deixou de fora
+(EQUIVALENTE — o SPED usa 1058 fixo; 2 parceiros estrangeiros na produção).
+
+**ADIADO (histórico) — regras do legado a NÃO perder (implementar quando a dependência existir):**
 - **(B) Travas de integridade — dependem de NF/NFC/INDEXADOR_TRIBUTARIO/PLANO_CONTAS (não migradas):**
   - `CNPJLiberadoParaEdicao` (libera editar/excluir endereço sse total=0): `COUNT(*) NF WHERE CODPARCEIRO_END=:codend` + `COUNT(*) INDEXADOR_TRIBUTARIO I JOIN PARCEIROS_END E ON E.CODPARCEIRO=I.CODPARCEIRO WHERE I.CNPJ_CPF=:cnpj AND E.ATIVADO='S'` + `COUNT(*) NFC WHERE CODPARCEIRO_END=:codend` `[uCadClientes.pas:4707-4743]`. Se >0: editar CNPJ/UF é bloqueado e excluir vira **desativar** (`UPDATE PARCEIROS_END SET ATIVADO='N', ENDERECO_PADRAO='N'`).
   - Contabilizado não exclui: `CLI='S' AND CODCONTABIL<>''` → bloqueia ("Cliente contabilizado..."); `FRN='S' AND CODCONTABIL_FOR<>''` → bloqueia `[pas:1660-1669]`.

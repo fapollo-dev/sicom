@@ -483,14 +483,15 @@ async function main() {
       { status: semPapel.status, code: semPapelBody.code },
     );
 
-    // 14c) duplicidade de CNPJ (doc do seed codend1) → 409 DUPLICADO (ADR-015)
+    // 14c) CNPJ já em endereço ativo de outro cadastro (doc do seed codend1): o legado pergunta "Deseja continuar?" (edtCNPJ_CPFExit;
+    // só recusa com BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE='S') — sem a confirmação, 422; com ela, a regra é do §277
     const dupDoc = await fetch(`${base}/cadastro/parceiros`, {
       method: 'POST',
       headers: H,
       body: JSON.stringify({ razao: 'DUP SMOKE', tipofj: 'J', frn: 'S', enderecos: [{ cnpj_cpf: '11222333000181', endereco_padrao: 'S' }] }),
     });
     const dupBody = (await dupDoc.json().catch(() => ({}))) as any;
-    check('POST parceiro com CNPJ duplicado → 409 DUPLICADO', dupDoc.status === 409 && dupBody.code === 'DUPLICADO', { status: dupDoc.status, code: dupBody.code });
+    check('POST parceiro com CNPJ já cadastrado, sem confirmar → 422 PARCEIRO_DOCUMENTO_EXISTENTE (com a razão do outro)', dupDoc.status === 422 && dupBody.code === 'PARCEIRO_DOCUMENTO_EXISTENTE', { status: dupDoc.status, code: dupBody.code });
 
     // 14d) lookup de VENDEDOR (FUN='S') — alimenta o SelectField da tela
     const vend = (await (await fetch(`${base}/cadastro/parceiros?campo=fun&operador=igual&valor=S`, { headers: H })).json()) as any[];
@@ -25842,6 +25843,51 @@ async function main() {
         for (const [f, o] of tirados) await pgEt.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1, $2, 7, 1) ON CONFLICT DO NOTHING`, [f, o]);
         if (ag) { await pgEt.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = $1`, [ag]); await pgEt.query(`DELETE FROM agenda_promocao WHERE codagenda = $1`, [ag]); }
         await pgEt.end();
+      }
+    }
+
+    // ══ §277 CLIENTES — as travas do endereço (NF/NFC-e/indexador) e o CPF/CNPJ repetido com confirmação (uCadClientes) ══════════════
+    {
+      const pgPe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const criados: number[] = [];
+      try {
+        const env = async (method: string, url: string, body: unknown) => {
+          const r = await fetch(`${base}/${url}`, { method, headers: H, body: JSON.stringify(body) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const end = (cpf: string, extra: Record<string, unknown> = {}) => ({ cnpj_cpf: cpf, endereco: 'RUA 277', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'PRINCIPAL', endereco_padrao: 'S', ativado: 'S', ...extra });
+        const cria = await env('POST', 'cadastro/parceiros', { razao: 'CLIENTE 277', tipofj: 'F', cli: 'S', enderecos: [end('27700011168')] });
+        const cod = Number(cria.j.codparceiro); criados.push(cod);
+        const codend = Number((await pgPe.query(`SELECT codend FROM parceiros_end WHERE codparceiro = $1`, [cod])).rows[0]?.codend);
+        // a NFC-e do endereço (derivada na carga em vendas.codparceiro_end_nfc) trava
+        await pgPe.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, codparceiro_end_nfc)
+          VALUES (1, now(), '1', 27701, 1, 1, 1, 1, 1, 'A', '5102', 'N', 'S', 'P', $1)`, [codend]);
+        const excluir = await env('PUT', `cadastro/parceiros/${cod}`, { enderecos: [] });
+        const trocarDoc = await env('PUT', `cadastro/parceiros/${cod}`, { enderecos: [end('27700022283', { codend })] });
+        const trocarUf = await env('PUT', `cadastro/parceiros/${cod}`, { enderecos: [end('27700011168', { codend, uf: 'MG', cidade: 'UBERLANDIA', idcidade: 3170206 })] });
+        const desativar = await env('PUT', `cadastro/parceiros/${cod}`, { enderecos: [end('27700011168', { codend, ativado: 'N', endereco_padrao: 'N' })] });
+        await pgPe.query(`DELETE FROM vendas WHERE nrocupom = 27701 AND codparceiro_end_nfc = $1`, [codend]);
+        const liberado = await env('PUT', `cadastro/parceiros/${cod}`, { enderecos: [end('27700022283', { codend })] });
+        // o documento repetido: pergunta; confirmado grava; com a config BLOQUEAR='S', recusa
+        const semConfirmar = await env('POST', 'cadastro/parceiros', { razao: 'CLIENTE 277 B', tipofj: 'F', cli: 'S', enderecos: [end('27700022283')] });
+        const confirmado = await env('POST', 'cadastro/parceiros', { razao: 'CLIENTE 277 B', tipofj: 'F', cli: 'S', confirmarDocumentoRepetido: true, enderecos: [end('27700022283')] });
+        if (confirmado.j.codparceiro) criados.push(Number(confirmado.j.codparceiro));
+        const antesCfg = (await pgPe.query(`SELECT valor FROM configuracoes WHERE codigo = 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE'`)).rows[0]?.valor ?? null;
+        if (antesCfg === null) await pgPe.query(`INSERT INTO configuracoes (id, codigo, valor) SELECT coalesce(max(id), 0) + 1, 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE', 'S' FROM configuracoes`);
+        else await pgPe.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE'`);
+        const bloqueado = await env('POST', 'cadastro/parceiros', { razao: 'CLIENTE 277 C', tipofj: 'F', cli: 'S', confirmarDocumentoRepetido: true, enderecos: [end('27700022283')] });
+        if (antesCfg === null) await pgPe.query(`DELETE FROM configuracoes WHERE codigo = 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE'`);
+        else await pgPe.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE'`, [antesCfg]);
+        check('CLIENTES §277 [travas do endereço e documento repetido]: endereço com NFC-e não se exclui (422 ENDERECO_COM_DOCUMENTOS) nem troca CPF ou UF (422 ENDERECO_DOCUMENTO_TRAVADO), mas se desativa; sem o documento fiscal, troca; CPF em endereço ativo de outro cadastro pergunta (422 PARCEIRO_DOCUMENTO_EXISTENTE com a razão), confirmado grava, e com BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE=S recusa mesmo confirmado',
+          cria.status === 201 && codend > 0 && excluir.status === 422 && excluir.j.code === 'ENDERECO_COM_DOCUMENTOS'
+          && trocarDoc.status === 422 && trocarDoc.j.code === 'ENDERECO_DOCUMENTO_TRAVADO' && trocarUf.status === 422 && trocarUf.j.code === 'ENDERECO_DOCUMENTO_TRAVADO'
+          && desativar.status === 200 && liberado.status === 200
+          && semConfirmar.status === 422 && semConfirmar.j.code === 'PARCEIRO_DOCUMENTO_EXISTENTE' && String(semConfirmar.j.message ?? '').includes('CLIENTE 277')
+          && confirmado.status === 201 && bloqueado.status === 422 && bloqueado.j.code === 'PARCEIRO_DOCUMENTO_BLOQUEADO',
+          { cria: cria.status, excluir: excluir.j.code ?? excluir.status, trocarDoc: trocarDoc.j.code ?? trocarDoc.status, trocarUf: trocarUf.j.code ?? trocarUf.status, desativar: desativar.status, desativarErr: desativar.j.code, liberado: liberado.status, liberadoErr: liberado.j.code, semConfirmar: [semConfirmar.status, semConfirmar.j.code, semConfirmar.j.message], confirmado: [confirmado.status, confirmado.j.code], bloqueado: [bloqueado.status, bloqueado.j.code] });
+      } finally {
+        await pgPe.query(`DELETE FROM vendas WHERE nrocupom = 27701`);
+        await pgPe.end();
       }
     }
   } finally {

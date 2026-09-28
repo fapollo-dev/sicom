@@ -149,6 +149,10 @@ CALCULADAS = {
     'statusnfe': "(select max(case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 'P'"
                  " when nvl(n.cancelada,'N') = 'S' then 'C' when n.statusnfe = 'P' then null else n.statusnfe end)"
                  " keep (dense_rank first order by case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 0 else 1 end, n.codnfc desc)"
+                 " from nfc n where n.nropedido = vendas.nropedido and n.idempresa = vendas.idempresa and n.serie = vendas.nroserie and trunc(n.dtemissao) = trunc(vendas.dtvenda))",
+    # mig 386: o ENDEREÇO da NFC-e (NFC.CODPARCEIRO_END), que a trava do endereço do parceiro conta (CNPJLiberadoParaEdicao,
+    # uCadClientes.pas:4707) — 749 endereços na produção, 672 sem NF. Mesma ligação e mesma NFC-e vencedora das três acima.
+    'codparceiro_end_nfc': "(select max(n.codparceiro_end) keep (dense_rank first order by case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 0 else 1 end, n.codnfc desc)"
                  " from nfc n where n.nropedido = vendas.nropedido and n.idempresa = vendas.idempresa and n.serie = vendas.nroserie and trunc(n.dtemissao) = trunc(vendas.dtvenda))"},
   'historico_prod': {
     # saldo antes do movimento = saldo depois − o que mexeu
