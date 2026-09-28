@@ -80,4 +80,12 @@ crédito, com a data do dia. O que uma baixa grava na produção (lote 91347, 15
   DATA_OPERACAO/CCs/taxa/outras/`VALOR_AJUSTE_BAIXA`; apaga `CONS_REG10_NAO_ENCONTRADOS` dos arquivos do lote e a CAIXA.
   `TIVIT_REDE_*` têm 0 linhas no cliente e não vieram.
 - Tela: marca os recebíveis (antes baixava todos os abertos da lista), destino, conta do operador, data e histórico.
-- ADIADO: `AjustarDiferenca`/baixa parcial por valor digitado (VALOR_MAXIMO_DIFERENCA_BAIXA), taxa de antecipação, E-Extrato/SITEF.
+- ~~ADIADO~~ → 🪦 **mortos, com prova (28/09/2026, produção só leitura)**:
+  - `AjustarDiferenca` / baixa por valor digitado: a config `VALOR_MAXIMO_DIFERENCA_BAIXA` vale 0 na base e **10.000** no
+    override Módulo/Retaguarda (a função está ligada), mas `CARTAO.VALOR_AJUSTE_BAIXA` é **0 em todas as 1.257.119 baixas**
+    de 2023 a set/2026 — ninguém usa. (A função é do binário novo; não está no fonte de 2020.)
+  - taxa de antecipação (`edtTXantecipacao`): `CARTAO.TXANTECIPACAO` = 0 em todas as baixas desde 2023.
+  - E-Extrato/SITEF (a conciliação pelos arquivos da adquirente, `CONS_REG10` / `CONS_REG10_NAO_ENCONTRADOS`): usada até
+    abr/2026 — ~99% das baixas do 1º quadrimestre levam a `REFERENCIA` do arquivo —, mas a `CONS_REG10` para em
+    **04/05/2026** e **nenhuma das 106 mil baixas de mai a set/2026 tem REFERENCIA**. As baixas seguem em lote pela tela
+    (60 cartões por lote), sem o arquivo. As duas tabelas estão no destino (mig 311) e a reversão já as limpa.

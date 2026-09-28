@@ -61,8 +61,12 @@ Idempotência de aplicar/estornar (`forUpdate` + guard de `mov_estoque` re-checa
 
 - ~~**Lançamento gerencial em CAIXA**~~ ✅ 24/09/2026 — `scrap-caixa.ts` (a diferença da perda a cada gravação; `CAIXA-escritores.md`).
 - ~~**NF de perda CFOP 5927**~~ ✅ 23/09/2026 — a importação do SCRAP na NF de saída (`nf-scrap.service.ts`, `NfScrapModal`).
-- **Importador F7** de perdas identificadas (`UmportaVendasPerdas`).
-- **Gating de config PLC** (`PERDA='S'`, `FLG_USO_SETOR`, `OBRIGA_MOTIVO`) e de setor.
+- ~~**Importador F7**~~ de perdas identificadas (`UmportaVendasPerdas`) → 🪦 **morto, com prova (28/09/2026)**: gera a perda
+  por `PRODUTOS.PERCENTUAL_PERDAS` sobre a venda/NF em KG e marca `VENDAS.CODSCRAP`/`NF_PROD.CODSCRAP` — na produção **1** produto
+  tem percentual e **nenhuma** venda foi marcada desde 2022 (os 36.833 `NF_PROD.CODSCRAP` são o caminho inverso, a importação do
+  SCRAP na NF de perda, convertida em 23/09).
+- ~~**Gating de config PLC**~~ ✅ já no `scrap.aggregate` (`FLG_USO_SETOR` obriga o setor; `PLC_OBRIGA_MOTIVO_PERDA` ou a config
+  `INFORMA_MOTIVO_PERDA_SCRAP` obrigam o motivo; motivo tem de ser de PERDA) — a linha "adiado" tinha ficado velha.
 - **Situação do documento** (E02).
 
 ### CAVEAT de ETL

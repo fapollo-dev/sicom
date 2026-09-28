@@ -200,3 +200,23 @@ ninguém tem. Agora `@RequerSenhaAdministrativa` (header `x-senha-administrativa
 na gestão das listas `USUARIOS_*` de liberação (moram nas CONFIGURACOES). Aceita a senha ADM da empresa (pelo `SenhaOperacaoService`,
 com lockout, como a meta diária do pedido e as parcelas da NF). O legado aceita também a SENHARETAGUARDA de **qualquer** operador e
 `SYSAPOLLO<dia><mês>` — as senhas-mestras que o Apollo já tinha decidido não reimplementar (shared/auth/crypto.ts). Smoke §273.
+
+## Varredura: componentes Tag 1/13 sem NENHUMA linha na produção (28/09/2026)
+
+Sem linha na PERMISSOES, o `SetStateOfControlsMaster` não acha a opção e trava o componente para **todos** (lição 174) — se o
+Apollo deixa fazer o ato, fica mais permissivo. Varredura das 150 telas convertidas: cadeia de herança do form (Tag do ancestral
+quando o `inherited` não sobrescreve), a regra por classe (cadastro trava qualquer componente; `TfrmMaster` só botão, checkbox,
+calc-edit e menu), menos os botões de navegação (`BotaoDeControle`), contra os 1.064 pares (form, opção) da produção. 60 achados:
+
+- `edtCodigo` (49 cadastros) e `btnPesquisa` da empresa: o campo de código do cadastro-base — reabilitado pelo `ControlaTela`,
+  usado em toda tela. Sem efeito.
+- `FRMCADPRODUTO.btnExcluirCodAuxiliar`: já decidido (o binário novo exclui por outro caminho — 19 exclusões na LOG desde 2025).
+- `FRMCADPRODUTO.btnNCM` ("Buscar NCM"): só a lupa; o campo NCM segue pela `EDTNCMSH` (47 de 51 operadores). Sem efeito.
+- `FRMCADPERFILOPERADOR.btnOutros`: o menu com os dois relatórios de perfil — o Apollo não os tem. Sem efeito.
+- `FRMETIQUETA.BitBtn1`: é o "Consulta Preço", que o binário novo chama `BTNCONSULTAPRECO` (65 operadores) — já mapeado.
+- `FRMRELENTRADAS_FINAN.btnConsulta`: travado, mas o F9 chama `btnConsultaClick` direto (uRelEntradas_Finan.pas:220) — quem
+  abre a tela consulta. O gate do Apollo é fiel.
+- `FRMRELINVENTARIOROTATIVO.btnFecharInventario/BtnNovoLote`: a tela não tem linha nenhuma na produção (nem o gate) e o último
+  lote é de mai/2026 (141 acessos até 30/06) — ninguém faz hoje, e o Apollo exige gate + as duas opções. Fiel.
+
+Nenhuma rota do Apollo precisou mudar.
