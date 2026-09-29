@@ -9,7 +9,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import {
   listarFontes, camposDaFonte, obterRelatorio, salvarRelatorio, removerRelatorio, executar,
-  type Fonte, type CampoFonte, type Execucao,
+  type Fonte, type CampoFonte, type Execucao, OPERADORES,
 } from './construtorApi';
 
 type Coluna = NonNullable<DefinicaoRelatorioDto['colunas']>[number];
@@ -28,12 +28,6 @@ type Condicao = NonNullable<DefinicaoRelatorioDto['condicoes']>[number];
  * (`cbbTabelaShowCloseUp`, "ao mudar de tabela a configuração efetuada será perdida"); aqui a confirmação diz
  * quantas colunas serão perdidas. E a **prévia roda sem gravar**, que é como se confere antes de salvar.
  */
-const OPERADORES = [
-  { value: '=', label: 'igual a' }, { value: '<>', label: 'diferente de' },
-  { value: 'contem', label: 'contém' }, { value: 'comeca', label: 'começa com' },
-  { value: '>=', label: 'a partir de' }, { value: '<=', label: 'até' },
-  { value: 'vazio', label: 'em branco' }, { value: 'preenchido', label: 'preenchido' },
-];
 const FORMATOS = [
   { value: 'texto', label: 'Texto' }, { value: 'numero', label: 'Número' },
   { value: 'moeda', label: 'Moeda' }, { value: 'data', label: 'Data' },
@@ -57,6 +51,14 @@ export function ConstrutorPage() {
   const [paisagem, setPaisagem] = useState(false);
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [condicoes, setCondicoes] = useState<Condicao[]>([]);
+  // a ordenação e o agrupamento do legado (cdsOrdenacao / cdsAgrupar) e as duas opções do grupo (MOSTRA_SOMENTE_AGRUPAMENTO /
+  // SALTAR_PG_GRUPO) — carregadas e gravadas com o relatório (antes o editor as descartava ao gravar)
+  const [ordem, setOrdem] = useState<string[]>([]);
+  const [agrupar, setAgrupar] = useState<string[]>([]);
+  const [somenteAgrupamento, setSomenteAgrupamento] = useState(false);
+  const [quebraPagina, setQuebraPagina] = useState(false);
+  const [aOrdenar, setAOrdenar] = useState('');
+  const [aAgrupar, setAAgrupar] = useState('');
   const [campos, setCampos] = useState<CampoFonte[]>([]);
   const [aAdicionar, setAAdicionar] = useState<string>('');
   const [calc, setCalc] = useState<{ campo1: string; operacao: string; campo2: string; titulo: string }>({ campo1: '', operacao: '+', campo2: '', titulo: '' });
@@ -73,6 +75,10 @@ export function ConstrutorPage() {
       setPaisagem(!!r.definicao.paisagem);
       setColunas([...(r.definicao.colunas ?? [])].sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0)));
       setCondicoes(r.definicao.condicoes ?? []);
+      setOrdem((r.definicao.ordem ?? []).map((o) => o.campo));
+      setAgrupar(r.definicao.agrupar?.length ? r.definicao.agrupar : r.definicao.agruparPor ? [r.definicao.agruparPor] : []);
+      setSomenteAgrupamento(!!r.definicao.somenteAgrupamento);
+      setQuebraPagina(!!r.definicao.quebraPagina);
     }).catch((e) => mensagem.erro(e));
   }, [codNum, mensagem]);
 
@@ -85,7 +91,7 @@ export function ConstrutorPage() {
   const trocarFonte = (nova: string | undefined) => {
     if (!nova || nova === fonte) return;
     if (colunas.length && !window.confirm(`Ao mudar de fonte as ${colunas.length} coluna(s) montadas são perdidas. Confirma?`)) return;
-    setFonte(nova); setColunas([]); setCondicoes([]); setPrevia(null);
+    setFonte(nova); setColunas([]); setCondicoes([]); setOrdem([]); setAgrupar([]); setPrevia(null);
   };
 
   const addCampo = () => {
@@ -116,17 +122,23 @@ export function ConstrutorPage() {
     paisagem,
     colunas: colunas.map((c, i) => ({ ...c, posicao: i + 1 })),
     condicoes: condicoes.filter((c) => c.campo),
-  }), [titulo, nome, paisagem, colunas, condicoes]);
+    ordem: ordem.map((campo) => ({ campo, direcao: 'asc' as const })),
+    agrupar,
+    somenteAgrupamento: agrupar.length ? somenteAgrupamento : false,
+    quebraPagina: agrupar.length ? quebraPagina : false,
+  }), [titulo, nome, paisagem, colunas, condicoes, ordem, agrupar, somenteAgrupamento, quebraPagina]);
 
   const verPrevia = useCallback(async () => {
     if (!fonte || !colunas.length) { mensagem.erro('Escolha a fonte e ao menos uma coluna.'); return; }
+    if (agrupar.length && !ordem.length) { mensagem.erro('Para realizar o agrupamento do relatório é necessário que preencha a ordenação.'); return; }
     setOcupado(true);
     try { setPrevia(await executar({ fonte, definicao, filtros: [] })); }
     catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
-  }, [fonte, colunas.length, definicao, mensagem]);
+  }, [fonte, colunas.length, agrupar.length, ordem.length, definicao, mensagem]);
 
   const gravar = async () => {
     if (!nome.trim()) { mensagem.erro('Informe o nome do relatório.'); return; }
+    if (agrupar.length && !ordem.length) { mensagem.erro('Para realizar o agrupamento do relatório é necessário que preencha a ordenação.'); return; }
     setOcupado(true);
     try {
       const r = await salvarRelatorio({ codrelatoriodef: codNum, nome: nome.trim(), fonte, definicao });
@@ -204,13 +216,60 @@ export function ConstrutorPage() {
 
       {fonte && (
         <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <h2 className="mb-form-gap text-body-md">Ordenação e agrupamento</h2>
+          <p className="mb-form-gap text-body-sm text-fg-muted">O grupo abre a cada troca de valor, na ordem das linhas — por isso o legado exige a ordenação para agrupar, e o normal é o primeiro campo da ordenação ser o do grupo.</p>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <div>
+              <div className="flex items-end gap-gp-sm">
+                <div className="w-64"><SelectField label="&Ordenar por" options={opcoesCampo} value={aOrdenar || undefined} onChange={(v) => setAOrdenar(v ?? '')} placeholder="campo…" /></div>
+                <Button label="Adicionar" variant="soft" disabled={!aOrdenar} onClick={() => { if (aOrdenar && !ordem.includes(aOrdenar)) setOrdem((o) => [...o, aOrdenar]); }} />
+              </div>
+              {ordem.map((o, i) => (
+                <div key={o} className="mt-gp-sm flex items-center gap-gp-sm text-body-sm">
+                  <span className="w-56 font-mono">{i + 1}. {o}</span>
+                  <Button label="↑" variant="soft" onClick={() => setOrdem((os) => { if (i === 0) return os; const n = [...os]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })} />
+                  <Button label="Remover" variant="soft" onClick={() => setOrdem((os) => os.filter((x) => x !== o))} />
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="flex items-end gap-gp-sm">
+                <div className="w-64"><SelectField label="A&grupar por" options={opcoesCampo} value={aAgrupar || undefined} onChange={(v) => setAAgrupar(v ?? '')} placeholder="campo…" /></div>
+                <Button label="Adicionar" variant="soft" disabled={!aAgrupar} onClick={() => { if (aAgrupar && !agrupar.includes(aAgrupar)) setAgrupar((g) => [...g, aAgrupar]); }} />
+              </div>
+              {agrupar.map((g, i) => (
+                <div key={g} className="mt-gp-sm flex items-center gap-gp-sm text-body-sm">
+                  <span className="w-56 font-mono">{i + 1}. {g}</span>
+                  <Button label="Remover" variant="soft" onClick={() => setAgrupar((gs) => gs.filter((x) => x !== g))} />
+                </div>
+              ))}
+              {agrupar.length > 0 && (
+                <div className="mt-form-gap flex flex-col gap-gp-sm text-body-sm">
+                  <label className="flex items-center gap-gp-sm"><input type="checkbox" checked={somenteAgrupamento} onChange={(e) => setSomenteAgrupamento(e.target.checked)} /> Mostrar somente o agrupamento (uma linha por grupo, com os totais)</label>
+                  <label className="flex items-center gap-gp-sm"><input type="checkbox" checked={quebraPagina} onChange={(e) => setQuebraPagina(e.target.checked)} /> Saltar página a cada grupo (na impressão)</label>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {fonte && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <h2 className="mb-form-gap text-body-md">Condições</h2>
           <p className="mb-form-gap text-body-sm text-fg-muted">Valem sempre que o relatório roda. O usuário ainda pode somar filtros na hora de gerar.</p>
           {condicoes.map((c, i) => (
             <div key={i} className="mb-gp-sm flex flex-wrap items-end gap-gp-sm">
               <div className="w-56"><SelectField label={i === 0 ? 'Campo' : ''} options={opcoesCampo} value={c.campo} onChange={(v) => setCondicoes((cs) => cs.map((x, k) => (k === i ? { ...x, campo: v ?? '' } : x)))} /></div>
-              <div className="w-44"><SelectField label={i === 0 ? 'Condição' : ''} options={OPERADORES} value={c.operador} onChange={(v) => setCondicoes((cs) => cs.map((x, k) => (k === i ? { ...x, operador: (v ?? '=') as Condicao['operador'] } : x)))} /></div>
-              {!['vazio', 'preenchido'].includes(String(c.operador)) && (
+              <div className="w-44"><SelectField label={i === 0 ? 'Condição' : ''} options={OPERADORES} value={c.operador} onChange={(v) => setCondicoes((cs) => cs.map((x, k) => (k === i ? { ...x, operador: (v ?? '=') as Condicao['operador'], valor: v === 'entre' ? ['', ''] : '' } : x)))} /></div>
+              {c.operador === 'entre' ? (
+                <>
+                  {[0, 1].map((k) => (
+                    <div key={k} className="w-40"><Field label={i === 0 ? (k === 0 ? 'De' : 'Até') : ''} value={String((Array.isArray(c.valor) ? c.valor : [])[k] ?? '')}
+                      onChange={(e) => setCondicoes((cs) => cs.map((x, j) => { if (j !== i) return x; const v = Array.isArray(x.valor) ? [...x.valor] : ['', '']; v[k] = e.target.value; return { ...x, valor: v }; }))} /></div>
+                  ))}
+                </>
+              ) : !['vazio', 'preenchido'].includes(String(c.operador)) && (
                 <div className="w-48"><Field label={i === 0 ? 'Valor' : ''} value={String(c.valor ?? '')} onChange={(e) => setCondicoes((cs) => cs.map((x, k) => (k === i ? { ...x, valor: e.target.value } : x)))} /></div>
               )}
               <Button label="Remover" variant="soft" onClick={() => setCondicoes((cs) => cs.filter((_, k) => k !== i))} />

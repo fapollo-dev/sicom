@@ -25,7 +25,28 @@ export interface Execucao {
   linhas: Array<Record<string, unknown>>;
   totais: Record<string, number>;
   truncado: boolean;
+  /** os grupos (agrupamento do legado): título, as linhas dele (índices em `linhas`, de/até inclusive) e os subtotais */
+  grupos?: Array<{ titulo: string; de: number; ate: number; subtotais: Record<string, number> }>;
+  somenteAgrupamento?: boolean;
+  quebraPagina?: boolean;
 }
+
+// as nove operações do legado (GetTipoPesquisa) + as que o Apollo somou (a partir de / até / em branco / preenchido)
+export const OPERADORES = [
+  { value: '=', label: 'igual a' },
+  { value: '<>', label: 'diferente de' },
+  { value: 'comeca', label: 'começado com' },
+  { value: 'termina', label: 'terminado com' },
+  { value: 'contem', label: 'em qualquer lugar' },
+  { value: '>', label: 'maior que' },
+  { value: '<', label: 'menor que' },
+  { value: 'entre', label: 'entre' },
+  { value: 'em', label: 'contido em (a, b, c)' },
+  { value: '>=', label: 'a partir de' },
+  { value: '<=', label: 'até' },
+  { value: 'vazio', label: 'em branco' },
+  { value: 'preenchido', label: 'preenchido' },
+];
 
 export interface Fonte { fonte: string; rotulo: string }
 export interface RelatorioDetalhe { codrelatoriodef: number; nome: string; fonte: string; definicao: DefinicaoRelatorioDto }

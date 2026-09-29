@@ -199,3 +199,26 @@ Catálogo · executor · construtor · importador · CSV · PDF. Fica em aberto,
 `GET_PRODUTOS_PRODUTOS_WIL`, `..._LETICIA`, `GET_NF_NÃO`). E o de-para das fontes segue aberto para as views
 que ainda não portamos — cada uma que entrar, com o seu `COMMENT`, aparece no catálogo e libera mais
 relatórios na próxima importação, sem código novo.
+
+## Executar como o legado — totais, ordenação, agrupamento e condições (29/09/2026)
+
+Dos 95 relatórios do cliente, **68 têm totais** (`cdsTotais`), **65 têm ordenação** (`cdsOrdenacao`) e **36 têm agrupamento**
+(`cdsAgrupar`; 11 com "mostrar somente agrupamento"). O conversor ignorava os três e o executor não agrupava — os relatórios
+importados rodariam sem total, fora de ordem e sem grupo. Agora, pela leitura de `ProcessaSQL`/`MontaRelatorio`/`GetParametroWhere`:
+
+- **SQL**: `select <campos> from <view> where <condições> order by <ordenação pela POSIÇÃO>` (empate na ordem do arquivo).
+- **Grupos** (FastReport `GroupHeader.Condition` = concatenação dos campos do grupo): abrem a cada **troca** de valor na ordem das
+  linhas — é por sequência, então a ordenação é que junta (29 dos 36 relatórios agrupados ordenam primeiro pelo campo do grupo). O
+  cabeçalho mostra os valores; o rodapé "Total:" com o SUM das colunas que totalizam; a coluna do grupo sai do detalhe (o legado
+  compara com o ÚLTIMO campo do `cdsAgrupar`). "Mostrar somente agrupamento": uma linha por grupo com os subtotais. "Saltar página":
+  quebra na impressão. Agrupar sem ordenação é recusado com a mensagem do legado (`ValidarAgrupamentoComOrdenacao`).
+- **Totais**: o `cdsTotais` marca as colunas; a calculada com TOTALIZAR entra também. O TABELA dos totais é irrelevante (lixo de
+  índice, uRelatorio.pas:3006).
+- **Coluna calculada**: a `CONDICAO` vira `CASE WHEN coalesce(<condição>, 0) = 0 THEN 0 ELSE <conta> END`.
+- **Condições**: LIKE **sensível a maiúsculas** (o `UpperCase` do legado é só do nome do campo); em "Em Qualquer Lugar" o `+` do
+  valor vira `' %'` (curinga de palavra); os nomes do legado são "Começado com", "Terminado com" e "Contido em" (lista por vírgula)
+  — o importador procurava "Começa com" —, e operação desconhecida é "Em Qualquer Lugar" (o `else` do legado). Valor vazio: em texto
+  "igual a" = vazio-ou-nulo e "diferente de" = preenchido-e-não-nulo (dois relatórios do cliente dependem disso); em data os dois viram
+  "preenchido" (o `Aux = '='` do legado nunca é verdadeiro); em número o legado quebraria a consulta — aqui é recusado.
+- O editor carrega e grava ordenação, agrupamento e as duas opções (antes descartava ao gravar um relatório importado).
+- O CSV continua como o do legado: as linhas de detalhe (o Apollo soma a linha de total).

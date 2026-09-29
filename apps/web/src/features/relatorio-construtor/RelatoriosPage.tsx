@@ -9,7 +9,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import {
   listarRelatorios, camposDaFonte, executar, baixarCsv,
-  type RelatorioSalvo, type CampoFonte, type Execucao, type Condicao,
+  type RelatorioSalvo, type CampoFonte, type Execucao, type Condicao, OPERADORES,
 } from './construtorApi';
 
 /**
@@ -23,17 +23,7 @@ import {
  * ordem é a que ele arrastou, o formato (moeda, data) é o que ele escolheu e o rodapé soma as colunas que ele
  * marcou para totalizar. Nada disso está no código — está no dado.
  */
-const OPERADORES = [
-  { value: '=', label: 'igual a' },
-  { value: '<>', label: 'diferente de' },
-  { value: 'contem', label: 'contém' },
-  { value: 'comeca', label: 'começa com' },
-  { value: '>=', label: 'a partir de' },
-  { value: '<=', label: 'até' },
-  { value: 'entre', label: 'entre' },
-  { value: 'vazio', label: 'em branco' },
-  { value: 'preenchido', label: 'preenchido' },
-];
+
 
 const fmtMoeda = (v: unknown) => (v == null || v === '' ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 const fmtData = (v: unknown) => (v == null || v === '' ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
@@ -137,9 +127,19 @@ export function RelatoriosPage() {
                 </div>
                 <div className="w-44">
                   <SelectField label={i === 0 ? 'Condição' : ''} options={OPERADORES} value={f.operador}
-                    onChange={(v) => setFiltro(i, { operador: v ?? '=' })} />
+                    onChange={(v) => setFiltro(i, { operador: v ?? '=', valor: v === 'entre' ? ['', ''] : '' })} />
                 </div>
-                {!['vazio', 'preenchido'].includes(String(f.operador)) && (
+                {f.operador === 'entre' ? (
+                  <>
+                    {[0, 1].map((k) => (
+                      <div key={k} className="w-40">
+                        <Field label={i === 0 ? (k === 0 ? 'De' : 'Até') : ''} value={String((Array.isArray(f.valor) ? f.valor : [])[k] ?? '')}
+                          type={campos.find((c) => c.campo === f.campo)?.formato === 'data' ? 'date' : 'text'}
+                          onChange={(e) => { const v = Array.isArray(f.valor) ? [...f.valor] : ['', '']; v[k] = e.target.value; setFiltro(i, { valor: v }); }} />
+                      </div>
+                    ))}
+                  </>
+                ) : !['vazio', 'preenchido'].includes(String(f.operador)) && (
                   <div className="w-52">
                     <Field label={i === 0 ? 'Valor' : ''} value={String(f.valor ?? '')}
                       type={campos.find((c) => c.campo === f.campo)?.formato === 'data' ? 'date' : 'text'}
@@ -171,7 +171,9 @@ export function RelatoriosPage() {
               {res.linhas.length.toLocaleString('pt-BR')} linha(s){res.truncado && ' (parcial)'}
             </span>
           </div>
-          <DataTable rows={res.linhas} columns={cols} getRowId={(_l: Record<string, unknown>, i?: number) => String(i)} />
+          {res.grupos ? <TabelaAgrupada res={res} /> : (
+            <DataTable rows={res.linhas} columns={cols} getRowId={(_l: Record<string, unknown>, i?: number) => String(i)} />
+          )}
           {Object.keys(res.totais).length > 0 && (
             <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
               <div className="flex flex-wrap gap-gp-lg">
@@ -186,6 +188,59 @@ export function RelatoriosPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * O relatório AGRUPADO como o do legado (MontaRelatorio): cada grupo abre com os valores do agrupamento, lista as linhas e fecha com
+ * "Total:" e os subtotais das colunas que totalizam. "Mostrar somente agrupamento" esconde o detalhe — cada grupo vira uma linha com
+ * o valor dele e os subtotais. "Saltar página" põe cada grupo numa página na impressão.
+ */
+function TabelaAgrupada({ res }: { res: Execucao }) {
+  const grupos = res.grupos ?? [];
+  const somaveis = res.colunas.filter((c) => res.totais[c.chave] != null);
+  const fmtTotal = (v: unknown, f: string) => formatar(v, f === 'texto' ? 'numero' : f);
+  if (res.somenteAgrupamento) {
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-body-sm">
+          <thead><tr>
+            <th className="border-b border-border px-2 py-1 text-left">Grupo</th>
+            {somaveis.map((c) => <th key={c.chave} className="border-b border-border px-2 py-1 text-right">{c.titulo}</th>)}
+          </tr></thead>
+          <tbody>
+            {grupos.map((g, i) => (
+              <tr key={i}>
+                <td className="border-b border-border-subtle px-2 py-1 font-semibold">{g.titulo}</td>
+                {somaveis.map((c) => <td key={c.chave} className="border-b border-border-subtle px-2 py-1 text-right tabular-nums">{fmtTotal(g.subtotais[c.chave], c.formato)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-body-sm">
+        <thead><tr>{res.colunas.map((c) => <th key={c.chave} className="border-b border-border px-2 py-1 text-left">{c.titulo}</th>)}</tr></thead>
+        {grupos.map((g, i) => (
+          <tbody key={i} style={res.quebraPagina && i > 0 ? { breakBefore: 'page' } : undefined}>
+            <tr><td colSpan={res.colunas.length} className="bg-bg-subtle px-2 py-1 font-semibold">{g.titulo}</td></tr>
+            {res.linhas.slice(g.de, g.ate + 1).map((l, k) => (
+              <tr key={k}>{res.colunas.map((c) => <td key={c.chave} className="border-b border-border-subtle px-2 py-1">{formatar(l[c.chave], c.formato)}</td>)}</tr>
+            ))}
+            {somaveis.length > 0 && (
+              <tr>{res.colunas.map((c, k) => (
+                <td key={c.chave} className="px-2 py-1 font-semibold tabular-nums">
+                  {g.subtotais[c.chave] != null ? fmtTotal(g.subtotais[c.chave], c.formato) : k === 0 ? 'Total:' : ''}
+                </td>
+              ))}</tr>
+            )}
+          </tbody>
+        ))}
+      </table>
     </div>
   );
 }

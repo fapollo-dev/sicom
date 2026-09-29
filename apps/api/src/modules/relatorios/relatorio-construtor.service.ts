@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { FUSO_LOJA } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 
@@ -26,7 +27,7 @@ export interface CampoFonte { campo: string; tipo: 'texto' | 'numero' | 'data' |
 
 export interface ColunaDef {
   campo?: string;
-  calculado?: { campo1: string; operacao: '+' | '-' | '*' | '/'; campo2: string };
+  calculado?: { campo1: string; operacao: '+' | '-' | '*' | '/'; campo2: string; condicao?: string };
   titulo?: string;
   largura?: number;
   posicao?: number;
@@ -39,6 +40,8 @@ export interface Definicao {
   titulo?: string;
   paisagem?: boolean;
   agruparPor?: string;
+  /** os campos do grupo, na ordem (cdsAgrupar); `agruparPor` é o formato antigo, de um campo */
+  agrupar?: string[];
   somenteAgrupamento?: boolean;
   quebraPagina?: boolean;
   colunas: ColunaDef[];
@@ -49,8 +52,22 @@ export interface Definicao {
 /** os operadores que o legado oferece na condição (`cbbOperacaoCondicao`). */
 const OPERADORES: Record<string, string> = {
   '=': '=', '<>': '<>', '>': '>', '>=': '>=', '<': '<', '<=': '<=',
-  'contem': 'ILIKE', 'comeca': 'ILIKE', 'entre': 'BETWEEN', 'vazio': 'IS NULL', 'preenchido': 'IS NOT NULL',
+  'contem': 'LIKE', 'comeca': 'LIKE', 'termina': 'LIKE', 'em': 'IN', 'entre': 'BETWEEN', 'vazio': 'IS NULL', 'preenchido': 'IS NOT NULL',
 };
+
+/** o valor como o cabeçalho do grupo mostra: data dd/mm/aaaa, o resto como texto (nulo = vazio) */
+const valorTexto = (v: unknown): string => {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toLocaleDateString('pt-BR', { timeZone: FUSO_LOJA });
+  return String(v);
+};
+
+/** um grupo do relatório: o título (os valores do agrupamento), as linhas dele (índices em `linhas`) e os subtotais */
+export interface GrupoRelatorio { titulo: string; de: number; ate: number; subtotais: Record<string, number> }
+
+/** os campos do grupo de uma definição (o formato novo, `agrupar`, ou o antigo, `agruparPor`) */
+export const camposDoGrupo = (def: Definicao): string[] =>
+  def.agrupar?.length ? def.agrupar : def.agruparPor ? [def.agruparPor] : [];
 
 /**
  * CONSTRUTOR DE RELATÓRIOS (`FRMRELATORIO`, `uRelatorio.pas` 3.445 linhas) — corte-1: o CATÁLOGO e o EXECUTOR.
@@ -208,6 +225,7 @@ export class RelatorioConstrutorService {
     titulo: string; fonte: string; paisagem: boolean;
     colunas: Array<{ chave: string; titulo: string; formato: string; largura?: number }>;
     linhas: Array<Record<string, unknown>>; totais: Record<string, number>; truncado: boolean;
+    grupos?: GrupoRelatorio[]; somenteAgrupamento: boolean; quebraPagina: boolean;
   }> {
     const db = this.dbp.forTenantRead() as AnyDB;
     let fonte = p.fonte ?? '';
@@ -233,14 +251,24 @@ export class RelatorioConstrutorService {
       const b = c.calculado?.operacao === '/'
         ? sql`nullif(coalesce(${sql.id(c.calculado.campo2)}, 0), 0)`
         : sql`coalesce(${sql.id(c.calculado?.campo2 ?? '')}, 0)`;
+      const conta = sql`(${a} ${sql.raw(c.calculado?.operacao ?? '+')} ${b})`;
+      // o CONDICAO do legado: `CASE WHEN coalesce(<condicao>, 0) = 0 THEN 0 ELSE <fórmula> END` (ProcessaSQL)
       const expr = c.calculado
-        ? sql`(${a} ${sql.raw(c.calculado.operacao)} ${b})`
+        ? (c.calculado.condicao ? sql`CASE WHEN coalesce(${sql.id(c.calculado.condicao)}, 0) = 0 THEN 0 ELSE ${conta} END` : conta)
         : sql`${sql.id(c.campo as string)}`;
       return sql`${expr} AS ${sql.id(chave)}`;
     });
+    // os campos do grupo vão junto, escondidos (g0, g1…): é o valor que abre e fecha cada grupo
+    const grupo = camposDoGrupo(def);
+    // `ValidarAgrupamentoComOrdenacao` (uRelatorio.pas:3414): agrupar exige a ordenação preenchida
+    if (grupo.length && !(def.ordem ?? []).length) {
+      throw new BusinessRuleError('AGRUPAMENTO_SEM_ORDENACAO', undefined,
+        'Para realizar o agrupamento do relatório é necessário que preencha a ordenação.');
+    }
+    grupo.forEach((g, i) => selects.push(sql`${sql.id(g)} AS ${sql.id(`g${i}`)}`));
 
     // 2) as condições salvas + os filtros de execução.
-    const where = [...(def.condicoes ?? []), ...(p.filtros ?? [])].map((c) => this.condicao(c));
+    const where = [...(def.condicoes ?? []), ...(p.filtros ?? [])].map((c) => this.condicao(c, tipoDe.get(c.campo)?.tipo));
 
     // 3) a ordenação.
     const ordem = (def.ordem ?? []).map((o) => sql`${sql.id(o.campo)} ${sql.raw(String(o.direcao).toLowerCase() === 'desc' ? 'DESC' : 'ASC')}`);
@@ -257,29 +285,69 @@ export class RelatorioConstrutorService {
     if (truncado) linhas.length = limite;
 
     // 4) os totais do rodapé — somados sobre o que foi lido, que é o que o relatório mostra.
-    const totais: Record<string, number> = {};
-    cols.forEach((c, i) => {
-      if (!c.totalizar) return;
-      const chave = `c${i}`;
-      totais[chave] = Math.round(linhas.reduce((s, l) => s + Number(l[chave] ?? 0), 0) * 100) / 100;
-    });
+    const somar = (de: number, ate: number): Record<string, number> => {
+      const out: Record<string, number> = {};
+      cols.forEach((c, i) => {
+        if (!c.totalizar) return;
+        const chave = `c${i}`;
+        let t = 0;
+        for (let k = de; k <= ate; k++) t += Number(linhas[k][chave] ?? 0);
+        out[chave] = Math.round(t * 100) / 100;
+      });
+      return out;
+    };
+    const totais = linhas.length ? somar(0, linhas.length - 1) : somar(0, -1);
 
+    // 5) os GRUPOS (MontaRelatorio): o FastReport abre um grupo a cada troca do valor (a concatenação dos campos do grupo) — é por
+    // SEQUÊNCIA, então o valor que volta depois abre outro grupo (a ordenação é que junta; o legado só exige que ela exista). O
+    // cabeçalho mostra os valores separados por espaço; o rodapé, o SUM das colunas que totalizam.
+    let grupos: GrupoRelatorio[] | undefined;
+    if (grupo.length) {
+      grupos = [];
+      const chaveDe = (l: Record<string, unknown>) => grupo.map((_, i) => valorTexto(l[`g${i}`])).join('\u0001');
+      let de = 0;
+      for (let k = 1; k <= linhas.length; k++) {
+        if (k === linhas.length || chaveDe(linhas[k]) !== chaveDe(linhas[de])) {
+          grupos.push({ titulo: grupo.map((_, i) => valorTexto(linhas[de][`g${i}`])).join(' '), de, ate: k - 1, subtotais: somar(de, k - 1) });
+          de = k;
+        }
+      }
+      for (const l of linhas) grupo.forEach((_, i) => { delete l[`g${i}`]; });
+    }
+
+    // a coluna do grupo não sai no detalhe: vai no cabeçalho dele (o legado compara com o ÚLTIMO campo do grupo — é onde o cursor do
+    // cdsAgrupar para depois do laço)
+    const escondida = grupo.length ? grupo[grupo.length - 1] : null;
     return {
       titulo: titulo || fonte,
       fonte,
       paisagem: !!def.paisagem,   // o `IMPRIMIR_EM_PAISAGEM` do legado — a tela usa na hora de imprimir
-      colunas: cols.map((c, i) => ({
-        chave: `c${i}`,
-        titulo: c.titulo || c.campo || 'Calculado',
-        formato: c.formato ?? (c.calculado ? 'numero' : tipoDe.get(c.campo as string)?.formato ?? 'texto'),
-        largura: c.largura,
-      })),
+      colunas: cols
+        .map((c, i) => ({
+          chave: `c${i}`,
+          titulo: c.titulo || c.campo || 'Calculado',
+          formato: c.formato ?? (c.calculado ? 'numero' : tipoDe.get(c.campo as string)?.formato ?? 'texto'),
+          largura: c.largura,
+          campo: c.campo,
+        }))
+        .filter((c) => !(escondida && c.campo === escondida))
+        .map(({ campo: _c, ...resto }) => resto),
       linhas, totais, truncado,
+      grupos,
+      somenteAgrupamento: !!def.somenteAgrupamento && !!grupos,
+      quebraPagina: !!def.quebraPagina && !!grupos,
     };
   }
 
-  /** uma condição vira SQL com o VALOR sempre parametrizado. */
-  private condicao(c: CondicaoDef) {
+  /**
+   * Uma condição vira SQL com o VALOR sempre parametrizado, com a semântica do legado (`GetParametroWhere` + `ProcessaSQL`):
+   *  · LIKE sensível a maiúsculas (o `UpperCase` do legado é só do nome do campo); em "Em Qualquer Lugar" o `+` do valor vira
+   *    `' %'` — um curinga de palavra ("COCA+2L" acha "COCA COLA 2L");
+   *  · "Contido em": a lista separada por vírgula;
+   *  · valor VAZIO: em texto, "Igual a" é vazio-ou-nulo e "Diferente de" é preenchido-e-não-nulo; em data os dois viram "preenchido"
+   *    (é o que o legado monta — `Aux = '='` nunca é verdadeiro lá); em número o legado quebraria a consulta, aqui é recusado.
+   */
+  private condicao(c: CondicaoDef, tipo?: CampoFonte['tipo']) {
     const op = OPERADORES[String(c.operador)];
     if (!op) throw new BusinessRuleError('OPERADOR_INVALIDO', { operador: c.operador });
     const campo = sql.id(c.campo);
@@ -290,10 +358,24 @@ export class RelatorioConstrutorService {
       if (v.length !== 2) throw new BusinessRuleError('CONDICAO_ENTRE_EXIGE_DOIS_VALORES', { campo: c.campo });
       return sql`${campo} BETWEEN ${v[0]} AND ${v[1]}`;
     }
-    if (op === 'ILIKE') {
-      const alvo = String(c.operador) === 'comeca' ? `${String(c.valor)}%` : `%${String(c.valor)}%`;
-      return sql`${campo}::text ILIKE ${alvo}`;
+    const valor = c.valor == null ? '' : String(c.valor);
+    if (op === 'LIKE') {
+      const alvo = String(c.operador) === 'comeca' ? `${valor}%`
+        : String(c.operador) === 'termina' ? `%${valor}`
+        : `%${valor.replace(/\+/g, ' %')}%`;
+      return sql`${campo}::text LIKE ${alvo}`;
     }
+    if (op === 'IN') {
+      const lista = valor.split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter((x) => x !== '')
+        .map((x) => (/^\d{2}\/\d{2}\/\d{4}$/.test(x) ? x.split('/').reverse().join('-') : x));
+      if (!lista.length) throw new BusinessRuleError('CONDICAO_SEM_VALOR', { campo: c.campo });
+      return sql`${campo}::text IN (${sql.join(lista.map((x) => sql`${x}`))})`;
+    }
+    if (valor === '' && (op === '=' || op === '<>')) {
+      if (tipo === 'texto') return op === '=' ? sql`(${campo} = '' OR ${campo} IS NULL)` : sql`(${campo} <> '' AND ${campo} IS NOT NULL)`;
+      if (tipo === 'data') return sql`${campo} IS NOT NULL`;
+    }
+    if (valor === '' && tipo !== 'texto') throw new BusinessRuleError('CONDICAO_SEM_VALOR', { campo: c.campo });
     return sql`${campo} ${sql.raw(op)} ${c.valor}`;
   }
 
@@ -311,12 +393,13 @@ export class RelatorioConstrutorService {
       if (c.calculado) {
         exige(c.calculado.campo1, 'coluna calculada');
         exige(c.calculado.campo2, 'coluna calculada');
+        if (c.calculado.condicao) exige(c.calculado.condicao, 'condição da coluna calculada');
         if (!['+', '-', '*', '/'].includes(c.calculado.operacao)) throw new BusinessRuleError('OPERACAO_INVALIDA', { operacao: c.calculado.operacao });
       } else exige(c.campo, 'coluna');
     }
     for (const c of [...(def.condicoes ?? []), ...(filtros ?? [])]) exige(c.campo, 'condição');
     for (const o of def.ordem ?? []) exige(o.campo, 'ordenação');
-    if (def.agruparPor) exige(def.agruparPor, 'agrupamento');
+    for (const g of camposDoGrupo(def)) exige(g, 'agrupamento');
     return campos;
   }
 

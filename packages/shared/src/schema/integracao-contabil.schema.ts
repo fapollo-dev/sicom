@@ -70,6 +70,8 @@ export const colunaRelatorioSchema = z.object({
     campo1: campoSql,
     operacao: z.enum(['+', '-', '*', '/']),
     campo2: campoSql,
+    // o CONDICAO do cdsCamposCalculados: `CASE WHEN coalesce(<condicao>, 0) = 0 THEN 0 ELSE <conta> END` (uRelatorio.pas ProcessaSQL)
+    condicao: campoSql.optional(),
   }).optional(),
   titulo: z.string().max(80).optional(),
   largura: z.coerce.number().int().min(1).max(200).optional(),
@@ -80,14 +82,17 @@ export const colunaRelatorioSchema = z.object({
 
 export const condicaoRelatorioSchema = z.object({
   campo: campoSql,
-  operador: z.enum(['=', '<>', '>', '>=', '<', '<=', 'contem', 'comeca', 'entre', 'vazio', 'preenchido']),
+  // os do legado (GetTipoPesquisa: Igual a, Diferente de, Começado com, Terminado com, Em Qualquer Lugar, Maior que, Menor que, Entre,
+  // Contido em) + os que o Apollo somou (>=, <=, vazio, preenchido)
+  operador: z.enum(['=', '<>', '>', '>=', '<', '<=', 'contem', 'comeca', 'termina', 'em', 'entre', 'vazio', 'preenchido']),
   valor: z.unknown().optional(),
 });
 
 export const definicaoRelatorioSchema = z.object({
   titulo: z.string().max(120).optional(),
   paisagem: z.boolean().optional(),
-  agruparPor: campoSql.optional(),
+  agruparPor: campoSql.optional(),          // o formato antigo (um campo); `agrupar` é o do legado (cdsAgrupar, N campos)
+  agrupar: z.array(campoSql).max(6).optional(),
   somenteAgrupamento: z.boolean().optional(),
   quebraPagina: z.boolean().optional(),
   colunas: z.array(colunaRelatorioSchema).min(1, 'Escolha ao menos uma coluna.').max(60),

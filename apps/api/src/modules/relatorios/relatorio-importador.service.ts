@@ -7,7 +7,10 @@ import { relacaoDaFonte, type Definicao, type ColunaDef, type CondicaoDef } from
 
 type AnyDB = Kysely<any>;
 
-/** `OPERACAO` do `cdsWhere` → o operador do nosso modelo. As seis que o cliente usa, nas 96 condições dele. */
+/**
+ * `OPERACAO` do `cdsWhere` → o operador do nosso modelo: as nove do legado (`GetTipoPesquisa`, uComunPesquisaRel.pas:330). O que não
+ * casa com nenhuma o legado trata como "Em Qualquer Lugar" (o `else` de lá) — aqui também.
+ */
 const OPERACAO: Record<string, string> = {
   'IGUAL A': '=',
   'DIFERENTE DE': '<>',
@@ -15,6 +18,11 @@ const OPERACAO: Record<string, string> = {
   'MENOR QUE': '<',
   'ENTRE': 'entre',
   'EM QUALQUER LUGAR': 'contem',
+  'COMEÇADO COM': 'comeca',
+  'COMECADO COM': 'comeca',
+  'TERMINADO COM': 'termina',
+  'CONTIDO EM': 'em',
+  // grafias que o Apollo já aceitava (definições montadas antes)
   'COMECA COM': 'comeca',
   'COMEÇA COM': 'comeca',
 };
@@ -204,8 +212,11 @@ function lerValor(valor: string, operador: string): unknown {
 export function converter(xml: string): Definicao {
   const linhas = xml.match(/<ROW\b[^>]*\/>/g) ?? [];
   const def: Definicao = { colunas: [], condicoes: [] };
-  const calculos = new Map<string, { titulo?: string; formula?: string; totalizar?: boolean }>();
+  const calculos = new Map<string, { titulo?: string; formula?: string; totalizar?: boolean; condicao?: string }>();
   const brutas: Array<Record<string, string>> = [];
+  const totais = new Set<string>();
+  const ordem: Array<{ campo: string; pos: number; i: number }> = [];
+  const agrupar: Array<{ campo: string; pos: number; i: number }> = [];
 
   for (const l of linhas) {
     const a = atributos(l);
@@ -218,11 +229,16 @@ export function converter(xml: string): Definicao {
         break;
       case 'cdsCamposAImprimir': brutas.push(a); break;
       case 'cdsCamposCalculados':
-        calculos.set(a.CAMPO, { titulo: a.TITULO_CALC, formula: a.FORMULA ?? a.FORMULALBL, totalizar: verdade(a.TOTALIZAR) });
+        calculos.set(a.CAMPO, { titulo: a.TITULO_CALC, formula: a.FORMULA ?? a.FORMULALBL, totalizar: verdade(a.TOTALIZAR), condicao: a.CONDICAO });
         break;
+      // o que totaliza, a ordem e o agrupamento (uRelatorio.pas ProcessaSQL/MontaRelatorio): a ordem pela POSICAO (o
+      // `IndexFieldNames := 'POSICAO'`; empate fica na ordem do arquivo)
+      case 'cdsTotais': if (a.CAMPO) totais.add(a.CAMPO.toUpperCase()); break;
+      case 'cdsOrdenacao': if (a.CAMPO) ordem.push({ campo: a.CAMPO, pos: Number(a.POSICAO ?? 0), i: ordem.length }); break;
+      case 'cdsAgrupar': if (a.CAMPO) agrupar.push({ campo: a.CAMPO, pos: Number(a.POSICAO ?? 0), i: agrupar.length }); break;
       case 'cdsWhere': {
-        const operador = OPERACAO[String(a.OPERACAO ?? '').toUpperCase()];
-        if (!operador || !a.CAMPO) break;
+        const operador = OPERACAO[String(a.OPERACAO ?? '').toUpperCase()] ?? 'contem';
+        if (!a.CAMPO) break;
         def.condicoes!.push({ campo: a.CAMPO.toLowerCase(), operador, valor: lerValor(a.VALOR_CAMPO ?? '', operador) } as CondicaoDef);
         break;
       }
@@ -238,15 +254,25 @@ export function converter(xml: string): Definicao {
       if (verdade(a.CAMPOCALC)) {
         const c = calculos.get(a.CAMPO);
         const conta = c?.formula ? lerFormula(c.formula) : null;
+        // a CONDICAO tem de ser um nome de campo (é o que o legado põe dentro do coalesce); outra coisa não é lida
+        const cond = String(c?.condicao ?? '').trim();
+        const condOk = !cond || /^[A-Za-z_][A-Za-z_0-9]*$/.test(cond);
         // sem conta legível a coluna é DESCARTADA e o relatório inteiro cai em `pendentes` — nunca se
         // inventa uma fórmula, e nunca se injeta o texto do arquivo na consulta.
-        if (!conta) { def.colunas.push({ ...base, campo: `__formula_nao_lida__${a.CAMPO}` }); return; }
-        def.colunas.push({ ...base, calculado: conta, titulo: c?.titulo || base.titulo, totalizar: c?.totalizar, formato: 'numero' });
+        if (!conta || !condOk) { def.colunas.push({ ...base, campo: `__formula_nao_lida__${a.CAMPO}` }); return; }
+        def.colunas.push({
+          ...base, calculado: cond ? { ...conta, condicao: cond.toLowerCase() } : conta, titulo: c?.titulo || base.titulo,
+          // o legado soma no rodapé a calculada marcada TOTALIZAR (ela entra no cdsTotais) — e a que está no cdsTotais
+          totalizar: !!c?.totalizar || totais.has(String(a.CAMPO).toUpperCase()), formato: 'numero',
+        });
       } else {
-        def.colunas.push({ ...base, campo: String(a.CAMPO).toLowerCase() });
+        def.colunas.push({ ...base, campo: String(a.CAMPO).toLowerCase(), ...(totais.has(String(a.CAMPO).toUpperCase()) ? { totalizar: true } : {}) });
       }
     });
 
+  const porPosicao = <T extends { pos: number; i: number }>(xs: T[]) => [...xs].sort((x, y) => x.pos - y.pos || x.i - y.i);
+  if (ordem.length) def.ordem = porPosicao(ordem).map((o) => ({ campo: o.campo.toLowerCase(), direcao: 'asc' as const }));
+  if (agrupar.length) def.agrupar = porPosicao(agrupar).map((g) => g.campo.toLowerCase());
   return def;
 }
 
@@ -258,6 +284,9 @@ export function referencias(def: Definicao): string[] {
     else if (c.campo) fora.push(c.campo);
   }
   for (const c of def.condicoes ?? []) fora.push(c.campo);
+  for (const c of def.colunas) if (c.calculado?.condicao) fora.push(c.calculado.condicao);
+  for (const o of def.ordem ?? []) fora.push(o.campo);
+  for (const g of def.agrupar ?? []) fora.push(g);
   return Array.from(new Set(fora));
 }
 

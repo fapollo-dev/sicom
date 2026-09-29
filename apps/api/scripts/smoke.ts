@@ -26347,6 +26347,86 @@ async function main() {
         await pgCt.end();
       }
     }
+    // ══ §284 O CONSTRUTOR EXECUTA COMO O LEGADO — totais, ordenação, agrupamento e as condições (uRelatorio.pas ProcessaSQL/MontaRelatorio) ══════
+    {
+      const RC = 'relatorios/construtor';
+      const pgEx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const apgs: number[] = [];
+      try {
+        // três títulos em aberto: DP, BO, DP (na ordem do documento) — o agrupamento por tipo abre TRÊS grupos (é por sequência)
+        for (const [dup, tipo, valor, obs] of [['G284-1', 'DP', 100, null], ['G284-2', 'BO', 30, ''], ['G284-3', 'DP', 50, 'COCA COLA 2L']] as Array<[string, string, number, string | null]>) {
+          apgs.push(Number((await pgEx.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc, obs)
+            VALUES (1,2,$1,'2035-09-10','2035-09-01',$2,0,0,'N',$3,$4) RETURNING codapg`, [dup, valor, tipo, obs])).rows[0].codapg));
+        }
+        const exec = async (definicao: any) => {
+          const r = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'get_apagar', definicao }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const cols = [{ campo: 'nr_documento', titulo: 'Documento', posicao: 1 }, { campo: 'tipo_documento', titulo: 'Tipo', posicao: 2 },
+          { campo: 'valor', titulo: 'Valor', posicao: 3, totalizar: true }];
+        const so = [{ campo: 'nr_documento', operador: 'comeca', valor: 'G284-' }];
+        const g = await exec({ colunas: cols, condicoes: so, ordem: [{ campo: 'nr_documento' }], agrupar: ['tipo_documento'] });
+        const soG = await exec({ colunas: cols, condicoes: so, ordem: [{ campo: 'tipo_documento' }, { campo: 'nr_documento' }], agrupar: ['tipo_documento'], somenteAgrupamento: true });
+        const semOrdem = await exec({ colunas: cols, condicoes: so, agrupar: ['tipo_documento'] });
+        const cv = (x: any, ch: string) => Number(x?.[ch]);
+        check('RELATÓRIOS §284a [grupos como o FastReport do legado]: o grupo abre a cada TROCA de valor na ordem das linhas (DP, BO, DP = 3 grupos — a ordenação é que junta), o cabeçalho traz o valor, o rodapé o subtotal das colunas que totalizam e a coluna do grupo sai do detalhe; com "mostrar somente o agrupamento" e a ordenação pelo tipo, 2 grupos (BO 30, DP 150); total geral 180; agrupar sem ordenação é recusado (ValidarAgrupamentoComOrdenacao)',
+          g.status === 200 && g.j.grupos?.length === 3 && g.j.grupos.map((x: any) => x.titulo).join(',') === 'DP,BO,DP'
+          && cv(g.j.grupos[0].subtotais, 'c2') === 100 && cv(g.j.grupos[2].subtotais, 'c2') === 50 && cv(g.j.totais, 'c2') === 180
+          && g.j.colunas.length === 2 && !g.j.colunas.some((c: any) => c.titulo === 'Tipo')
+          && soG.status === 200 && soG.j.somenteAgrupamento === true && soG.j.grupos?.length === 2
+          && soG.j.grupos[0].titulo === 'BO' && cv(soG.j.grupos[1].subtotais, 'c2') === 150
+          && semOrdem.status === 422 && semOrdem.j.code === 'AGRUPAMENTO_SEM_ORDENACAO',
+          { grupos: g.j.grupos, somente: soG.j.grupos, semOrdem: semOrdem.status });
+
+        // as condições do legado (GetParametroWhere): vazio em texto = vazio-ou-nulo; LIKE sensível a maiúsculas; '+' = curinga de palavra
+        const n = async (cond: any) => (await exec({ colunas: cols, condicoes: [...so, cond] })).j.linhas?.length;
+        const vazio = await n({ campo: 'observacao', operador: '=', valor: '' });
+        const preenchido = await n({ campo: 'observacao', operador: '<>', valor: '' });
+        const curinga = await n({ campo: 'observacao', operador: 'contem', valor: 'COCA+2L' });
+        const minusc = await n({ campo: 'observacao', operador: 'contem', valor: 'coca' });
+        const lista = await n({ campo: 'nr_documento', operador: 'em', valor: 'G284-1, G284-3' });
+        const termina = await n({ campo: 'nr_documento', operador: 'termina', valor: '-2' });
+        check('RELATÓRIOS §284b [as condições como o legado monta]: "igual a" vazio num texto acha o vazio E o nulo (2), "diferente de" vazio acha só o preenchido (1); "em qualquer lugar" é sensível a maiúsculas ("coca" não acha "COCA") e o + vira curinga de palavra ("COCA+2L" acha "COCA COLA 2L"); "contido em" a lista (2) e "terminado com" (1)',
+          vazio === 2 && preenchido === 1 && curinga === 1 && minusc === 0 && lista === 2 && termina === 1,
+          { vazio, preenchido, curinga, minusc, lista, termina });
+
+        // o importador lê o que o arquivo tem de totais, ordenação, agrupamento e a CONDICAO do calculado
+        const xml = ['<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="Por tipo" MOSTRA_SOMENTE_AGRUPAMENTO="TRUE" SALTAR_PG_GRUPO="TRUE" IMPRIMIR_EM_PAISAGEM="FALSE"/>',
+          '<ROW RowState="4" CAMPO="NR_DOCUMENTO" TITULO="Doc" TAMANHO="10" POSICAO="1" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="TIPO_DOCUMENTO" TITULO="Tipo" TAMANHO="5" POSICAO="2" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="VALOR" TITULO="Valor" TAMANHO="10" POSICAO="3" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="CALC1" TITULO="Pct" TAMANHO="10" POSICAO="4" CAMPOCALC="TRUE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="CALC1" TITULO_CALC="Pct" FORMULA=" coalesce(VALOR,0) / coalesce(VALOR_BRUTO,0)" TOTALIZAR="FALSE" CONDICAO="VALOR_BRUTO" DATASET="cdsCamposCalculados" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="VALOR" DATASET="cdsTotais" TABELA="OPERADORES"/>',
+          '<ROW RowState="4" CAMPO="TIPO_DOCUMENTO" POSICAO="0" DATASET="cdsOrdenacao" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="NR_DOCUMENTO" POSICAO="1" DATASET="cdsOrdenacao" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="TIPO_DOCUMENTO" POSICAO="0" DATASET="cdsAgrupar" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="NR_DOCUMENTO" VALOR_CAMPO="G284-" OPERACAO="Começado com" VALOR_MOSTRAR="G284-" DATASET="cdsWhere" TABELA="CONTAS A PAGAR"/>',
+          '</ROWDATA></DATAPACKET>'].join('');
+        await pgEx.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99809`);
+        await pgEx.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES (99809,1,'GET_APAGAR_POR TIPO 284.XML','NORMAL',$1)`,
+          [Buffer.from(xml, 'utf8').toString('base64')]);
+        await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const d = (await pgEx.query(`SELECT codrelatoriodef, definicao FROM relatorio_definicao WHERE upper(nome) LIKE '%POR TIPO 284%'`)).rows[0] as any;
+        const def = d?.definicao ?? {};
+        const run = d ? await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: Number(d.codrelatoriodef) }) }) : null;
+        const runJ = (await run?.json().catch(() => ({}))) as any;
+        check('RELATÓRIOS §284c [o importador lê totais, ordenação e agrupamento]: o cdsTotais marca a coluna VALOR para totalizar, o cdsOrdenacao vira a ordem pela POSIÇÃO (tipo, documento), o cdsAgrupar o agrupamento, as opções do grupo vêm do cdsConfiguracoes, e a CONDICAO da calculada protege a divisão; o relatório importado roda agrupado: BO 30 e DP 150',
+          def.colunas?.find((c: any) => c.campo === 'valor')?.totalizar === true
+          && (def.ordem ?? []).map((o: any) => o.campo).join(',') === 'tipo_documento,nr_documento'
+          && (def.agrupar ?? []).join(',') === 'tipo_documento' && def.somenteAgrupamento === true && def.quebraPagina === true
+          && def.colunas?.find((c: any) => c.calculado)?.calculado?.condicao === 'valor_bruto'
+          && def.condicoes?.[0]?.operador === 'comeca'
+          && run?.status === 200 && runJ.grupos?.length === 2 && Number(runJ.grupos?.[1]?.subtotais?.c2) === 150,
+          { definicao: def, grupos: runJ.grupos, status: run?.status });
+      } finally {
+        await pgEx.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%POR TIPO 284%'`).catch(() => undefined);
+        await pgEx.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99809`).catch(() => undefined);
+        if (apgs.length) await pgEx.query(`DELETE FROM apagar WHERE codapg = ANY($1)`, [apgs]).catch(() => undefined);
+        await pgEx.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
