@@ -15022,8 +15022,8 @@ async function main() {
           { porPedido: [hv11.status, hv11J.cabecalho?.nrocupom, hv11J.itens?.length], inexistente: hv13J.encontrado, empBody: [hv12.status, hv12J.code] });
 
         // 84.7) a LISTA (corte-2, o botão de pesquisa do legado sobre GET_HIST_VENDAS). O grão é o do legado: os
-        // DOIS níveis de GROUP BY colapsam os produtos da venda ⇒ **uma linha por venda × PIS**. O pedido do teste
-        // tem 6 registros de 2 produtos, todos com PIS nulo ⇒ **1 linha**, total = Σ dos líquidos
+        // DOIS níveis de GROUP BY colapsam os produtos da venda ⇒ **uma linha por venda** (mig 392). O pedido do teste
+        // tem 6 registros de 2 produtos ⇒ **1 linha**, total = Σ dos líquidos
         // (18,50 + 3,47 + 9,43 + 10,00 + 9,00 + 9,00 = 59,40) e desconto Σ = 1,50 + 3,00 = 4,50.
         // (o cancelado entra pelo CASE do IAT = 9,43 aqui, contra 9,42 truncado na consulta do cupom.)
         const hvLis = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-10', dtfim: '2026-08-10' }) });
@@ -26271,7 +26271,29 @@ async function main() {
         const cp = (await pgR3.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%SALDO 282%'`)).rows[0] as any;
         check('RELATÓRIOS §282d [o rótulo decide entre duas views de prefixo]: o arquivo GET_CP_CEN_SALDO 282.XML aparece no legado sob GET_CP e sob GET_CP_CEN; gravado com o rótulo "CONTAS A PAGAR 2" (o da GET_CP), entra na fonte get_cp — como os dois relatórios do cliente com esse nome e esse rótulo',
           cp?.fonte === 'get_cp', { cp });
+
+        // o CÓDIGO DA VENDA é o do legado (mig 392): lá CODVENDAS é o cupom; aqui a PK é da linha e o do legado mora em codvendas_legado
+        await pgR3.query(`DELETE FROM vendas WHERE nropedido = '08100835222222'`);
+        await pgR3.query(`INSERT INTO vendas (codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, operador) VALUES
+          (777282,1,'2035-08-10 22:30:00-03','08100835222222','001',9282,1,990810,2,5.00,'A','N','S',20,7),
+          (777282,1,'2035-08-10 22:30:00-03','08100835222222','001',9282,2,990810,1,3.25,'A','N','S',20,7)`).catch(async () => {
+          // o produto do §84 pode não existir mais aqui: qualquer produto serve
+          const prd = Number((await pgR3.query(`SELECT idproduto FROM produtos ORDER BY idproduto LIMIT 1`)).rows[0].idproduto);
+          await pgR3.query(`INSERT INTO vendas (codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, operador) VALUES
+            (777282,1,'2035-08-10 22:30:00-03','08100835222222','001',9282,1,$1,2,5.00,'A','N','S',20,7),
+            (777282,1,'2035-08-10 22:30:00-03','08100835222222','001',9282,2,$1,1,3.25,'A','N','S',20,7)`, [prd]);
+        });
+        const gv = (await pgR3.query(`SELECT codvendas, total, to_char(data,'YYYY-MM-DD') d FROM get_vendas WHERE nropedido = '08100835222222'`)).rows as any[];
+        const gh = (await pgR3.query(`SELECT codvendas, total, to_char(data,'YYYY-MM-DD') d FROM get_hist_vendas WHERE nropedido = '08100835222222'`)).rows as any[];
+        const gr = (await pgR3.query(`SELECT DISTINCT codvendas, hora FROM get_vendasrelat WHERE nropedido = '08100835222222'`)).rows as any[];
+        const nHist = (await pgR3.query(`SELECT count(*)::int n FROM information_schema.columns WHERE table_name = 'get_hist_vendas'`)).rows[0].n;
+        check('RELATÓRIOS §282e [o código da VENDA é o do legado]: no Oracle CODVENDAS é o cupom (ontem, 6.248 linhas para 1.572 códigos); aqui a PK é da linha e o do legado mora em codvendas_legado. GET_VENDAS e GET_HIST_VENDAS dão UMA linha para a venda de 2 itens, com CODVENDAS 777282 e total 13,25; o dia da venda das 22h30 é o da loja (10/08, não 11/08 em UTC) e a HORA 22:30:00; a GET_HIST_VENDAS tem as 14 colunas da produção de hoje (sem o PIS na chave)',
+          gv.length === 1 && Number(gv[0].codvendas) === 777282 && Number(gv[0].total) === 13.25 && gv[0].d === '2035-08-10'
+          && gh.length === 1 && Number(gh[0].codvendas) === 777282 && Number(gh[0].total) === 13.25 && gh[0].d === '2035-08-10'
+          && gr.length === 1 && Number(gr[0].codvendas) === 777282 && gr[0].hora === '22:30:00' && Number(nHist) === 14,
+          { gv, gh, gr, nHist });
       } finally {
+        await pgR3.query(`DELETE FROM vendas WHERE nropedido = '08100835222222'`).catch(() => undefined);
         await pgR3.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%SALDO 282%'`).catch(() => undefined);
         await pgR3.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99807`).catch(() => undefined);
         await pgR3.query(`DELETE FROM cartao WHERE codoperadora = 99282`).catch(() => undefined);

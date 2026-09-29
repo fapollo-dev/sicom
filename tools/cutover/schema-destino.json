@@ -22236,27 +22236,6 @@
      "escala": null,
      "nulo": true,
      "default": null
-    },
-    "pis_cst": {
-     "tipo": "character",
-     "tam": 2,
-     "escala": null,
-     "nulo": true,
-     "default": null
-    },
-    "pis_valor": {
-     "tipo": "numeric",
-     "tam": 15,
-     "escala": 2,
-     "nulo": true,
-     "default": null
-    },
-    "pis_aliquota": {
-     "tipo": "numeric",
-     "tam": 15,
-     "escala": 4,
-     "nulo": true,
-     "default": null
     }
    },
    "pk": [],

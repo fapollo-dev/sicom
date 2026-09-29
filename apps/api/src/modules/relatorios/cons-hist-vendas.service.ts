@@ -262,7 +262,7 @@ export class ConsHistVendasService {
   /**
    * A LISTA de vendas — o `BitBtn1Click` do legado, que abre `TfrmPesquisa` sobre a view `GET_HIST_VENDAS` e, ao
    * escolher uma linha, preenche cupom, pedido, PDV (`COPY(NROPEDIDO,1,2)`) e empresa. Grão da view = **uma linha
-   * por CODVENDAS** (item), fiel aos dois GROUP BY do legado; qualquer linha da venda serve para abrir o cupom.
+   * por VENDA** (o CODVENDAS do legado identifica o cupom — mig 392, a view como está hoje na produção).
    *
    * O recorte de datas é OBRIGATÓRIO (a view agrega VENDAS inteira: no Oracle, sem filtro, estoura 180s) e o teto
    * devolve `truncado` em vez de mentir um total parcial (lição 12d).
@@ -294,7 +294,7 @@ export class ConsHistVendasService {
     if (dto.cliente) q = q.where(sql`upper(g.cliente)`, 'like', `%${escLike(dto.cliente.toUpperCase())}%`);
     if (dto.cancelado) q = q.where(sql`coalesce(g.cancelado,'N')`, dto.cancelado === 'C' ? '=' : '<>', 'C');
     // pede 1 a mais que o teto para saber se truncou (sem contar a tabela inteira). Ordem determinística: a chave
-    // da linha é (venda × pis), então data/pedido/codvendas fecham a ordenação.
+    // da linha é a venda, então data/pedido/codvendas fecham a ordenação.
     const rows = (await q
       .orderBy('g.data', 'desc')
       .orderBy('g.nropedido')

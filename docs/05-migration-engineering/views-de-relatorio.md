@@ -62,6 +62,15 @@ GET_NOTAS_SEM_PEDIDO, GET_TIPO_CODIGO_VENDIDO, GET_VALORES_CARTAO, GET_VENDAS, G
 GET_PRODUTOS_ESTOQUE. As esquisitices que ficaram estão no cabeçalho da migration (GET_APAGARBXCC soma a TAXA de juros como valor;
 GET_ESTOQUE_TOTALIZADO repete o saldo a cada preço igual de outra loja; NEUTRA 'NÃƒO' → 'NÃO').
 
+### O código da venda (mig 392)
+
+No Oracle `VENDAS.CODVENDAS` identifica a **venda** (o cupom: 6.248 linhas para 1.572 códigos num dia); aqui `vendas.codvendas` é a
+PK da linha e o do legado mora em `codvendas_legado` (o mesmo com `cx_vendas.codcxvendas`). GET_VENDAS, GET_VENDASRELAT e GET_CX
+passaram a expor o código do legado — a 391 usava a PK da linha e a GET_VENDAS saía uma linha por item. E a GET_HIST_VENDAS (a
+pesquisa da consulta de histórico, mig 161) foi realinhada com a view de hoje da produção: 14 colunas, uma linha por venda — a
+161 fora feita sobre uma versão antiga, com o PIS na chave (17 colunas) e o menor ID de linha no lugar do código. Ao portar view
+sobre tabela da carga, conferir o `RENOMEIA` do `extrair.py`: o nome igual pode guardar outra coisa.
+
 ### O placar (simulação sobre os 95 relatórios da produção, 29/09/2026)
 
 **81 importam**, cada um na fonte onde roda no legado (eram 28 no começo do dia). Os 14 que sobram:
