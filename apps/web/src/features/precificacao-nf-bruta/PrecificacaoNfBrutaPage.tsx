@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 
 /**
  * PRECIFICAÇÃO PELA NF BRUTA (`FRMPRECIFICACAONFBRUTA`). Dossiê: `uPrecificacaoNFBruta.md`.
@@ -29,6 +31,7 @@ export function PrecificacaoNfBrutaPage() {
   const [res, setRes] = useState<Consulta | null>(null);
   const [edit, setEdit] = useState<Record<number, { vrvenda: string; markupfixo: string }>>({});
   const [sel, setSel] = useState<Set<number>>(new Set());
+  const navigate = useNavigate();
   const [ocupado, setOcupado] = useState(false);
 
   const pedir = async <T,>(url: string, init?: RequestInit): Promise<T> => {
@@ -70,6 +73,12 @@ export function PrecificacaoNfBrutaPage() {
       await buscar();
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+  // "Etiquetas" (`btnEtiquetasClick`, uPrecificacaoNFBruta.pas:206): os marcados com a VENDA SUG. da grade, quantidade 1
+  const abrirEtiquetas = () => {
+    const marcados = (res?.itens ?? []).filter((i) => sel.has(i.idproduto));
+    if (!marcados.length) return;
+    abrirEtiquetasCom({ fonte: 'precificacao', itens: marcados.map((i) => ({ idproduto: i.idproduto, valor: Number(edit[i.idproduto]?.vrvenda ?? i.vrvendasug) || 0 })) }, navigate);
+  };
   const alternar = (id: number) => { const n = new Set(sel); if (n.has(id)) n.delete(id); else n.add(id); setSel(n); };
 
   return (
@@ -85,6 +94,7 @@ export function PrecificacaoNfBrutaPage() {
           <label className="flex items-center gap-1 pb-2 text-body-sm"><input type="checkbox" checked={f.somenteComSugestao} onChange={(e) => setF({ ...f, somenteComSugestao: e.target.checked })} /> só com sugestão</label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           <Button label="&Aplicar" disabled={ocupado || sel.size === 0} onClick={() => void aplicar()} />
+          <Button label="&Etiquetas" variant="soft" disabled={ocupado || sel.size === 0} onClick={abrirEtiquetas} />
         </div>
       </section>
 

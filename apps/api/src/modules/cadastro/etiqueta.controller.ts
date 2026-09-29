@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { etiquetaAdicionarSchema, etiquetaImprimirSchema, type EtiquetaAdicionarDto, type EtiquetaImprimirDto } from '@apollo/shared';
+import { etiquetaAdicionarSchema, etiquetaImprimirSchema, etiquetaDeItensSchema, type EtiquetaAdicionarDto, type EtiquetaImprimirDto, type EtiquetaDeItensDto } from '@apollo/shared';
 import { EtiquetaService } from './etiqueta.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
@@ -27,7 +27,7 @@ export class EtiquetaController {
 
   /** os modelos de etiqueta (os .fr3 `eti$` da RELATORIOS) — o combo "Modelo da etiqueta" */
   @Get('modelos')
-  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMPRECIFICACAONF', 'FRMPRECIFICACAONF'], ['FRMPRECIFICACAONFBRUTA', 'FRMPRECIFICACAONFBRUTA'], ['FRMRELPRECOSALTERADOS', 'FRMRELPRECOSALTERADOS'], ['FRMNF', 'FRMNF'])
   modelos() {
     return this.svc.modelos();
   }
@@ -69,6 +69,14 @@ export class EtiquetaController {
     return this.svc.importar(Array.isArray(body?.codigos) ? body.codigos.map((c) => String(c)) : []);
   }
 
+  /** as telas que abrem as etiquetas com a lista pronta (o legado as abre por Create, sem o gate da tela de etiquetas) */
+  @Post('de-itens')
+  @HttpCode(200)
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMPRECIFICACAONF', 'FRMPRECIFICACAONF'], ['FRMPRECIFICACAONFBRUTA', 'FRMPRECIFICACAONFBRUTA'], ['FRMRELPRECOSALTERADOS', 'FRMRELPRECOSALTERADOS'], ['FRMNF', 'FRMNF'])
+  deItens(@Body(new ZodValidationPipe(etiquetaDeItensSchema)) body: EtiquetaDeItensDto) {
+    return this.svc.deItens(body);
+  }
+
   @Get('produto')
   @RequerAcesso('FRMETIQUETA', 'FRMETIQUETA')
   produto(@Query('codbarra') codbarra?: string, @Query('idproduto') idproduto?: string, @Query('ativos') ativos?: string) {
@@ -93,8 +101,8 @@ export class EtiquetaController {
   /** imprime: registros de impressão por modelo + log + marcas, e o .fr3 de cada modelo p/ o navegador desenhar. */
   @Post('imprimir')
   @HttpCode(200)
-  // quem chega pela agenda de promoção ou pelo Ajuste de Preços imprime sem o gate da tela de etiquetas (o legado a abre por Create)
-  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
+  // quem chega por outra tela (agenda, Ajuste de Preços, cadastro de produto, Precificação NF, preços alterados, NF) imprime sem o gate da tela de etiquetas (o legado a abre por Create)
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'], ['FRMPRECIFICACAONF', 'FRMPRECIFICACAONF'], ['FRMPRECIFICACAONFBRUTA', 'FRMPRECIFICACAONFBRUTA'], ['FRMRELPRECOSALTERADOS', 'FRMRELPRECOSALTERADOS'], ['FRMNF', 'FRMNF'])
   imprimir(@Body(new ZodValidationPipe(etiquetaImprimirSchema)) body: EtiquetaImprimirDto) {
     return this.svc.imprimir(body);
   }

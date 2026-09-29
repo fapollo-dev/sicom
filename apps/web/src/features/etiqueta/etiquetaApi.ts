@@ -20,9 +20,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type OrigemEtiqueta =
-  | { tipo: 'produto'; caminho: 'codbarra' | 'pesquisa' | 'coletor' | 'importacao'; fatorEmbalagem?: number }
+  | { tipo: 'produto'; caminho: 'codbarra' | 'pesquisa' | 'coletor' | 'importacao' | 'cadastro'; fatorEmbalagem?: number }
   | { tipo: 'lote'; codlotepreco: number }
-  | { tipo: 'agenda'; codagenda: number; preco: 'status' | 'venda' | 'promocional' };
+  | { tipo: 'agenda'; codagenda: number; preco: 'status' | 'venda' | 'promocional' }
+  | { tipo: 'preco'; fonte: 'precificacao' | 'precos-alterados'; valor: number }
+  | { tipo: 'nf'; codnfprod: number };
 
 export type Registro = Record<string, string | number | boolean | null>;
 
@@ -93,6 +95,27 @@ export function etiquetasDaAgenda(codagenda: number, preco: string): Promise<Eti
 /** as etiquetas dos lotes do Ajuste de Preços (expandidas pelo grupo de preço, com o preço do lote) */
 export function etiquetasDosLotes(codlotes: number[], semPromocao: boolean): Promise<Etiqueta[]> {
   return req('/cadastro/etiqueta/dos-lotes', { method: 'POST', body: JSON.stringify({ codlotes, semPromocao }) });
+}
+
+export type FonteEtiquetas = 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf';
+export interface PedidoDeItens { fonte: FonteEtiquetas; codnf?: number; itens?: Array<{ idproduto: number; valor?: number }> }
+/** as telas que abrem as etiquetas com a lista pronta (cadastro de produto, Precificação NF, preços alterados, NF) */
+export function etiquetasDeItens(pedido: PedidoDeItens): Promise<Etiqueta[]> {
+  return req('/cadastro/etiqueta/de-itens', { method: 'POST', body: JSON.stringify(pedido) });
+}
+
+const CHAVE_ITENS = 'apollo.etiquetas.itens';
+/** a tela de origem deixa a lista e navega para as etiquetas (o legado cria o TfrmEtiqueta já com o cdsImpressao preenchido) */
+export function abrirEtiquetasCom(pedido: PedidoDeItens, navigate: (to: string) => void): void {
+  try { sessionStorage.setItem(CHAVE_ITENS, JSON.stringify(pedido)); } catch { /* sem storage: a tela abre vazia */ }
+  navigate('/estoque/etiquetas');
+}
+export function lerPedidoDeItens(): PedidoDeItens | null {
+  try {
+    const p = JSON.parse(sessionStorage.getItem(CHAVE_ITENS) ?? 'null') as PedidoDeItens | null;
+    sessionStorage.removeItem(CHAVE_ITENS);
+    return p?.fonte ? p : null;
+  } catch { return null; }
 }
 
 /** as linhas "CODBARRA/QTDE/VALOR" do arquivo: o código é o que vem antes da 1ª barra (btnImportClick :1004) */

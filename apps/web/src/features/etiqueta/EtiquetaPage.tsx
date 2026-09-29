@@ -6,7 +6,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
 import {
   listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, etiquetasDaAgenda, listarModelos,
-  importarCodigos, codigosDoArquivo, precoNaEtiqueta, type Etiqueta,
+  importarCodigos, codigosDoArquivo, precoNaEtiqueta, etiquetasDeItens, lerPedidoDeItens, type Etiqueta,
 } from './etiquetaApi';
 import { documentoDeImpressao } from './fr3/render';
 
@@ -41,10 +41,10 @@ export function EtiquetaPage() {
 
   const paraLinha = (e: Etiqueta, sel = true): Linha => ({ ...e, sel, qtdeEdit: e.qtde || 1, descEdit: e.descricao, modelo: '', obs1: '', obs2: '' });
   /** entra produto novo: o que já está na lista (mesmo código de barras) não repete, e o modelo geral volta a vazio */
-  const acrescentar = useCallback((novas: Etiqueta[], sel = true, noInicio = false) => {
+  const acrescentar = useCallback((novas: Etiqueta[], sel = true, noInicio = false, repetir = false) => {
     setLinhas((xs) => {
       const ja = new Set(xs.map((l) => l.codbarra ?? `#${l.idproduto}`));
-      const add = novas.filter((e) => { const k = e.codbarra ?? `#${e.idproduto}`; if (ja.has(k)) return false; ja.add(k); return true; }).map((e) => paraLinha(e, sel));
+      const add = novas.filter((e) => { if (repetir) return true; const k = e.codbarra ?? `#${e.idproduto}`; if (ja.has(k)) return false; ja.add(k); return true; }).map((e) => paraLinha(e, sel));
       return noInicio ? [...add, ...xs] : [...xs, ...add];
     });
     setModeloGeral('');
@@ -90,6 +90,18 @@ export function EtiquetaPage() {
     void etiquetasDaAgenda(cod, pend.preco ?? 'status').then((r) => {
       acrescentar(r, true, true);
       mensagem.sucesso(`${r.length} etiqueta(s) da agenda ${cod} na lista.`);
+    }).catch((e) => mensagem.erro(e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // vindo do cadastro de produto, da Precificação NF, do Relatório de preços alterados ou da NF: a lista pronta, marcada,
+  // com as linhas repetidas como o legado as põe no cdsImpressao
+  useEffect(() => {
+    const pedido = lerPedidoDeItens();
+    if (!pedido) return;
+    void etiquetasDeItens(pedido).then((r) => {
+      acrescentar(r, true, true, pedido.fonte !== 'cadastro');
+      mensagem.sucesso(`${r.length} etiqueta(s) na lista.`);
     }).catch((e) => mensagem.erro(e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -248,7 +260,7 @@ export function EtiquetaPage() {
                 <td className="p-pad-xs tabular-nums">{l.codbarra ?? '—'}</td>
                 <td className="p-pad-xs">
                   <input className="w-full bg-transparent outline-none" value={l.descEdit} onChange={(e) => setLinha(ix, { descEdit: e.target.value })} />
-                  <span className="text-fg-muted">#{l.idproduto}{l.fator !== 1 ? ` · fator ${l.fator}` : ''}{l.origem.tipo === 'lote' ? ' · preço do lote' : l.origem.tipo === 'agenda' ? ' · agenda' : l.idetiqueta != null ? ' · coletor' : ''}</span>
+                  <span className="text-fg-muted">#{l.idproduto}{l.fator !== 1 ? ` · fator ${l.fator}` : ''}{l.origem.tipo === 'lote' ? ' · preço do lote' : l.origem.tipo === 'agenda' ? ' · agenda' : l.origem.tipo === 'preco' ? ' · preço da tela de origem' : l.origem.tipo === 'nf' ? ' · da NF' : l.idetiqueta != null ? ' · coletor' : ''}</span>
                 </td>
                 <td className="p-pad-xs text-right"><input type="number" min={1} className={`${inp} w-20 text-right tabular-nums`} value={l.qtdeEdit} onChange={(e) => setLinha(ix, { qtdeEdit: Math.max(1, Math.round(Number(e.target.value) || 1)) })} /></td>
                 <td className="p-pad-xs">

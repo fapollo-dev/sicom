@@ -5106,6 +5106,29 @@ async function main() {
           && JSON.stringify(impA.naoEncontrados) === JSON.stringify(['NAOEXISTE']),
           { impA });
 
+        // 47g.4d) as outras telas que abrem as etiquetas com a lista pronta: NF (VRVENDA e quantidade do ITEM), cadastro de produto,
+        // preços alterados (as linhas repetidas entram repetidas, como no cdsImpressao)
+        const endEt = Number((await pgEt.query(`INSERT INTO parceiros_end (codparceiro, endereco, bairro, cidade, uf, cnpj_cpf, endereco_padrao) VALUES (2,'RUA ETQ','CENTRO','SAO PAULO','SP',NULL,'N') RETURNING codend`)).rows[0].codend);
+        const nfEt = Number((await pgEt.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop)
+          VALUES (1,'E',55,'1','990477','2044-10-05','2044-10-05',2,$1,'N','N',100,'1102') RETURNING codnf`, [endEt])).rows[0].codnf);
+        await pgEt.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, aliquota) VALUES
+          ($1, 1, 990201, 'SAL DA NOTA', 3, 5.49, 3, 1, 0, 'T01'), ($1, 2, 990200, 'ARROZ DA NOTA', 2.5, 11, 8, 1, 0, 'T01')`, [nfEt]);
+        const deNf = (await (await fetch(`${base}/${ET}/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'nf', codnf: nfEt }) })).json().catch(() => [])) as any[];
+        const deCad = (await (await fetch(`${base}/${ET}/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'cadastro', itens: [{ idproduto: 990201 }] }) })).json().catch(() => [])) as any[];
+        const dePa = (await (await fetch(`${base}/${ET}/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'precos-alterados', itens: [{ idproduto: 990201, valor: 4.99 }, { idproduto: 990201, valor: 5 }] }) })).json().catch(() => [])) as any[];
+        const impNf = (await (await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idproduto: 990201, qtde: 3, modelo: 'GONDULA PINHEIRAO', origem: deNf[0]?.origem }] }) })).json().catch(() => ({}))) as any;
+        const rNf = impNf.trabalhos?.[0]?.registros ?? [];
+        check('ETIQUETA [entradas]: a NF traz os itens com o VRVENDA e a quantidade DO ITEM (3; 2,5 → 2 pelo Round do Delphi) e a descrição do item; o cadastro de produto traz o preço da loja sem a tabela nutricional; os preços alterados entram repetidos com o preço de cada linha; imprimir pela NF refaz do item (5,49 × 3 cópias, descrição da nota)',
+          deNf.length === 2 && Number(deNf[0].valor_venda_promocao) === 5.49 && Number(deNf[0].qtde) === 3 && deNf[0].descricao === 'SAL DA NOTA' && Number(deNf[1].qtde) === 2
+          && deCad.length === 1 && Number(deCad[0].valor_venda) === 5 && deCad[0].registro?.DTVALIDADE === null && deCad[0].origem?.caminho === 'cadastro'
+          && dePa.length === 2 && Number(dePa[0].valor_venda_promocao) === 4.99 && Number(dePa[1].valor_venda_promocao) === 5
+          && rNf.length === 3 && rNf.every((r: any) => Number(r.VRPROMO) === 5.49 && r.DESCRICAO === 'SAL DA NOTA'),
+          { deNf: deNf.map((e) => [e.valor_venda_promocao, e.qtde, e.descricao]), deCad: deCad[0]?.registro?.DTVALIDADE, dePa: dePa.map((e) => e.valor_venda_promocao), rNf: rNf.map((r: any) => [r.VRPROMO, r.DESCRICAO]) });
+        await pgEt.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfEt]);
+        await pgEt.query(`DELETE FROM nf WHERE codnf = $1`, [nfEt]);
+        await pgEt.query(`DELETE FROM parceiros_end WHERE codend = $1`, [endEt]);
+
         // a PESQUISA POR ETQ_IMPRESSA (o rádio do legado): o produto com preço alterado (etq_impressa N) aparece em 'N' e some depois de impresso
         await pgEt.query(`UPDATE multi_preco SET etq_impressa='N' WHERE idproduto=990201 AND idempresa=1`);
         const pesqN = (await (await fetch(`${base}/${ET}/pesquisa?situacao=N`, { headers: H })).json().catch(() => [])) as any[];
@@ -13466,16 +13489,13 @@ async function main() {
         await pgPn.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
 
         // ── o botão ETIQUETAS e a coloração por regra ─────────────────────────────────────────────────
-        const etq1 = await fetch(`${base}/${PN}/etiquetas`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prod] }) });
-        const etq1J = (await etq1.json().catch(() => ({}))) as any;
-        const etq2 = await fetch(`${base}/${PN}/etiquetas`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prod] }) });
-        const etq2J = (await etq2.json().catch(() => ({}))) as any;
-        const naFila = Number((await pgPn.query(
-          `SELECT count(*)::int n FROM etiqueta_cons_prod WHERE idproduto=$1 AND coalesce(impressa,'N')='N'`, [prod])).rows[0].n);
-        check('PRECIFICAÇÃO NF §104.16 [o botão Etiquetas enfileira, e não enfileira duas vezes]: `btnEtiquetasClick:296` manda os itens marcados para a fila de impressão e DESMARCA cada um depois (`:341`) — para o operador não mandar a mesma etiqueta de novo ao clicar outra vez. Aqui a tela desmarca e o serviço ainda protege: o segundo clique no mesmo produto não duplica a fila. ⚠️ Uma diferença de propósito: o legado usa `CODPRODNOTA`, o código do produto NA NOTA DO FORNECEDOR, como código de barras da etiqueta. Em 98,3% dos itens é igual ao do cadastro (196.582 de 200.000 medidos), mas nos outros 1,7% a etiqueta sairia com o código do fornecedor — que não é o que o PDV lê na gôndola. A fila do Apollo é por produto, e o código sai do cadastro',
-          (etq1.status === 200 || etq1.status === 201) && Number(etq1J.enfileiradas) === 1
-          && Number(etq2J.enfileiradas) === 0 && naFila === 1,
-          { primeira: etq1J, segunda: etq2J, naFila });
+        const etqP = (await (await fetch(`${base}/cadastro/etiqueta/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'precificacao', itens: [{ idproduto: prod, valor: 13.49 }] }) })).json().catch(() => [])) as any[];
+        const antigo = await fetch(`${base}/${PN}/etiquetas`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prod] }) });
+        const naFila = Number((await pgPn.query(`SELECT count(*)::int n FROM etiqueta_cons_prod WHERE idproduto=$1`, [prod])).rows[0].n);
+        check('PRECIFICAÇÃO NF §104.16 [o botão Etiquetas abre as etiquetas com o preço da GRADE]: `btnEtiquetasClick:296` cria a tela de etiquetas com os marcados — PRECO_VENDA 13,49 (o preço ainda não aplicado, não o 12 do MULTI_PRECO), quantidade 1, só a descrição — e NÃO grava na fila do coletor (o endpoint que enfileirava saiu: 404)',
+          etqP.length === 1 && Number(etqP[0].valor_venda_promocao) === 13.49 && Number(etqP[0].qtde) === 1 && etqP[0].registro?.DESCRICAO === 'PROD PREC NF'
+          && etqP[0].registro?.DESCRICAO_PRODUTO === '' && etqP[0].origem?.tipo === 'preco' && antigo.status === 404 && naFila === 0,
+          { etqP, antigo: antigo.status, naFila });
 
         const corR = await fetch(`${base}/${PN}?nronf=994501`, { headers: H });
         const corJ = (await corR.json().catch(() => ({}))) as any;

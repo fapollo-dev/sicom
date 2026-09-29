@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Layers, RefreshCw } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
@@ -684,6 +685,12 @@ function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>;
   const [pergunta, setPergunta] = useState<'CLONAR' | 'TRANSFERENCIA' | null>(null);
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   const tipoNota = form.watch('tipo');
+  const navigate = useNavigate();
+  // "Imprimir etiquetas" (mniImprimirEtiquetasClick, uNF.pas:14646): os itens da nota gravada com o VRVENDA e a quantidade do item
+  const imprimirEtiquetas = () => {
+    if (codnf == null) return;
+    abrirEtiquetasCom({ fonte: 'nf', codnf }, navigate);
+  };
   const gerar = async (operacao: 'CLONAR' | 'TRANSFERENCIA') => {
     if (codnf == null || executando) return;
     setExecutando(true);
@@ -708,6 +715,7 @@ function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>;
       <div className="flex flex-wrap items-center gap-gp-sm">
         <Button label="C&lonar nota" variant="soft" disabled={executando} onClick={() => setPergunta('CLONAR')} />
         {tipoNota === 'S' && <Button label="Nota de &transferência entre lojas" variant="soft" disabled={executando} onClick={() => setPergunta('TRANSFERENCIA')} />}
+        <Button label="Imprimir e&tiquetas" variant="soft" disabled={executando || codnf == null} onClick={imprimirEtiquetas} />
       </div>
       {pergunta && (
         <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">

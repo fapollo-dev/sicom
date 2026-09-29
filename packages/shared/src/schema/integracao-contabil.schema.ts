@@ -414,12 +414,6 @@ export const cotacaoFornCriarSchema = z.object({
 });
 export type CotacaoFornCriarDto = z.infer<typeof cotacaoFornCriarSchema>;
 
-/** o botão Etiquetas da Precificação de NF: enfileira os produtos marcados. */
-export const etiquetasPrecificacaoNfSchema = z.object({
-  idprodutos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um item.').max(3000),
-});
-export type EtiquetasPrecificacaoNfDto = z.infer<typeof etiquetasPrecificacaoNfSchema>;
-
 /** LAYOUT DA GRADE por operador — o [F8] do legado, para qualquer tela. */
 export const gradeLayoutSalvarSchema = z.object({
   /** o `persistId` da tela, estável entre versões (ex.: 'precificacao-nf'). */

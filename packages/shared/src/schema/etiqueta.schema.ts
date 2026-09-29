@@ -21,10 +21,21 @@ export type EtiquetaAdicionarDto = z.infer<typeof etiquetaAdicionarSchema>;
 /** de onde a linha veio (o servidor refaz o preço por ela): o produto (código de barras, pesquisa, coletor), um lote do
  *  Ajuste de Preços ou a agenda de promoção. */
 export const etiquetaOrigemSchema = z.discriminatedUnion('tipo', [
-  z.object({ tipo: z.literal('produto'), caminho: z.enum(['codbarra', 'pesquisa', 'coletor', 'importacao']), fatorEmbalagem: z.coerce.number().positive().optional() }),
+  z.object({ tipo: z.literal('produto'), caminho: z.enum(['codbarra', 'pesquisa', 'coletor', 'importacao', 'cadastro']), fatorEmbalagem: z.coerce.number().positive().optional() }),
   z.object({ tipo: z.literal('lote'), codlotepreco: z.coerce.number().int().positive() }),
   z.object({ tipo: z.literal('agenda'), codagenda: z.coerce.number().int().positive(), preco: z.enum(['status', 'venda', 'promocional']) }),
+  // o preço que a tela de origem mostra (Precificação NF, Relatório de preços alterados) — o legado imprime o que está na tela
+  z.object({ tipo: z.literal('preco'), fonte: z.enum(['precificacao', 'precos-alterados']), valor: z.coerce.number().min(0).max(99999999) }),
+  z.object({ tipo: z.literal('nf'), codnfprod: z.coerce.number().int().positive() }),
 ]);
+
+/** as telas que abrem as etiquetas com a lista pronta (cadastro de produto, Precificação NF, preços alterados, NF) */
+export const etiquetaDeItensSchema = z.object({
+  fonte: z.enum(['cadastro', 'precificacao', 'precos-alterados', 'nf']),
+  codnf: z.coerce.number().int().positive().optional(),
+  itens: z.array(z.object({ idproduto: z.coerce.number().int().positive(), valor: z.coerce.number().min(0).max(99999999).optional() })).max(5000).optional(),
+});
+export type EtiquetaDeItensDto = z.infer<typeof etiquetaDeItensSchema>;
 
 /** 1 item a imprimir: o produto + a origem + o que o operador mexe na grade (quantidade, modelo, descrição, observações). */
 export const etiquetaItemImpressaoSchema = z.object({

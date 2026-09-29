@@ -18,9 +18,11 @@ export type Registro = Record<string, string | number | boolean | null>;
 
 /** de onde a linha veio: decide como o preço é calculado de novo na impressão (server-authoritative). */
 export type OrigemEtiqueta =
-  | { tipo: 'produto'; caminho: 'codbarra' | 'pesquisa' | 'coletor' | 'importacao'; fatorEmbalagem?: number }
+  | { tipo: 'produto'; caminho: 'codbarra' | 'pesquisa' | 'coletor' | 'importacao' | 'cadastro'; fatorEmbalagem?: number }
   | { tipo: 'lote'; codlotepreco: number }
-  | { tipo: 'agenda'; codagenda: number; preco: 'status' | 'venda' | 'promocional' };
+  | { tipo: 'agenda'; codagenda: number; preco: 'status' | 'venda' | 'promocional' }
+  | { tipo: 'preco'; fonte: 'precificacao' | 'precos-alterados'; valor: number }
+  | { tipo: 'nf'; codnfprod: number };
 
 /** uma linha da tela de etiquetas. O preço impresso por padrão é `valor_venda_promocao`. */
 export interface Etiqueta {
@@ -213,7 +215,7 @@ export class EtiquetaService {
     }
     reg.IDPRODUTO = Number(r.idproduto);
     reg.CODBARRA = str(r.codbarra);
-    reg.DESCRICAO = caminho === 'codbarra' ? str(r.descricao) : `${str(r.descricao)} ${str(r.unidade)}`;
+    reg.DESCRICAO = caminho === 'codbarra' || caminho === 'cadastro' ? str(r.descricao) : `${str(r.descricao)} ${str(r.unidade)}`;
     reg.GRUPO_PRECO = caminho === 'coletor' ? '' : str(r.grupo_preco);
     reg.DESCRICAO_PRODUTO = str(r.descricao);
     reg.DESCRICAO_RESUMIDA = str(r.descricao_resumida);
@@ -228,19 +230,22 @@ export class EtiquetaService {
     reg.VRPROMO = promo ? rr(vrpromo * fator) : 0;
     reg.VRCUSTO = caminho === 'codbarra' ? 0 : rr(num(r.vrcusto) * fator);
     reg.QTDE = caminho === 'coletor' ? 1 : num(r.prod_qtde_etiquetas) > 0 ? Math.trunc(num(r.prod_qtde_etiquetas)) : 1;
-    reg.CODDPTO = caminho === 'codbarra' ? 0 : Math.trunc(num(r.coddpto));
+    reg.CODDPTO = caminho === 'codbarra' || caminho === 'cadastro' ? 0 : Math.trunc(num(r.coddpto));
     // GetInformacoesAdicionais (:2159): a tabela nutricional do produto, porção em 'g', validade = hoje + VALIDADE dias
-    for (const c of CAMPOS_NUTRI) reg[c] = num(r[c.toLowerCase()]);
-    reg.UNPORCAO = 'g';
-    reg.RECEITA = ''; // RECEITAS: 0 linhas na produção
-    reg.DTVALIDADE = somarDias(hoje, num(r.validade));
+    // (o "Imprime etiqueta" do cadastro de produto não chama — ImprimeEtiqueta1Click, UCadProduto.pas:6800)
+    if (caminho !== 'cadastro') {
+      for (const c of CAMPOS_NUTRI) reg[c] = num(r[c.toLowerCase()]);
+      reg.UNPORCAO = 'g';
+      reg.RECEITA = ''; // RECEITAS: 0 linhas na produção
+      reg.DTVALIDADE = somarDias(hoje, num(r.validade));
+    }
     if (pa) {
       reg.VR_PROMOCAO_ACUMULATIVA = rr(num(reg.VRVENDA1) - pa.desconto);
       reg.QTDE_PROMOCAO_ACUMULATIVA = pa.qtde;
       reg.ATACAREJO_PROMOCAO_ACUMULATIVA = pa.atacarejo;
     }
     // (VRVENDA1 × fator) / QUANTIDADE — o legado multiplica pelo fator de novo (VRVENDA1 já tem o fator); cópia fiel
-    reg.MEDIA_ORIGINAL = caminho !== 'coletor' && num(r.quantidade) > 0 ? rr((num(reg.VRVENDA1) * fator) / num(r.quantidade)) : 0;
+    reg.MEDIA_ORIGINAL = caminho !== 'coletor' && caminho !== 'cadastro' && num(r.quantidade) > 0 ? rr((num(reg.VRVENDA1) * fator) / num(r.quantidade)) : 0;
     this.apresentacao(reg, r);
     return reg;
   }
@@ -542,6 +547,88 @@ export class EtiquetaService {
     return { etiquetas: EtiquetaService.existentes(await this.etiquetasDeProdutos(db, emp, pedidos)), naoEncontrados };
   }
 
+  /** o GRUPO_PRECO que o FormShow (:1994) preenche para quem já está na lista quando a tela abre */
+  private static comGrupo(reg: Registro, r: Record<string, unknown>): Registro {
+    reg.GRUPO_PRECO = str(r.grupo_preco);
+    return reg;
+  }
+
+  /**
+   * O preço que a tela de origem mostra (Precificação NF líquida `btnEtiquetasClick:296` — PRECO_VENDA; bruta `:206` — a VENDA
+   * SUG. editada; Relatório de preços alterados `btneti` — o VALOR da linha): VRVENDA1 = VRVENDA_NOVO = VALORVENDA =
+   * VALORVENDAPROMOCAO = o preço, quantidade 1, só DESCRICAO (sem DESCRICAO_PRODUTO nem UNIDADE — a etiqueta sai com a
+   * descrição pura). É o valor que está na tela, ainda sem lote processado: o legado imprime o que o operador vê.
+   */
+  private registroDePreco(r: Record<string, unknown>, valor: number): Registro {
+    const reg = EtiquetaService.comGrupo(registroVazio(), r);
+    reg.IDPRODUTO = Number(r.idproduto);
+    reg.CODBARRA = str(r.codbarra);
+    reg.DESCRICAO = str(r.descricao);
+    reg.VRVENDA1 = rr(valor);
+    reg.VRVENDA_NOVO = reg.VRVENDA1;
+    reg.VALORVENDA = reg.VRVENDA1;
+    reg.VALORVENDAPROMOCAO = reg.VRVENDA1;
+    reg.QTDE = 1;
+    return reg;
+  }
+
+  /** as linhas da NF para o "Imprimir etiquetas" (uNF.pas:14646): código do produto, descrição e VRVENDA do ITEM, quantidade do item */
+  private async linhasDaNf(db: AnyDB, emp: number, filtro: { codnf?: number; codnfprods?: number[] }): Promise<Array<Record<string, unknown>>> {
+    return (await sql<Record<string, unknown>>`
+      SELECT i.codnfprod, i.codnf, i.codproduto AS idproduto, i.descricao, i.vrvenda, i.quantidade, p.codbarra, gp.descricao AS grupo_preco
+        FROM nf_prod i
+        JOIN nf n ON n.codnf = i.codnf AND n.idempresa = ${emp}
+        LEFT JOIN produtos p ON p.idproduto = i.codproduto
+        LEFT JOIN familias_prod gp ON gp.codfamilia = p.codgrupopreco
+       WHERE ${filtro.codnf != null ? sql`i.codnf = ${filtro.codnf}` : sql`i.codnfprod = ANY(${filtro.codnfprods ?? []}::int[])`}
+       ORDER BY i.nroitem, i.codnfprod`.execute(db)).rows;
+  }
+
+  private registroDaNf(r: Record<string, unknown>): Registro {
+    const reg = EtiquetaService.comGrupo(registroVazio(), r);
+    reg.IDPRODUTO = Number(r.idproduto ?? 0);
+    reg.CODBARRA = str(r.codbarra);
+    reg.DESCRICAO = str(r.descricao);
+    reg.VRVENDA1 = rr(num(r.vrvenda));
+    reg.VRVENDA_NOVO = reg.VRVENDA1;
+    reg.VALORVENDAPROMOCAO = reg.VRVENDA1;
+    reg.VALORVENDA = reg.VRVENDA1;
+    // cdsItensNotaQUANTIDADE.AsInteger: o TFloatField arredonda (Round do Delphi, meio para o par)
+    const q = num(r.quantidade);
+    const piso = Math.floor(q);
+    reg.QTDE = q - piso === 0.5 ? (piso % 2 === 0 ? piso : piso + 1) : Math.round(q);
+    return reg;
+  }
+
+  /**
+   * AS OUTRAS TELAS QUE ABREM AS ETIQUETAS com a lista pronta: o cadastro de produto ("Imprime etiqueta"), a Precificação
+   * NF líquida e bruta ("Etiquetas"), o Relatório de preços alterados ("Etiquetas") e a NF ("Imprimir etiquetas"). A linha
+   * entra marcada; itens repetidos (o mesmo produto em duas linhas da NF, duas alterações do mesmo preço) entram repetidos,
+   * como no cdsImpressao do legado.
+   */
+  async deItens(dto: { fonte: 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf'; codnf?: number; itens?: Array<{ idproduto: number; valor?: number }> }): Promise<Etiqueta[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (dto.fonte === 'nf') {
+      if (!dto.codnf) return [];
+      return (await this.linhasDaNf(db, emp, { codnf: Number(dto.codnf) }))
+        .map((r) => this.paraEtiqueta(this.registroDaNf(r), { tipo: 'nf', codnfprod: Number(r.codnfprod) }, 1));
+    }
+    const itens = (dto.itens ?? []).filter((i) => Number.isInteger(Number(i.idproduto)) && Number(i.idproduto) > 0).slice(0, 5000);
+    if (dto.fonte === 'cadastro') {
+      return EtiquetaService.existentes(await this.etiquetasDeProdutos(db, emp, itens.map((i) => ({ idproduto: Number(i.idproduto), origem: { tipo: 'produto' as const, caminho: 'cadastro' as const } }))));
+    }
+    const linhas = await this.linhasDeProdutos(db, emp, itens.map((i) => Number(i.idproduto)));
+    const out: Etiqueta[] = [];
+    for (const i of itens) {
+      const r = linhas.get(Number(i.idproduto));
+      if (!r) continue;
+      const valor = num(i.valor);
+      out.push(this.paraEtiqueta(this.registroDePreco(r, valor), { tipo: 'preco', fonte: dto.fonte, valor }, 1));
+    }
+    return out;
+  }
+
   /** enfileira um produto p/ etiqueta (IMPRESSA='N'). Por id ou por codbarra (resolve). */
   async adicionar(dto: { idproduto?: number; codbarra?: string }): Promise<{ idetiqueta: number; etiqueta: Etiqueta }> {
     const emp = this.emp();
@@ -625,6 +712,24 @@ export class EtiquetaService {
       const cods = lotes.map((i) => (i.origem as Extract<OrigemEtiqueta, { tipo: 'lote' }>).codlotepreco);
       const doLote = await this.etiquetasDosLotes(db, emp, cods, false);
       for (const i of lotes) { const e = doLote.find((x) => x.idproduto === Number(i.idproduto)); if (e) out.set(i, e); }
+    }
+    const precos = itens.filter((i) => i.origem?.tipo === 'preco');
+    if (precos.length) {
+      const linhas = await this.linhasDeProdutos(db, emp, precos.map((i) => Number(i.idproduto)));
+      for (const i of precos) {
+        const o = i.origem as Extract<OrigemEtiqueta, { tipo: 'preco' }>;
+        const r = linhas.get(Number(i.idproduto));
+        if (r) out.set(i, this.paraEtiqueta(this.registroDePreco(r, num(o.valor)), o, 1));
+      }
+    }
+    const nfs = itens.filter((i) => i.origem?.tipo === 'nf');
+    if (nfs.length) {
+      const linhas = await this.linhasDaNf(db, emp, { codnfprods: nfs.map((i) => (i.origem as Extract<OrigemEtiqueta, { tipo: 'nf' }>).codnfprod) });
+      for (const i of nfs) {
+        const o = i.origem as Extract<OrigemEtiqueta, { tipo: 'nf' }>;
+        const r = linhas.find((x) => Number(x.codnfprod) === o.codnfprod);
+        if (r) out.set(i, this.paraEtiqueta(this.registroDaNf(r), o, 1));
+      }
     }
     const agendas = new Map<string, ItemImpressao[]>();
     for (const i of itens.filter((x) => x.origem?.tipo === 'agenda')) {

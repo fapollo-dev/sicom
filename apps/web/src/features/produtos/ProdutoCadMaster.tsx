@@ -25,6 +25,8 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useNavigate } from 'react-router-dom';
+import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { CodAuxiliarModal } from './CodAuxiliarModal';
 import { ComposicaoModal } from './ComposicaoModal';
@@ -756,6 +758,13 @@ function PrecosSection({
 }) {
   const pode = useContext(PodeCtx);
   const mensagem = useMensagem();
+  const navigate = useNavigate();
+  const idprodutoGravado = (form.getValues() as { idproduto?: number }).idproduto;
+  // "Imprime etiqueta" (ImprimeEtiqueta1Click, UCadProduto.pas:6800): o produto da tela com o preço da loja, a quantidade do cadastro
+  const imprimirEtiqueta = () => {
+    if (idprodutoGravado == null) return;
+    abrirEtiquetasCom({ fonte: 'cadastro', itens: [{ idproduto: Number(idprodutoGravado) }] }, navigate);
+  };
   // alíquota do produto: default da alíquota de saída e do cálculo de venda (como no legado).
   const produtoAliquota = form.watch('aliquota');
   // UF do cálculo: MULTI_PRECO é por empresa, mas EMPRESAS ainda não foi migrada.
@@ -921,6 +930,7 @@ function PrecosSection({
             />
           </div>
           <Button label="&Calcular venda" variant="soft" disabled={!pode('BTNPRECIFICACAO')} onClick={() => void calcularVenda()} />
+          <Button label="Imprimir e&tiqueta" variant="ghost" disabled={idprodutoGravado == null} onClick={imprimirEtiqueta} />
         </div>
 
         {/* Motor completo (corte precificação): custo líquido / PMZ / margem líquida / lucro. */}

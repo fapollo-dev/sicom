@@ -10,6 +10,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useConfirmarSaida } from '../../shared/navegacao/useConfirmarSaida';
+import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -179,32 +180,15 @@ export function PrecificacaoNfPage() {
   );
 
   /**
-   * O botão Etiquetas (`btnEtiquetasClick:296`): manda os marcados para a fila de impressão e **desmarca**
-   * cada um, como o legado faz — para o operador não enfileirar a mesma etiqueta duas vezes ao clicar de novo.
+   * O botão Etiquetas (`btnEtiquetasClick:296`): abre a tela de etiquetas com os marcados — PRECO_VENDA (o preço da grade,
+   * ainda sem lote processado), quantidade 1 — e **desmarca** cada um, como o legado (`:341`). O legado não grava nada na
+   * fila do coletor (ETIQUETA_CONS_PROD): o "fila de impressão" dele é o cdsImpressao da tela de etiquetas.
    */
-  const enfileirarEtiquetas = async () => {
+  const abrirEtiquetas = () => {
     if (!res || sel.size === 0) return;
     const marcados = res.linhas.filter((l) => sel.has(l.codnfprod));
-    setOcupado(true);
-    try {
-      const r = await fetch(`${BASE}/precificacao/nf/etiquetas`, {
-        method: 'POST', headers: apiHeaders(),
-        body: JSON.stringify({ idprodutos: marcados.map((l) => l.idproduto) }),
-      });
-      handle401(r);
-      if (!r.ok) {
-        const b = await r.json().catch(() => ({}));
-        const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
-        throw Object.assign(new Error(env.code), { envelope: env });
-      }
-      const j = (await r.json()) as { enfileiradas: number };
-      const repetidos = marcados.length - j.enfileiradas;
-      mensagem.sucesso(
-        `${j.enfileiradas} etiqueta(s) na fila de impressão`
-        + (repetidos > 0 ? ` — ${repetidos} já estava(m) lá` : '') + '.',
-      );
-      setSel(new Set());
-    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+    setSel(new Set());
+    abrirEtiquetasCom({ fonte: 'precificacao', itens: marcados.map((l) => ({ idproduto: l.idproduto, valor: edit[l.codnfprod]?.vrvenda ?? l.vrvenda })) }, navigate);
   };
 
   const cols = useMemo<DataTableColumnDef<Item>[]>(() => [
@@ -357,7 +341,7 @@ export function PrecificacaoNfPage() {
               </label>
               {res.mostrarEtiquetas && (
                 <Button label="&Etiquetas" variant="soft" disabled={ocupado || sel.size === 0}
-                  onClick={() => void enfileirarEtiquetas()} />
+                  onClick={abrirEtiquetas} />
               )}
             </div>
             <p className="mt-form-gap text-body-sm text-fg-muted">

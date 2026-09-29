@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, ORIGENS_PRECO_ALTERADO, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -7,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 
 /**
  * RELATÓRIO DE PREÇOS ALTERADOS (`FRMRELPRECOSALTERADOS`).
@@ -43,23 +45,35 @@ export function RelPrecosAlteradosPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const navigate = useNavigate();
+  const consultar = async (): Promise<Resultado> => {
+    const q = new URLSearchParams({
+      dataIni: f.dataIni, dataFim: f.dataFim, origem: f.origem,
+      promocao: f.promocao, semGrupoPreco: f.semGrupoPreco,
+    });
+    if (f.coddpto) q.set('coddpto', f.coddpto);
+    if (f.produto) q.set('produto', f.produto);
+    const r = await fetch(`${BASE}/relatorios/precos-alterados?${q}`, { headers: apiHeaders() });
+    handle401(r);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+      throw Object.assign(new Error(env.code), { envelope: env });
+    }
+    return (await r.json()) as Resultado;
+  };
   const buscar = async () => {
     setOcupado(true);
+    try { setRes(await consultar()); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  // "Etiquetas" (`btneti`, uRelPrecosAlterados.pas:98): gera a consulta com os filtros da tela e manda TODAS as linhas para as
+  // etiquetas com o preço da linha (VALOR), quantidade 1
+  const etiquetas = async () => {
+    setOcupado(true);
     try {
-      const q = new URLSearchParams({
-        dataIni: f.dataIni, dataFim: f.dataFim, origem: f.origem,
-        promocao: f.promocao, semGrupoPreco: f.semGrupoPreco,
-      });
-      if (f.coddpto) q.set('coddpto', f.coddpto);
-      if (f.produto) q.set('produto', f.produto);
-      const r = await fetch(`${BASE}/relatorios/precos-alterados?${q}`, { headers: apiHeaders() });
-      handle401(r);
-      if (!r.ok) {
-        const b = await r.json().catch(() => ({}));
-        const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
-        throw Object.assign(new Error(env.code), { envelope: env });
-      }
-      setRes((await r.json()) as Resultado);
+      const r = await consultar();
+      if (!r.linhas.length) { mensagem.erro(new Error('Não foram encontrados registros para gerar o relatório.')); return; }
+      abrirEtiquetasCom({ fonte: 'precos-alterados', itens: r.linhas.map((l) => ({ idproduto: l.codproduto, valor: Number(l.valor) || 0 })) }, navigate);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -97,6 +111,7 @@ export function RelPrecosAlteradosPage() {
             Retirar itens de grupo de preço
           </label>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button variant="soft" label="E&tiquetas" disabled={ocupado} onClick={() => void etiquetas()} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,

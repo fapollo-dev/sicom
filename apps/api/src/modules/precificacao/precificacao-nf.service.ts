@@ -378,43 +378,4 @@ export class PrecificacaoNfService {
       return { lotes, empresas: alvo };
     });
   }
-
-  /**
-   * ENFILEIRAR ETIQUETAS (`btnEtiquetasClick:296`).
-   *
-   * O legado monta a fila de impressão com os itens marcados e **desmarca cada um** depois de enfileirar
-   * (`:341`) — para o operador não mandar a mesma etiqueta duas vezes ao clicar de novo. A tela faz o mesmo.
-   *
-   * ⚠️ **uma diferença de propósito, com o número medido**: o legado usa `CODPRODNOTA` — o código do produto
-   * **na nota do fornecedor** — como código de barras da etiqueta (`:340`). Em 98,3% dos itens isso é igual
-   * ao `CODBARRA` do cadastro (196.582 de 200.000 medidos em 14/09/2026), mas nos outros 1,7% a etiqueta
-   * sairia com o código do fornecedor — que **não é o que o PDV lê na gôndola**. Aqui a fila é por produto e
-   * o código sai do cadastro, como em toda etiqueta do Apollo.
-   */
-  async enfileirarEtiquetas(idprodutos: number[]): Promise<{ enfileiradas: number }> {
-    const emp = this.emp();
-    const op = currentTenant().operadorId ?? null;
-    const db = this.dbp.forTenant() as AnyDB;
-    if (!idprodutos?.length) throw new BusinessRuleError('ETIQUETA_SEM_ITENS');
-
-    return db.transaction().execute(async (trx: AnyDB) => {
-      let n = 0;
-      for (const id of [...new Set(idprodutos)]) {
-        // não duplica o que já está na fila e ainda não foi impresso
-        const ja = (await sql<{ idetiqueta: number }>`
-          SELECT idetiqueta FROM etiqueta_cons_prod
-           WHERE idproduto = ${id} AND idempresa = ${emp} AND coalesce(impressa, 'N') = 'N'
-        `.execute(trx)).rows[0];
-        if (ja) continue;
-        await sql`
-          INSERT INTO etiqueta_cons_prod (idetiqueta, idproduto, idempresa, data_consulta, operador, impressa)
-          VALUES ((SELECT coalesce(max(idetiqueta), 0) + 1 FROM etiqueta_cons_prod),
-                  ${id}, ${emp}, now(), ${op}, 'N')
-        `.execute(trx);
-        n += 1;
-      }
-      return { enfileiradas: n };
-    });
-  }
-
 }

@@ -54,3 +54,26 @@ log tem 78.262 impressões do **GONDULA PINHEIRAO** (99,8%) — papel 105×30 mm
 (MULTI_PRECO_ATACAREJO MORTA); CODAUXILIAR_VALOR do DADOS_ETIQUETA (formato não comprovável e nenhum modelo usa); modelo
 matricial desenha como memo em Courier (0 usos); a etiqueta de parceiros (FlagEtiqueta=1, `etip`) e a UetiquetaNF são outras
 entradas — próximo corte.
+
+## Corte "as telas que abrem as etiquetas" (29/09/2026)
+
+O legado cria o TfrmEtiqueta já com o cdsImpressao preenchido a partir de outras telas; cada uma põe o SEU preço:
+
+| Tela (procedência) | Linhas | Preço | Qtde |
+|---|---|---|---|
+| Cadastro de produto — "Imprime etiqueta" (`UCadProduto.ImprimeEtiqueta1Click` :6800) | o produto da tela | MULTI_PRECO × fator (sem tabela nutricional) | PROD_QTDE_ETIQUETAS |
+| Precificação NF — "Etiquetas" (`uPrecificacaoNF.btnEtiquetasClick` :296) | os marcados (e desmarca) | PRECO_VENDA da grade | 1 |
+| Precificação NF bruta — "Etiquetas" (`uPrecificacaoNFBruta` :206) | os marcados | VENDA SUG. editada | 1 |
+| Relatório de preços alterados — "Etiquetas" (`uRelPrecosAlterados.btneti` :98) | todas as linhas da consulta (repetidas) | VALOR da linha | 1 |
+| NF — "Imprimir etiquetas" (`uNF.mniImprimirEtiquetasClick` :14646) | todos os itens | VRVENDA do item | QUANTIDADE do item (Round) |
+
+`POST cadastro/etiqueta/de-itens`; na impressão o servidor refaz pela origem (NF pelo item; cadastro pelo produto; Precificação
+e preços alterados levam o valor da tela — é o que o legado imprime, antes de qualquer lote processado).
+
+**Fold:** a Precificação NF do Apollo "enfileirava" os marcados no ETIQUETA_CONS_PROD — a tabela do COLETOR, que o legado não
+toca nesse botão (o "fila de impressão" do fonte é o cdsImpressao) — e a etiqueta sairia com o preço velho do MULTI_PRECO. O
+endpoint saiu; o botão abre as etiquetas com o preço da grade. A bruta não tinha o botão.
+
+**Fora, com prova:** `UetiquetaNF.pas` (TfrmEtiquetasNF) não está no Retaguarda.dpr nem tem chamador — código morto. A pesquisa
+genérica (`uPesquisa.btnEtiquetaClick`: produtos pelo FlagEtiqueta 0; clientes/associados pelo FlagEtiqueta 1, modelos `etip`
+— só o DEFAULT "etiqueta mala direta" na RELATORIOS) é o próximo corte.
