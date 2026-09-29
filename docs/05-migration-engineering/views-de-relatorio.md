@@ -84,22 +84,26 @@ sobre tabela da carga, conferir o `RENOMEIA` do `extrair.py`: o nome igual pode 
 
 Ou seja: todo relatório do cliente que roda no legado de hoje importa, menos os 2 do PDV.
 
-## Divergências conhecidas — views que também servem telas do Apollo
+## As fontes das telas, na versão do legado (mig 393)
 
-Estas alimentam a grade de pesquisa das telas com o **código cru** (filtros e selos da tela dependem dele); o legado entrega o
-texto decodificado. Trocar quebraria a tela; um relatório importado que filtre pelo texto ("DEPARTAMENTO") não casa. O caminho é
-o da seção acima (uma `rel_` com o texto do legado); nenhum dos 95 relatórios do cliente usa estas fontes ainda:
+As views que alimentam a grade das telas entregam o **código cru** (filtros e selos dependem dele); o legado entrega o texto
+decodificado e outras colunas. Resolvido pelo mecanismo da mig 389: `rel_get_` de agenda de promoção, bairro, contas bancárias,
+empresas, famílias, formas de pagamento, livro de inventário, lote de cobrança, operadoras, operadores, devolução de compra,
+perfil, plano de contas, produção, promoção, troca e unidade. Senhas (`SENHAADMIN`… da GET_EMPRESAS, `SENHA` da GET_OPERADORES)
+existem com o nome e saem **nulas**. A GET_TROCA do legado conta os status do sub-nível `ITENS_TROCA_QTDE` (cópia 1:1 dos itens,
+veredito EQUIVALENTE): troca sem item sai FECHADA. E a carga passou a preencher `itens_troca.idempresa` (o legado guarda a empresa
+do item nesse sub-nível — sem isso os 309 itens chegariam com a empresa nula).
 
-| view | colunas |
-|---|---|
-| `get_familias_prod` | `tipo` (D/G/S/P… → DEPARTAMENTO/GRUPO/SUBGRUPO/GRUPO DE PRECO) |
-| `get_formas_pgto` | `destino` (TEF/CHQ/CXA/RCB… → texto), `conta_corrente` (código × titular), `conta_contabil` (reduzido × descrição), `inativo` |
-| `get_operadores` | `tipoop` (OPE/USU/FOR… → Operador(a)…), `desabilitado` |
-| `get_plano_contas` | `classe` (A/T → ANALITICA/SINTETICA), `tipo` (E/R → EMPRESA/REFERENCIAL), `status` |
-| `get_producao` | `status` (A → ABERTA / PROCESSADA) |
-| `get_promocao` | `opcao`, `tipo`, `destino` (códigos → texto) |
-| `get_cartao` | `tipocartao` (o legado decodifica o TIPO da operadora) |
-| `get_troca` | `status` (outra regra de agregação dos itens) |
+A GET_ARECEBERBX ganhou os nomes **literais** da produção: `"cod_desconto_titulo "` (com espaço), `"x.txmulta"`,
+`"x.valor_perc_multa"`, `"x.multa"`; o construtor cita o identificador inteiro (`sql.id`) e o schema aceita ponto e espaço no campo.
+
+### O conferidor permanente (smoke §283)
+
+`tools/cutover/catalogo-construtor-producao.json` é o retrato das **199 views do catálogo da produção** (COMMENT que não começa com
+`#` — os `#PDV_…` são as views de carga do PDV; rótulo = o COMMENT sem o `;` do início), com colunas, tipos e SQL. O §283 confere
+toda fonte daqui contra ele: rótulo igual, colunas do legado na ordem (na `rel_` quando existe), nenhuma fonte inventada. Em
+29/09/2026: **46 de 199** fontes existem aqui, todas conferidas. Renovar o retrato: `tools/cutover/retratar-catalogo-construtor.py`
+(só leitura).
 
 Equivalentes (sem ação): `get_bairro`, `get_cidades`, `get_empresas`, `get_parceiros`, `get_pedido_devolucao_compra`,
 `get_nf`, `get_operadoras`, `get_perfil`, `get_scrap`, `get_unidade`, `get_bancos`. `get_hist_vendas` foi portada com agregação

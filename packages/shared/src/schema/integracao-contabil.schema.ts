@@ -58,7 +58,11 @@ export type IntegracaoDocumentoDto = z.infer<typeof integracaoDocumentoSchema>;
  * O que o cliente monta: fonte, colunas (simples ou calculadas) com título/largura/ordem/total, condições e
  * ordenação. Os NOMES de campo são conferidos no servidor contra a fonte real — aqui só se valida a forma.
  */
-const campoSql = z.string().min(1).max(63).regex(/^[a-z_][a-z0-9_]*$/i, 'Nome de campo inválido.');
+// o campo aceita ponto e espaço: a lista de colunas de views do legado tem nomes como "X.TXMULTA" e "COD_DESCONTO_TITULO " (a
+// GET_ARECEBERBX da produção), e é esse nome que o relatório do cliente grava. A barreira de injeção é o servidor (o nome tem de
+// existir NAQUELA fonte, e é citado como um identificador inteiro); a fonte, que é nome de view, continua estrita.
+const campoSql = z.string().min(1).max(63).regex(/^[a-z_][a-z0-9_. ]*$/i, 'Nome de campo inválido.');
+const fonteSql = z.string().min(1).max(63).regex(/^[a-z_][a-z0-9_]*$/i, 'Nome de fonte inválido.');
 
 export const colunaRelatorioSchema = z.object({
   campo: campoSql.optional(),
@@ -95,14 +99,14 @@ export type DefinicaoRelatorioDto = z.infer<typeof definicaoRelatorioSchema>;
 export const salvarRelatorioSchema = z.object({
   codrelatoriodef: z.coerce.number().int().positive().nullish(),
   nome: z.string().min(1, 'Informe o nome do relatório.').max(120),
-  fonte: campoSql,
+  fonte: fonteSql,
   definicao: definicaoRelatorioSchema,
 });
 export type SalvarRelatorioDto = z.infer<typeof salvarRelatorioSchema>;
 
 export const executarRelatorioSchema = z.object({
   codrelatoriodef: z.coerce.number().int().positive().nullish(),
-  fonte: campoSql.optional(),
+  fonte: fonteSql.optional(),
   definicao: definicaoRelatorioSchema.optional(),
   filtros: z.array(condicaoRelatorioSchema).max(20).optional(),
   limite: z.coerce.number().int().min(1).max(20000).optional(),

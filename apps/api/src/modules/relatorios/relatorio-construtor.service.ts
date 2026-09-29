@@ -66,7 +66,8 @@ const OPERADORES: Record<string, string> = {
  *
  * ⚠️ **um construtor de consulta é superfície de injeção.** Nada que vem da definição entra na SQL sem passar
  * pelo catálogo: a fonte tem de ser uma view com rótulo, e cada campo tem de existir NAQUELA view — os nomes
- * são conferidos contra o `information_schema` e citados com `sql.ref`; os valores viajam como parâmetro.
+ * são conferidos contra o `information_schema` e citados com `sql.id` (um identificador inteiro — o legado tem coluna com ponto e com
+ * espaço no nome, `"X.TXMULTA"`, `"COD_DESCONTO_TITULO "`, que o `sql.ref` partiria); os valores viajam como parâmetro.
  */
 @Injectable()
 export class RelatorioConstrutorService {
@@ -228,21 +229,21 @@ export class RelatorioConstrutorService {
       const chave = `c${i}`;
       // a divisão protege o denominador com NULLIF (dividir por zero derrubaria o relatório inteiro); as
       // outras três operam direto sobre o COALESCE, que é como o legado soma campo nulo.
-      const a = sql`coalesce(${sql.ref(c.calculado?.campo1 ?? '')}, 0)`;
+      const a = sql`coalesce(${sql.id(c.calculado?.campo1 ?? '')}, 0)`;
       const b = c.calculado?.operacao === '/'
-        ? sql`nullif(coalesce(${sql.ref(c.calculado.campo2)}, 0), 0)`
-        : sql`coalesce(${sql.ref(c.calculado?.campo2 ?? '')}, 0)`;
+        ? sql`nullif(coalesce(${sql.id(c.calculado.campo2)}, 0), 0)`
+        : sql`coalesce(${sql.id(c.calculado?.campo2 ?? '')}, 0)`;
       const expr = c.calculado
         ? sql`(${a} ${sql.raw(c.calculado.operacao)} ${b})`
-        : sql`${sql.ref(c.campo as string)}`;
-      return sql`${expr} AS ${sql.ref(chave)}`;
+        : sql`${sql.id(c.campo as string)}`;
+      return sql`${expr} AS ${sql.id(chave)}`;
     });
 
     // 2) as condições salvas + os filtros de execução.
     const where = [...(def.condicoes ?? []), ...(p.filtros ?? [])].map((c) => this.condicao(c));
 
     // 3) a ordenação.
-    const ordem = (def.ordem ?? []).map((o) => sql`${sql.ref(o.campo)} ${sql.raw(String(o.direcao).toLowerCase() === 'desc' ? 'DESC' : 'ASC')}`);
+    const ordem = (def.ordem ?? []).map((o) => sql`${sql.id(o.campo)} ${sql.raw(String(o.direcao).toLowerCase() === 'desc' ? 'DESC' : 'ASC')}`);
 
     const limite = Math.min(Math.max(Number(p.limite ?? 5000), 1), 20000);
     const linhas = (await sql<Record<string, unknown>>`
@@ -281,7 +282,7 @@ export class RelatorioConstrutorService {
   private condicao(c: CondicaoDef) {
     const op = OPERADORES[String(c.operador)];
     if (!op) throw new BusinessRuleError('OPERADOR_INVALIDO', { operador: c.operador });
-    const campo = sql.ref(c.campo);
+    const campo = sql.id(c.campo);
     if (op === 'IS NULL') return sql`${campo} IS NULL`;
     if (op === 'IS NOT NULL') return sql`${campo} IS NOT NULL`;
     if (op === 'BETWEEN') {
@@ -298,7 +299,7 @@ export class RelatorioConstrutorService {
 
   /**
    * Toda referência a campo é conferida contra os campos REAIS da fonte, antes de qualquer SQL ser montada.
-   * É o que fecha a superfície de injeção: um `campo` que não está nesta lista não chega ao `sql.ref`.
+   * É o que fecha a superfície de injeção: um `campo` que não está nesta lista não chega ao `sql.id`.
    */
   private async validarDefinicao(db: AnyDB, fonte: string, relacao: string, def: Definicao, filtros?: CondicaoDef[]): Promise<CampoFonte[]> {
     const campos = await this.camposDa(db, relacao);

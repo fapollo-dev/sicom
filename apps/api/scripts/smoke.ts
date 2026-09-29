@@ -26301,6 +26301,52 @@ async function main() {
         await pgR3.end();
       }
     }
+    // ══ §283 O CATÁLOGO DO CONSTRUTOR CONTRA A PRODUÇÃO — toda fonte que existe aqui tem as colunas e o rótulo de lá ══════
+    // `tools/cutover/catalogo-construtor-producao.json` é o retrato das 199 views do catálogo da produção (ALL_VIEWS/ALL_TAB_COLUMNS,
+    // só leitura). A relação que o construtor lê (a `rel_<fonte>` quando existe) tem de começar pelas colunas do legado, na ordem;
+    // a view do catálogo tem de ter o rótulo do combo; e nenhuma fonte daqui pode estar fora do catálogo de lá.
+    {
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const retrato = require('../../../tools/cutover/catalogo-construtor-producao.json') as { views: Record<string, { rotulo: string; colunas: string[] }> };
+        const aqui = (await pgCt.query(`SELECT c.relname AS v, obj_description(c.oid, 'pg_class') AS rotulo FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'v' AND n.nspname = 'public' AND obj_description(c.oid, 'pg_class') IS NOT NULL`)).rows as Array<{ v: string; rotulo: string }>;
+        const rel = new Set((await pgCt.query(`SELECT relname FROM pg_class WHERE relkind = 'v' AND relname LIKE 'rel\\_%'`)).rows.map((r: any) => r.relname as string));
+        const difs: string[] = [];
+        for (const { v, rotulo } of aqui) {
+          const leg = retrato.views[v];
+          if (!leg) { difs.push(`${v}: fora do catálogo da produção`); continue; }
+          if (rotulo !== leg.rotulo) difs.push(`${v}: rótulo "${rotulo}" ≠ "${leg.rotulo}"`);
+          const lida = rel.has(`rel_${v}`) ? `rel_${v}` : v;
+          const cols = (await pgCt.query(`SELECT column_name c FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`, [lida])).rows.map((r: any) => r.c as string);
+          leg.colunas.forEach((c, i) => { if (cols[i] !== c) difs.push(`${lida}[${i}]: ${cols[i]} ≠ ${c}`); });
+        }
+        const cobertas = aqui.filter((a) => retrato.views[a.v]).length;
+        check(`RELATÓRIOS §283 [o catálogo do construtor contra a produção]: cada uma das ${cobertas} fontes daqui (de ${Object.keys(retrato.views).length} do catálogo da produção) tem o rótulo do combo e começa pelas colunas do legado, na ordem — na \`rel_<fonte>\` quando a view serve a uma tela; nenhuma fonte fora do catálogo de lá`,
+          difs.length === 0, { cobertas, difs: difs.slice(0, 40), total: difs.length });
+
+        // a semântica das rel_ da mig 393: troca SEM item é FECHADA (o COUNT(DISTINCT) = 0 do legado), senhas nulas, os textos que a
+        // produção grava com a codificação quebrada saem certos, e o construtor roda sobre a coluna com ponto no nome ("x.txmulta")
+        const trocaVazia = Number((await pgCt.query(`INSERT INTO troca (idempresa, codparceiro, data, descricao) VALUES (1, 2, '2035-08-01', 'TROCA 283 SEM ITEM') RETURNING codtroca`)).rows[0].codtroca);
+        const st = (await pgCt.query(`SELECT r.status AS rel, g.status AS tela FROM rel_get_troca r JOIN get_troca g ON g.codtroca = r.codigo WHERE r.codigo = $1`, [trocaVazia])).rows[0] as any;
+        await pgCt.query(`DELETE FROM troca WHERE codtroca = $1`, [trocaVazia]);
+        const senhas = (await pgCt.query(`SELECT count(*) FILTER (WHERE senhaadmin IS NOT NULL OR senhadesc IS NOT NULL OR senhacancel IS NOT NULL OR senhagaveta IS NOT NULL)::int e,
+            (SELECT count(*) FILTER (WHERE senha IS NOT NULL)::int FROM rel_get_operadores) o FROM rel_get_empresas`)).rows[0] as any;
+        await pgCt.query(`DELETE FROM operadores WHERE codoperador = 99283`);
+        await pgCt.query(`INSERT INTO operadores (codoperador, nome, login, tipoop) VALUES (99283, 'OPER 283', 'OPER283', 'USU')`);
+        const usu = (await pgCt.query(`SELECT DISTINCT tipoop FROM rel_get_operadores WHERE tipo_sigla = 'USU'`)).rows.map((r: any) => r.tipoop);
+        await pgCt.query(`DELETE FROM operadores WHERE codoperador = 99283`);
+        const exe = await fetch(`${base}/relatorios/construtor/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          fonte: 'get_areceberbx', definicao: { colunas: [{ campo: 'x.txmulta', titulo: 'Multa %', posicao: 1 }, { campo: 'cod_desconto_titulo ', titulo: 'Desc', posicao: 2 }], ordem: [{ campo: 'x.multa', direcao: 'desc' }] } }) });
+        check('RELATÓRIOS §283b [a semântica das fontes das telas]: a troca SEM item sai FECHADA na fonte do relatório (o legado conta os status distintos: 0 → FECHADA), enquanto a tela segue mostrando ABERTA; as senhas de GET_EMPRESAS/GET_OPERADORES existem com o nome mas saem nulas; "Usu?rio(a)" sai "Usuário(a)"; e o construtor executa sobre as colunas com ponto e espaço no nome ("x.txmulta", "cod_desconto_titulo ") citando o identificador inteiro',
+          st?.rel === 'FECHADA' && st?.tela === 'ABERTA' && Number(senhas.e) === 0 && Number(senhas.o) === 0
+          && usu.length === 1 && usu[0] === 'Usuário(a)' && exe.status === 200,
+          { st, senhas, usu, exe: exe.status });
+      } finally {
+        await pgCt.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

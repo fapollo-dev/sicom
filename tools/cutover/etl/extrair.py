@@ -211,6 +211,10 @@ CALCULADAS = {
     # e o zero vira NULL — uma FK direta rejeitaria essas 92.726 linhas na carga.
     'codcclass_trib_ncm': 'nullif(nf_prod_ibscbs.codcclass_trib_ncm_anexos, 0)'},
   'cartao_bx':   {'idempresa':  '(select k.idempresa from cartao k where k.codvendcartao = cartao_bx.codvendcartao)'},
+  # ITENS_TROCA do legado não tem empresa: ela mora no sub-nível ITENS_TROCA_QTDE (1:1 — conferir-tabelas-fora.py, EQUIVALENTE),
+  # e é a da troca em 309 de 309. Sem isto os itens migrados chegariam com `idempresa` nulo (achado em 29/09/2026, mig 393).
+  'itens_troca': {'idempresa': 'coalesce((select q.codempresa from itens_troca_qtde q where q.coditenstroca = itens_troca.coditenstroca),'
+                               ' (select t.codempresa from troca t where t.codtroca = itens_troca.codtroca))'},
   'apagar_bx':   {'codempresa': '(select a.idempresa from apagar a where a.codapg = apagar_bx.codapg)'},
   'areceber_bx': {'codempresa': '(select a.codempresa from areceber a where a.codrcb = areceber_bx.codrcb)'},
   'mov_contas_bancarias': {
