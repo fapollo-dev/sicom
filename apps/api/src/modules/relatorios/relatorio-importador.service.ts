@@ -83,15 +83,34 @@ export class RelatorioImportadorService {
       vistos.add(nome.toUpperCase());
       try {
         const xml = decodificar(String(a.arquivo));
-        const fonte = await this.resolverFonte(db, arquivo);
-        if (!fonte) { res.pendentes.push({ nome: arquivo, motivo: 'A fonte deste relatório ainda não existe no Apollo.' }); continue; }
+        const rotulo = rotuloDoArquivo(xml);
+        const candidatas = await this.fontesDoArquivo(db, arquivo, rotulo);
+        if (!candidatas.length) {
+          res.pendentes.push({ nome: arquivo, motivo: rotulo
+            ? `A fonte "${rotulo}" deste relatório ainda não existe no Apollo.`
+            : 'A fonte deste relatório ainda não existe no Apollo.' });
+          continue;
+        }
 
         const def = converter(xml);
         if (!def.colunas.length) { res.pendentes.push({ nome: arquivo, motivo: 'O arquivo não tem colunas.' }); continue; }
 
-        const campos = await this.camposDa(db, fonte);
-        const faltando = referencias(def).filter((c) => !campos.has(c));
-        if (faltando.length) { res.pendentes.push({ nome: arquivo, motivo: `A fonte ${fonte} não tem: ${faltando.join(', ')}.` }); continue; }
+        // a primeira candidata que tem TODOS os campos do relatório — é onde ele roda no legado
+        let fonte: string | null = null;
+        let faltando: string[] = [];
+        for (const c of candidatas) {
+          const campos = await this.camposDa(db, c.fonte);
+          const falta = referencias(def).filter((x) => !campos.has(x));
+          if (!falta.length) { fonte = c.fonte; break; }
+          if (c === candidatas[0]) faltando = falta;
+        }
+        if (!fonte) {
+          const c0 = candidatas[0];
+          res.pendentes.push({ nome: arquivo, motivo: rotulo && !c0.doRotulo
+            ? `A fonte "${rotulo}" deste relatório ainda não existe no Apollo (${c0.fonte} não tem: ${faltando.join(', ')}).`
+            : `A fonte ${c0.fonte} não tem: ${faltando.join(', ')}.` });
+          continue;
+        }
 
         const existe = await db.selectFrom('relatorio_definicao').select('codrelatoriodef')
           .where('idempresa', '=', emp).where(sql`upper(nome)`, '=', nome.toUpperCase()).executeTakeFirst();
@@ -115,17 +134,24 @@ export class RelatorioImportadorService {
   }
 
   /**
-   * O nome do arquivo é `GET_<VIEW>_<NOME LIVRE>.XML`, e o nome da view tem underscore — então o de-para é por
-   * PREFIXO MAIS LONGO contra as fontes que existem, que é como o legado também o resolve na prática.
+   * As fontes onde o arquivo pode rodar, na ordem de preferência. O nome é `<VIEW>_<NOME LIVRE>.XML` (`cbbRelatoriosChange`), e
+   * o legado lista o arquivo sob TODA view cujo `<VIEW>_` aparece nele (`PercorreOrigem`, `Pos(PrefixoTabela, Arquivo) > 0`):
+   * `GET_ESTOQUE_TOTALIZADO_X.XML` aparece em GET_ESTOQUE e em GET_ESTOQUE_TOTALIZADO, e roda onde as colunas existem. Primeiro
+   * a view de prefixo com o RÓTULO gravado no arquivo (`rotuloDoArquivo`); depois as outras de prefixo, da mais longa para a mais
+   * curta — o rótulo pode ser antigo (três relatórios do GET_RCB gravaram "ARECEBER ABERTA", que a produção não tem mais).
    */
-  private async resolverFonte(db: AnyDB, arquivo: string): Promise<string | null> {
+  private async fontesDoArquivo(db: AnyDB, arquivo: string, rotulo: string | null): Promise<Array<{ fonte: string; doRotulo: boolean }>> {
     const alvo = arquivo.toUpperCase();
-    const fontes = (await sql<{ fonte: string }>`
-      SELECT c.relname AS fonte FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    const fontes = (await sql<{ fonte: string; rotulo: string }>`
+      SELECT c.relname AS fonte, obj_description(c.oid, 'pg_class') AS rotulo
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
        WHERE c.relkind = 'v' AND n.nspname = 'public' AND obj_description(c.oid, 'pg_class') IS NOT NULL
        ORDER BY length(c.relname) DESC
-    `.execute(db)).rows.map((r) => r.fonte);
-    return fontes.find((f) => alvo.startsWith(`${f.toUpperCase()}_`) || alvo.startsWith(`${f.toUpperCase()}.`)) ?? null;
+    `.execute(db)).rows;
+    const candidatas = fontes
+      .filter((f) => alvo.startsWith(`${f.fonte.toUpperCase()}_`) || alvo.startsWith(`${f.fonte.toUpperCase()}.`))
+      .map((f) => ({ fonte: f.fonte, doRotulo: !!rotulo && normalizarRotulo(f.rotulo) === normalizarRotulo(rotulo) }));
+    return [...candidatas.filter((c) => c.doRotulo), ...candidatas.filter((c) => !c.doRotulo)];
   }
 
   /** os campos que o construtor lê para a fonte — os da `rel_<fonte>` quando ela existe (`relacaoDaFonte`) */
@@ -236,6 +262,26 @@ export function referencias(def: Definicao): string[] {
 }
 
 /** `GET_APAGAR_AGRUPAR TIPO DE DOCUMENTO.XML` → `AGRUPAR TIPO DE DOCUMENTO`. */
+/**
+ * O rótulo da fonte gravado no arquivo: o `TABELA` das linhas de coluna (senão das condições, ordenação, agrupamento ou
+ * calculados). NUNCA o dos totais — o `btnSalvar` do legado grava o `TABELA` do `cdsTotais` com `cbbTabela.Items[cbbTabelaShow.
+ * ItemIndex]` (uRelatorio.pas:3006), o índice da lista ORDENADA aplicado na lista sem ordem: o rótulo sai de outra view
+ * ('NFE MANIFESTO DEST.', 'OPERADORES'… em relatórios da NF).
+ */
+export function rotuloDoArquivo(xml: string): string | null {
+  const linhas = (xml.match(/<ROW\b[^>]*\/>/g) ?? []).map(atributos);
+  for (const ds of ['cdsCamposAImprimir', 'cdsWhere', 'cdsOrdenacao', 'cdsAgrupar', 'cdsCamposCalculados']) {
+    const t = linhas.find((a) => a.DATASET === ds && (a.TABELA ?? '').trim())?.TABELA;
+    if (t) return t.trim();
+  }
+  return null;
+}
+
+/** o rótulo do combo é o COMMENT sem o ';' do início (`;PEDIDO DE COMPRA;` → `PEDIDO DE COMPRA;`); aqui a mig 202 gravou sem os ';' */
+export function normalizarRotulo(r: string): string {
+  return r.trim().replace(/^;+|;+$/g, '').trim().toUpperCase();
+}
+
 export function nomeLegivel(arquivo: string): string {
   const sem = arquivo.replace(/\.xml$/i, '');
   const partes = sem.split('_');

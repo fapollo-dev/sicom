@@ -30,13 +30,36 @@ nome, as colunas da tela que o legado não tem — o que já foi montado aqui so
 |---|---|---|
 | `get_apagar` (CONTAS A PAGAR) | 53 do legado + 22 da tela | 14 de 14 |
 | `get_nf` (NF) | 49 + 10 | 8 de 10 — os outros 2 citam `PESO_TOTAL` e `CODIGO_PEDIDO`, que **a view da produção não tem** (já quebram lá) |
+| `get_produtos` (PRODUTOS) | 95 + 2 — uma linha por preço da loja (MULTI_PRECO) | 7 de 7 |
+| `get_cartao` (CARTAO) | 42 + 12 — a coluna 41 chama-se literalmente `txefetiva tx_adm_arquivo` | 5 de 5 |
+| `get_parceiros` (PARCEIROS) | 61 + 3 — uma linha por endereço | 3 de 3 |
+| `get_pedidocompra` (PEDIDO DE COMPRA) | 24 + 15 (e a auxiliar `get_pedido_nf`, sem COMMENT) | 1 de 1 |
+| `get_scrap` (SCRAP) | 16 + 7 | 1 de 1 |
+
+`get_estoque` (ESTOQUE) só o construtor usa: foi substituída no lugar (10 do legado + 4), como as da mig 388 (mig 390).
+
+### Qual é a fonte de um arquivo
+
+O legado lista um arquivo sob **toda** view cujo `<VIEW>_` aparece no nome (`PercorreOrigem`, `Pos(PrefixoTabela, Arquivo) > 0`)
+— `GET_ESTOQUE_TOTALIZADO_X.XML` aparece em GET_ESTOQUE e em GET_ESTOQUE_TOTALIZADO — e grava o rótulo da view em `TABELA`
+(menos nos totais: `cbbTabela.Items[cbbTabelaShow.ItemIndex]`, uRelatorio.pas:3006, aplica o índice do combo ordenado na lista
+sem ordem, e o rótulo sai de outra view). O importador tenta primeiro a view de prefixo com o rótulo das colunas, depois as outras
+de prefixo (da mais longa), e fica com a primeira que tem todos os campos — o rótulo pode ser antigo (três relatórios do GET_RCB
+gravaram "ARECEBER ABERTA", que a produção não tem mais, e rodam no GET_RCB). Sem nenhuma, fica pendente com o nome da fonte que
+falta. Até aqui o prefixo sozinho mandava dois relatórios para a view errada (ESTOQUE TOTALIZADO → get_estoque; PRODUTOS E
+ESTOQUE → get_produtos).
 
 Esquisitices que ficaram: GET_APAGAR só tem título em aberto; `VALOR` é o líquido (valor + vendor − desconto) e `JUROS` a taxa;
 `CNPJ_CPF` é o do endereço ativo que não é o primeiro — **vazio em 100% dos 7.932 títulos da produção** (18.962 dos 18.986
 parceiros têm um endereço só). GET_NF só tem NF com parceiro; `TIPO_EMISSAO` nulo sai 'T'. Diferença deliberada: a `PRECIFICADA`
 negativa da produção é `NÃƒO` (o 'NÃO' em UTF-8 lido como cp1252 ao criar a view) — aqui sai `NÃO`.
 
-Simulação sobre os 95 relatórios da produção (29/09/2026): **50 importam** (eram 28); 19 pendentes por coluna; 26 sem fonte.
+Simulação sobre os 95 relatórios da produção (29/09/2026): **65 importam** (eram 28), cada um na fonte onde roda no legado; 2
+pendentes por coluna (as que a produção não tem); 28 sem fonte — destes, 8 citam views que **não existem na produção**
+(FINALIZADORAS, OURO - FLUXO DE CAIXA NIVEL-2, _OURO - PRODUTO VENDIDO, VENDAS_PEDIDOS, _OURO - VENDAS_PEDIDOS: já quebram lá);
+os outros 20 esperam as fontes GET_APAGARBXCC, GET_CARTAOBX, GET_CONTATOS_PDV, GET_NOTAS_SEM_PEDIDO, GET_CP, GET_CAIXA, GET_CX,
+GET_ARECEBER, GET_ADIANTAMENTO_FORN, GET_DRE_COMPETENCIA, GET_TIPO_CODIGO_VENDIDO, GET_VALORES_CARTAO, GET_VENDAS,
+GET_VENDASRELAT, GET_ESTOQUE_TOTALIZADO e GET_PRODUTOS_ESTOQUE.
 
 ## Divergências conhecidas — views que também servem telas do Apollo
 

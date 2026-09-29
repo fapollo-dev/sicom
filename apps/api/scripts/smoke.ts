@@ -26076,6 +26076,129 @@ async function main() {
         await pgRf.end();
       }
     }
+    // ══ §281 MAIS SEIS FONTES NA ÍNTEGRA DO LEGADO (GET_PRODUTOS, GET_CARTAO, GET_PARCEIROS, GET_ESTOQUE, GET_PEDIDOCOMPRA, GET_SCRAP) ══════
+    {
+      const RC = 'relatorios/construtor';
+      const pgR2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cols = async (v: string) => (await pgR2.query(`SELECT column_name c FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`, [v])).rows.map((r: any) => r.c as string);
+        const cP = await cols('rel_get_produtos'), cC = await cols('rel_get_cartao'), cPa = await cols('rel_get_parceiros');
+        const cE = await cols('get_estoque'), cPc = await cols('rel_get_pedidocompra'), cS = await cols('rel_get_scrap');
+        const rotEst = (await pgR2.query(`SELECT obj_description('get_estoque'::regclass, 'pg_class') r`)).rows[0]?.r;
+        // as listas de ALL_TAB_COLUMNS da produção (29/09/2026), na ordem
+        const LEG: Record<string, string[]> = {
+          produtos: ["codbarra", "descricao", "vrcusto", "custo_reposicao", "vrvenda", "ativo", "ativo_compra", "atacarejo", "comissao", "fornecedor", "coddpto", "departamento", "grupo", "subgrupo", "codsecao", "secao", "unidade", "markup", "codfor", "aliquota", "balanca", "promocao", "vrpromo", "vrclubefidelidade", "pis", "tipopis", "fatorkg", "fatorcx", "codbalanca", "descmax", "especificacao", "composicao", "codigo", "cod_grupo", "cod_subgrupo", "cest", "data_alteracao", "custo_total", "data_alteracao_preco", "ncm", "comeco_descricao", "idempresa", "data_cadastro", "margem_calculada", "grupo_preco", "idpiscofins", "despis", "imprimircomp", "cod_grupopreco", "atacado", "vrdescpreco2_mp", "vrdescpreco2_pro", "tpdescpreco2", "qtde_estoque", "qtde_deposito", "qtde_total", "produto_pai", "descricao_resumida", "descricao_web", "descricao_balanca", "quantidade", "altera_descricao_cotacao", "perda", "idmarca", "marca", "etq_impressa", "vasilhame", "cod_figura_fiscal", "figura_fiscal", "possui_receita", "fator_filho", "qtde_etiquetas", "vlrpromocao", "realiza_troca", "cotacao", "est_minimo", "est_maximo", "est_atual_x_minimo", "est_atual_x_maximo", "unidade_apresentacao", "conteudo_embalagem", "apresentacao_etiqueta", "vlr_apresentacao", "codoperador", "tipo_produto", "abc", "perc_abc", "data_abc", "ultima_venda", "codctc", "descricaoctc", "produto_notavel", "produto_ancora", "preco2", "pmz"],
+          cartao: ["operadora", "valor", "valor_com_taxa", "data", "data_hora", "previsao_compensacao", "codigo_empresa", "codadm", "administradora", "nrocupom", "nropedido", "parcela", "parcelas", "valor_operacao", "codigo_operadora", "codigo", "idpgto", "codpdv", "codoperador", "resumo", "data_venc_resumo", "consiliado", "tipo", "cartao_tipo", "tipomodalidade", "nsuhost", "nomeoperador", "nomeoperadoralteracao", "codoperadorabase", "codrede", "codbandeira", "txadm", "diascomp", "valor_ajuste_baixa", "obs", "data_cadastro", "idlote", "autorizacao", "txefetiva tx_adm_arquivo", "valorliq_arquivo", "data_baixa_arquivo", "tipocartao"],
+          parceiros: ["razao", "codigo", "fantasia", "tipo_pessoa", "data_cadastro", "data_nascimento", "data_aniversario", "email", "credito", "obs", "bloqueado", "comissao", "previsao_vencimento", "desconto_padrao", "desconto_padraoboleto", "tolerancia", "txjuro", "cod_referencia", "data_ultima_compra", "idempresa", "imprimir_ecf", "ultima_alteracao", "dias_prazo", "estado_civil", "cargo", "cod_convenio", "convenio", "cli", "frn", "fun", "tra", "con", "ativado", "endereco", "bairro", "cidade", "uf", "cep", "condicao_pagto", "cnpj_cpf", "cnpj_cpf_sem_mascara", "rg_insc", "celular", "fixo", "dispensado_pedido_compra", "dispensado_coleta", "vencimentos", "codigo_ibge", "contribuinte_icms", "realiza_troca", "realiza_retencoes", "endereco_ativo", "cod_part_sped", "classfiscal", "codperfil_parceiro", "perfil", "desconvenio", "classificacao", "grupoempresarial", "participa_cotacao", "email_vendedor_representante"],
+          estoque: ["idproduto", "descricao", "idempresa", "vrvenda", "qtde", "vrcusto", "servico", "unidade", "codbarra", "ativo"],
+          pedido: ["nropedido", "data", "parceiro", "fechado", "idempresa", "dt_vencimento", "operador", "codigo_operador", "condicao_pagto", "codigo_parceiro", "codigo", "codparceiro_end", "uf_fornecedor", "bonificacao", "importado", "total_pedido", "fornecedor_ativo", "operador_fechamento", "data_fechamento", "notas", "compra_1_para_n_lojas", "obs", "tipo_frete", "valor_frete"],
+          scrap: ["codigo", "dt_cadastro", "codigo_parceiro", "parceiro", "valor", "importado", "codnf", "nronf", "idempresa", "centro_custo", "desc_centro_custo", "descricao", "obs", "status_nfe", "origem_estoque", "mov_estoque"],
+        };
+        const got: Record<string, string[]> = { produtos: cP, cartao: cC, parceiros: cPa, estoque: cE, pedido: cPc, scrap: cS };
+        const extras: Record<string, number> = { produtos: 2, cartao: 12, parceiros: 3, estoque: 4, pedido: 15, scrap: 7 };
+        const difs = Object.keys(LEG).flatMap((k) => LEG[k].map((c, i) => (got[k][i] === c ? null : `${k}[${i}]: ${got[k][i]} ≠ ${c}`)).filter(Boolean)
+          .concat(got[k].length === LEG[k].length + extras[k] ? [] : [`${k}: ${got[k].length} colunas`]));
+        check('RELATÓRIOS §281a [as colunas do legado, na ordem]: GET_PRODUTOS 95 (+2 da tela), GET_CARTAO 42 (+12) com a coluna 41 chamada literalmente "txefetiva tx_adm_arquivo" como na produção, GET_PARCEIROS 61 (+3), GET_PEDIDOCOMPRA 24 (+15), GET_SCRAP 16 (+7) — as cinco em `rel_`; GET_ESTOQUE 10 (+4) substituída no lugar (só o construtor a usa), com o rótulo ESTOQUE. Conferidas nome a nome contra ALL_TAB_COLUMNS da produção',
+          difs.length === 0 && rotEst === 'ESTOQUE',
+          { difs, rotEst });
+
+        // CARTÃO: venda de sexta com 1 dia de compensação cai no sábado → segunda (+2); a de quinta cai na sexta; a liberada some
+        await pgR2.query(`DELETE FROM cartao WHERE codoperadora = 99281`);
+        await pgR2.query(`INSERT INTO operadoras (codoperadoras, operadora, tipo, tipocartao, txadm, diascomp) VALUES (99281,'OPER 281','C',2,2.00,1)
+          ON CONFLICT (codoperadoras) DO UPDATE SET tipo='C', tipocartao=2, txadm=2.00, diascomp=1, codadm=NULL`);
+        await pgR2.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, nsuhost) VALUES
+          (1,99281,'2035-08-03 10:00:00-03',100.00,1,'N','NSU-SEX'), (1,99281,'2035-08-02 10:00:00-03',100.00,1,'N','NSU-QUI'), (1,99281,'2035-08-03 11:00:00-03',50.00,1,'S','NSU-LIB')`);
+        const vc = (await pgR2.query(`SELECT nsuhost, to_char(previsao_compensacao,'YYYY-MM-DD') prev, valor_com_taxa, administradora, tipo, cartao_tipo, tipocartao, tipomodalidade
+          FROM rel_get_cartao WHERE codigo_operadora = 99281 ORDER BY nsuhost`)).rows as any[];
+        const sex = vc.find((r) => r.nsuhost === 'NSU-SEX'), qui = vc.find((r) => r.nsuhost === 'NSU-QUI');
+        check('RELATÓRIOS §281b [GET_CARTAO como o legado]: a venda LIBERADA fica fora (2 de 3); a previsão pula o fim de semana — sexta + 1 dia = sábado → segunda 06/08, quinta + 1 = sexta 03/08; VALOR_COM_TAXA = 100 − 2% = 98; sem administradora cadastrada sai "ADMINISTRADORA NAO ENCONTRADA"; TIPO/CARTAO_TIPO/TIPOCARTAO decodificados; modalidade nula = "OUTRO TIPO DE PAGAMENTO"',
+          vc.length === 2 && sex?.prev === '2035-08-06' && qui?.prev === '2035-08-03' && Number(sex?.valor_com_taxa) === 98
+          && sex?.administradora === 'ADMINISTRADORA NAO ENCONTRADA' && sex?.tipo === 'CREDITO' && sex?.cartao_tipo === 'CARTAO DE CREDITO'
+          && sex?.tipocartao === 'CREDITO' && sex?.tipomodalidade === 'OUTRO TIPO DE PAGAMENTO',
+          { vc });
+
+        // PARCEIROS: uma linha por endereço; estado civil nulo = CASADO; 29/02 sem aniversário no ano
+        await pgR2.query(`DELETE FROM parceiros_end WHERE codparceiro = 99281`); await pgR2.query(`DELETE FROM parceiros WHERE codparceiro = 99281`);
+        await pgR2.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, cli, tipofj, dtnascimento) VALUES (99281,'PARC 281','P281','S','F','1980-02-29')`);
+        await pgR2.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, numero, bairro, cidade, uf, cep, cnpj_cpf, endereco_padrao, ativado) VALUES
+          (992811,99281,'RUA A','1','CENTRO','CIDADE A','MA','65000000','111.444.777-35','S','S'), (992812,99281,'RUA B','2','CENTRO','CIDADE B','MA','65000001','','N','N')`);
+        const vp = (await pgR2.query(`SELECT cod_part_sped, estado_civil, tipo_pessoa, data_aniversario, cnpj_cpf_sem_mascara, endereco_ativo FROM rel_get_parceiros WHERE codigo = 99281 ORDER BY cod_part_sped`)).rows as any[];
+        check('RELATÓRIOS §281c [GET_PARCEIROS como o legado]: uma linha por ENDEREÇO (2), COD_PART_SPED = o CODEND, ESTADO_CIVIL nulo sai CASADO, TIPO_PESSOA FISICA, nascido em 29/02 não tem DATA_ANIVERSARIO, o CPF sem máscara',
+          vp.length === 2 && Number(vp[0].cod_part_sped) === 992811 && vp[1].endereco_ativo === 'N' && vp[0].estado_civil === 'CASADO'
+          && vp[0].tipo_pessoa === 'FISICA' && vp[0].data_aniversario == null && vp[0].cnpj_cpf_sem_mascara === '11144477735',
+          { vp });
+
+        // PRODUTOS / ESTOQUE: uma linha por preço da loja; a margem sobre o custo de reposição
+        const nMp = Number((await pgR2.query(`SELECT count(*)::int n FROM multi_preco`)).rows[0].n);
+        const nRp = Number((await pgR2.query(`SELECT count(*)::int n FROM rel_get_produtos`)).rows[0].n);
+        const nEs = Number((await pgR2.query(`SELECT count(*)::int n FROM estoque e JOIN multi_preco m ON m.idproduto = e.idproduto AND m.idempresa = e.idempresa`)).rows[0].n);
+        const nGe = Number((await pgR2.query(`SELECT count(*)::int n FROM get_estoque`)).rows[0].n);
+        const mp = (await pgR2.query(`SELECT m.idproduto, m.idempresa, m.vrcustorep, m.vrvenda, r.margem_calculada FROM multi_preco m
+          JOIN rel_get_produtos r ON r.codigo = m.idproduto AND r.idempresa = m.idempresa WHERE m.vrcustorep > 0 AND m.vrvenda > 0 LIMIT 1`)).rows[0] as any;
+        const margemEsperada = mp ? Math.round((1 - Number(mp.vrcustorep) / Number(mp.vrvenda)) * 10000) / 100 : null;
+        // SCRAP: valor = Σ qtde × custo; origem do primeiro item
+        const prd = Number((await pgR2.query(`SELECT idproduto FROM produtos ORDER BY idproduto LIMIT 1`)).rows[0].idproduto);
+        await pgR2.query(`DELETE FROM scrap_item WHERE codscrap = 992810`); await pgR2.query(`DELETE FROM scrap WHERE codscrap = 992810`);
+        await pgR2.query(`INSERT INTO scrap (codscrap, idempresa, dt_cadastro, codparceiro, obs, importado) VALUES (992810,1,'2035-08-03 09:00:00-03',99281,'SCRAP 281','N')`);
+        await pgR2.query(`INSERT INTO scrap_item (codscrapitem, codscrap, idempresa, idproduto, qtde, vr_custo) VALUES (992813,992810,1,$1,2,5.00), (992814,992810,1,$1,3,1.50)`, [prd]);
+        const vs = (await pgR2.query(`SELECT valor, origem_estoque, mov_estoque, parceiro, qtde_itens FROM rel_get_scrap WHERE codigo = 992810`)).rows[0] as any;
+        check('RELATÓRIOS §281d [GET_PRODUTOS/GET_ESTOQUE/GET_SCRAP como o legado]: GET_PRODUTOS tem uma linha por PREÇO DA LOJA (= MULTI_PRECO) e a MARGEM_CALCULADA é (1 − reposição ÷ venda) × 100; GET_ESTOQUE só o saldo com preço na loja (o JOIN da MULTI_PRECO); GET_SCRAP com VALOR = 2 × 5 + 3 × 1,50 = 14,50, ORIGEM_ESTOQUE E (o primeiro item sem origem) e MOV_ESTOQUE N por padrão',
+          nRp === nMp && nGe === nEs && (!mp || Math.abs(Number(mp.margem_calculada) - (margemEsperada as number)) < 0.011)
+          && Number(vs?.valor) === 14.5 && vs?.origem_estoque === 'E' && vs?.mov_estoque === 'N' && vs?.parceiro === 'PARC 281' && Number(vs?.qtde_itens) === 2,
+          { nRp, nMp, nGe, nEs, mp, margemEsperada, vs });
+
+        // o relatório do cliente sobre GET_CARTAO (DATA, NSUHOST, CODIGO_OPERADORA — antes pendentes) importa e roda
+        const xml = [
+          '<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="Conferencia de vendas" MOSTRA_SOMENTE_AGRUPAMENTO="FALSE" SALTAR_PG_GRUPO="FALSE" IMPRIMIR_EM_PAISAGEM="FALSE"/>',
+          '<ROW RowState="4" CAMPO="DATA" TITULO="Data" TAMANHO="10" POSICAO="1" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CARTAO"/>',
+          '<ROW RowState="4" CAMPO="NSUHOST" TITULO="NSU" TAMANHO="12" POSICAO="2" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CARTAO"/>',
+          '<ROW RowState="4" CAMPO="VALOR_COM_TAXA" TITULO="Liquido" TAMANHO="12" POSICAO="3" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CARTAO"/>',
+          '<ROW RowState="4" CAMPO="CODIGO_OPERADORA" VALOR_CAMPO="99281" OPERACAO="Igual a" VALOR_MOSTRAR="99281" DATASET="cdsWhere" TABELA="CARTAO"/>',
+          '</ROWDATA></DATAPACKET>',
+        ].join('');
+        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99804`);
+        await pgR2.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES (99804,1,'GET_CARTAO_CONFERENCIA 281.XML','NORMAL',$1)`,
+          [Buffer.from(xml, 'utf8').toString('base64')]);
+        const imp = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+        const def = (await pgR2.query(`SELECT codrelatoriodef, fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%CONFERENCIA 281%'`)).rows[0] as any;
+        const run = def ? await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: Number(def.codrelatoriodef) }) }) : null;
+        const runJ = (await run?.json().catch(() => ({}))) as any;
+        check('RELATÓRIOS §281e [o relatório do cliente sobre GET_CARTAO importa e roda]: com DATA, NSUHOST e CODIGO_OPERADORA (que a view da tela não tem) a definição entra na fonte `get_cartao` e roda sobre a `rel_`: as 2 vendas não liberadas da operadora, 98 + 98 = 196 de líquido',
+          def?.fonte === 'get_cartao' && run?.status === 200 && runJ.linhas?.length === 2
+          && runJ.linhas.reduce((t: number, l: any) => t + Number(l.c2), 0) === 196,
+          { pend: (imp.pendentes ?? []).find((x: any) => String(x.nome).includes('281')), def, status: run?.status, linhas: runJ.linhas });
+
+        // a FONTE do arquivo (uRelatorio `PercorreOrigem` + o TABELA gravado): o rótulo antigo do GET_RCB ("ARECEBER ABERTA") ainda
+        // roda no GET_RCB; o GET_ESTOQUE_TOTALIZADO (rótulo "ESTOQUE TOTALIZADO", TOTAL_QTDE) não cai no GET_ESTOQUE só pelo prefixo
+        const xmlDe = (rot: string, campos: string[]) => Buffer.from(['<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="" MOSTRA_SOMENTE_AGRUPAMENTO="FALSE" SALTAR_PG_GRUPO="FALSE" IMPRIMIR_EM_PAISAGEM="FALSE"/>',
+          ...campos.map((c, i) => `<ROW RowState="4" CAMPO="${c}" TITULO="${c}" TAMANHO="10" POSICAO="${i + 1}" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="${rot}"/>`),
+          `<ROW RowState="4" CAMPO="${campos[0]}" DATASET="cdsTotais" TABELA="OPERADORES"/>`,
+          '</ROWDATA></DATAPACKET>'].join(''), 'utf8').toString('base64');
+        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99805, 99806)`);
+        await pgR2.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES
+          (99805,1,'GET_RCB_ROTULO ANTIGO 281.XML','NORMAL',$1), (99806,1,'GET_ESTOQUE_TOTALIZADO_TOTAL 281.XML','NORMAL',$2)`,
+          [xmlDe('ARECEBER ABERTA', ['CLIENTE', 'VALOR', 'DATA_VENCIMENTO']), xmlDe('ESTOQUE TOTALIZADO', ['CODBARRA', 'DESCRICAO', 'TOTAL_QTDE'])]);
+        const imp2 = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+        const rcbAntigo = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%ROTULO ANTIGO 281%'`)).rows[0] as any;
+        const totEst = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%TOTAL 281%'`)).rows[0] as any;
+        const pendEst = (imp2.pendentes ?? []).find((x: any) => String(x.nome).includes('TOTAL 281'));
+        check('RELATÓRIOS §281f [a fonte do arquivo, como o legado a acha]: o legado lista um arquivo sob toda view cujo nome aparece nele (`PercorreOrigem`) e grava o rótulo da view em TABELA (menos nos totais, onde o índice do combo ordenado cai na lista sem ordem — aqui "OPERADORES"). O importador tenta primeiro a view do rótulo, depois as de prefixo, e fica com a que tem as colunas: o relatório do GET_RCB com o rótulo antigo "ARECEBER ABERTA" entra no get_rcb; o do GET_ESTOQUE_TOTALIZADO NÃO cai no get_estoque — fica pendente dizendo que falta a fonte "ESTOQUE TOTALIZADO"',
+          rcbAntigo?.fonte === 'get_rcb' && !totEst && String(pendEst?.motivo ?? '').includes('"ESTOQUE TOTALIZADO"'),
+          { rcbAntigo, totEst, pendEst });
+      } finally {
+        await pgR2.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%CONFERENCIA 281%' OR upper(nome) LIKE '%281'`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99804, 99805, 99806)`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM scrap_item WHERE codscrap = 992810`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM scrap WHERE codscrap = 992810`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM cartao WHERE codoperadora = 99281`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM operadoras WHERE codoperadoras = 99281`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM parceiros_end WHERE codparceiro = 99281`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM parceiros WHERE codparceiro = 99281`).catch(() => undefined);
+        await pgR2.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
