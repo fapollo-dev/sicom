@@ -71,6 +71,70 @@ pesquisa da consulta de histórico, mig 161) foi realinhada com a view de hoje d
 161 fora feita sobre uma versão antiga, com o PIS na chave (17 colunas) e o menor ID de linha no lugar do código. Ao portar view
 sobre tabela da carga, conferir o `RENOMEIA` do `extrair.py`: o nome igual pode guardar outra coisa.
 
+### As 55 fontes do catálogo da produção que ficam de fora (com prova)
+
+Contagem na produção (só leitura, 29/09/2026) e os vereditos do `conferir-tabelas-fora.py`. Nenhuma tem dado vivo que o Apollo não
+guarde: são views sobre tabela **vazia**, **morta** (resíduo parado há anos), do **PDV** (fora do escopo), sobre a tabela de trabalho
+do SPED, ou **inválida** na própria produção.
+
+| view | rótulo | motivo |
+|---|---|---|
+| `get_abastecimento` | ABASTECIMENTOS | MORTA (abastecimento 4, veiculos 2) |
+| `get_agenda_atendimento` | Atendimentos | tabela VAZIA (agenda_atendimento) |
+| `get_agenda_orcamentos` | AGENDA DE ORÇAMENTOS | tabela VAZIA (agenda_orcamentos) |
+| `get_ambiente_contingencia` | HISTORICO AMBIENTE DE CONTINGENCIA | MORTA (ambiente_contingencia 6) |
+| `get_categoria_cortesia` | CORTESIA | tabela VAZIA (categoria_cortesia) |
+| `get_cheque_dev` | CHEQUES DEVOLVIDOS | tabela VAZIA (cheque_devolvido) |
+| `get_cheque_rep` | CHEQUES REPASSADOS | tabela VAZIA (cheque_rep) |
+| `get_cliente_tipofaturamento` | TIPO FATURAMENTO CLIENTES | tabela VAZIA (clientes_tipofaturamento, tabela_preco_producao, tipofaturamento) |
+| `get_cod_beneficio_fiscal` | COD_BENEFICIO_FISCAL | MORTA (cod_beneficio_fiscal 1823) |
+| `get_codigo_ajuste` | CODIGO DE AJUSTES/INCENTIVOS/BENEFICIOS | tabela VAZIA (codigo_ajuste) |
+| `get_comandas_bloqueadas` | COMANDAS BLOQUEADAS | PDV (comandas_bloqueadas) |
+| `get_contatos_pdv` | CONTATOS_PDV | PDV (publicidade_pre) |
+| `get_convenio_funcionario` | CONVENIO FUNCIONARIO | tabela VAZIA (agrupareceber) |
+| `get_cupom_liberado_entrega` | CUPONS LIBERADOS PARA ENTREGA | tabela VAZIA (mapa_de_entrega_item) |
+| `get_devolucao` | DEVOLUCAO | MORTA (devolucao 1) |
+| `get_devolucoes_nf` | DEVOLUÇÕES NF | tabela VAZIA (devolucao_nf) |
+| `get_doca` | DOCAS | MORTA (doca 1) |
+| `get_estoque_local` | Local de Estoque | tabela VAZIA (estoque_local) |
+| `get_etapas` | ETAPAS | tabela VAZIA (etapas) |
+| `get_finaliza_fechamento_lanc` | LANÇAMENTO FINALIZA FECHAMENTO | tabela VAZIA (finaliza_fechamento_lanc) |
+| `get_grupoempresarial` | GRUPOEMPRESARIAL | tabela VAZIA (grupoempresarial) |
+| `get_historico_kardex` | HISTORICO KARDEX | INVÁLIDA na produção |
+| `get_limite_compra` | LIMITE COMPRA | tabela VAZIA (limite_compra) |
+| `get_local_impressao` | LOCAL IMPRESSAO | tabela VAZIA (local_impressao) |
+| `get_lote_produto_validade` | LOTE_PRODUTO_VALIDADE | MORTA (lote_produto_validade 1) |
+| `get_mapa_de_carga` | MAPA DE CARGA | MORTA (veiculos 2) |
+| `get_mapa_de_entrega` | MAPA DE ENTREGAS | tabela VAZIA (mapa_de_entrega) |
+| `get_midia_departamento` | MIDIA_DEPARTAMENTO | PDV (midia_departamento) |
+| `get_motivos_cancelamento_pdv` | motivos_cancelamento_pdv | PDV (motivos_cancelamento_pdv) |
+| `get_n2m_produtos` | N2M PRODUTOS | tabela VAZIA (receitas) |
+| `get_nf_naovinculadareceber` | Listagem de notas que n?o est?o vinculadas a um conta a receber | tabela VAZIA (nfareceber) |
+| `get_nf_spedpiscofins` | NF_SPEDPISCOFINS | PDV (nfc) |
+| `get_nf_venda` | NF VENDA | tabela VAZIA (devolucao_nf, devolucao_nfprod) |
+| `get_nfc` | NFC | PDV (nfc) |
+| `get_nfe` | NFE | MORTA (nfe 1) |
+| `get_osrelat` | OS; | tabela VAZIA (os) |
+| `get_osrelat_recursos` | OS POR RECURSO; | tabela VAZIA (cx_os, os) |
+| `get_pedido_liberado_entrega` | PEDIDOS LIBERADOS PARA ENTREGA | tabela VAZIA (mapa_de_entrega_item) |
+| `get_pedidoproducao` | PEDIDOS PRODUCAO; | MORTA (mensagens_nf 1) |
+| `get_pesquisa` | PESQUISAS | tabela VAZIA (pesquisa) |
+| `get_pix_config` | PIX CONFIGURACAO | tabela VAZIA (pix_config) |
+| `get_pix_transacao` | PIX_TRANSACAO | tabela VAZIA (pix_transacao) |
+| `get_pr_pedido_distribuidor` | PEDIDO DISTRIBUIDOR PRODUCAO | tabela VAZIA (pedidosproducao, pedidosproducao_itens) |
+| `get_produtos_consulta_preco` | PRODUTOS CONSULTA PRECO | MORTA (codbarra_cons_prod 448) |
+| `get_publicidade` | PUBLICIDADE | tabela VAZIA (publicidade) |
+| `get_regiao` | REGIAO | tabela VAZIA (regiao) |
+| `get_rel_forma_pagto_condicao` | REL_FORMA_PAGTO_CONDICAO | tabela VAZIA (rel_forma_pagamento_condicao) |
+| `get_rel_mapa_de_carga` | REL MAPA DE CARGA | tabela VAZIA (itens_mapa_de_carga, mapa_de_carga) |
+| `get_rel_movpedidos` | MOVPEDIDOS | tabela VAZIA (itens_mapa_de_carga) |
+| `get_saidadep` | TRANSFERENCIA DE MERCADORIA | MORTA (saidadep 16) |
+| `get_sicomanda_terminal` | TERMINAIS SICOMANDA | PDV (sicomanda_terminal) |
+| `get_terminais` | TERMINAIS | PDV (terminais) |
+| `get_tipofaturamento` | TIPOFATURAMENTO; | tabela VAZIA (tipofaturamento) |
+| `get_troca_planilha` | TROCAS_PLANILHA | tabela VAZIA (itens_troca_qtde, troca_planilha) |
+| `get_vendasantrelat` | VENDAS ANTERIORES; | tabela VAZIA (vendas_ant) |
+
 ### O placar (simulação sobre os 95 relatórios da produção, 29/09/2026)
 
 **81 importam**, cada um na fonte onde roda no legado (eram 28 no começo do dia). Os 14 que sobram:
@@ -102,7 +166,7 @@ A GET_ARECEBERBX ganhou os nomes **literais** da produção: `"cod_desconto_titu
 `tools/cutover/catalogo-construtor-producao.json` é o retrato das **199 views do catálogo da produção** (COMMENT que não começa com
 `#` — os `#PDV_…` são as views de carga do PDV; rótulo = o COMMENT sem o `;` do início), com colunas, tipos e SQL. O §283 confere
 toda fonte daqui contra ele: rótulo igual, colunas do legado na ordem (na `rel_` quando existe), nenhuma fonte inventada. Em
-29/09/2026: **138 de 199** fontes existem aqui, todas conferidas (migs 394–397: 92 fontes novas, em lotes, com a lista de colunas
+29/09/2026: **144 de 199** fontes existem aqui, todas conferidas (migs 394–398: 98 fontes novas, em lotes, com a lista de colunas
 explícita no `CREATE VIEW` como no Oracle). Rótulos com acidente de codificação no próprio COMMENT (`HistÃ³rico Desconto`, um
 U+0081 invisível em `MOVIMENTAÇÃO DIÁRIA`) saem consertados, e o importador conserta o `TABELA` do arquivo antes de comparar. Renovar o retrato: `tools/cutover/retratar-catalogo-construtor.py`
 (só leitura).
