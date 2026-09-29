@@ -109,7 +109,7 @@ COMMENT ON VIEW get_cheque_proprio IS 'CHEQUES PROPRIOS';
 
 CREATE OR REPLACE VIEW get_venda_composicao (codigo_produto_pai, codigo_barra_pai, descricao_pai, codigo_filho, descricao_filho, qtde_filho,
                                              valor_filho, codbarra_filho, dtvenda, idempresa, qtd_total_vendida) AS
-SELECT c.idproduto, p.codbarra, p.codbarra || ' - ' || p.descricao || ' - ' || v.qtde || ' - ' || (v.vrvenda * v.qtde), c.idproduto_01,
+SELECT c.idproduto, p.codbarra, concat(p.codbarra, ' - ', p.descricao, ' - ', v.qtde, ' - ', v.vrvenda * v.qtde), c.idproduto_01,
        o.descricao, c.qtde, c.valor, o.codbarra, v.dtvenda::date, v.idempresa, v.qtde * c.qtde
   FROM composicao c
   LEFT JOIN produtos p ON p.idproduto = c.idproduto

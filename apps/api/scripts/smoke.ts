@@ -26179,17 +26179,17 @@ async function main() {
         await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99805, 99806, 99808)`);
         await pgR2.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES
           (99805,1,'GET_RCB_ROTULO ANTIGO 281.XML','NORMAL',$1), (99806,1,'GET_ESTOQUE_TOTALIZADO_TOTAL 281.XML','NORMAL',$2),
-          (99808,1,'GET_PRODUTOS_ESTOQUE_COMP_COMPOSICAO 281.XML','NORMAL',$3)`,
+          (99808,1,'GET_PRODUTOS_CONSULTA_PRECO_CONSULTAS 281.XML','NORMAL',$3)`,
           [xmlDe('ARECEBER ABERTA', ['CLIENTE', 'VALOR', 'DATA_VENCIMENTO']), xmlDe('ESTOQUE TOTALIZADO', ['CODBARRA', 'DESCRICAO', 'TOTAL_QTDE']),
-           xmlDe('PRODUTOS E ESTOQUE COMPOSICAO', ['CODBARRA', 'QTDE_COMPOSICAO'])]);
+           xmlDe('PRODUTOS CONSULTA PRECO', ['CODBARRA', 'CODBARRA_CONSULTA'])]);
         const imp2 = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
         const rcbAntigo = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%ROTULO ANTIGO 281%'`)).rows[0] as any;
         const totEst = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%TOTAL 281%'`)).rows[0] as any;
-        const pendComp = (imp2.pendentes ?? []).find((x: any) => String(x.nome).includes('COMPOSICAO 281'));
-        const comp = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%COMPOSICAO 281%'`)).rows[0] as any;
-        check('RELATÓRIOS §281f [a fonte do arquivo, como o legado a acha]: o legado lista um arquivo sob toda view cujo nome aparece nele (`PercorreOrigem`) e grava o rótulo da view em TABELA (menos nos totais, onde o índice do combo ordenado cai na lista sem ordem — aqui "OPERADORES"). O importador tenta primeiro a view do rótulo, depois as de prefixo, e fica com a que tem as colunas: o relatório do GET_RCB com o rótulo antigo "ARECEBER ABERTA" entra no get_rcb; o do GET_ESTOQUE_TOTALIZADO entra na get_estoque_totalizado (não no get_estoque); e o da GET_PRODUTOS_ESTOQUE_COMP, que não existe aqui, NÃO cai no get_produtos_estoque nem no get_produtos — fica pendente dizendo que falta a fonte "PRODUTOS E ESTOQUE COMPOSICAO"',
+        const pendComp = (imp2.pendentes ?? []).find((x: any) => String(x.nome).includes('CONSULTAS 281'));
+        const comp = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%CONSULTAS 281%'`)).rows[0] as any;
+        check('RELATÓRIOS §281f [a fonte do arquivo, como o legado a acha]: o legado lista um arquivo sob toda view cujo nome aparece nele (`PercorreOrigem`) e grava o rótulo da view em TABELA (menos nos totais, onde o índice do combo ordenado cai na lista sem ordem — aqui "OPERADORES"). O importador tenta primeiro a view do rótulo, depois as de prefixo, e fica com a que tem as colunas: o relatório do GET_RCB com o rótulo antigo "ARECEBER ABERTA" entra no get_rcb; o do GET_ESTOQUE_TOTALIZADO entra na get_estoque_totalizado (não no get_estoque); e o da GET_PRODUTOS_CONSULTA_PRECO (tabela morta, fora do catálogo daqui) NÃO cai no get_produtos só pelo prefixo — fica pendente dizendo que falta a fonte "PRODUTOS CONSULTA PRECO"',
           rcbAntigo?.fonte === 'get_rcb' && totEst?.fonte === 'get_estoque_totalizado' && !comp
-          && String(pendComp?.motivo ?? '').includes('"PRODUTOS E ESTOQUE COMPOSICAO"'),
+          && String(pendComp?.motivo ?? '').includes('"PRODUTOS CONSULTA PRECO"'),
           { rcbAntigo, totEst, comp, pendComp });
       } finally {
         await pgR2.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%CONFERENCIA 281%' OR upper(nome) LIKE '%281'`).catch(() => undefined);

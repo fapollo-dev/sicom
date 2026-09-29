@@ -102,7 +102,7 @@ A GET_ARECEBERBX ganhou os nomes **literais** da produção: `"cod_desconto_titu
 `tools/cutover/catalogo-construtor-producao.json` é o retrato das **199 views do catálogo da produção** (COMMENT que não começa com
 `#` — os `#PDV_…` são as views de carga do PDV; rótulo = o COMMENT sem o `;` do início), com colunas, tipos e SQL. O §283 confere
 toda fonte daqui contra ele: rótulo igual, colunas do legado na ordem (na `rel_` quando existe), nenhuma fonte inventada. Em
-29/09/2026: **116 de 199** fontes existem aqui, todas conferidas (migs 394–396: 70 fontes novas, em lotes, com a lista de colunas
+29/09/2026: **138 de 199** fontes existem aqui, todas conferidas (migs 394–397: 92 fontes novas, em lotes, com a lista de colunas
 explícita no `CREATE VIEW` como no Oracle). Rótulos com acidente de codificação no próprio COMMENT (`HistÃ³rico Desconto`, um
 U+0081 invisível em `MOVIMENTAÇÃO DIÁRIA`) saem consertados, e o importador conserta o `TABELA` do arquivo antes de comparar. Renovar o retrato: `tools/cutover/retratar-catalogo-construtor.py`
 (só leitura).
