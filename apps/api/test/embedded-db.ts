@@ -441,6 +441,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('396_catalogo_construtor_lote_c.sql'));
   await pool.query(sql('397_catalogo_construtor_lote_d.sql'));
   await pool.query(sql('398_catalogo_construtor_lote_e.sql'));
+  await pool.query(sql('399_concat_nulo_como_oracle.sql'));
   await pool.end();
   return pg;
 }
