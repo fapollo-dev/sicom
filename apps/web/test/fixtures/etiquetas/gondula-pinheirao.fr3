@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="39958,7796894792" ReportOptions.Description.Text="" ReportOptions.LastChange="45191,4431400231" ScriptLanguage="PascalScript" ScriptText.Text="&#13;&#10;begin&#13;&#10;&#13;&#10;end.">
+  <Datasets>
+    <item DataSet="frxDBDataset2" DataSetName="frxDBDataset2"/>
+  </Datasets>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" Font.Charset="0" Font.Color="0" Font.Height="-15" Font.Name="@Dotum" Font.Style="0" PaperWidth="105" PaperHeight="30" PaperSize="256" LeftMargin="0,1" RightMargin="0,1" TopMargin="0,1" BottomMargin="0,1" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="">
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="93,74799" Left="0" Top="18,89765" Width="396,094744" Columns="1" ColumnWidth="132,283464566929" ColumnGap="5,66929133858268" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" RowCount="0">
+      <TfrxMemoView Name="Memo1" Left="176,24428" Top="27,64564" Width="261,33086" Height="59,69295" DataSetName="frxDBDataset1" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-61" Font.Name="Arial" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[IIF(&#60;frxDBDataset2.&#34;VRPROMO&#34;&#62; &#62; 0,&#60;frxDBDataset2.&#34;vrpromo&#34;&#62;,&#60;frxDBDataset2.&#34;vrvenda1&#34;&#62;)]"/>
+      <TfrxBarCodeView Name="BarCode1" Left="50,87384" Top="50,22046268" Width="144,2" Height="63,2" BarType="bcCodeEAN13" Fill.ForeColor="536870911" Expression="&#60;frxDBDataset2.&#34;CODBARRA&#34;&#62;" Rotation="0" Text="12345678" WideBarRatio="2" Zoom="1,4" Font.Charset="0" Font.Color="0" Font.Height="-12" Font.Name="Arial" Font.Style="0" Font.Quality="fqProof"/>
+      <TfrxMemoView Name="Memo3" Left="173,41744" Top="80,69295" Width="94,48825" Height="26,45671" Font.Charset="1" Font.Color="0" Font.Height="-24" Font.Name="Arial" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="R$"/>
+      <TfrxMemoView Name="frxDBDataset2DESCRICAO" Left="59,33859" Top="15,52752" Width="323,17347" Height="35,11812" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" DisplayFormat.DecimalSeparator="," Font.Charset="0" Font.Color="-16777208" Font.Height="-16" Font.Name="Franklin Gothic Demi Cond" Font.Style="0" ParentFont="False" Text="[frxDBDataset2.&#34;DESCRICAO&#34;]"/>
+      <TfrxMemoView Name="Memo2" Left="245,66945" Top="93,37013" Width="136,06308" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="[Date] - [Time]">
+        <Formats>
+          <item/>
+          <item/>
+        </Formats>
+      </TfrxMemoView>
+    </TfrxMasterData>
+  </TfrxReportPage>
+</TfrxReport>

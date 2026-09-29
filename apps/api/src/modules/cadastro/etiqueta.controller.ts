@@ -21,17 +21,24 @@ export class EtiquetaController {
   /** fila de pendentes (IMPRESSA='N') da empresa, com o conteúdo da etiqueta computado. */
   @Get('fila')
   @RequerAcesso('FRMETIQUETA', 'BTNCONSULTAPRECO')
-  fila() {
-    return this.svc.fila();
+  fila(@Query('ativos') ativos?: string) {
+    return this.svc.fila({ ativos: ativos !== 'N' });
+  }
+
+  /** os modelos de etiqueta (os .fr3 `eti$` da RELATORIOS) — o combo "Modelo da etiqueta" */
+  @Get('modelos')
+  @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
+  modelos() {
+    return this.svc.modelos();
   }
 
   /** resolve/preview um produto por codbarra (ou id) — p/ o add manual/scan. */
   /** a pesquisa por ETQ_IMPRESSA — 'N' (padrão) = preço alterado com etiqueta velha, 'S' = já impressa, 'T' = todos */
   @Get('pesquisa')
   @RequerAcesso('FRMETIQUETA', 'BTNADICIONARREGISTRO')
-  pesquisar(@Query('situacao') situacao?: string, @Query('busca') busca?: string, @Query('limite') limite?: string) {
+  pesquisar(@Query('situacao') situacao?: string, @Query('busca') busca?: string, @Query('limite') limite?: string, @Query('ativos') ativos?: string) {
     const sit = situacao === 'S' || situacao === 'T' ? situacao : 'N';
-    return this.svc.pesquisar({ situacao: sit, busca, limite: limite ? Number(limite) : undefined });
+    return this.svc.pesquisar({ situacao: sit, busca, limite: limite ? Number(limite) : undefined, ativos: ativos !== 'N' });
   }
 
   /** as etiquetas dos lotes marcados no Ajuste de Preços (o botão "Etiquetas"), expandidas pelo grupo de preço */
@@ -54,10 +61,18 @@ export class EtiquetaController {
     return this.svc.daAgenda(cod, preco);
   }
 
+  /** importar arquivo: os códigos das linhas "CODBARRA/QTDE/VALOR" do .txt (o navegador lê o arquivo) */
+  @Post('importar')
+  @HttpCode(200)
+  @RequerAcesso('FRMETIQUETA', 'FRMETIQUETA')
+  importar(@Body() body: { codigos?: unknown }) {
+    return this.svc.importar(Array.isArray(body?.codigos) ? body.codigos.map((c) => String(c)) : []);
+  }
+
   @Get('produto')
   @RequerAcesso('FRMETIQUETA', 'FRMETIQUETA')
-  produto(@Query('codbarra') codbarra?: string, @Query('idproduto') idproduto?: string) {
-    return this.svc.buscarProduto(idproduto ? Number(idproduto) : undefined, codbarra);
+  produto(@Query('codbarra') codbarra?: string, @Query('idproduto') idproduto?: string, @Query('ativos') ativos?: string) {
+    return this.svc.buscarProduto(idproduto ? Number(idproduto) : undefined, codbarra, ativos !== 'N');
   }
 
   /** enfileira um produto (por id ou codbarra). */
@@ -75,12 +90,12 @@ export class EtiquetaController {
     return this.svc.remover(id);
   }
 
-  /** imprime: grava log + marca IMPRESSA='S' + devolve as etiquetas p/ o layout imprimível. */
+  /** imprime: registros de impressão por modelo + log + marcas, e o .fr3 de cada modelo p/ o navegador desenhar. */
   @Post('imprimir')
   @HttpCode(200)
   // quem chega pela agenda de promoção ou pelo Ajuste de Preços imprime sem o gate da tela de etiquetas (o legado a abre por Create)
   @RequerAcessoDeAlgum(['FRMETIQUETA', 'FRMETIQUETA'], ['FRMCADAGENDAPROMOCAO', 'FRMCADAGENDAPROMOCAO'], ['FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS'])
   imprimir(@Body(new ZodValidationPipe(etiquetaImprimirSchema)) body: EtiquetaImprimirDto) {
-    return this.svc.imprimir({ itens: body.itens });
+    return this.svc.imprimir(body);
   }
 }

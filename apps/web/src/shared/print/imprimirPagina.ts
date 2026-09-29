@@ -3,7 +3,8 @@
  * em vez de um servidor de relatórios, a tela imprime O QUE ELA JÁ MOSTRA — clona o conteúdo renderizado
  * (KPIs + tabelas), remove o que é interação (filtros, botões, inputs) e manda para o diálogo nativo
  * (window.print), onde o operador escolhe impressora ou "Salvar como PDF". Mesmo padrão consolidado nas
- * Etiquetas de Preço (printLabels.ts). Serve TODAS as telas sem código por relatório.
+ * Etiquetas de Preço (janela aberta no clique). Serve TODAS as telas sem código por relatório — as etiquetas, que têm o
+ * .fr3 do cliente na RELATORIOS, desenham o próprio modelo (features/etiqueta/fr3).
  *
  * ⚠️ A janela deve ser aberta SÍNCRONA no handler do clique (lição das etiquetas: o popup-blocker engole
  * janelas abertas fora do gesto do usuário) — por isso recebe `win` pronto.

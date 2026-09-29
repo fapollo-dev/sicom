@@ -18,17 +18,33 @@ export const etiquetaAdicionarSchema = z
   });
 export type EtiquetaAdicionarDto = z.infer<typeof etiquetaAdicionarSchema>;
 
-/** 1 item a imprimir: a linha da fila (idetiqueta, quando veio da fila) + qtde + descrição/modelo opcionais. */
+/** de onde a linha veio (o servidor refaz o preço por ela): o produto (código de barras, pesquisa, coletor), um lote do
+ *  Ajuste de Preços ou a agenda de promoção. */
+export const etiquetaOrigemSchema = z.discriminatedUnion('tipo', [
+  z.object({ tipo: z.literal('produto'), caminho: z.enum(['codbarra', 'pesquisa', 'coletor', 'importacao']), fatorEmbalagem: z.coerce.number().positive().optional() }),
+  z.object({ tipo: z.literal('lote'), codlotepreco: z.coerce.number().int().positive() }),
+  z.object({ tipo: z.literal('agenda'), codagenda: z.coerce.number().int().positive(), preco: z.enum(['status', 'venda', 'promocional']) }),
+]);
+
+/** 1 item a imprimir: o produto + a origem + o que o operador mexe na grade (quantidade, modelo, descrição, observações). */
 export const etiquetaItemImpressaoSchema = z.object({
-  idetiqueta: z.coerce.number().int().positive().optional(), // presente = marca IMPRESSA='S' na fila
+  idetiqueta: z.coerce.number().int().positive().optional(),
   idproduto: z.coerce.number().int().positive({ message: 'Informe o produto.' }),
   qtde: z.coerce.number().int().positive({ message: 'Quantidade de etiquetas deve ser > 0.' }).max(9999),
-  descricao: z.string().trim().max(500).optional(), // override manual da descrição (fiel: edição no grid)
-  modelo: z.string().trim().max(100).optional(),
+  descricao: z.string().max(500).optional(), // só quando EDITADA na grade (imprime como está)
+  modelo: z.string().trim().max(120).optional(),
+  observacao1: z.string().max(255).optional(),
+  observacao2: z.string().max(255).optional(),
+  origem: etiquetaOrigemSchema.optional(),
 });
 export type EtiquetaItemImpressaoDto = z.infer<typeof etiquetaItemImpressaoSchema>;
 
 export const etiquetaImprimirSchema = z.object({
-  itens: z.array(etiquetaItemImpressaoSchema).min(1, 'Selecione ao menos um produto para imprimir.').max(2000),
+  itens: z.array(etiquetaItemImpressaoSchema).min(1, 'Selecione ao menos um produto para imprimir.').max(5000),
+  descricaoPor: z.enum(['produto', 'grupo']).optional(),
+  observacao1: z.string().max(255).optional(),
+  observacao2: z.string().max(255).optional(),
+  coletor: z.boolean().optional(),
+  listados: z.array(z.coerce.number().int().positive()).max(20000).optional(),
 });
 export type EtiquetaImprimirDto = z.infer<typeof etiquetaImprimirSchema>;

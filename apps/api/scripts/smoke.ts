@@ -5003,77 +5003,124 @@ async function main() {
       const pgEt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         const ET = 'cadastro/etiqueta';
-        // produto PROMO (990200): vrvenda 10, vrpromo 7,99, promocao='S', fator_filho 2 → venda 20 / impresso 15,98.
-        // produto SEM promo (990201): vrvenda 5, promocao='N', fator 1 → impresso 5.
-        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, fator_filho, prod_qtde_etiquetas) VALUES
-          (990200,'7899000990200','ARROZ TIPO1 5KG (PROMO)','FD',2,'T01','S',2,3),
-          (990201,'7899000990201','SAL REFINADO 1KG','UN',2,'T01','S',NULL,NULL)
-          ON CONFLICT (idproduto) DO UPDATE SET fator_filho=EXCLUDED.fator_filho, prod_qtde_etiquetas=EXCLUDED.prod_qtde_etiquetas, codbarra=EXCLUDED.codbarra`);
+        // produto PROMO (990200): vrvenda 10, vrpromo 7,99, promocao='S', FILHO de 990201 com fator 2 → venda 20 / impresso 15,98.
+        // produto SEM promo (990201): vrvenda 5, promocao='N', fator 1 → impresso 5; grupo de preço "GRUPO SAL".
+        // 990203: FATOR_FILHO 3 mas SEM produto pai → o legado usa fator 1 (iif(IDPRODUTO_PAI > 0, …, 1)); 3 produtos assim na produção.
+        await pgEt.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (990299, 'P', 'GRUPO SAL') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, fator_filho, prod_qtde_etiquetas, idproduto_pai, codgrupopreco) VALUES
+          (990201,'7899000990201','SAL REFINADO 1KG','UN',2,'T01','S',NULL,NULL,NULL,990299),
+          (990200,'7899000990200','ARROZ TIPO1 5KG (PROMO)','FD',2,'T01','S',2,3,990201,NULL),
+          (990203,'7899000990203','OLEO SOJA 900ML','UN',2,'T01','S',3,NULL,NULL,NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET fator_filho=EXCLUDED.fator_filho, prod_qtde_etiquetas=EXCLUDED.prod_qtde_etiquetas, codbarra=EXCLUDED.codbarra, idproduto_pai=EXCLUDED.idproduto_pai, codgrupopreco=EXCLUDED.codgrupopreco`);
         // 990202: flag promo='S' mas vrpromo=0 (anomalia) → deve ser tratado como SEM promo (fold [MÉDIA]).
-        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990202,'7899000990202','FEIJAO 1KG (PROMO SEM PREÇO)','UN',2,'T01','S') ON CONFLICT (idproduto) DO UPDATE SET codbarra=EXCLUDED.codbarra`);
+        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990202,'7899000990202','FEIJAO 1KG (PROMO SEM PREÇO)','UN',2,'T01','S') ON CONFLICT (idproduto) DO UPDATE SET codbarra=EXCLUDED.codbarra`)
         await pgEt.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrpromo, promocao) VALUES
-          (990200,1,10,7.99,'S'),(990201,1,5,0,'N'),(990202,1,8,0,'S')
+          (990200,1,10,7.99,'S'),(990201,1,5,0,'N'),(990202,1,8,0,'S'),(990203,1,9,0,'N')
           ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, vrpromo=EXCLUDED.vrpromo, promocao=EXCLUDED.promocao, etq_impressa=NULL`);
-        // código auxiliar (CAIXA de 12) do SAL 990201: fator de embalagem 12 → preço da caixa (fold [MÉDIA]).
-        await pgEt.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (990201,'CX990201','CX12',12,3) ON CONFLICT DO NOTHING`);
-        // fila do coletor: 990200 pendente (idempresa 1).
+        // código auxiliar (CAIXA de 12) do SAL 990201 como a produção grava: CODAUXILIAR = o código da caixa, CODBARRA = o do produto
+        await pgEt.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (990201,'7899000990201','CX12',12,3) ON CONFLICT DO NOTHING`);
+        // os modelos .fr3 na RELATORIOS (base64, como o binário novo guarda): o PERSONALIZADO vence o DEFAULT de mesmo nome
+        const fr3 = (texto: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport Version="5.3.16"><TfrxReportPage Name="Page1" PaperWidth="105" PaperHeight="30" LeftMargin="0" TopMargin="0" RightMargin="0" BottomMargin="0"><TfrxMasterData Name="MasterData1" Height="93" Left="0" Top="18" Width="396" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" RowCount="0"><TfrxMemoView Name="Memo1" Left="0" Top="0" Width="300" Height="40" Text="${texto} [frxDBDataset2.&#34;DESCRICAO&#34;]"/></TfrxMasterData></TfrxReportPage></TfrxReport>`).toString('base64');
+        await pgEt.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (990001, 1, 'eti$ - GONDULA PINHEIRAO.fr3', 'eti$ - GONDULA PINHEIRAO', 'DEFAULT', $1), (990002, 1, 'eti$ - GONDULA PINHEIRAO.fr3', 'eti$ - GONDULA PINHEIRAO', 'PERSONALIZADO', $2),
+          (990003, 1, 'eBKP eti$ - GONDULA PINHEIRAO - Copia.fr3', 'backup', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo, nome_relatorio = EXCLUDED.nome_relatorio, tipo = EXCLUDED.tipo`, [fr3('PADRAO'), fr3('DA LOJA')]);
+        // fila do coletor: 990200 pendente (idempresa 1), duas consultas do mesmo produto (o legado não repete o código na lista).
         const idetq = Number((await pgEt.query(`INSERT INTO etiqueta_cons_prod (idproduto, idempresa, operador, impressa) VALUES (990200,1,7,'N') RETURNING idetiqueta`)).rows[0].idetiqueta);
+        await pgEt.query(`INSERT INTO etiqueta_cons_prod (idproduto, idempresa, operador, impressa) VALUES (990200,1,7,'N')`);
         // fila de OUTRA empresa (idempresa 2) — NÃO pode aparecer.
         await pgEt.query(`INSERT INTO etiqueta_cons_prod (idproduto, idempresa, operador, impressa) VALUES (990201,2,7,'N')`);
 
-        // 47g.1) fila: 990200 pendente; preço venda = 10×2 = 20; impresso (promo) = 7,99×2 = 15,98; qtde default 3.
+        // 47g.1) fila: 990200 pendente uma vez só; preço venda = 10×2 = 20; impresso (promo) = 7,99×2 = 15,98; quantidade 1 (BitBtn1Click)
         const fila = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];
-        const f200 = fila.find((e) => Number(e.idproduto) === 990200);
-        check('ETIQUETA: fila do coletor (empresa 1) → preço venda 20 (10×fator 2), impresso PROMO 15,98 (7,99×2), qtde default 3; empresa 2 não vaza',
-          Array.isArray(fila) && f200 && Number(f200.valor_venda) === 20 && Number(f200.valor_venda_promocao) === 15.98 && f200.promocao === 'S' && Number(f200.qtde) === 3
+        const f200 = fila.filter((e) => Number(e.idproduto) === 990200);
+        check('ETIQUETA: fila do coletor (empresa 1) → uma linha por código de barras, preço venda 20 (10×fator 2 do filho), impresso PROMO 15,98, quantidade 1, descrição + unidade e sem grupo de preço (o caminho do coletor); empresa 2 não vaza',
+          Array.isArray(fila) && f200.length === 1 && Number(f200[0].valor_venda) === 20 && Number(f200[0].valor_venda_promocao) === 15.98 && f200[0].promocao === 'S' && Number(f200[0].qtde) === 1
+          && f200[0].registro?.DESCRICAO === 'ARROZ TIPO1 5KG (PROMO) FD' && f200[0].registro?.GRUPO_PRECO === '' && f200[0].origem?.caminho === 'coletor'
           && !fila.some((e) => Number(e.idproduto) === 990201),
           { f200, n: fila.length });
 
-        // 47g.2) buscar produto por codbarra (sem promo) → impresso = venda = 5 (fator 1).
+        // 47g.2) buscar produto por codbarra (sem promo) → impresso = venda = 5 (fator 1); a descrição do código de barras é só a descrição
         const busca = (await (await fetch(`${base}/${ET}/produto?codbarra=7899000990201`, { headers: H })).json().catch(() => ({}))) as any;
-        check('ETIQUETA: buscar por codbarra (sem promo) → valor_venda_promocao = venda 5,00 (fator 1, promo N)',
-          Number(busca.valor_venda) === 5 && Number(busca.valor_venda_promocao) === 5 && busca.promocao === 'N', { busca });
+        const semPai = (await (await fetch(`${base}/${ET}/produto?codbarra=7899000990203`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ETIQUETA: buscar por codbarra (sem promo) → 5,00 com a descrição sem unidade e o grupo de preço; FATOR_FILHO sem produto pai → fator 1 (venda 9, não 27)',
+          Number(busca.valor_venda) === 5 && Number(busca.valor_venda_promocao) === 5 && busca.promocao === 'N' && busca.registro?.DESCRICAO === 'SAL REFINADO 1KG' && busca.registro?.GRUPO_PRECO === 'GRUPO SAL'
+          && Number(semPai.valor_venda) === 9 && Number(semPai.fator) === 1,
+          { busca: [busca.valor_venda, busca.registro?.DESCRICAO, busca.registro?.GRUPO_PRECO], semPai: [semPai.valor_venda, semPai.fator] });
 
-        // 47g.2b) folds auditoria: (a) código de CAIXA (aux fatoremb 12) → preço da caixa 60 (não o unitário 5);
+        // 47g.2b) folds auditoria: (a) código de CAIXA (CODAUXILIAR.CODAUXILIAR, fatoremb 12) → preço da caixa 60 (não o unitário 5);
         // (b) promo='S' com vrpromo 0 → tratado como SEM promo (impresso = venda 8, promocao='N', não R$0,00).
-        const cx = (await (await fetch(`${base}/${ET}/produto?codbarra=CX990201`, { headers: H })).json().catch(() => ({}))) as any;
+        const cx = (await (await fetch(`${base}/${ET}/produto?codbarra=CX12`, { headers: H })).json().catch(() => ({}))) as any;
         const pz = (await (await fetch(`${base}/${ET}/produto?codbarra=7899000990202`, { headers: H })).json().catch(() => ({}))) as any;
-        check('ETIQUETA folds: código de caixa (aux fatoremb 12) → preço 60 (não unitário 5); promo sem vrpromo → sem promo (impresso 8, não R$0)',
-          Number(cx.valor_venda) === 60 && Number(cx.valor_venda_promocao) === 60 && Number(cx.fator) === 12
+        check('ETIQUETA folds: código de caixa (CODAUXILIAR.CODAUXILIAR "CX12", fatoremb 12) → preço 60 (não unitário 5); promo sem vrpromo → sem promo (impresso 8, não R$0)',
+          Number(cx.valor_venda) === 60 && Number(cx.valor_venda_promocao) === 60 && Number(cx.fator) === 12 && Number(cx.idproduto) === 990201
           && pz.promocao === 'N' && Number(pz.valor_venda_promocao) === 8,
-          { cx: { v: cx.valor_venda, f: cx.fator }, pz: { p: pz.promocao, imp: pz.valor_venda_promocao } });
+          { cx: { v: cx.valor_venda, f: cx.fator, id: cx.idproduto, code: cx.code }, pz: { p: pz.promocao, imp: pz.valor_venda_promocao } });
 
         // 47g.3) adicionar 990201 à fila por codbarra → nova linha pendente da empresa 1.
         const add = await fetch(`${base}/${ET}/adicionar`, { method: 'POST', headers: H, body: JSON.stringify({ codbarra: '7899000990201' }) });
         const addJ = (await add.json().catch(() => ({}))) as any;
         check('ETIQUETA: adicionar por codbarra → 200 + enfileirado (idetiqueta) na empresa 1',
           add.status === 200 && Number(addJ.idetiqueta) > 0 && Number(addJ.etiqueta?.idproduto) === 990201, { addJ: addJ.idetiqueta });
+        await pgEt.query(`DELETE FROM etiqueta_cons_prod WHERE idetiqueta = $1`, [Number(addJ.idetiqueta)]);
 
-        // 47g.4) imprimir: 990200 (da fila, qtde 4) → log gravado (valor_venda_promocao 15,98) + IMPRESSA='S' + etq_impressa='S'.
-        const imp = await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idetiqueta: idetq, idproduto: 990200, qtde: 4 }] }) });
+        // 47g.4) os modelos e a impressão como o legado
+        const modelos = (await (await fetch(`${base}/${ET}/modelos`, { headers: H })).json().catch(() => [])) as any[];
+        const semModelo = await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: 990200, qtde: 1 }] }) });
+        const semModeloJ = (await semModelo.json().catch(() => ({}))) as any;
+        const imp = await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idetiqueta: idetq, idproduto: 990200, qtde: 4, modelo: 'GONDULA PINHEIRAO', origem: { tipo: 'produto', caminho: 'coletor' } }],
+          coletor: true, listados: [990200, 990201] }) });
         const impJ = (await imp.json().catch(() => ({}))) as any;
-        const logRows = (await pgEt.query(`SELECT valor_impressao::float AS vi FROM log_impressao_etiqueta WHERE idempresa=1 AND codbarra='7899000990200' ORDER BY codlog DESC`)).rows as any[];
-        const impressaFlag = (await pgEt.query(`SELECT impressa FROM etiqueta_cons_prod WHERE idetiqueta=$1`, [idetq])).rows[0]?.impressa;
-        const etqFlag = (await pgEt.query(`SELECT etq_impressa FROM multi_preco WHERE idproduto=990200 AND idempresa=1`)).rows[0]?.etq_impressa;
-        // o log como a produção grava: UMA LINHA POR CÓPIA com o preço impresso em VALOR_IMPRESSAO (auditoria de esqueletos §4.10)
-        check('ETIQUETA: imprimir → total 4 etiquetas + 4 linhas de LOG_IMPRESSAO_ETIQUETA (uma por cópia, VALOR_IMPRESSAO 15,98) + fila IMPRESSA=S + MULTI_PRECO.etq_impressa=S',
-          imp.status === 200 && Number(impJ.total_etiquetas) === 4 && Number(impJ.etiquetas?.[0]?.valor_venda_promocao) === 15.98
-          && logRows.length === 4 && logRows.every((r) => r.vi === 15.98)
-          && impressaFlag === 'S' && etqFlag === 'S',
-          { impJ: impJ.total_etiquetas, logRows, impressaFlag, etqFlag });
+        const logRows = (await pgEt.query(`SELECT valor_impressao::float AS vi, descricao_etiqueta, qtde_impressa::float AS q, modelo_etiqueta, dados_etiqueta FROM log_impressao_etiqueta WHERE idempresa=1 AND codbarra='7899000990200' ORDER BY codlog DESC`)).rows as any[];
+        const impressas = (await pgEt.query(`SELECT count(*)::int n FROM etiqueta_cons_prod WHERE idproduto=990200 AND idempresa=1 AND impressa='S'`)).rows[0].n;
+        const etqFlags = (await pgEt.query(`SELECT idproduto, etq_impressa FROM multi_preco WHERE idproduto IN (990200, 990201) AND idempresa=1 ORDER BY idproduto`)).rows.map((r: any) => r.etq_impressa).join(',');
+        const t0 = impJ.trabalhos?.[0];
+        check('ETIQUETA [modelos]: o combo lista os .fr3 "eti$" da RELATORIOS pelo nome do CarregaRelatorio (um só GONDULA PINHEIRAO, o backup "eBKP" fora); imprimir sem modelo → 422 MODELO_ETIQUETA_OBRIGATORIO',
+          Array.isArray(modelos) && modelos.filter((m) => m.nome === 'GONDULA PINHEIRAO').length === 1 && !modelos.some((m) => /eBKP|Copia/i.test(m.nome))
+          && semModelo.status === 422 && semModeloJ.code === 'MODELO_ETIQUETA_OBRIGATORIO',
+          { modelos, semModelo: [semModelo.status, semModeloJ.code] });
+        check('ETIQUETA [imprimir]: 4 cópias viram 4 registros de impressão do modelo (descrição + unidade, VRPROMO 15,98) com o .fr3 PERSONALIZADO; 4 linhas no LOG_IMPRESSAO_ETIQUETA como o binário novo (VALOR_IMPRESSAO 15,98, DESCRICAO_ETIQUETA, QTDE_IMPRESSA 1, DADOS_ETIQUETA); a fila do coletor fica IMPRESSA=S (as DUAS consultas) e o ETQ_IMPRESSA vale para todo produto da grade, até o não marcado (990201)',
+          imp.status === 200 && Number(impJ.total_etiquetas) === 4 && impJ.trabalhos?.length === 1 && t0?.registros?.length === 4
+          && t0.registros[0].DESCRICAO === 'ARROZ TIPO1 5KG (PROMO) FD' && Number(t0.registros[0].VRPROMO) === 15.98 && Number(t0.registros[0].QTDE) === 1
+          && String(impJ.modelos?.['GONDULA PINHEIRAO'] ?? '').includes('DA LOJA')
+          && logRows.length === 4 && logRows.every((r) => r.vi === 15.98 && r.descricao_etiqueta === 'ARROZ TIPO1 5KG (PROMO) FD' && r.q === 1 && r.modelo_etiqueta === 'GONDULA PINHEIRAO')
+          && String(logRows[0]?.dados_etiqueta).startsWith('CODBARRA=7899000990200; DESCRICAO=ARROZ TIPO1 5KG (PROMO) FD; QTDE=1; MODELO=GONDULA PINHEIRAO; VALORVENDA=20; VALORPROMOCAO=15,98; VALORVENDAPROMOCAO=15,98; VRVENDA=20; VRVENDA1=15,98; VRPROMO=15,98; UNIDADE=FD')
+          && impressas === 2 && etqFlags === 'S,S',
+          { st: imp.status, total: impJ.total_etiquetas, t0: t0?.registros?.[0], log: logRows[0], n: logRows.length, impressas, etqFlags });
+
+        // 47g.4b) a descrição impressa: rádio "Grupo de preço" → o grupo; editada na grade → como está; sem grupo → descrição + unidade
+        const impG = (await (await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ descricaoPor: 'grupo', observacao1: 'OFERTA',
+          itens: [{ idproduto: 990201, qtde: 1, modelo: 'GONDULA PINHEIRAO', origem: { tipo: 'produto', caminho: 'codbarra' } },
+            { idproduto: 990203, qtde: 1, modelo: 'GONDULA PINHEIRAO', descricao: 'OLEO EM OFERTA', observacao1: 'SO HOJE', origem: { tipo: 'produto', caminho: 'codbarra' } }] }) })).json().catch(() => ({}))) as any;
+        const regsG = impG.trabalhos?.[0]?.registros ?? [];
+        const rg = (id: number) => regsG.find((r: any) => Number(r.IDPRODUTO) === id);
+        check('ETIQUETA [descrição e observação]: "Grupo de preço" imprime GRUPO SAL; a descrição editada sai como está; a observação geral vale para quem não tem a sua (OFERTA × SO HOJE)',
+          rg(990201)?.DESCRICAO === 'GRUPO SAL' && rg(990203)?.DESCRICAO === 'OLEO EM OFERTA' && rg(990201)?.OBSERVACAO1 === 'OFERTA' && rg(990203)?.OBSERVACAO1 === 'SO HOJE',
+          { regsG });
+
+        // 47g.4c) importar arquivo: o código da linha "CODBARRA/QTDE/VALOR" pelo produto ou pelo auxiliar; o que não existe volta
+        const impA = (await (await fetch(`${base}/${ET}/importar`, { method: 'POST', headers: H, body: JSON.stringify({ codigos: ['7899000990201', 'CX12', 'NAOEXISTE'] }) })).json().catch(() => ({}))) as any;
+        check('ETIQUETA [importar arquivo]: acha pelo código do produto e pelo auxiliar (sem o fator da caixa), quantidade 1, só VRVENDA1 (os VALOR* zerados como no btnImportClick); NAOEXISTE volta nos não encontrados',
+          impA.etiquetas?.length === 2 && impA.etiquetas.every((e: any) => Number(e.idproduto) === 990201 && Number(e.registro?.VRVENDA1) === 5 && Number(e.registro?.VALORVENDAPROMOCAO) === 0 && Number(e.qtde) === 1)
+          && JSON.stringify(impA.naoEncontrados) === JSON.stringify(['NAOEXISTE']),
+          { impA });
 
         // a PESQUISA POR ETQ_IMPRESSA (o rádio do legado): o produto com preço alterado (etq_impressa N) aparece em 'N' e some depois de impresso
         await pgEt.query(`UPDATE multi_preco SET etq_impressa='N' WHERE idproduto=990201 AND idempresa=1`);
         const pesqN = (await (await fetch(`${base}/${ET}/pesquisa?situacao=N`, { headers: H })).json().catch(() => [])) as any[];
         const pesqS = (await (await fetch(`${base}/${ET}/pesquisa?situacao=S`, { headers: H })).json().catch(() => [])) as any[];
-        check('ETIQUETA [pesquisa por situação]: "não impressa" traz o produto de preço alterado (990201) e não o recém-impresso (990200), que aparece em "já impressa"',
+        const pesqCx = (await (await fetch(`${base}/${ET}/pesquisa?situacao=T&busca=CX12`, { headers: H })).json().catch(() => [])) as any[];
+        check('ETIQUETA [pesquisa por situação]: "não impressa" traz o produto de preço alterado (990201) e não o recém-impresso (990200), que aparece em "já impressa"; a busca acha pelo código auxiliar',
           Array.isArray(pesqN) && pesqN.some((e) => Number(e.idproduto) === 990201) && !pesqN.some((e) => Number(e.idproduto) === 990200)
-          && pesqS.some((e) => Number(e.idproduto) === 990200),
-          { n: pesqN?.length, s: pesqS?.length });
+          && pesqS.some((e) => Number(e.idproduto) === 990200) && pesqCx.some((e) => Number(e.idproduto) === 990201)
+          && pesqN.find((e) => Number(e.idproduto) === 990201)?.registro?.DESCRICAO === 'SAL REFINADO 1KG UN',
+          { n: pesqN?.length, s: pesqS?.length, cx: pesqCx?.length });
 
-        // 47g.5) o item impresso saiu da fila (IMPRESSA='S' → fora de get_etiqueta_fila).
+        // 47g.5) o item impresso saiu da fila (IMPRESSA='S' → fora da fila).
         const fila2 = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];
-        check('ETIQUETA: item impresso sai da fila (IMPRESSA=S filtrada)', !fila2.some((e) => Number(e.idetiqueta) === idetq), { n: fila2.length });
+        check('ETIQUETA: item impresso sai da fila (IMPRESSA=S filtrada)', !fila2.some((e) => Number(e.idproduto) === 990200), { n: fila2.length });
+        await pgEt.query(`DELETE FROM relatorios WHERE codrelatorio IN (990001, 990002, 990003)`);
 
         // 47g.6) RBAC sem grant → 403.
         const rb = await fetch(`${base}/${ET}/fila`, { headers: H_SEM_ACESSO });
