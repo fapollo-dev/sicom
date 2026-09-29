@@ -8666,6 +8666,17 @@ async function main() {
     const imp4J = (await imp4.json().catch(() => ({}))) as any;
     check('IMPORT: produto sem EAN casado → 422 NFE_PRODUTOS_NAO_CASADOS (com lista de pendências)', imp4.status === 422 && imp4J.code === 'NFE_PRODUTOS_NAO_CASADOS', { status: imp4.status, code: imp4J.code });
 
+    // 50.4b) EAN de CAIXA: casa pelo CODAUXILIAR.CODAUXILIAR (o GetProduto do legado; 3 itens de NF da produção casaram assim sem
+    // de-para). A coluna CODBARRA do auxiliar é o código do PRÓPRIO produto (1.147 de 1.147) — era onde o Apollo procurava.
+    await pgImp.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (2, '7894900011517', '7894900099997', 6, 3) ON CONFLICT DO NOTHING`);
+    const nnfCx = 900095;
+    const impCx = await importar(mkXml(mkChave(nnfCx), nnfCx, CNPJ_F1, '7894900099997'));
+    const impCxJ = (await impCx.json().catch(() => ({}))) as any;
+    const itCx = (await pgImp.query(`SELECT codproduto FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [Number(impCxJ.codnf)])).rows as any[];
+    check('IMPORT: EAN de caixa do XML casa pelo código auxiliar (CODAUXILIAR.CODAUXILIAR) → o item vai para o produto dono (2)',
+      impCx.status === 200 && Number(itCx[0]?.codproduto) === 2, { status: impCx.status, code: impCxJ.code, itCx });
+    await pgImp.query(`DELETE FROM codauxiliar WHERE codauxiliar = '7894900099997'`);
+
     // 50.5) fornecedor (CNPJ) desconhecido → 422 NFE_FORNECEDOR_NAO_ENCONTRADO.
     const nnf3 = 900003;
     const imp5 = await importar(mkXml(mkChave(nnf3, '99888777000166'), nnf3, '99888777000166'));

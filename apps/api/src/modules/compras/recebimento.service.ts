@@ -211,7 +211,7 @@ export class RecebimentoService {
    * IMPORT do XML da NFe do fornecedor → NF de entrada VALORADA (corte-2). Fiel a TNFe.ImportaNFe (NFe.pas):
    * parse do XML → NF de entrada (TIPO='E', MODELO do XML, TIPOEMISSAO='1' terceiros, NF_IMPORTACAO_NFE via
    * chave/protocolo) com os valores fiscais REAIS do XML (base/ICMS/ST/IPI em R$ — NÃO recalcula, o XML é a
-   * verdade); fornecedor casado por CNPJ (parceiros_end); itens casados por EAN (produtos.codbarra/codauxiliar).
+   * verdade); fornecedor casado por CNPJ (parceiros_end); itens casados por EAN (produtos.codbarra/codauxiliar.codauxiliar).
    * Itens NÃO casados BLOQUEIAM o import (lista de pendências — espelha o frmProdNC do legado). Draft-only
    * (PROC='N'): o FATO (estoque/A Pagar) é o F3/F4 na NF. Vínculo opcional ao pedido (reusa CAS-first do corte-1).
    *
@@ -280,7 +280,9 @@ export class RecebimentoService {
     };
     if (eans.length) {
       for (const r of (await db.selectFrom('produtos').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) add(r.codbarra, r.idproduto);
-      for (const r of (await db.selectFrom('codauxiliar').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) if (r.codbarra != null) add(r.codbarra, r.idproduto);
+      // o código de CAIXA é CODAUXILIAR.CODAUXILIAR; a coluna CODBARRA do auxiliar é o código do próprio produto (1.147 de 1.147
+      // na produção) — procurar nela não casava a caixa (3 itens de NF da produção casaram pelo auxiliar sem de-para)
+      for (const r of (await db.selectFrom('codauxiliar').select(['codauxiliar', 'idproduto']).where('codauxiliar', 'in', eans).execute()) as any[]) if (r.codauxiliar != null) add(String(r.codauxiliar).trim(), r.idproduto);
     }
     const naoCasados: Array<{ _idx: number; nItem: number; cProd: string; cEAN: string; xProd: string; ncm?: string; motivo: string }> = [];
     const matchByIdx = new Map<number, number>(); // índice do item → idproduto
