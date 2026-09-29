@@ -7233,34 +7233,41 @@ async function main() {
         //   A pendente (sem evento) · B com CIÊNCIA (210210) e CANCELADA pelo emitente (110111) ·
         //   C já importada. Ignorar exige MOTIVO, recusa nota importada e é reversível.
         const MD = 'compras/manifesto-dfe';
+        // a grade é a GET_NF_MANIFESTO: só a janela dos últimos DIAS_RETROATIVOS_FILTRO_MANIFESTO (90) dias — datas relativas a hoje
+        const diaSP = (d: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + d * 86400000));
+        const dM1 = diaSP(-1), dM2 = diaSP(-2);
         await pgRv.query(`DELETE FROM nfe_eventos WHERE chave_acesso LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad BETWEEN 97001 AND 97010`);
         await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
-          (97001,'52991201000000000001550010000010001000010001','11222333000181','FORN MANIF A','2026-12-01 10:00:00-03','E',1000,1,1,55,'N'),
-          (97002,'52991201000000000002550010000010002000010002','11222333000181','FORN MANIF B','2026-12-01 11:00:00-03','E',2000,1,1,55,'N'),
-          (97003,'52991201000000000003550010000010003000010003','11222333000181','FORN MANIF C','2026-12-01 12:00:00-03','E',3000,1,1,55,'S')`);
+          (97001,'52991201000000000001550010000010001000010001','11222333000181','FORN MANIF A','${dM1} 10:00:00-03','E',1000,1,1,55,'N'),
+          (97002,'52991201000000000002550010000010002000010002','11222333000181','FORN MANIF B','${dM1} 11:00:00-03','E',2000,1,1,55,'N'),
+          (97003,'52991201000000000003550010000010003000010003','11222333000181','FORN MANIF C','${dM1} 12:00:00-03','E',3000,1,1,55,'S')`);
         // a C está IMPORTADA — a reconciliação (fiel ao legado) exige que a NF exista, senão devolve p/ N
         const nfManC = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, chavenfe)
-          VALUES (1,2,'970003',55,'1','E','S','N','2026-12-01','2026-12-01',1102,'52991201000000000003550010000010003000010003') RETURNING codnf`);
+          VALUES (1,2,'970003',55,'1','E','S','N','${dM1}','${dM1}',1102,'52991201000000000003550010000010003000010003') RETURNING codnf`);
         await pgRv.query(`INSERT INTO nfe_eventos (chave_acesso, tipo_evento, seq_evento, descricao_evento, data_evento) VALUES
-          ('52991201000000000002550010000010002000010002',210210,1,'Ciencia da Operacao','2026-12-01 11:05:00-03'),
-          ('52991201000000000002550010000010002000010002',110111,1,'Cancelamento','2026-12-01 15:00:00-03')`);
+          ('52991201000000000002550010000010002000010002',210210,1,'Ciencia da Operacao','${dM1} 11:05:00-03'),
+          ('52991201000000000002550010000010002000010002',110111,1,'Cancelamento','${dM1} 15:00:00-03')`);
         await pgRv.query(`INSERT INTO nfe_xml (chavenfe, xml, modelo) VALUES
           ('52991201000000000001550010000010001000010001','<nfeProc>A</nfeProc>',55)`);
 
-        const mdQ = async (body: Record<string, unknown>) => (await (await fetch(`${base}/${MD}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-01', ...body }) })).json().catch(() => ({}))) as any;
+        const mdQ = async (body: Record<string, unknown>) => (await (await fetch(`${base}/${MD}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: dM1, dtfim: dM1, ...body }) })).json().catch(() => ({}))) as any;
         const md = await mdQ({});
-        const mA = (md.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97001);
-        const mB = (md.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97002);
+        const porChave = (xs: any[], ch: string) => (xs ?? []).find((l: any) => l.chave === ch);
+        const mA = porChave(md.linhas, '52991201000000000001550010000010001000010001');
+        const mB = porChave(md.linhas, '52991201000000000002550010000010002000010002');
+        const mC = porChave(md.linhas, '52991201000000000003550010000010003000010003');
         const mdCanc = await mdQ({ canceladas: 'CANCELADAS' });
         const mdPend = await mdQ({ pendentes: true });
-        check('MANIFESTO corte-1: fila com flags por chave — B tem ciência=1 e CANCELADA=1 (evento 110111 do EMITENTE, a cor vermelha da tela) · A tem_xml=true · filtro CANCELADAS devolve só B · PENDENTES exclui a importada C (2 linhas)',
-          Number(mB?.ciencia) === 1 && Number(mB?.cancelada) === 1 && Number(mB?.confirmacao) === 0
-          && mA?.tem_xml === true && Number(mA?.cancelada) === 0
-          && (mdCanc.linhas ?? []).length === 1 && Number(mdCanc.linhas[0]?.codnfe_naocad) === 97002
-          && (mdPend.linhas ?? []).length === 2,
-          { b: [mB?.ciencia, mB?.cancelada], aXml: mA?.tem_xml, canc: (mdCanc.linhas ?? []).length, pend: (mdPend.linhas ?? []).length });
+        const mdFim = await mdQ({ chave: '2000010002' });
+        check('MANIFESTO: a grade é a GET_NF_MANIFESTO — a fila (A e B, não importadas) e a NF cadastrada C (importada e processada, com o código da NF); B tem ciência e CANCELAMENTO (110111 do emitente) · A tem o XML · "apenas canceladas" traz só B · "só não importadas" traz A e B · o filtro pelo FINAL da chave (CHAVE LIKE %…) traz só B',
+          mB?.ciencia === 'SIM' && mB?.cancelamento === 'SIM' && mB?.confirmacao === 'NAO' && mB?.cadastrada === 'NAO' && Number(mB?.codigo) === 97002
+          && mA?.tem_xml === true && mA?.cancelamento === 'NAO'
+          && mC?.cadastrada === 'SIM' && mC?.processada === 'SIM' && Number(mC?.codigo) === Number(nfManC.rows[0].codnf) && mC?.tipo === 'ENTRADA'
+          && (mdCanc.linhas ?? []).length === 1 && mdCanc.linhas[0]?.chave === mB?.chave
+          && (mdPend.linhas ?? []).length === 2 && (mdFim.linhas ?? []).length === 1 && mdFim.linhas[0]?.chave === mB?.chave,
+          { b: [mB?.ciencia, mB?.cancelamento, mB?.cadastrada], aXml: mA?.tem_xml, c: [mC?.cadastrada, mC?.processada, mC?.codigo], canc: (mdCanc.linhas ?? []).length, pend: (mdPend.linhas ?? []).length, fim: (mdFim.linhas ?? []).length });
 
         // Achado 20, item 8: o vínculo NF × devolução (NFE_REF_DEV_ENT_VINCULO) aparece na fila, como na GET_NF_MANIFESTO;
         // a mesma chave com dois vínculos não duplica a linha
@@ -7269,11 +7276,11 @@ async function main() {
           ('52991201000000000001550010000010001000010001','52991201000000000009550010000010009000010009'),
           ('52991201000000000001550010000010001000010001','52991201000000000008550010000010008000010008')`);
         const mdV = await mdQ({});
-        const mdVA = (mdV.linhas ?? []).filter((l: any) => Number(l.codnfe_naocad) === 97001);
+        const mdVA = (mdV.linhas ?? []).filter((l: any) => l.chave === '52991201000000000001550010000010001000010001');
         await pgRv.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe LIKE '5299%'`);
         check('MANIFESTO vínculo × devolução: a nota A traz as 2 chaves vinculadas numa linha só; B sem vínculo',
           mdVA.length === 1 && String(mdVA[0]?.cod_vincula_ent_dev ?? '').split(', ').length === 2
-          && !(mdV.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97002)?.cod_vincula_ent_dev,
+          && !(mdV.linhas ?? []).find((l: any) => l.chave === '52991201000000000002550010000010002000010002')?.cod_vincula_ent_dev,
           { a: mdVA.map((l: any) => l.cod_vincula_ent_dev) });
 
         const ig = async (body: Record<string, unknown>) => await fetch(`${base}/${MD}/ignorar`, { method: 'POST', headers: H, body: JSON.stringify(body) });
@@ -7306,26 +7313,39 @@ async function main() {
           && mdMan.status === 422,
           { sinc: mdSinc.status, code: mdSincJ.code ?? mdSincJ.message, man: mdMan.status });
 
+        // 47aq.2) a manifestação das MARCADAS: a nota emitida há mais de 90 dias fica de fora com o aviso do legado (sem ir à SEFAZ);
+        // a de dentro do prazo esbarra no certificado, que interrompe o lote
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
+          (97009,'52991201000000000019550010000010019000010019','11222333000181','FORN VELHA','${diaSP(-100)} 10:00:00-03','E',100,1,1,55,'N')`);
+        const loteVelha = (await (await fetch(`${base}/${MD}/manifestar-lote`, { method: 'POST', headers: H, body: JSON.stringify({ chaves: ['52991201000000000019550010000010019000010019'], evento: 'CIENCIA' }) })).json().catch(() => ({}))) as any;
+        const loteCert = await fetch(`${base}/${MD}/manifestar-lote`, { method: 'POST', headers: H, body: JSON.stringify({ chaves: ['52991201000000000019550010000010019000010019', '52991201000000000011550010000010011000010011'], evento: 'CIENCIA' }) });
+        const loteVazio = await fetch(`${base}/${MD}/manifestar-lote`, { method: 'POST', headers: H, body: JSON.stringify({ chaves: [], evento: 'CIENCIA' }) });
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad = 97009`);
+        check('MANIFESTO [marcadas]: nota de mais de 90 dias → no Log "Não é possível enviar manifestação de destinário para notas enviadas há mais de 90 dias!" sem ir à SEFAZ · com uma nota no prazo e sem certificado o lote para (422) · sem nota marcada → 400',
+          Number(loteVelha.enviadas) === 0 && loteVelha.log?.[0]?.tipo === 'E' && String(loteVelha.log?.[0]?.descricao).includes('mais de 90 dias')
+          && loteCert.status === 422 && loteVazio.status === 400,
+          { loteVelha, cert: loteCert.status, vazio: loteVazio.status });
+
         // 47ar) MANIFESTO — importar da fila: sem confirmação (210200) → 422; nota cuja chave JÁ é NF do
         // sistema → devolve o vínculo sem duplicar e a RECONCILIAÇÃO marca o flag na listagem seguinte.
         await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
-          (97011,'52991201000000000011550010000010011000010011','11222333000181','FORN IMP A','2026-12-02 10:00:00-03','E',500,1,1,55,'N'),
-          (97012,'52991201000000000012550010000010012000010012','11222333000181','FORN IMP B','2026-12-02 11:00:00-03','E',700,1,1,55,'N')`);
+          (97011,'52991201000000000011550010000010011000010011','11222333000181','FORN IMP A','${dM2} 10:00:00-03','E',500,1,1,55,'N'),
+          (97012,'52991201000000000012550010000010012000010012','11222333000181','FORN IMP B','${dM2} 11:00:00-03','E',700,1,1,55,'N')`);
         const nfMan = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, chavenfe)
-          VALUES (1,2,'970012',55,'1','E','S','N','2026-12-02','2026-12-02',1102,'52991201000000000012550010000010012000010012') RETURNING codnf`);
+          VALUES (1,2,'970012',55,'1','E','S','N','${dM2}','${dM2}',1102,'52991201000000000012550010000010012000010012') RETURNING codnf`);
         const impSem = await fetch(`${base}/compras/manifesto-dfe/importar/97011`, { method: 'POST', headers: H, body: '{}' });
         const impJa = (await (await fetch(`${base}/compras/manifesto-dfe/importar/97012`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
-        const lst2 = (await (await fetch(`${base}/compras/manifesto-dfe/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-02', dtfim: '2026-12-02' }) })).json().catch(() => ({}))) as any;
-        const l11 = (lst2.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97011);
-        const l12 = (lst2.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97012);
+        const lst2 = (await (await fetch(`${base}/compras/manifesto-dfe/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: dM2, dtfim: dM2 }) })).json().catch(() => ({}))) as any;
+        const l11 = (lst2.linhas ?? []).find((l: any) => l.chave === '52991201000000000011550010000010011000010011');
+        const l12 = (lst2.linhas ?? []).find((l: any) => l.chave === '52991201000000000012550010000010012000010012');
         check('MANIFESTO importar: sem a confirmação 210200 → 422 (a regra do legado) · chave que JÁ é NF → devolve o vínculo sem duplicar · a RECONCILIAÇÃO (os 2 UPDATEs do legado) marca a importada na listagem e mantém a outra pendente',
           impSem.status === 422 && impJa.ja_importada === true && Number(impJa.codnf) === Number(nfMan.rows[0].codnf)
-          && l12?.importada === 'S' && l11?.importada === 'N',
-          { sem: impSem.status, ja: impJa.ja_importada, codnf: impJa.codnf, rec12: l12?.importada, rec11: l11?.importada });
+          && l12?.cadastrada === 'SIM' && Number(l12?.codigo) === Number(nfMan.rows[0].codnf) && l11?.cadastrada === 'NAO',
+          { sem: impSem.status, ja: impJa.ja_importada, codnf: impJa.codnf, rec12: l12?.cadastrada, rec11: l11?.cadastrada });
 
         // a contingência (IMPORTACAO_MANUAL='S', UManifestoDFe.pas:1800) passa pela confirmação: sem XML, o erro já é o seguinte
         await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema, importacao_manual) VALUES
-          (97013,'52991201000000000013550010000010013000010013','11222333000181','FORN IMP C','2026-12-02 12:00:00-03','E',300,1,1,55,'N','S')`);
+          (97013,'52991201000000000013550010000010013000010013','11222333000181','FORN IMP C','${dM2} 12:00:00-03','E',300,1,1,55,'N','S')`);
         const impCont = (await (await fetch(`${base}/compras/manifesto-dfe/importar/97013`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
         check('MANIFESTO importar: a nota em contingência (IMPORTACAO_MANUAL=S) importa sem a confirmação 210200, como o legado — sem o XML o erro passa a ser XML_NAO_DISPONIVEL',
           impCont.code === 'XML_NAO_DISPONIVEL', impCont);

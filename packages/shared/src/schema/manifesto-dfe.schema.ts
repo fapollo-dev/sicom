@@ -6,6 +6,7 @@ export const manifestoListarSchema = z.object({
   dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   fornecedor: z.string().max(60).optional(),
   chave: z.string().max(50).optional(),
+  cnpj: z.string().max(30).optional(),
   canceladas: z.enum(['TODOS', 'CANCELADAS', 'NAO_CANCELADAS']).optional(),
   pendentes: z.boolean().optional(),
 });
@@ -26,3 +27,11 @@ export const manifestarSchema = z.object({
   justificativa: z.string().max(255).optional(),
 });
 export type ManifestarDto = z.infer<typeof manifestarSchema>;
+
+/** a manifestação das notas MARCADAS na grade (o legado envia uma por chave selecionada) */
+export const manifestarLoteSchema = z.object({
+  chaves: z.array(z.string().min(44).max(50)).min(1, 'Selecione pelo menos uma nota fiscal para realizar a manifestação.').max(500),
+  evento: z.enum(['CIENCIA', 'CONFIRMACAO', 'DESCONHECIMENTO', 'OPERACAO_NAO_REALIZADA']),
+  justificativa: z.string().max(255).optional(),
+});
+export type ManifestarLoteDto = z.infer<typeof manifestarLoteSchema>;

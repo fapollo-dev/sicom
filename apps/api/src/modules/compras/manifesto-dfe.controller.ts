@@ -5,7 +5,7 @@ import { ManifestoDfeService } from './manifesto-dfe.service';
 import { ManifestoPrevisaoService } from './manifesto-previsao.service';
 import { BusinessRuleError, ForbiddenActionError } from '../../shared/errors/app-error';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
-import { manifestarSchema, type ManifestarDto } from '@apollo/shared';
+import { manifestarSchema, manifestarLoteSchema, type ManifestarDto, type ManifestarLoteDto } from '@apollo/shared';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -48,7 +48,7 @@ export class ManifestoDfeController {
   @HttpCode(200)
   @RequerAcesso('FRMMANIFESTODFE', 'BTNPESQUISARULTIMAS')
   async listar(@Body(new ZodValidationPipe(manifestoListarSchema)) dto: ManifestoListarDto) {
-    if ((dto.fornecedor?.trim() || dto.chave?.trim()) && !(await this.acesso.possuiAcesso('FRMMANIFESTODFE', 'BTNPESQUISAAVANCADA'))) {
+    if ((dto.fornecedor?.trim() || dto.dtini || dto.dtfim) && !(await this.acesso.possuiAcesso('FRMMANIFESTODFE', 'BTNPESQUISAAVANCADA'))) {
       throw new ForbiddenActionError('SEM_PERMISSAO', { form: 'FRMMANIFESTODFE', opcao: 'BTNPESQUISAAVANCADA' });
     }
     return this.svc.listar(dto);
@@ -82,6 +82,14 @@ export class ManifestoDfeController {
   @RequerAcesso('FRMMANIFESTODFE', 'BTNMANIFESTACAO')
   manifestar(@Body(new ZodValidationPipe(manifestarSchema)) dto: ManifestarDto) {
     return this.sefaz.manifestar(dto.chave, dto.evento as keyof typeof EVENTOS_MANIFESTO, dto.justificativa);
+  }
+
+  /** as notas marcadas na grade (ManifestacaoDestinatario): um evento por chave, com o log de cada uma */
+  @Post('manifestar-lote')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNMANIFESTACAO')
+  manifestarLote(@Body(new ZodValidationPipe(manifestarLoteSchema)) dto: ManifestarLoteDto) {
+    return this.svc.manifestarLote(dto.chaves, dto.evento as keyof typeof EVENTOS_MANIFESTO, dto.justificativa);
   }
 
   /** importa a NF-e da fila (exige confirmação 210200; usa o import de XML existente). */

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -52,12 +53,19 @@ export function NfEsteiraPage() {
     try { setPainel(await pedir<Painel>(`${BASE}/cadastro/nf-esteira?paradas=true`)); }
     catch (e) { mensagem.erro(e); }
   };
-  const buscar = async () => {
-    if (chave.trim().length !== 44) { mensagem.erro(new Error('A chave da NF-e tem 44 dígitos.')); return; }
-    try { setEsteira(await pedir<Esteira>(`${BASE}/cadastro/nf-esteira?chavenfe=${chave.trim()}`)); }
+  const buscar = async (ch = chave) => {
+    if (ch.trim().length !== 44) { mensagem.erro(new Error('A chave da NF-e tem 44 dígitos.')); return; }
+    try { setEsteira(await pedir<Esteira>(`${BASE}/cadastro/nf-esteira?chavenfe=${ch.trim()}`)); }
     catch (e) { mensagem.erro(e); }
   };
-  useEffect(() => { void carregarPainel(); }, []);
+  const [params] = useSearchParams();
+  useEffect(() => {
+    void carregarPainel();
+    // vindo do Manifesto (duplo clique no PROCESSO_ATUAL → TFrmProcessoNotaFiscal com a chave)
+    const ch = params.get('chave');
+    if (ch && /^\d{44}$/.test(ch)) { setChave(ch); void buscar(ch); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex flex-col gap-gp-md">

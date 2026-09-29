@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
@@ -52,15 +53,23 @@ export function ConferenciaNotaPage() {
   // o legado tem uma caixa de código de barras que LOCALIZA a linha numa nota grande (edtCodBarraKeyDown:810)
   const [filtro, setFiltro] = useState('');
 
-  const carregar = async () => {
-    if (!codnf) return;
+  const [params] = useSearchParams();
+  const carregar = async (cod = codnf) => {
+    if (!cod) return;
     setBusy(true);
     try {
-      const r = await req<{ nf: Nf | null; itens: Item[]; totais: Totais }>(`/compras/conferencia-nota/${Number(codnf)}`);
+      const r = await req<{ nf: Nf | null; itens: Item[]; totais: Totais }>(`/compras/conferencia-nota/${Number(cod)}`);
       setNf(r.nf); setItens(r.itens); setTotais(r.totais); setSel(new Set());
       if (!r.nf) mensagem.erro(new Error('Nota fiscal não encontrada nesta empresa.'));
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+
+  // vindo do Manifesto (cxbtnConfnf: `NFInicial := CODIGO` + CarregaNF): a nota já carregada
+  useEffect(() => {
+    const cod = params.get('codnf');
+    if (cod && /^\d+$/.test(cod)) { setCodnf(cod); void carregar(cod); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggle = (id: number) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const todos = () => setSel((s) => (s.size === itens.length ? new Set() : new Set(itens.map((i) => i.codnfprod))));

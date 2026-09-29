@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -39,22 +40,28 @@ const FONTE: Record<Sugestao['fonte'], string> = {
 };
 
 /**
- * MANIFESTO DO DFe — corte 1 (local): a fila das NF-e emitidas contra a empresa, com a situação de
- * manifestação de cada uma, histórico de eventos, ignorar com motivo e exportação do XML.
- * A transmissão dos eventos à SEFAZ é o corte 2 (depende do certificado digital).
+ * MANIFESTO DO DESTINATÁRIO (FRMMANIFESTODFE — UManifestoDFe.pas). A grade é a GET_NF_MANIFESTO da loja: as NF com chave
+ * (entrada e saída — importada, processada, esteira) e a fila das não cadastradas, dentro da janela de dias do manifesto.
+ * As manifestações vão para as notas MARCADAS (um evento por chave), com o retorno de cada uma no Log. Cores do legado:
+ * cancelada em vermelho, não importada em negrito, processada em verde.
  */
 export function ManifestoDfePage() {
   const mensagem = useMensagem();
-  const [dtini, setDtini] = useState(atras(30));
-  const [dtfim, setDtfim] = useState(hoje());
+  const navigate = useNavigate();
+  const [dtini, setDtini] = useState('');
+  const [dtfim, setDtfim] = useState('');
   const [fornecedor, setFornecedor] = useState('');
+  const [cnpj, setCnpj] = useState('');
+  const [chave, setChave] = useState('');
   const [canceladas, setCanceladas] = useState('TODOS');
-  const [pendentes, setPendentes] = useState(true);
+  const [pendentes, setPendentes] = useState(false);
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Record<string, unknown> | null>(null);
   const [eventos, setEventos] = useState<Linha[] | null>(null);
   const [chaveEv, setChaveEv] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [log, setLog] = useState<Array<{ tipo: string; chave: string; descricao: string }>>([]);
   // a previsão de contas a pagar da nota (binário novo): a sugestão e as parcelas que o usuário ajusta
   const [prev, setPrev] = useState<{ cod: number; sug: Sugestao; parcelas: ParcelaEd[] } | null>(null);
 
@@ -63,12 +70,38 @@ export function ManifestoDfePage() {
     setBusy(true);
     try {
       const r = await post<{ linhas: Linha[]; totais: Record<string, unknown> }>('/compras/manifesto-dfe/listar', {
-        dtini, dtfim, fornecedor: fornecedor || undefined, canceladas, pendentes,
+        dtini: dtini || undefined, dtfim: dtfim || undefined, fornecedor: fornecedor || undefined, cnpj: cnpj || undefined,
+        chave: chave || undefined, canceladas, pendentes,
       });
-      setLinhas(r.linhas); setTotais(r.totais); setEventos(null);
+      setLinhas(r.linhas); setTotais(r.totais); setEventos(null); setSel(new Set());
       if (!r.linhas.length) mensagem.sucesso('Nenhuma NF-e no filtro informado.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+
+  const ROTULO: Record<string, string> = { CIENCIA: 'CIÊNCIA DA OPERAÇÃO', CONFIRMACAO: 'CONFIRMAÇÃO DA OPERAÇÃO', DESCONHECIMENTO: 'DESCONHECIMENTO DA OPERAÇÃO', OPERACAO_NAO_REALIZADA: 'OPERAÇÃO NÃO REALIZADA' };
+  // ManifestacaoDestinatario: as marcadas, com a confirmação do evento e a justificativa da operação não realizada
+  const manifestarMarcadas = async (evento: string) => {
+    if (busy) return;
+    const chaves = [...sel];
+    if (!chaves.length) { mensagem.erro(new Error('Selecione pelo menos uma nota fiscal para realizar a manifestação.')); return; }
+    if (!window.confirm(`Evento: ${ROTULO[evento]}\nDeseja realmente enviar esta manifestação?`)) return;
+    let justificativa: string | undefined;
+    if (evento === 'OPERACAO_NAO_REALIZADA') {
+      const j = window.prompt('Informe a justificativa para Operação Não Realizada');
+      if (!j?.trim()) return;
+      justificativa = j.trim();
+    }
+    setBusy(true);
+    try {
+      const r = await post<{ enviadas: number; log: Array<{ tipo: string; chave: string; descricao: string }>; importacao: { codnf?: number } | null }>(
+        '/compras/manifesto-dfe/manifestar-lote', { chaves, evento, justificativa });
+      setLog(r.log);
+      mensagem.sucesso(`Processo finalizado! ${r.enviadas} manifestação(ões) enviada(s).${r.log.some((l) => l.tipo === 'E') ? ' Verifique o Log para eventuais erros.' : ''}${r.importacao?.codnf ? ` NF importada: ${r.importacao.codnf}.` : ''}`);
+      setBusy(false);
+      await consultar();
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const alternar = (ch: string) => setSel((s) => { const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; });
 
   const verEventos = async (chave: string) => {
     try {
@@ -82,7 +115,7 @@ export function ManifestoDfePage() {
     const motivo = ig ? null : window.prompt('Motivo para ignorar esta NF-e (obrigatório):');
     if (!ig && !motivo?.trim()) return;
     try {
-      await post('/compras/manifesto-dfe/ignorar', { codnfe_naocad: l.codnfe_naocad, motivo: motivo ?? undefined, reverter: ig });
+      await post('/compras/manifesto-dfe/ignorar', { codnfe_naocad: l.codigo, motivo: motivo ?? undefined, reverter: ig });
       mensagem.sucesso(ig ? 'NF-e devolvida à fila.' : 'NF-e ignorada.');
       void consultar();
     } catch (e) { mensagem.erro(e); }
@@ -98,23 +131,9 @@ export function ManifestoDfePage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  const manifestar = async (l: Linha, evento: string) => {
-    let justificativa: string | undefined;
-    if (evento === 'OPERACAO_NAO_REALIZADA') {
-      const j = window.prompt('Justificativa da operação não realizada (obrigatória, mín. 15 caracteres):');
-      if (!j?.trim()) return;
-      justificativa = j.trim();
-    }
-    try {
-      const r = await post<{ protocolo: string | null }>('/compras/manifesto-dfe/manifestar', { chave: l.chavenfe, evento, justificativa });
-      mensagem.sucesso(`Manifestação registrada na SEFAZ${r.protocolo ? ` — protocolo ${r.protocolo}` : ''}.`);
-      void consultar();
-    } catch (e) { mensagem.erro(e); }
-  };
-
   const importar = async (l: Linha) => {
     try {
-      const r = await post<{ ja_importada: boolean; codnf?: number }>(`/compras/manifesto-dfe/importar/${l.codnfe_naocad}`, {});
+      const r = await post<{ ja_importada: boolean; codnf?: number }>(`/compras/manifesto-dfe/importar/${l.codigo}`, {});
       mensagem.sucesso(r.ja_importada ? `Esta NF-e já estava importada (NF ${r.codnf}).` : 'NF-e importada para o sistema.');
       void consultar();
     } catch (e) { mensagem.erro(e); }
@@ -122,8 +141,8 @@ export function ManifestoDfePage() {
 
   const abrirPrevisao = async (l: Linha) => {
     try {
-      const sug = await req<Sugestao>(`/compras/manifesto-dfe/previsao-apagar/${l.codnfe_naocad}`);
-      setPrev({ cod: Number(l.codnfe_naocad), sug, parcelas: sug.parcelas.map((p) => ({ nrparcela: p.nrparcela, valor: String(p.valor), dtvenc: p.dtvenc ?? '' })) });
+      const sug = await req<Sugestao>(`/compras/manifesto-dfe/previsao-apagar/${l.codigo}`);
+      setPrev({ cod: Number(l.codigo), sug, parcelas: sug.parcelas.map((p) => ({ nrparcela: p.nrparcela, valor: String(p.valor), dtvenc: p.dtvenc ?? '' })) });
     } catch (e) { mensagem.erro(e); }
   };
 
@@ -152,35 +171,28 @@ export function ManifestoDfePage() {
     } catch (e) { mensagem.erro(e); }
   };
 
-  const manif = (l: Linha) => {
-    if (Number(l.confirmacao)) return 'Confirmada';
-    if (Number(l.op_nao_realizada)) return 'Op. não realizada';
-    if (Number(l.desconhecimento)) return 'Desconhecida';
-    if (Number(l.ciencia)) return 'Ciência';
-    return '—';
-  };
-
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
       <PageHeader title="Manifesto do Destinatário (DF-e)" />
 
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+        <div className="w-44"><Field label="C&NPJ do emitente" value={cnpj} onChange={(e) => setCnpj(e.target.value)} /></div>
+        <div className="w-56"><Field label="C&have (final)" value={chave} onChange={(e) => setChave(e.target.value.replace(/\D/g, ''))} placeholder="os últimos dígitos" /></div>
         <div className="w-40"><Field label="&Emissão de" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="&até" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
         <div className="w-56"><Field label="&Fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} placeholder="parte da razão social" /></div>
-        <div className="w-44"><SelectField label="&Canceladas" value={canceladas} onChange={setCanceladas} options={[
-          { value: 'TODOS', label: 'Todas' }, { value: 'CANCELADAS', label: 'Só canceladas' }, { value: 'NAO_CANCELADAS', label: 'Só não canceladas' },
+        <div className="w-44"><SelectField label="&Mostrar" value={canceladas} onChange={setCanceladas} options={[
+          { value: 'TODOS', label: 'Todas' }, { value: 'CANCELADAS', label: 'Apenas canceladas' }, { value: 'NAO_CANCELADAS', label: 'Apenas não canceladas' },
         ]} /></div>
         <label className="flex items-center gap-gp-xs pb-pad-xs text-body-sm">
           <input type="checkbox" checked={pendentes} onChange={(e) => setPendentes(e.target.checked)} />
-          Só &pendentes
+          Só não importadas
         </label>
-        <Button label="&Buscar notas" variant="soft" disabled={busy} onClick={() => void consultar()} />
-        <Button label="&Sincronizar SEFAZ" variant="soft" disabled={busy} onClick={() => void sincronizar()} />
+        <Button label="&Pesquisar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <Button label="&Buscar notas (SEFAZ)" variant="soft" disabled={busy} onClick={() => void sincronizar()} />
         <small className="w-full text-fg-muted">
-          As notas emitidas contra a empresa, captadas da SEFAZ. <b>Vermelho</b> = cancelada pelo emitente.
-          «Sincronizar SEFAZ» busca as notas novas e «ciência/confirmar» registram a manifestação — exigem o
-          certificado A1 configurado (a tela orienta se faltar).
+          As NF-e da loja nos últimos dias do manifesto (as cadastradas e as que a SEFAZ trouxe). <b className="text-danger">Vermelho</b> = cancelada;
+          <b> negrito</b> = não importada; <b className="text-success">verde</b> = processada. As manifestações vão para as notas marcadas.
         </small>
       </div>
 
@@ -188,8 +200,8 @@ export function ManifestoDfePage() {
         <div className="flex flex-wrap gap-gp-sm">
           {[
             { rot: 'Notas', val: String(totais.linhas) },
-            { rot: 'Pendentes', val: String(totais.pendentes), dg: Number(totais.pendentes) > 0 },
-            { rot: 'Canceladas pelo emitente', val: String(totais.canceladas) },
+            { rot: 'Não importadas', val: String(totais.pendentes), dg: Number(totais.pendentes) > 0 },
+            { rot: 'Canceladas', val: String(totais.canceladas) },
             { rot: 'Total', val: brl(totais.total) },
           ].map((k) => (
             <div key={k.rot} className="flex-1 min-w-32 rounded-radius-md border border-border bg-bg-surface p-pad-sm">
@@ -200,44 +212,86 @@ export function ManifestoDfePage() {
         </div>
       )}
 
+      {linhas.length > 0 && (
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <span className="text-body-sm">Marcadas: <b>{sel.size}</b></span>
+          <Button label="&Ciência da operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CIENCIA')} />
+          <Button label="Con&firmar operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CONFIRMACAO')} />
+          <Button label="&Desconhecer operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('DESCONHECIMENTO')} />
+          <Button label="Operação &não realizada" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('OPERACAO_NAO_REALIZADA')} />
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
-        <table className="w-full text-body-sm">
+        <table className="w-full min-w-[1400px] text-body-sm">
           <thead>
             <tr className="text-left text-fg-muted">
-              <th className="p-pad-xs">Emissão</th><th className="p-pad-xs">Fornecedor</th>
-              <th className="p-pad-xs">Chave</th><th className="p-pad-xs text-right">Total</th>
-              <th className="p-pad-xs">Manifestação</th><th className="p-pad-xs">Situação</th>
-              <th className="p-pad-xs">Ações</th>
+              <th className="p-pad-xs"><input type="checkbox" aria-label="Marcar todas" checked={linhas.length > 0 && sel.size === linhas.length} onChange={(e) => setSel(e.target.checked ? new Set(linhas.map((l) => String(l.chave))) : new Set())} /></th>
+              <th className="p-pad-xs">Importada</th><th className="p-pad-xs">Processada</th>
+              <th className="p-pad-xs">Ciência</th><th className="p-pad-xs">Confirmação</th><th className="p-pad-xs">Tipo</th>
+              <th className="p-pad-xs">Cód. NF</th><th className="p-pad-xs">Nro. NF</th><th className="p-pad-xs">Emissão</th>
+              <th className="p-pad-xs">CNPJ</th><th className="p-pad-xs">Razão</th><th className="p-pad-xs">Processo atual</th>
+              <th className="p-pad-xs">Chave</th><th className="p-pad-xs text-right">Total NF</th>
+              <th className="p-pad-xs">Não realizada</th><th className="p-pad-xs">Desconhec.</th><th className="p-pad-xs">Cancelada</th>
+              <th className="p-pad-xs">Outros</th><th className="p-pad-xs">Contingência</th><th className="p-pad-xs">Ações</th>
             </tr>
           </thead>
           <tbody>
-            {linhas.map((l) => (
-              <tr key={String(l.codnfe_naocad)} className={`border-t border-border ${Number(l.cancelada) ? 'text-danger' : ''}`}>
-                <td className="p-pad-xs tabular-nums">{dia(l.dtemissao)}</td>
-                <td className="p-pad-xs">{String(l.razao ?? '—')}</td>
-                <td className="p-pad-xs tabular-nums text-body-xs">{String(l.chavenfe)}</td>
-                <td className="p-pad-xs text-right tabular-nums">{brl(l.totalnf)}</td>
-                <td className="p-pad-xs">{manif(l)}{Number(l.cancelada) ? ' · CANCELADA' : ''}</td>
-                <td className="p-pad-xs">
-                  {l.importada === 'S' ? 'Importada' : l.ignorada === 'S' ? `Ignorada (${String(l.ignorar_manifesto_motivo ?? '')})` : 'Pendente'}
-                  {/* o vínculo NF × devolução (VINCULA_ENT_DEV da GET_NF_MANIFESTO do legado) */}
-                  {l.cod_vincula_ent_dev ? <span className="block text-body-xs text-fg-muted" title={String(l.cod_vincula_ent_dev)}>Vinculada à devolução</span> : null}
-                </td>
-                <td className="p-pad-xs whitespace-nowrap">
-                  <button className="underline" onClick={() => void verEventos(String(l.chavenfe))}>eventos</button>
-                  {l.tem_xml === true && <>{' · '}<button className="underline" onClick={() => void baixarXml(String(l.chavenfe))}>xml</button></>}
-                  {l.importada !== 'S' && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
-                  {!Number(l.ciencia) && !Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CIENCIA')}>ciência</button></>}
-                  {!Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CONFIRMACAO')}>confirmar</button></>}
-                  {l.importada !== 'S' && l.ignorada !== 'S' && <>{' · '}<button className="underline font-semibold" onClick={() => void importar(l)}>importar</button></>}
-                  {l.ignorada !== 'S' && !Number(l.cancelada) && <>{' · '}<button className="underline" onClick={() => void abrirPrevisao(l)}>previsão a pagar</button></>}
-                </td>
-              </tr>
-            ))}
-            {!linhas.length && <tr><td colSpan={7} className="p-pad-md text-fg-muted">Informe o filtro e busque.</td></tr>}
+            {linhas.map((l) => {
+              const ch = String(l.chave);
+              const naoCad = l.cadastrada === 'NAO';
+              // dbGridNotasFiscais…CustomDrawCell: cancelada vermelho negrito; não importada negrito; processada verde negrito
+              const cor = l.cancelamento === 'SIM' ? 'text-danger font-semibold' : naoCad ? 'font-semibold' : l.processada === 'SIM' ? 'text-success font-semibold' : '';
+              return (
+                <tr key={`${ch}-${String(l.cadastrada)}`} className={`border-t border-border ${cor} ${sel.has(ch) ? 'bg-bg-subtle' : ''}`}>
+                  <td className="p-pad-xs"><input type="checkbox" aria-label="Marcar" checked={sel.has(ch)} onChange={() => alternar(ch)} /></td>
+                  <td className="p-pad-xs">{String(l.cadastrada)}{l.ignorada === 'S' ? <span className="block text-body-xs text-fg-muted" title={String(l.ignorar_manifesto_motivo ?? '')}>ignorada</span> : null}</td>
+                  <td className="p-pad-xs">{String(l.processada)}</td>
+                  <td className="p-pad-xs">{String(l.ciencia)}</td><td className="p-pad-xs">{String(l.confirmacao)}</td>
+                  <td className="p-pad-xs">{String(l.tipo)}</td>
+                  <td className="p-pad-xs tabular-nums">{naoCad ? '' : String(l.codigo)}</td>
+                  <td className="p-pad-xs tabular-nums">{String(l.numero_nf ?? '')}</td>
+                  <td className="p-pad-xs tabular-nums">{dia(l.data_emissao)}</td>
+                  <td className="p-pad-xs tabular-nums">{String(l.cnpj_cpf ?? '')}</td>
+                  <td className="p-pad-xs">{String(l.razao ?? '—')}{l.vincula_ent_dev === 'SIM' ? <span className="block text-body-xs text-fg-muted" title={String(l.cod_vincula_ent_dev ?? '')}>vinculada à devolução</span> : null}</td>
+                  <td className="p-pad-xs">{String(l.processo_atual ?? '').trim() && String(l.processo_atual).trim() !== '-'
+                    ? <button className="underline" onClick={() => navigate(`/fiscal/nf-esteira?chave=${ch}`)}>{String(l.processo_atual)}</button> : String(l.processo_atual ?? '')}</td>
+                  <td className="p-pad-xs tabular-nums text-body-xs">{ch}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(l.total_nf)}</td>
+                  <td className="p-pad-xs">{String(l.naorealizada)}</td><td className="p-pad-xs">{String(l.desconhecimento)}</td>
+                  <td className="p-pad-xs">{String(l.cancelamento)}</td><td className="p-pad-xs">{String(l.outros_eventos)}</td>
+                  <td className="p-pad-xs">{String(l.contingencia)}</td>
+                  <td className="p-pad-xs whitespace-nowrap">
+                    <button className="underline" onClick={() => void verEventos(ch)}>eventos</button>
+                    {l.tem_xml === true && <>{' · '}<button className="underline" onClick={() => void baixarXml(ch)}>xml</button></>}
+                    {naoCad && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
+                    {naoCad && l.ignorada !== 'S' && <>{' · '}<button className="underline" onClick={() => void importar(l)}>importar</button></>}
+                    {naoCad && l.ignorada !== 'S' && l.cancelamento !== 'SIM' && <>{' · '}<button className="underline" onClick={() => void abrirPrevisao(l)}>previsão a pagar</button></>}
+                    {/* os botões da grade com a nota cadastrada: a conferência da nota (TfrmConferenciaNota) */}
+                    {!naoCad && <>{' · '}<button className="underline" onClick={() => navigate(`/compras/conferencia-nota?codnf=${String(l.codigo)}`)}>conferência</button></>}
+                  </td>
+                </tr>
+              );
+            })}
+            {!linhas.length && <tr><td colSpan={20} className="p-pad-md text-fg-muted">Pesquise para listar as NF-e.</td></tr>}
           </tbody>
         </table>
       </div>
+
+      {log.length > 0 && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="mb-gp-xs flex items-center justify-between"><strong className="text-body-sm">Log</strong><button className="text-body-sm underline" onClick={() => setLog([])}>limpar</button></div>
+          <table className="w-full text-body-sm">
+            <tbody>
+              {log.map((l, i) => (
+                <tr key={i} className={`border-t border-border ${l.tipo === 'E' ? 'text-danger' : ''}`}>
+                  <td className="p-pad-xs w-8">{l.tipo}</td><td className="p-pad-xs tabular-nums text-body-xs">{l.chave}</td><td className="p-pad-xs">{l.descricao}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {prev && (
         <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -278,8 +332,8 @@ export function ManifestoDfePage() {
             <table className="w-full text-body-sm">
               <thead>
                 <tr className="text-left text-fg-muted">
-                  <th className="p-pad-xs">Data</th><th className="p-pad-xs">Tipo</th>
-                  <th className="p-pad-xs">Descrição</th><th className="p-pad-xs">Protocolo</th>
+                  <th className="p-pad-xs">Data</th><th className="p-pad-xs">Tipo</th><th className="p-pad-xs">Sequência</th>
+                  <th className="p-pad-xs">Descrição</th><th className="p-pad-xs">Protocolo</th><th className="p-pad-xs">Justificativa</th>
                 </tr>
               </thead>
               <tbody>
@@ -287,11 +341,13 @@ export function ManifestoDfePage() {
                   <tr key={i} className="border-t border-border">
                     <td className="p-pad-xs tabular-nums">{dia(e.data_evento)}</td>
                     <td className="p-pad-xs tabular-nums">{String(e.tipo_evento)}</td>
+                    <td className="p-pad-xs tabular-nums">{String(e.seq_evento ?? '')}</td>
                     <td className="p-pad-xs">{String(e.descricao_evento ?? '—')}</td>
                     <td className="p-pad-xs tabular-nums">{String(e.protocolo_autorizacao ?? '—')}</td>
+                    <td className="p-pad-xs">{String(e.just_op_nao_realizada ?? '')}</td>
                   </tr>
                 ))}
-                {!eventos.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem eventos.</td></tr>}
+                {!eventos.length && <tr><td colSpan={6} className="p-pad-md text-fg-muted">Sem eventos.</td></tr>}
               </tbody>
             </table>
           </div>

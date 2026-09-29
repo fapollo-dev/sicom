@@ -281,6 +281,7 @@ const CODE_PT: Record<string, string> = {
   BANCO_OBRIGATORIO: 'O banco é obrigatório.',
   PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado.',
   PRODUTO_INATIVO_ETIQUETA: 'Produto não está ativo!',
+  MANIFESTO_SEM_SELECAO: 'Selecione pelo menos uma nota fiscal para realizar a manifestação.',
   MODELO_ETIQUETA_OBRIGATORIO: 'Necessário informar o modelo da etiqueta.',
   MODELO_ETIQUETA_NAO_ENCONTRADO: 'O modelo de etiqueta não existe.',
   CIDADE_OBRIGATORIA: 'A cidade é obrigatória.',

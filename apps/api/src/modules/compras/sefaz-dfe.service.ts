@@ -305,7 +305,8 @@ export class SefazDfeService {
       .where('chave_acesso', '=', ch).where('tipo_evento', '=', ev.tipo).executeTakeFirst();
     const seq = Number(seqRow?.seq ?? 1);
     const id = `ID${ev.tipo}${ch}${String(seq).padStart(2, '0')}`;
-    const dh = new Date().toISOString().replace(/\.\d{3}Z$/, '-00:00');
+    // o legado manda o evento 3 minutos atrás (IncMinute(Now, -3), UManifestoDFe.pas:2421) para o horário não passar o da SEFAZ
+    const dh = new Date(Date.now() - 3 * 60000).toISOString().replace(/\.\d{3}Z$/, '-00:00');
     const det = `<detEvento versao="1.00"><descEvento>${ev.desc}</descEvento>`
       + (ev.exigeJust ? `<xJust>${(justificativa ?? '').trim().slice(0, 255)}</xJust>` : '')
       + `</detEvento>`;
