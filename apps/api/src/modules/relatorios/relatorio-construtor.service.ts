@@ -7,6 +7,21 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 type AnyDB = Kysely<any>;
 
 export interface Fonte { fonte: string; rotulo: string }
+
+/**
+ * A relação que o construtor LÊ para uma fonte do catálogo. Algumas fontes servem também a uma tela (`get_apagar`, `get_nf`)
+ * e têm as colunas da tela, não as do legado; a versão integral do legado vive ao lado como `rel_<fonte>` (mig 389), sem
+ * COMMENT — fora do catálogo. Quando ela existe, os campos e a consulta saem dela; o rótulo e o nome gravado continuam os da
+ * fonte. O nome devolvido vem do próprio banco, nunca do pedido.
+ */
+export async function relacaoDaFonte(db: Kysely<any>, fonte: string): Promise<string> {
+  const rel = `rel_${fonte}`;
+  const r = (await sql<{ relname: string }>`
+    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind = 'v' AND n.nspname = 'public' AND c.relname = ${rel}
+  `.execute(db)).rows[0];
+  return r ? r.relname : fonte;
+}
 export interface CampoFonte { campo: string; tipo: 'texto' | 'numero' | 'data' | 'booleano'; formato: 'texto' | 'moeda' | 'data' | 'numero' }
 
 export interface ColunaDef {
@@ -84,13 +99,14 @@ export class RelatorioConstrutorService {
   async campos(fonte: string): Promise<CampoFonte[]> {
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.assertFonte(db, fonte);
-    return this.camposDa(db, fonte);
+    return this.camposDa(db, await relacaoDaFonte(db, fonte));
   }
 
-  private async camposDa(db: AnyDB, fonte: string): Promise<CampoFonte[]> {
+  /** `relacao`: o que `relacaoDaFonte` devolveu para a fonte. */
+  private async camposDa(db: AnyDB, relacao: string): Promise<CampoFonte[]> {
     const rows = (await sql<Record<string, unknown>>`
       SELECT column_name, data_type FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = ${fonte}
+       WHERE table_schema = 'public' AND table_name = ${relacao}
        ORDER BY ordinal_position
     `.execute(db)).rows;
     return rows.map((r) => {
@@ -150,7 +166,7 @@ export class RelatorioConstrutorService {
     const op = currentTenant().operadorId ?? null;
     const db = this.dbp.forTenant() as AnyDB;
     await this.assertFonte(db, dto.fonte);
-    await this.validarDefinicao(db, dto.fonte, dto.definicao);
+    await this.validarDefinicao(db, dto.fonte, await relacaoDaFonte(db, dto.fonte), dto.definicao);
 
     return db.transaction().execute(async (trx: AnyDB) => {
       if (dto.codrelatoriodef) {
@@ -202,7 +218,8 @@ export class RelatorioConstrutorService {
     }
     if (!def || !Array.isArray(def.colunas) || !def.colunas.length) throw new BusinessRuleError('RELATORIO_SEM_COLUNAS');
     await this.assertFonte(db, fonte);
-    const campos = await this.validarDefinicao(db, fonte, def, p.filtros);
+    const relacao = await relacaoDaFonte(db, fonte);
+    const campos = await this.validarDefinicao(db, fonte, relacao, def, p.filtros);
     const tipoDe = new Map(campos.map((c) => [c.campo, c]));
 
     // 1) as colunas, na ordem que o cliente definiu (`POSICAO`).
@@ -230,7 +247,7 @@ export class RelatorioConstrutorService {
     const limite = Math.min(Math.max(Number(p.limite ?? 5000), 1), 20000);
     const linhas = (await sql<Record<string, unknown>>`
       SELECT ${sql.join(selects, sql`, `)}
-        FROM ${sql.table(fonte)}
+        FROM ${sql.table(relacao)}
        ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
        ${ordem.length ? sql`ORDER BY ${sql.join(ordem, sql`, `)}` : sql``}
        LIMIT ${limite + 1}
@@ -283,8 +300,8 @@ export class RelatorioConstrutorService {
    * Toda referência a campo é conferida contra os campos REAIS da fonte, antes de qualquer SQL ser montada.
    * É o que fecha a superfície de injeção: um `campo` que não está nesta lista não chega ao `sql.ref`.
    */
-  private async validarDefinicao(db: AnyDB, fonte: string, def: Definicao, filtros?: CondicaoDef[]): Promise<CampoFonte[]> {
-    const campos = await this.camposDa(db, fonte);
+  private async validarDefinicao(db: AnyDB, fonte: string, relacao: string, def: Definicao, filtros?: CondicaoDef[]): Promise<CampoFonte[]> {
+    const campos = await this.camposDa(db, relacao);
     const validos = new Set(campos.map((c) => c.campo));
     const exige = (nome: unknown, onde: string) => {
       if (typeof nome !== 'string' || !validos.has(nome)) throw new BusinessRuleError('CAMPO_NAO_EXISTE_NA_FONTE', { campo: nome, fonte, onde });

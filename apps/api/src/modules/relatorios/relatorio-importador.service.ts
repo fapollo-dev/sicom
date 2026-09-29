@@ -3,7 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import type { Definicao, ColunaDef, CondicaoDef } from './relatorio-construtor.service';
+import { relacaoDaFonte, type Definicao, type ColunaDef, type CondicaoDef } from './relatorio-construtor.service';
 
 type AnyDB = Kysely<any>;
 
@@ -128,10 +128,12 @@ export class RelatorioImportadorService {
     return fontes.find((f) => alvo.startsWith(`${f.toUpperCase()}_`) || alvo.startsWith(`${f.toUpperCase()}.`)) ?? null;
   }
 
+  /** os campos que o construtor lê para a fonte — os da `rel_<fonte>` quando ela existe (`relacaoDaFonte`) */
   private async camposDa(db: AnyDB, fonte: string): Promise<Set<string>> {
+    const relacao = await relacaoDaFonte(db, fonte);
     const rows = (await sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = ${fonte}
+       WHERE table_schema = 'public' AND table_name = ${relacao}
     `.execute(db)).rows;
     return new Set(rows.map((r) => r.column_name.toLowerCase()));
   }

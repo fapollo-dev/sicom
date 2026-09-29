@@ -431,6 +431,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('386_parceiro_endereco_travas.sql'));
   await pool.query(sql('387_baixas_views_fieis.sql'));
   await pool.query(sql('388_relatorio_fontes_integrais.sql'));
+  await pool.query(sql('389_relatorio_fontes_das_telas.sql'));
   await pool.end();
   return pg;
 }

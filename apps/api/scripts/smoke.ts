@@ -11295,10 +11295,10 @@ async function main() {
           // filtro de EXECUÇÃO (o que o usuário informa na hora de rodar) somado às condições SALVAS
           filtros: [{ campo: 'duplicata', operador: 'comeca', valor: 'REL-' }] }) });
         const execJ = (await exec.json().catch(() => ({}))) as any;
-        check('RELATÓRIO §95.3 [o executor]: rodar o relatório salvo devolve as colunas com o TÍTULO que o cliente deu, as linhas na ordem definida e o TOTAL no rodapé das colunas marcadas — que é o rodapé do relatório impresso. A condição SALVA (`quitada = N`) soma-se ao filtro de EXECUÇÃO (duplicata começa com REL-): das 3 contas do cenário sobram 2',
+        check('RELATÓRIO §95.3 [o executor]: rodar o relatório salvo devolve as colunas com o TÍTULO que o cliente deu, as linhas na ordem definida e o TOTAL no rodapé das colunas marcadas — que é o rodapé do relatório impresso. A condição SALVA (`quitada = N`) soma-se ao filtro de EXECUÇÃO (duplicata começa com REL-): das 3 contas do cenário sobram 2. O `valor` é o do GET_APAGAR do legado (valor + vendor − desconto: 90 + 240,50 = 330,50 — a fonte lida é a `rel_get_apagar`, mig 389)',
           exec.status === 200 && execJ.colunas?.length === 4 && execJ.colunas[3]?.titulo === 'Valor'
           && execJ.colunas[2]?.formato === 'data' && execJ.linhas?.length === 2
-          && Math.abs(Number(execJ.totais?.c3) - 350.5) < 0.005
+          && Math.abs(Number(execJ.totais?.c3) - 330.5) < 0.005
           && execJ.linhas[0]?.c1 === 'REL-1',
           { colunas: execJ.colunas, linhas: execJ.linhas, totais: execJ.totais });
 
@@ -11315,10 +11315,10 @@ async function main() {
         };
         const calc = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'get_apagar', definicao: defCalc }) });
         const calcJ = (await calc.json().catch(() => ({}))) as any;
-        check('RELATÓRIO §95.4 [coluna CALCULADA]: o `CAMPOCALC` do legado (CAMPO1 operação CAMPO2) — valor mais juro sobre a view `get_apagar`, que calcula o juro por atraso — como estes títulos vencem em 2035 o juro é zero e o calculado devolve o próprio valor, 350,50 no rodapé. Prova as duas coisas: a coluna calculada e o cálculo da própria fonte. A definição roda sem estar salva, que é como o cliente testa antes de gravar',
+        check('RELATÓRIO §95.4 [coluna CALCULADA]: o `CAMPOCALC` do legado (CAMPO1 operação CAMPO2) — valor mais juro sobre a view `get_apagar`, que calcula o juro por atraso — como estes títulos vencem em 2035 o juro é zero e o calculado devolve o próprio valor (o líquido do legado), 330,50 no rodapé. Prova as duas coisas: a coluna calculada e o cálculo da própria fonte. A definição roda sem estar salva, que é como o cliente testa antes de gravar',
           calc.status === 200 && calcJ.linhas?.length === 2
-          && Math.abs(Number(calcJ.linhas[0]?.c2) - 100) < 0.005 && Math.abs(Number(calcJ.linhas[1]?.c2) - 250.5) < 0.005
-          && Math.abs(Number(calcJ.totais?.c2) - 350.5) < 0.005,
+          && Math.abs(Number(calcJ.linhas[0]?.c2) - 90) < 0.005 && Math.abs(Number(calcJ.linhas[1]?.c2) - 240.5) < 0.005
+          && Math.abs(Number(calcJ.totais?.c2) - 330.5) < 0.005,
           { status: calc.status, resp: calcJ });
 
         // ⚠️ a superfície de injeção — o teste que mais importa num construtor de consulta
@@ -11352,8 +11352,8 @@ async function main() {
         const linhasCsv = texto.replace(/^﻿/, '').trim().split('\r\n');
         check('RELATÓRIO §95.7 (BtnExportaCSVClick): o CSV sai com `;` e vírgula decimal — o que o Excel em pt-BR abre sem perguntar nada — com o cabeçalho pelos títulos do cliente e a linha de totais no fim',
           csv.status === 200 && (csv.headers.get('content-type') ?? '').includes('text/csv')
-          && linhasCsv[0] === 'Duplicata;Bruto;Com juros' && linhasCsv[1]?.startsWith('REL-1;100')
-          && linhasCsv[linhasCsv.length - 1] === ';;350,5',
+          && linhasCsv[0] === 'Duplicata;Bruto;Com juros' && linhasCsv[1]?.startsWith('REL-1;90')
+          && linhasCsv[linhasCsv.length - 1] === ';;330,5',
           { linhas: linhasCsv });
 
         // obter + excluir — o que o construtor (corte-2) usa para abrir e apagar um relatório
@@ -25976,6 +25976,104 @@ async function main() {
           { ap, apFora, ar });
       } finally {
         await pgVb.end();
+      }
+    }
+    // ══ §280 AS FONTES DO CONSTRUTOR QUE SERVEM A UMA TELA (GET_APAGAR / GET_NF) — a versão integral do legado em `rel_<fonte>` ══════
+    {
+      const RC = 'relatorios/construtor';
+      const pgRf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const apgs: number[] = []; const nfs: number[] = []; let rcbDeb: number | null = null;
+      try {
+        const cols = async (v: string) => (await pgRf.query(`SELECT column_name c FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`, [v])).rows.map((r: any) => r.c as string);
+        const cA = await cols('rel_get_apagar'), cN = await cols('rel_get_nf'), cTela = await cols('get_apagar');
+        const fontes = (await (await fetch(`${base}/${RC}/fontes`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('RELATÓRIOS §280a [a versão do legado ao lado da view da tela]: `rel_get_apagar` com as 53 colunas do GET_APAGAR na ordem da produção (NR_DOCUMENTO … OBS_NOTA) + as 22 da tela; `rel_get_nf` com as 49 do GET_NF (CODIGO … NFE_DEVOLVIDA) + 10; a `get_apagar` da tela intacta (28); e as `rel_` FORA do catálogo (sem COMMENT) — o cliente continua vendo "CONTAS A PAGAR" e "NF"',
+          cA.length === 75 && cA[0] === 'nr_documento' && cA[52] === 'obs_nota' && cA[53] === 'codapg'
+          && cN.length === 59 && cN[0] === 'codigo' && cN[48] === 'nfe_devolvida' && cTela.length === 28
+          && !(fontes ?? []).some((f: any) => String(f.fonte).startsWith('rel_'))
+          && (fontes ?? []).some((f: any) => f.fonte === 'get_nf' && f.rotulo === 'NF'),
+          { apagar: cA.length, nf: cN.length, tela: cTela.length, rel: (fontes ?? []).filter((f: any) => String(f.fonte).startsWith('rel_')) });
+
+        // os títulos: boleto de FGTS (8 5 … posição 17 = 0239), boleto do Itaú, sem código; um quitado e um agrupado ficam fora
+        const ins = async (dup: string, cb: string | null, quit = 'N', agr = 'N') => {
+          const id = Number((await pgRf.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, txjuros, quitada, agrupado, tipodoc, codbarrasblt)
+            VALUES (1,2,$1,'2035-08-10','2035-08-01',200,5,15,2.5,$2,$3,'DP',$4) RETURNING codapg`, [dup, quit, agr, cb])).rows[0].codapg);
+          apgs.push(id); return id;
+        };
+        const aFgts = await ins('R280-FGTS', '8580000000000000023900000000000000000000000');
+        const aItau = await ins('R280-ITAU', '34191090000000000000000000000000000000000000');
+        const aNada = await ins('R280-NADA', null);
+        await ins('R280-QUIT', null, 'S');
+        await ins('R280-AGR', null, 'N', 'S');
+        rcbDeb = Number((await pgRf.query(`INSERT INTO areceber (codparceiro, codempresa, valor, dtvenda, dtvenc, quitada, duplicata, agrupado, cadastrado_manualmente, consiliado, gerado)
+          VALUES (2, 1, 10, current_date, current_date + 30, 'N', 'R280-DEB', 'N', 'S', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb);
+        const va = (await pgRf.query(`SELECT codigo, nr_documento, valor, valor_bruto, juros, tipo_servico, forma_pagto, fornecedor_possui_debito, vencimento, cnpj_cpf
+          FROM rel_get_apagar WHERE nr_documento LIKE 'R280-%' ORDER BY nr_documento`)).rows as any[];
+        const por = (id: number) => va.find((r) => Number(r.codigo) === id);
+        check('RELATÓRIOS §280b [GET_APAGAR como o legado]: só título em aberto (o quitado e o agrupado ficam fora — 3 de 5); VALOR = 200 + 5 − 15 = 190 e VALOR_BRUTO = 200; JUROS é a TAXA (2,5); o boleto 8-5 com 0239 na posição 17 é TRIBUTOS/FGTS, o 341 é FORNECEDOR/ITAU, sem código é INDEFINIDO; FORNECEDOR_POSSUI_DEBITO = S porque o parceiro tem conta a receber em aberto',
+          va.length === 3 && Number(por(aFgts)?.valor) === 190 && Number(por(aFgts)?.valor_bruto) === 200 && Number(por(aFgts)?.juros) === 2.5
+          && por(aFgts)?.tipo_servico === 'TRIBUTOS' && por(aFgts)?.forma_pagto === 'FGTS'
+          && por(aItau)?.tipo_servico === 'FORNECEDOR' && por(aItau)?.forma_pagto === 'ITAU'
+          && por(aNada)?.tipo_servico === 'INDEFINIDO' && por(aNada)?.forma_pagto === 'INDEFINIDO'
+          && va.every((r) => r.fornecedor_possui_debito === 'S'),
+          { va });
+
+        // as NF: uma autorizada e precificada que DEVOLVE a outra (NF_REFERENCIA)
+        const prod = Number((await pgRf.query(`SELECT idproduto FROM produtos ORDER BY idproduto LIMIT 1`)).rows[0].idproduto);
+        const nfIns = async (nro: string, status: string | null, tpemissao: number, tipoemissao: string) => {
+          const id = Number((await pgRf.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, statusnfe, tpemissao, tipoemissao)
+            VALUES (1,2,$1,55,'1','S','N','N','2035-08-03','2035-08-03','5202',$2,$3,$4) RETURNING codnf`, [nro, status, tpemissao, tipoemissao])).rows[0].codnf);
+          nfs.push(id); return id;
+        };
+        const nfOrig = await nfIns('928001', null, 1, '1');
+        const nfDev = await nfIns('928002', 'P', 1, '0');
+        await pgRf.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, usuario_precifica, data_precifica) VALUES ($1,$2,1,1,7,'2035-08-04 10:00')`, [nfDev, prod]);
+        await pgRf.query(`INSERT INTO nf_referencia (codnf, codnf_ref) VALUES ($1,$2)`, [nfDev, nfOrig]);
+        const vn = (await pgRf.query(`SELECT codigo, nro_nf, status_nfe, tipo_emissao, precificada, usuario_precifica, nfe_de_devolucao, nfe_devolvida, cfop, aliquota_funrural
+          FROM rel_get_nf WHERE codigo = ANY($1)`, [nfs])).rows as any[];
+        const o = vn.find((r) => Number(r.codigo) === nfOrig), d = vn.find((r) => Number(r.codigo) === nfDev);
+        check('RELATÓRIOS §280c [GET_NF como o legado]: STATUS_NFE decodificado ("NFE ENVIADA A RECEITA" para P/emissão 1), TIPO_EMISSAO P só com TIPOEMISSAO 0, PRECIFICADA SIM com o usuário do item precificado (a outra NÃO), a NF que referencia é NFE_DE_DEVOLUCAO = S e a referenciada mostra o número dela em NFE_DEVOLVIDA; NRO_NF e CFOP numéricos, ALIQUOTA_FUNRURAL 0,015',
+          d?.status_nfe === 'NFE ENVIADA A RECEITA' && d?.tipo_emissao === 'P' && o?.tipo_emissao === 'T'
+          && d?.precificada === 'SIM' && Number(d?.usuario_precifica) === 7 && o?.precificada === 'NÃO'
+          && d?.nfe_de_devolucao === 'S' && o?.nfe_de_devolucao === 'N' && o?.nfe_devolvida === '928002' && d?.nfe_devolvida == null
+          && Number(d?.nro_nf) === 928002 && Number(d?.cfop) === 5202 && Number(d?.aliquota_funrural) === 0.015,
+          { o, d });
+
+        // o construtor LÊ a rel_: campos do legado na fonte do catálogo, e um relatório do cliente sobre GET_APAGAR importa e roda
+        const campos = (await (await fetch(`${base}/${RC}/fontes/get_apagar/campos`, { headers: H })).json().catch(() => ([]))) as any[];
+        const xml = [
+          '<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="Boletos a pagar" MOSTRA_SOMENTE_AGRUPAMENTO="FALSE" SALTAR_PG_GRUPO="FALSE" IMPRIMIR_EM_PAISAGEM="FALSE"/>',
+          '<ROW RowState="4" CAMPO="NR_DOCUMENTO" TITULO="Documento" TAMANHO="15" POSICAO="1" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="FORMA_PAGTO" TITULO="Forma" TAMANHO="15" POSICAO="2" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="VALOR" TITULO="Valor" TAMANHO="12" POSICAO="3" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR"/>',
+          '<ROW RowState="4" CAMPO="NR_DOCUMENTO" VALOR_CAMPO="R280-" OPERACAO="Começa com" VALOR_MOSTRAR="R280-" DATASET="cdsWhere" TABELA="CONTAS A PAGAR"/>',
+          '</ROWDATA></DATAPACKET>',
+        ].join('');
+        await pgRf.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99803`);
+        await pgRf.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES (99803,1,'GET_APAGAR_BOLETOS 280.XML','NORMAL',$1)`,
+          [Buffer.from(xml, 'utf8').toString('base64')]);
+        const imp = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+        const def = (await pgRf.query(`SELECT codrelatoriodef, fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%BOLETOS 280%'`)).rows[0] as any;
+        const run = def ? await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: Number(def.codrelatoriodef) }) }) : null;
+        const runJ = (await run?.json().catch(() => ({}))) as any;
+        const pend = (imp.pendentes ?? []).find((x: any) => String(x.nome).includes('BOLETOS 280'));
+        check('RELATÓRIOS §280d [o construtor lê a `rel_`]: os campos de "CONTAS A PAGAR" são os do legado (NR_DOCUMENTO, FORMA_PAGTO, FORNECEDOR_POSSUI_DEBITO…), e um relatório do cliente sobre GET_APAGAR — que antes ficava pendente por coluna faltando — importa na fonte `get_apagar` e roda: 3 títulos em aberto, total do líquido 570',
+          campos.some((c: any) => c.campo === 'nr_documento') && campos.some((c: any) => c.campo === 'fornecedor_possui_debito')
+          && !pend && def?.fonte === 'get_apagar' && run?.status === 200 && runJ.linhas?.length === 3
+          && runJ.linhas.reduce((t: number, l: any) => t + Number(l.c2), 0) === 570,
+          { pend, def, status: run?.status, linhas: runJ.linhas });
+      } finally {
+        await pgRf.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%BOLETOS 280%'`).catch(() => undefined);
+        await pgRf.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99803`).catch(() => undefined);
+        if (nfs.length) {
+          await pgRf.query(`DELETE FROM nf_referencia WHERE codnf = ANY($1) OR codnf_ref = ANY($1)`, [nfs]).catch(() => undefined);
+          await pgRf.query(`DELETE FROM nf_prod WHERE codnf = ANY($1)`, [nfs]).catch(() => undefined);
+          await pgRf.query(`DELETE FROM nf WHERE codnf = ANY($1)`, [nfs]).catch(() => undefined);
+        }
+        if (apgs.length) await pgRf.query(`DELETE FROM apagar WHERE codapg = ANY($1)`, [apgs]).catch(() => undefined);
+        if (rcbDeb) await pgRf.query(`DELETE FROM areceber WHERE codrcb = $1`, [rcbDeb]).catch(() => undefined);
+        await pgRf.end();
       }
     }
   } finally {
