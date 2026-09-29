@@ -54,12 +54,26 @@ Esquisitices que ficaram: GET_APAGAR só tem título em aberto; `VALOR` é o lí
 parceiros têm um endereço só). GET_NF só tem NF com parceiro; `TIPO_EMISSAO` nulo sai 'T'. Diferença deliberada: a `PRECIFICADA`
 negativa da produção é `NÃƒO` (o 'NÃO' em UTF-8 lido como cp1252 ao criar a view) — aqui sai `NÃO`.
 
-Simulação sobre os 95 relatórios da produção (29/09/2026): **65 importam** (eram 28), cada um na fonte onde roda no legado; 2
-pendentes por coluna (as que a produção não tem); 28 sem fonte — destes, 8 citam views que **não existem na produção**
-(FINALIZADORAS, OURO - FLUXO DE CAIXA NIVEL-2, _OURO - PRODUTO VENDIDO, VENDAS_PEDIDOS, _OURO - VENDAS_PEDIDOS: já quebram lá);
-os outros 20 esperam as fontes GET_APAGARBXCC, GET_CARTAOBX, GET_CONTATOS_PDV, GET_NOTAS_SEM_PEDIDO, GET_CP, GET_CAIXA, GET_CX,
-GET_ARECEBER, GET_ADIANTAMENTO_FORN, GET_DRE_COMPETENCIA, GET_TIPO_CODIGO_VENDIDO, GET_VALORES_CARTAO, GET_VENDAS,
-GET_VENDASRELAT, GET_ESTOQUE_TOTALIZADO e GET_PRODUTOS_ESTOQUE.
+### As fontes que não existiam (mig 391)
+
+14 views do catálogo da produção, com as colunas de ALL_TAB_COLUMNS e o rótulo do combo (o COMMENT sem o `;` do início — 'VENDAS'
+e 'VENDAS;' são duas): GET_ADIANTAMENTO_FORN, GET_APAGARBXCC, GET_CAIXA, GET_CARTAOBX, GET_CP, GET_CX, GET_DRE_COMPETENCIA,
+GET_NOTAS_SEM_PEDIDO, GET_TIPO_CODIGO_VENDIDO, GET_VALORES_CARTAO, GET_VENDAS, GET_VENDASRELAT, GET_ESTOQUE_TOTALIZADO e
+GET_PRODUTOS_ESTOQUE. As esquisitices que ficaram estão no cabeçalho da migration (GET_APAGARBXCC soma a TAXA de juros como valor;
+GET_ESTOQUE_TOTALIZADO repete o saldo a cada preço igual de outra loja; NEUTRA 'NÃƒO' → 'NÃO').
+
+### O placar (simulação sobre os 95 relatórios da produção, 29/09/2026)
+
+**81 importam**, cada um na fonte onde roda no legado (eram 28 no começo do dia). Os 14 que sobram:
+
+| motivo | relatórios |
+|---|---|
+| citam coluna que a view da produção **não tem mais** (já quebram lá) | 3 — `PESO_TOTAL` e `CODIGO_PEDIDO` (GET_NF), `TAXA` (GET_CARTAOBX, de 2018) |
+| citam view que **não existe** na produção (já quebram lá) | 8 — FINALIZADORAS, OURO - FLUXO DE CAIXA NIVEL-2 (2), _OURO - PRODUTO VENDIDO, VENDAS_PEDIDOS (2), _OURO - VENDAS_PEDIDOS (2) |
+| GET_ARECEBER sem COMMENT — o legado não a oferece e o arquivo não aparece sob nenhuma view do combo | 1 |
+| GET_CONTATOS_PDV — lê a PUBLICIDADE_PRE, que só o PDV grava (fora do escopo, como a HISTORICO_PDV) | 2 |
+
+Ou seja: todo relatório do cliente que roda no legado de hoje importa, menos os 2 do PDV.
 
 ## Divergências conhecidas — views que também servem telas do Apollo
 

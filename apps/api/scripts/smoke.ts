@@ -26176,20 +26176,24 @@ async function main() {
           ...campos.map((c, i) => `<ROW RowState="4" CAMPO="${c}" TITULO="${c}" TAMANHO="10" POSICAO="${i + 1}" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="${rot}"/>`),
           `<ROW RowState="4" CAMPO="${campos[0]}" DATASET="cdsTotais" TABELA="OPERADORES"/>`,
           '</ROWDATA></DATAPACKET>'].join(''), 'utf8').toString('base64');
-        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99805, 99806)`);
+        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99805, 99806, 99808)`);
         await pgR2.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES
-          (99805,1,'GET_RCB_ROTULO ANTIGO 281.XML','NORMAL',$1), (99806,1,'GET_ESTOQUE_TOTALIZADO_TOTAL 281.XML','NORMAL',$2)`,
-          [xmlDe('ARECEBER ABERTA', ['CLIENTE', 'VALOR', 'DATA_VENCIMENTO']), xmlDe('ESTOQUE TOTALIZADO', ['CODBARRA', 'DESCRICAO', 'TOTAL_QTDE'])]);
+          (99805,1,'GET_RCB_ROTULO ANTIGO 281.XML','NORMAL',$1), (99806,1,'GET_ESTOQUE_TOTALIZADO_TOTAL 281.XML','NORMAL',$2),
+          (99808,1,'GET_PRODUTOS_ESTOQUE_COMP_COMPOSICAO 281.XML','NORMAL',$3)`,
+          [xmlDe('ARECEBER ABERTA', ['CLIENTE', 'VALOR', 'DATA_VENCIMENTO']), xmlDe('ESTOQUE TOTALIZADO', ['CODBARRA', 'DESCRICAO', 'TOTAL_QTDE']),
+           xmlDe('PRODUTOS E ESTOQUE COMPOSICAO', ['CODBARRA', 'QTDE_COMPOSICAO'])]);
         const imp2 = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
         const rcbAntigo = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%ROTULO ANTIGO 281%'`)).rows[0] as any;
         const totEst = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%TOTAL 281%'`)).rows[0] as any;
-        const pendEst = (imp2.pendentes ?? []).find((x: any) => String(x.nome).includes('TOTAL 281'));
-        check('RELATÓRIOS §281f [a fonte do arquivo, como o legado a acha]: o legado lista um arquivo sob toda view cujo nome aparece nele (`PercorreOrigem`) e grava o rótulo da view em TABELA (menos nos totais, onde o índice do combo ordenado cai na lista sem ordem — aqui "OPERADORES"). O importador tenta primeiro a view do rótulo, depois as de prefixo, e fica com a que tem as colunas: o relatório do GET_RCB com o rótulo antigo "ARECEBER ABERTA" entra no get_rcb; o do GET_ESTOQUE_TOTALIZADO NÃO cai no get_estoque — fica pendente dizendo que falta a fonte "ESTOQUE TOTALIZADO"',
-          rcbAntigo?.fonte === 'get_rcb' && !totEst && String(pendEst?.motivo ?? '').includes('"ESTOQUE TOTALIZADO"'),
-          { rcbAntigo, totEst, pendEst });
+        const pendComp = (imp2.pendentes ?? []).find((x: any) => String(x.nome).includes('COMPOSICAO 281'));
+        const comp = (await pgR2.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%COMPOSICAO 281%'`)).rows[0] as any;
+        check('RELATÓRIOS §281f [a fonte do arquivo, como o legado a acha]: o legado lista um arquivo sob toda view cujo nome aparece nele (`PercorreOrigem`) e grava o rótulo da view em TABELA (menos nos totais, onde o índice do combo ordenado cai na lista sem ordem — aqui "OPERADORES"). O importador tenta primeiro a view do rótulo, depois as de prefixo, e fica com a que tem as colunas: o relatório do GET_RCB com o rótulo antigo "ARECEBER ABERTA" entra no get_rcb; o do GET_ESTOQUE_TOTALIZADO entra na get_estoque_totalizado (não no get_estoque); e o da GET_PRODUTOS_ESTOQUE_COMP, que não existe aqui, NÃO cai no get_produtos_estoque nem no get_produtos — fica pendente dizendo que falta a fonte "PRODUTOS E ESTOQUE COMPOSICAO"',
+          rcbAntigo?.fonte === 'get_rcb' && totEst?.fonte === 'get_estoque_totalizado' && !comp
+          && String(pendComp?.motivo ?? '').includes('"PRODUTOS E ESTOQUE COMPOSICAO"'),
+          { rcbAntigo, totEst, comp, pendComp });
       } finally {
         await pgR2.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%CONFERENCIA 281%' OR upper(nome) LIKE '%281'`).catch(() => undefined);
-        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99804, 99805, 99806)`).catch(() => undefined);
+        await pgR2.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99804, 99805, 99806, 99808)`).catch(() => undefined);
         await pgR2.query(`DELETE FROM scrap_item WHERE codscrap = 992810`).catch(() => undefined);
         await pgR2.query(`DELETE FROM scrap WHERE codscrap = 992810`).catch(() => undefined);
         await pgR2.query(`DELETE FROM cartao WHERE codoperadora = 99281`).catch(() => undefined);
@@ -26197,6 +26201,82 @@ async function main() {
         await pgR2.query(`DELETE FROM parceiros_end WHERE codparceiro = 99281`).catch(() => undefined);
         await pgR2.query(`DELETE FROM parceiros WHERE codparceiro = 99281`).catch(() => undefined);
         await pgR2.end();
+      }
+    }
+    // ══ §282 AS FONTES QUE NÃO EXISTIAM (14 views do catálogo da produção que os relatórios do cliente usam) ══════
+    {
+      const RC = 'relatorios/construtor';
+      const pgR3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // ALL_TAB_COLUMNS e o rótulo do combo (o COMMENT sem o ';' do início) na produção, 29/09/2026
+        const LEG: Record<string, { rot: string; cols: string[] }> = {
+          get_adiantamento_forn: { rot: "ADIANTAMENTO A PARCEIROS", cols: ["codigo", "dtadiantamento", "vencimento", "parceiro", "valor", "codparceiro", "quitada", "codcontacorrente", "codmovconta", "nro_conta", "titular"] },
+          get_apagarbxcc: { rot: "CONTAS A PAGAR BAIXADA CC", cols: ["data_pagamento", "fornecedor", "duplicata", "data_compra", "data_venceu", "valor_pago", "valor_documento", "valor_bruto_documento", "historico", "observacao", "acres_desc", "juros", "operador_baixa", "lote", "codigo_fornecedor", "idempresa", "codigo_documento", "codigo_documentobx", "codigo_operadorbx", "nr_parcela", "nr_nf", "empresa", "tipo_documento", "cod_contabil_forn", "cod_contabil_cc", "contabilizado", "codigo_conta", "nome_conta", "cod_lanc_contabil", "codcc", "descodplc", "descricaoplc", "cnpj_cpf"] },
+          get_caixa: { rot: "CAIXA", cols: ["codigo", "emissao", "valor", "vrtitulo", "operador", "lote", "recurso", "obs", "idempresa", "situacao", "cod_situacao", "neutra", "parceiro", "codigo_cc", "centro_de_custo", "titular", "nro_conta", "cadastrado_manualmente"] },
+          get_cartaobx: { rot: "CARTOES BAIXADOS", cols: ["operadora", "valor", "nrocupom", "nropedido", "data", "data_hora", "codigo_operadora", "codigo", "previsao_compensacao", "lote", "data_baixa", "codigo_empresa", "operador_baixa", "valor_com_taxa", "consiliado", "data_operacao", "contabilizado", "nsu", "nsu_host", "autorizacao", "valorpg"] },
+          get_cp: { rot: "CONTAS A PAGAR 2", cols: ["nr_documento", "fornecedor", "valor", "emissao", "vencimento", "data_contabil", "juros", "nota_fiscal", "tipo_documento", "banco", "observacao", "codigo_empresa", "empresa", "operador", "codigo", "codigo_parceiro", "nr_parcela", "vendor", "convenio", "codbco", "quitada", "idnf", "gerado", "nrodup", "codoperador", "idempresa", "codcentrocusto", "fantasia", "descontopedido", "desconto", "valor_bruto", "issqn", "valorissqn", "bloqueio", "adcredito", "codadiantamento", "codbarras", "remessa_gerada", "agrupamento", "agrupado", "cod_operador_bx", "operador_bx", "data_bx"] },
+          get_cx: { rot: "CAIXAS", cols: ["nro_caixa", "operador", "operacao", "valor", "debito_credito", "nropedido", "codigo_operadora", "codigo_caixa_vendas", "idempresa"] },
+          get_dre_competencia: { rot: "DRE COMPETENCIA", cols: ["idempresa", "data", "documento", "codigo_centro_custo", "tipo_recurso", "obs", "parceiro", "centro_custo", "descricao_centro_custo", "credito", "debito", "nivel2_centro_custo", "descricao_nivel2_centro_custo", "nivel1_centro_custo", "descricao_nivel1_centro_custo", "operador", "codigo_contabil_plc", "codigo_contabil_parceiro", "tipo_documento"] },
+          get_notas_sem_pedido: { rot: "NOTAS_SEM_PEDIDO", cols: ["codnf", "chavenfe", "cfop", "descricao_cfop", "razao", "fantasia", "nronf", "totalnf", "dtcontabil"] },
+          get_tipo_codigo_vendido: { rot: "RASTREIA_CODIGOS", cols: ["codigo_informado", "codproduto", "descricao", "codigo_tipo"] },
+          get_valores_cartao: { rot: "VALORES CARTAO", cols: ["operadora", "valor", "valor_com_taxa", "data", "previsao_compensacao", "codigo_empresa", "codadm", "administradora", "nrocupom", "nropedido", "parcela", "parcelas", "valor_operacao", "codigo_operadora", "codigo", "idpgto", "codpdv", "codoperador", "resumo", "data_venc_resumo", "consiliado", "tipo", "tipocartao", "tipomodalidade", "nsuhost", "nomeoperador", "nomeoperadoralteracao", "codoperadorabase", "codrede", "codbandeira", "txadm", "diascomp", "valor_ajuste_baixa", "obs", "data_cadastro"] },
+          get_vendas: { rot: "VENDAS", cols: ["nropedido", "cliente", "nro_cupom", "operador", "total", "idempresa", "codvendas", "data", "codcliente", "desc_acre", "importado", "cancelado", "nfc"] },
+          get_vendasrelat: { rot: "VENDAS;", cols: ["nropedido", "codigo_parceiro", "cliente", "nro_cupom", "cod_barra", "vr_custo", "vr_venda", "quantidade", "promocao", "descricao", "unidade", "aliquota", "codigo_operador", "operador", "iditem", "departamento", "grupo", "sub_grupo", "comissao", "vendedor", "desc_acre", "pis", "idempresa", "codvendas", "data_hora", "data", "hora", "desc_item", "tipo", "codigo_vendedor", "cancelado", "codigo_produto", "codigo_fornecedor", "razao_fornecedor", "tipopis", "total"] },
+          get_estoque_totalizado: { rot: "ESTOQUE TOTALIZADO", cols: ["idproduto", "descricao", "idempresa", "vrvenda", "vrcusto", "servico", "total_qtde", "departamento", "unidade", "codbarra"] },
+          get_produtos_estoque: { rot: "PRODUTOS E ESTOQUE", cols: ["codbarra", "descricao", "vrcusto", "custo_total", "vrvenda", "custo_reposicao", "qtde", "qtde_dep", "ativo", "departamento", "grupo", "subgrupo", "fornecedor", "unidade", "markup", "codfor", "aliquota", "balanca", "promocao", "vrpromo", "pis", "tipopis", "fatorkg", "fatorcx", "codbalanca", "descmax", "especificacao", "composicao", "codigo", "totalcusto", "totalvenda", "empresa", "empresa_estoque", "empresa_estoque_dep", "minimo", "minimo_dep", "cod_departamento", "cod_grupo", "cod_subgrupo", "local", "servico", "ativo_venda", "ativo_compra", "ativo_compra_mp", "maximo", "ncm", "empresa_preco", "icm_efetivo", "creditopiscofins", "icme", "creditoicm", "debitoicm", "debitopiscofins", "vendaliq", "lucrobrutov", "lucrobrutop", "despopv", "lucroliqv", "lucroliqp", "imprend", "contsocial", "margeml2v", "margeml2", "ipi", "frete", "despacessorio", "seguro", "icmst", "empresa01", "empresa02", "empresa03", "empresa04", "altera_descricao_cotacao", "cod_perfil_produto", "perfil_produto", "cod_perfil_departamento", "perfil_departamento", "imobilizado", "uso_consumo", "digitos_codbarra", "fatorcx_producao"] },
+        };
+        const fontes = (await (await fetch(`${base}/${RC}/fontes`, { headers: H })).json().catch(() => ([]))) as any[];
+        const difs: string[] = [];
+        for (const [v, l] of Object.entries(LEG)) {
+          const got = (await pgR3.query(`SELECT column_name c FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`, [v])).rows.map((r: any) => r.c as string);
+          if (got.length !== l.cols.length) difs.push(`${v}: ${got.length} colunas`);
+          l.cols.forEach((c, i) => { if (got[i] !== c) difs.push(`${v}[${i}]: ${got[i]} ≠ ${c}`); });
+          const f = (fontes ?? []).find((x: any) => x.fonte === v);
+          if (f?.rotulo !== l.rot) difs.push(`${v}: rótulo ${f?.rotulo}`);
+        }
+        check('RELATÓRIOS §282a [14 fontes novas no catálogo]: GET_ADIANTAMENTO_FORN, GET_APAGARBXCC, GET_CAIXA, GET_CARTAOBX, GET_CP, GET_CX, GET_DRE_COMPETENCIA, GET_NOTAS_SEM_PEDIDO, GET_TIPO_CODIGO_VENDIDO, GET_VALORES_CARTAO, GET_VENDAS, GET_VENDASRELAT, GET_ESTOQUE_TOTALIZADO e GET_PRODUTOS_ESTOQUE — cada uma com as colunas de ALL_TAB_COLUMNS da produção, nome a nome e na ordem, e o rótulo do combo do legado ("VENDAS" e "VENDAS;" são duas)',
+          difs.length === 0, { difs });
+
+        // CARTÕES: a baixada só com as LIBERADAS e a previsão sem pular fim de semana; a de valores com todas, com a hora
+        await pgR3.query(`DELETE FROM cartao WHERE codoperadora = 99282`);
+        await pgR3.query(`INSERT INTO operadoras (codoperadoras, operadora, tipo, tipocartao, txadm, diascomp) VALUES (99282,'OPER 282','D',1,1.00,1)
+          ON CONFLICT (codoperadoras) DO UPDATE SET tipo='D', tipocartao=1, txadm=1.00, diascomp=1, codadm=NULL`);
+        await pgR3.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, nsuhost) VALUES
+          (1,99282,'2035-08-03 10:15:00-03',200.00,1,'S','BX-282'), (1,99282,'2035-08-03 11:00:00-03',100.00,1,'N','AB-282')`);
+        const bx = (await pgR3.query(`SELECT nsu_host, to_char(previsao_compensacao,'YYYY-MM-DD') prev, valor_com_taxa FROM get_cartaobx WHERE codigo_operadora = 99282`)).rows as any[];
+        const vl = (await pgR3.query(`SELECT nsuhost, to_char(previsao_compensacao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD HH24:MI') prev, tipo, tipocartao FROM get_valores_cartao WHERE codigo_operadora = 99282 ORDER BY nsuhost`)).rows as any[];
+        check('RELATÓRIOS §282b [CARTOES BAIXADOS e VALORES CARTAO como o legado]: a baixada traz só a venda LIBERADA, com a previsão = venda + 1 dia SEM pular o sábado (04/08) e o líquido 200 − 1% = 198; a de valores traz as duas, com a previsão pulando o sábado para segunda 06/08 e mantendo a HORA da venda; tipo DEBITO / CARTAO DE DEBITO',
+          bx.length === 1 && bx[0].nsu_host === 'BX-282' && bx[0].prev === '2035-08-04' && Number(bx[0].valor_com_taxa) === 198
+          && vl.length === 2 && vl[1].prev === '2035-08-06 10:15' && vl[0].tipo === 'DEBITO' && vl[0].tipocartao === 'CARTAO DE DEBITO',
+          { bx, vl });
+
+        // CAIXA: NEUTRA decodificada; GET_CP com a data da baixa ativa
+        const cxN = (await pgR3.query(`SELECT neutra, count(*)::int n FROM get_caixa GROUP BY neutra`)).rows as any[];
+        const cxTab = (await pgR3.query(`SELECT count(*) FILTER (WHERE neutra = 'S')::int s, count(*)::int n FROM caixa`)).rows[0] as any;
+        const cpBx = (await pgR3.query(`SELECT count(*)::int n FROM get_cp g JOIN apagar_bx b ON b.codapg = g.codigo AND coalesce(b.indr,'I') = 'I' WHERE g.data_bx IS DISTINCT FROM b.dtpgto::date`)).rows[0] as any;
+        check('RELATÓRIOS §282c [CAIXA e CONTAS A PAGAR 2]: NEUTRA sai SIM/NÃO (a produção grava "NÃƒO", acidente de codificação — aqui "NÃO"), uma linha por lançamento; GET_CP com a DATA_BX da baixa ativa',
+          cxN.every((r) => r.neutra === 'SIM' || r.neutra === 'NÃO') && cxN.reduce((t, r) => t + r.n, 0) === Number(cxTab.n)
+          && Number(cxN.find((r) => r.neutra === 'SIM')?.n ?? 0) === Number(cxTab.s) && Number(cpBx.n) === 0,
+          { cxN, cxTab, cpBx });
+
+        // a resolução pelo rótulo: GET_CP_CEN_<nome>.XML gravado sob GET_CP ("CONTAS A PAGAR 2") vai para get_cp, não para get_cp_cen
+        const xml = Buffer.from(['<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="" MOSTRA_SOMENTE_AGRUPAMENTO="FALSE" SALTAR_PG_GRUPO="FALSE" IMPRIMIR_EM_PAISAGEM="FALSE"/>',
+          '<ROW RowState="4" CAMPO="FORNECEDOR" TITULO="Fornecedor" TAMANHO="30" POSICAO="1" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR 2"/>',
+          '<ROW RowState="4" CAMPO="VALOR" TITULO="Valor" TAMANHO="12" POSICAO="2" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR 2"/>',
+          '</ROWDATA></DATAPACKET>'].join(''), 'utf8').toString('base64');
+        await pgR3.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99807`);
+        await pgR3.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES (99807,1,'GET_CP_CEN_SALDO 282.XML','NORMAL',$1)`, [xml]);
+        await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const cp = (await pgR3.query(`SELECT fonte FROM relatorio_definicao WHERE upper(nome) LIKE '%SALDO 282%'`)).rows[0] as any;
+        check('RELATÓRIOS §282d [o rótulo decide entre duas views de prefixo]: o arquivo GET_CP_CEN_SALDO 282.XML aparece no legado sob GET_CP e sob GET_CP_CEN; gravado com o rótulo "CONTAS A PAGAR 2" (o da GET_CP), entra na fonte get_cp — como os dois relatórios do cliente com esse nome e esse rótulo',
+          cp?.fonte === 'get_cp', { cp });
+      } finally {
+        await pgR3.query(`DELETE FROM relatorio_definicao WHERE upper(nome) LIKE '%SALDO 282%'`).catch(() => undefined);
+        await pgR3.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados = 99807`).catch(() => undefined);
+        await pgR3.query(`DELETE FROM cartao WHERE codoperadora = 99282`).catch(() => undefined);
+        await pgR3.query(`DELETE FROM operadoras WHERE codoperadoras = 99282`).catch(() => undefined);
+        await pgR3.end();
       }
     }
   } finally {
