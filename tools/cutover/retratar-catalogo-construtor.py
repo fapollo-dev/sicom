@@ -32,6 +32,12 @@ for nome, com, status in cu.fetchall():
     cu.execute("SELECT text FROM all_views WHERE owner = 'PINHEIRAO' AND view_name = :v", v=nome)
     sql = ' '.join(str(cu.fetchone()[0]).split())
     rot = com.strip()[1:].strip() if com.strip().startswith(';') else com.strip()
+    # o COMMENT gravado com o UTF-8 lido como cp1252 ('HistÃ³rico Desconto'): o rótulo sai consertado (o importador conserta o TABELA)
+    if 'Ã' in rot or 'Â' in rot:
+        try: rot = rot.encode('cp1252').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError): pass
+    # e o caractere de controle invisível que sobra de outros acidentes ('DIÁ\x81RIA' na GET_MOVIMENTACAO_DIARIA)
+    rot = ''.join(ch for ch in rot if not (ord(ch) < 0x20 or 0x7f <= ord(ch) <= 0x9f))
     views[nome.lower()] = {'rotulo': rot, 'status': status, 'colunas': [a for a, _ in cols], 'tipos': [b for _, b in cols], 'sql': sql}
 out = {'gerado_em': datetime.date.today().isoformat(), 'origem': f'{host}, ALL_VIEWS/ALL_TAB_COLUMNS/ALL_TAB_COMMENTS, só leitura',
        'regra': "catálogo do construtor = views com COMMENT que não começa com '#' (os '#PDV_…' são as views de carga do PDV); rótulo = o COMMENT sem o ';' do início",

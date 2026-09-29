@@ -2872,7 +2872,7 @@
    "sql": "SELECT IDGRUPOEMP ,DESCRICAO ,ATIVO FROM GRUPOEMPRESARIAL WHERE (COALESCE(INDR, 'I') = 'I')"
   },
   "get_historico_desconto": {
-   "rotulo": "HistÃ³rico Desconto",
+   "rotulo": "Histórico Desconto",
    "status": "VALID",
    "colunas": [
     "descricao"
@@ -3699,7 +3699,7 @@
    "sql": "SELECT TRUNC(Bx.dtpgto), case TRUNC(ch.dtvenc) when TRUNC(B.DTVENC) then TRUNC(B.DTVENC) else TRUNC(ch.dtvenc) end, CH.nrocheque, ch.valor, B.NRODOCUMENTO, B.VALOR, CASE B.LIBERADO WHEN 'S' THEN 'SIM' ELSE 'NAO' END TIPO, B.HISTORICO, C.TITULAR, CASE B.TIPOMOVIMENTO WHEN 'C' THEN 'CREDITO' ELSE 'DEBITO' END TIPO_CONTA, C.NROCONTA, B.CODMOVCONTA, B.CODCONTA, CASE WHEN TIPO = 'A' THEN 'ANTECIPACAO' WHEN TIPO = 'C' THEN 'CONSIGNACAO' ELSE '' END, CH.codchqproprio, CAST(B.IDLOTE AS VARCHAR(20)), C.CODLANCCONTABIL, c.idempresa FROM MOV_CONTAS_BANCARIAS B JOIN CONTAS_BANCARIAS C ON B.CODCONTA = C.CODCONTA LEFT JOIN relacao_chq_prop R ON R.codmovconta = B.codmovconta LEFT JOIN chq_proprio CH ON CH.codchqproprio = R.codchqproprio LEFT JOIN apagar_Bx bx ON bx.idlote = b.idlote"
   },
   "get_movimentacao_diaria": {
-   "rotulo": "MOVIMENTAÇÃO DIÁRIA",
+   "rotulo": "MOVIMENTAÇÃO DIÁRIA",
    "status": "VALID",
    "colunas": [
     "codigo_conta",
