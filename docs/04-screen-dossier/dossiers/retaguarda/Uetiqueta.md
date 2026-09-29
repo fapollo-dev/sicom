@@ -74,6 +74,15 @@ e preços alterados levam o valor da tela — é o que o legado imprime, antes d
 toca nesse botão (o "fila de impressão" do fonte é o cdsImpressao) — e a etiqueta sairia com o preço velho do MULTI_PRECO. O
 endpoint saiu; o botão abre as etiquetas com o preço da grade. A bruta não tinha o botão.
 
-**Fora, com prova:** `UetiquetaNF.pas` (TfrmEtiquetasNF) não está no Retaguarda.dpr nem tem chamador — código morto. A pesquisa
-genérica (`uPesquisa.btnEtiquetaClick`: produtos pelo FlagEtiqueta 0; clientes/associados pelo FlagEtiqueta 1, modelos `etip`
-— só o DEFAULT "etiqueta mala direta" na RELATORIOS) é o próximo corte.
+**Fora, com prova:** `UetiquetaNF.pas` (TfrmEtiquetasNF) não está no Retaguarda.dpr nem tem chamador — código morto.
+
+**O botão "Etiqueta" da pesquisa genérica** (`uPesquisa.btnEtiquetaClick`, visível nas pesquisas de Produto, Clientes, Associados
+e Promoção acumulativa — `uCadMaster:549`) — **não convertido, com prova**:
+- **clientes/associados** (FlagEtiqueta 1, modelos `etip`): o código lê `cdsTemp.FieldByName('NUMERO')`, e a view da pesquisa
+  (GET_PARCEIROS, `SetaDataset(... 'PARCEIROS')`) **não tem NUMERO** na produção (tem RAZAO, CODIGO, FANTASIA, EMAIL, OBS,
+  ENDERECO, BAIRRO, CIDADE, UF, CEP, CNPJ_CPF, RG_INSC, CELULAR, FIXO) — o caminho levanta "Field not found" no legado. Só o
+  modelo DEFAULT "etiqueta mala direta" existe na RELATORIOS (nenhum personalizado).
+- **produtos** (FlagEtiqueta 0): o legado copia o VRPROMO cru do GET_PRODUTOS, e **42.197 de 47.763** produtos da loja 1 têm
+  VRPROMO > 0 com PROMOCAO ≠ 'S' (promoção velha) — no GONDULA PINHEIRAO (`IIF(VRPROMO > 0, …)`) a etiqueta sairia com o preço
+  da promoção encerrada. O log rico não tem nenhuma impressão com esse padrão (VALORPROMOCAO > 0 sem promoção). As outras
+  entradas (código de barras, pesquisa por situação, coletor, cadastro) cobrem o mesmo produto com o preço certo.
