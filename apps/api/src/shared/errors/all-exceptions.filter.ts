@@ -281,6 +281,7 @@ const CODE_PT: Record<string, string> = {
   BANCO_OBRIGATORIO: 'O banco é obrigatório.',
   PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado.',
   PRODUTO_INATIVO_ETIQUETA: 'Produto não está ativo!',
+  CONTABILISTA_NOME_OBRIGATORIO: 'Informe o nome do contabilista.',
   MANIFESTO_SEM_SELECAO: 'Selecione pelo menos uma nota fiscal para realizar a manifestação.',
   XML_ITENS_NAO_LIBERADO: 'Nota fiscal não liberada para visualização dos itens. Realize a ciência da operação.',
   ANALISE_SO_ENTRADA: 'A análise dos itens é das notas de entrada.',

@@ -132,6 +132,7 @@ import { PlanoContasService } from './plano-contas.service';
 import { DreController } from './dre.controller';
 import { DreService } from './dre.service';
 import { EmpresasCrudController } from './empresas.crud';
+import { EmpresaContabilistaController } from './empresa-contabilista.controller';
 import { OperadoresAggregateController } from './operadores.aggregate';
 import { FormasPgtoCrudController } from './formas-pgto.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
@@ -200,6 +201,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)
     RazaoController, // vertical read-only (LIVRO RAZÃO contábil — movimentos do DIÁRIO por conta/período)
+    EmpresaContabilistaController, // o contabilista da empresa (a aba do UCadEmpresa; o 0100 do SPED)
     EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
     OperadoresAggregateController, // mestre-detalhe (OPERADORES + empresas-permitidas; global, pk digitada, soft-delete INDR)
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)

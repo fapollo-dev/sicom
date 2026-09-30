@@ -6,6 +6,11 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { UFS, empresaSchema, EMPRESA_CAMPOS_LEGADO, type CriarEmpresaDto } from '@apollo/shared';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
+import { useEffect, useState } from 'react';
+import { Button } from '../../shared/ui/Button';
+import { useMensagem } from '../../shared/mensagem';
+import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { isErroResposta, type ErroResposta } from '@apollo/shared';
 
 const UF_SIGLA_OPCOES = UFS.map((u) => ({ value: u.sigla, label: `${u.sigla} — ${u.nome}` }));
 const CLASSFISCAL_OPCOES = [
@@ -240,9 +245,67 @@ export function EmpresasCadMaster() {
               </div>
             </fieldset>
             <CamposLegado form={form} editavel={editavel} />
+            <ContabilistaSection idempresa={form.watch('idempresa') as number | undefined} editavel={editavel} />
           </div>
         );
       }}
     />
+  );
+}
+
+const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+const CAMPOS_CONTABILISTA: Array<{ nome: string; rotulo: string; max: number }> = [
+  { nome: 'nome', rotulo: 'Nome', max: 150 }, { nome: 'cpf', rotulo: 'CPF', max: 20 }, { nome: 'crc', rotulo: 'CRC', max: 20 },
+  { nome: 'cnpj', rotulo: 'CNPJ (escritório)', max: 20 }, { nome: 'cep', rotulo: 'CEP', max: 10 }, { nome: 'endereco', rotulo: 'Endereço', max: 150 },
+  { nome: 'num', rotulo: 'Número', max: 10 }, { nome: 'complemento', rotulo: 'Complemento', max: 60 }, { nome: 'bairro', rotulo: 'Bairro', max: 60 },
+  { nome: 'fone', rotulo: 'Telefone', max: 30 }, { nome: 'fax', rotulo: 'Fax', max: 30 }, { nome: 'email', rotulo: 'E-mail', max: 120 },
+  { nome: 'cod_mun', rotulo: 'Código IBGE do município', max: 7 },
+];
+
+/**
+ * A aba "Contabilista" do UCadEmpresa: o contabilista da empresa (CONTABILISTA por CODEMPRESA) — o registro 0100 das duas
+ * escriturações do SPED e o cabeçalho do Diário. Grava à parte do cadastro da empresa (o dataset aninhado do legado).
+ */
+function ContabilistaSection({ idempresa, editavel }: { idempresa?: number; editavel: boolean }) {
+  const mensagem = useMensagem();
+  const [v, setV] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const id = Number(idempresa);
+  const valido = Number.isInteger(id) && id > 0;
+  useEffect(() => {
+    if (!valido) { setV({}); return; }
+    let vivo = true;
+    void fetch(`${BASE}/cadastro/empresas/${id}/contabilista`, { headers: apiHeaders() }).then(async (r) => {
+      handle401(r);
+      const j = r.ok ? await r.json().catch(() => null) : null;
+      if (vivo) setV(Object.fromEntries(CAMPOS_CONTABILISTA.map((c) => [c.nome, j?.[c.nome] == null ? '' : String(j[c.nome])])));
+    });
+    return () => { vivo = false; };
+  }, [id, valido]);
+  const gravar = async () => {
+    if (!valido || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${BASE}/cadastro/empresas/${id}/contabilista`, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(v) });
+      handle401(r);
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+        throw Object.assign(new Error(env.code), { envelope: env });
+      }
+      mensagem.sucesso('Contabilista gravado.');
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  if (!valido) return null;
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Contabilista (registro 0100 do SPED)</legend>
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+        {CAMPOS_CONTABILISTA.map((c) => (
+          <Field key={c.nome} label={c.rotulo} maxLength={c.max} disabled={!editavel || busy} value={v[c.nome] ?? ''} onChange={(e) => setV((x) => ({ ...x, [c.nome]: e.target.value }))} />
+        ))}
+      </div>
+      <div className="mt-gp-sm"><Button label="Gravar contabilista" variant="soft" disabled={!editavel || busy} onClick={() => void gravar()} /></div>
+    </fieldset>
   );
 }

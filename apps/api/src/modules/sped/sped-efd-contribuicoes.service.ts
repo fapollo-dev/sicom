@@ -57,6 +57,12 @@ export class SpedEfdContribuicoesService {
     arq.add('0000', [codVersao(dtini), '0', '', '', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, empresa.uf ?? '', empresa.idcidade != null ? String(empresa.idcidade) : '', '', '00', '2']);
     // 0001 — abertura do bloco 0 (0=com dados).
     arq.add('0001', ['0']);
+    // 0100 (13 campos) — o contabilista da empresa (uSpedPisCofins.pas:416, `SELECT * FROM CONTABILISTA WHERE CODEMPRESA`): CPF, CNPJ
+    // e CEP sem pontuação; FONE e FAX como estão (este leiaute do legado não os limpa)
+    const ct = (await sql<Record<string, unknown>>`SELECT * FROM contabilista WHERE codempresa = ${emp} LIMIT 1`.execute(db)).rows[0] ?? {};
+    const txt = (v: unknown) => (v == null ? '' : String(v));
+    arq.add('0100', [txt(ct.nome), soDigitos(ct.cpf as string), txt(ct.crc), soDigitos(ct.cnpj as string), soDigitos(ct.cep as string), txt(ct.endereco),
+      txt(ct.num), txt(ct.complemento), txt(ct.bairro), txt(ct.fone), txt(ct.fax), txt(ct.email), ct.cod_mun != null ? String(ct.cod_mun) : '']);
     // 0110 — regime: LR → não-cumulativo (COD_INC_TRIB=1, apropriação direta, COD_TIPO_CONT=1 alíquota básica);
     // senão cumulativo (COD_INC_TRIB=2 + IND_REG_CUM=1 caixa). fold cutover ALTA: COD_TIPO_CONT era '0' (fora do
     // domínio {1,2} → PVA rejeita) e IND_REG_CUM era vazio no cumulativo (obrigatório p/ COD_INC_TRIB=2).

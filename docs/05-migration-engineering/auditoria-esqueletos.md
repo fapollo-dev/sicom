@@ -670,5 +670,6 @@ NFE_NAO_CADASTRADAS_ITENS e nada o gravava). 1ª rodada: 469 tabelas, 36 lidas e
 | NFE_REF_DEV_ENT_VINCULO (~20/mês) | **corrigido** — gravada na sincronização: nota tpNF 0 com refNFe → {ela, cada referenciada} (307/307 notas) |
 | HISTORICO_PDV, CAIXA_PDV, PDV | PDV (fora do escopo) |
 | RELATORIOS, RELATORIOS_CUSTOMIZADOS | os arquivos .fr3/.xml do binário novo e do construtor — o Apollo lê (modelos de etiqueta, importador); não há designer |
-| CONFIG_BALANCA, CONFIGURACOES_SPED, CONTABILISTA, CFG_DESCRICAO_NAO_IMPORTAR_OFX, BANDEIRA, GRUPO_OPERADOR, CONTACORRENTE | configuração/cadastro pequeno (1–332 linhas, sem data): a conferir tela a tela |
+| CONTABILISTA | **corrigido** — a aba do UCadEmpresa no cadastro de empresa; e achou o furo maior: os dois SPED do Apollo não geravam o **registro 0100** (obrigatório nas duas escriturações) — agora geram, do contabilista da empresa (Uspedfiscal.pas:1661, uSpedPisCofins.pas:416) |
+| CONFIG_BALANCA, CONFIGURACOES_SPED, CFG_DESCRICAO_NAO_IMPORTAR_OFX, BANDEIRA, GRUPO_OPERADOR, CONTACORRENTE | configuração/cadastro pequeno (1–332 linhas, sem data): a conferir tela a tela |
 | PC_BASECREDITO, PC_TAB_AJUSTE_*, PC_TIPOCREDITO*, CCLASS_TRIB_NCM | tabelas de referência (EFD/reforma) |

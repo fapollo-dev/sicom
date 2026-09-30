@@ -20,7 +20,7 @@ export interface ResultadoValidacao {
 
 /** contagem esperada de campos (após o REG) dos registros do EFD ICMS/IPI que emitimos. */
 const CAMPOS_ESPERADOS: Record<string, number> = {
-  '0000': 14, '0001': 1, '0005': 9, '0150': 12, '0175': 3, '0190': 2, '0200': 12, '0205': 4, '0990': 1,
+  '0000': 14, '0001': 1, '0005': 9, '0100': 13, '0150': 12, '0175': 3, '0190': 2, '0200': 12, '0205': 4, '0990': 1,
   C001: 1, C100: 28, C170: 37, C190: 11, C500: 26, C590: 10, C990: 1,
   D001: 1, D990: 1,
   E001: 1, E100: 2, E110: 14, E116: 9, E990: 1,

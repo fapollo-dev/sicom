@@ -93,7 +93,7 @@ export class SpedEfdIcmsIpiService {
 
     const empresa = (await db
       .selectFrom('empresas')
-      .select(['razao_social', 'fantasia', 'cnpj', 'insc', 'im', 'endereco', 'numero', 'bairro', 'uf', 'cep', 'fone1', 'idcidade'])
+      .select(['razao_social', 'fantasia', 'cnpj', 'insc', 'im', 'endereco', 'numero', 'bairro', 'uf', 'cep', 'fone1', 'fone2', 'idcidade'])
       .where('idempresa', '=', emp)
       .executeTakeFirst()) as Record<string, any> | undefined;
     if (!empresa) throw new BusinessRuleError('EMPRESA_NAO_ENCONTRADA', { idempresa: emp });
@@ -108,7 +108,13 @@ export class SpedEfdIcmsIpiService {
     arq.add('0000', [codVersaoFiscal(dtini), '0', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, '', empresa.uf ?? '', ie, empresa.idcidade != null ? String(empresa.idcidade) : '', empresa.im ?? '', '', 'A', '1']);
     arq.add('0001', ['0']);
     // 0005 (9 campos): FANTASIA|CEP|ENDERECO|NUM|COMPL|BAIRRO|FONE|FAX|EMAIL
-    arq.add('0005', [empresa.fantasia ?? empresa.razao_social ?? '', soDigitos(empresa.cep), empresa.endereco ?? '', empresa.numero ?? 'S/N', '', empresa.bairro ?? '', soDigitos(empresa.fone1), '', '']);
+    arq.add('0005', [empresa.fantasia ?? empresa.razao_social ?? '', soDigitos(empresa.cep), empresa.endereco ?? '', empresa.numero ?? 'S/N', '', empresa.bairro ?? '', soDigitos(empresa.fone1), soDigitos(empresa.fone2), '']);
+    // 0100 (13 campos) — o contabilista da empresa (Uspedfiscal.pas:1661, `SELECT * FROM CONTABILISTA WHERE CODEMPRESA`): CPF, CNPJ,
+    // CEP, FONE e FAX sem pontuação; sem contabilista cadastrado o legado gera o registro vazio (o dataset vazio devolve '')
+    const ct = (await sql<Record<string, unknown>>`SELECT * FROM contabilista WHERE codempresa = ${emp} LIMIT 1`.execute(db)).rows[0] ?? {};
+    const txt = (v: unknown) => (v == null ? '' : String(v));
+    arq.add('0100', [txt(ct.nome), soDigitos(ct.cpf as string), txt(ct.crc), soDigitos(ct.cnpj as string), soDigitos(ct.cep as string), txt(ct.endereco),
+      txt(ct.num), txt(ct.complemento), txt(ct.bairro), soDigitos(ct.fone as string), soDigitos(ct.fax as string), txt(ct.email), ct.cod_mun != null ? String(ct.cod_mun) : '']);
 
     const docs = await this.coletarEntrada(db, emp, dtini, dtfim);
     // o BLOCO D (GeraBlocoD, Uspedfiscal.pas:516-672): as notas de frete (D100/D190) — os participantes delas entram no 0150

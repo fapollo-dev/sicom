@@ -13816,6 +13816,32 @@ async function main() {
       const m9990 = /^\|9990\|(\d+)\|$/.exec(l9990);
       check('SPED §87.2: totalizador 9990 = linhas do bloco 9 (9001+9900s+9990)', !!m9990 && Number(m9990[1]) === qtdBloco9, { l9990, qtdBloco9 });
 
+      // 88.2b) o CONTABILISTA (a aba do UCadEmpresa) é o 0100 das duas escriturações: gravado pelo cadastro da empresa, sai no bloco 0
+      {
+        const pgCt0 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+        try {
+          const antes = (await pgCt0.query(`SELECT * FROM contabilista WHERE codempresa = 1`)).rows[0];
+          const semNome = await fetch(`${base}/cadastro/empresas/1/contabilista`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: '' }) });
+          const put = await fetch(`${base}/cadastro/empresas/1/contabilista`, { method: 'PUT', headers: H, body: JSON.stringify({
+            nome: 'CONTADOR SMOKE', cpf: '493.731.106-91', crc: '44122', cnpj: '09.173.665/0001-71', cep: '38.400-454', endereco: 'AV BELO HORIZONTE', num: '387',
+            bairro: 'OSVALDO RESENDE', fone: '(34)3235-5003', email: 'contador@smoke.com.br', cod_mun: 3170206 }) });
+          const got = (await (await fetch(`${base}/cadastro/empresas/1/contabilista`, { headers: H })).json().catch(() => ({}))) as any;
+          const efdPC = String(((await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) })).json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
+          const efdII = String(((await (await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) })).json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
+          const pc0100 = efdPC.find((l) => l.startsWith('|0100|')) ?? '';
+          const ii0100 = efdII.find((l) => l.startsWith('|0100|')) ?? '';
+          const ordemPC = efdPC.findIndex((l) => l.startsWith('|0100|')) === efdPC.findIndex((l) => l.startsWith('|0001|')) + 1;
+          const ordemII = efdII.findIndex((l) => l.startsWith('|0100|')) === efdII.findIndex((l) => l.startsWith('|0005|')) + 1;
+          check('SPED §87.2b [o registro 0100]: o contabilista gravado pelo cadastro da empresa (nome obrigatório → 422) sai nas duas escriturações — Contribuições logo depois do 0001 (fone como está), ICMS/IPI depois do 0005 (CPF, CNPJ, CEP e fone sem pontuação)',
+            semNome.status === 422 && put.status === 200 && got?.nome === 'CONTADOR SMOKE'
+            && pc0100 === '|0100|CONTADOR SMOKE|49373110691|44122|09173665000171|38400454|AV BELO HORIZONTE|387||OSVALDO RESENDE|(34)3235-5003||contador@smoke.com.br|3170206|' && ordemPC
+            && ii0100 === '|0100|CONTADOR SMOKE|49373110691|44122|09173665000171|38400454|AV BELO HORIZONTE|387||OSVALDO RESENDE|3432355003||contador@smoke.com.br|3170206|' && ordemII,
+            { semNome: semNome.status, put: put.status, pc0100, ii0100, ordemPC, ordemII });
+          await pgCt0.query(`DELETE FROM contabilista WHERE codempresa = 1`);
+          if (antes) await pgCt0.query(`INSERT INTO contabilista SELECT * FROM json_populate_record(NULL::contabilista, $1::json)`, [JSON.stringify(antes)]);
+        } finally { await pgCt0.end(); }
+      }
+
       // 88.3) RBAC: gerar sem grant → 403.
       const spedRbac = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) });
       check('SPED §87.3: gerar sem grant RBAC → 403', spedRbac.status === 403, { status: spedRbac.status });
