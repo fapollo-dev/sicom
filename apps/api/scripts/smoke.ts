@@ -8720,6 +8720,44 @@ async function main() {
       impCx.status === 200 && Number(itCx[0]?.codproduto) === 2, { status: impCx.status, code: impCxJ.code, itCx });
     await pgImp.query(`DELETE FROM codauxiliar WHERE codauxiliar = '7894900099997'`);
 
+    // 50.4c) ANÁLISE DOS ITENS DA NOTA DO MANIFESTO (TFrmAnalisaItensNfManifesto): abrir grava os itens do XML e vincula os produtos
+    // com o FATORCX; o fator corrigido na grade é o que a importação usa (GetFatorEmbalagemManifesto, NFe.pas:3092)
+    {
+      const nnfAn = 900096;
+      const chAn = mkChave(nnfAn);
+      const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const fcxAntes = (await pgImp.query(`SELECT idproduto, fatorcx FROM produtos WHERE idproduto IN (2, 3)`)).rows as any[];
+      await pgImp.query(`UPDATE produtos SET fatorcx = CASE idproduto WHEN 2 THEN 6 ELSE 0 END WHERE idproduto IN (2, 3)`);
+      await pgImp.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema)
+        VALUES (97096, $1, '${CNPJ_F1}', 'FORNECEDOR TESTE', '${hojeSP} 10:00:00-03', 'E', 63.44, 1, 1, 55, 'N')`, [chAn]);
+      await pgImp.query(`INSERT INTO nfe_xml (chavenfe, xml, modelo) VALUES ($1, $2, 55)`, [chAn, mkXml(chAn, nnfAn)]);
+      const an = (await (await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}`, { headers: H })).json().catch(() => ({}))) as any;
+      const an1 = an.itens?.find((i: any) => i.nroitem === 1);
+      const an2 = an.itens?.find((i: any) => i.nroitem === 2);
+      const naTabela = Number((await pgImp.query(`SELECT count(*)::int n FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chAn])).rows[0].n);
+      const fat = (await (await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}/fatores`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ nroitem: 1, fatorembal: 12 }] }) })).json().catch(() => ({}))) as any;
+      const orig = (await (await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}/fator-todos`, { method: 'POST', headers: H, body: JSON.stringify({ modo: 'original' }) })).json().catch(() => ({}))) as any;
+      await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}/fatores`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ nroitem: 1, fatorembal: 12 }] }) });
+      // a importação pela fila (com a confirmação 210200) usa o fator da análise
+      await pgImp.query(`INSERT INTO nfe_eventos (chave_acesso, tipo_evento, seq_evento, descricao_evento, data_evento) VALUES ($1, 210200, 1, 'Confirmacao da Operacao', now())`, [chAn]);
+      const impAn = (await (await fetch(`${base}/compras/manifesto-dfe/importar/97096`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
+      const itNf = (await pgImp.query(`SELECT codproduto, fatorembal::float AS f FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [Number(impAn.codnf)])).rows as any[];
+      const semXml = await fetch(`${base}/compras/manifesto-dfe/itens/${mkChave(900097)}`, { headers: H });
+      check('MANIFESTO [análise dos itens]: abrir grava os 2 itens do XML e vincula pelo EAN (produto 2 com o FATORCX 6, produto 3 com fator 1 — FATORCX 0) · unitário com ST = 3 + 1,44/4 = 3,36 · o fator digitado (12) grava e "fator original a todos" volta ao 6 · a importação da nota usa o fator da análise (12) · sem XML → 422',
+          naTabela === 2 && Number(an1?.idproduto) === 2 && an1?.fatorembal === 6 && Number(an2?.idproduto) === 3 && an2?.fatorembal === 1 && an2?.vrunitario_trib === 3.36
+          && an.editavel === true && an.parceiro?.codparceiro != null
+          && fat.itens?.find((i: any) => i.nroitem === 1)?.fatorembal === 12 && orig.itens?.find((i: any) => i.nroitem === 1)?.fatorembal === 6
+          && Number(impAn.codnf) > 0 && itNf.find((r) => Number(r.codproduto) === 2)?.f === 12
+          && semXml.status === 422,
+        { naTabela, an1, an2, parceiro: an.parceiro, fat1: fat.itens?.[0]?.fatorembal, orig1: orig.itens?.[0]?.fatorembal, impAn: impAn.codnf ?? impAn.code, itNf, semXml: semXml.status });
+      if (Number(impAn.codnf) > 0) { await pgImp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(impAn.codnf)]); await pgImp.query(`DELETE FROM apagar WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); await pgImp.query(`DELETE FROM nf WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); }
+      await pgImp.query(`DELETE FROM nfe_eventos WHERE chave_acesso = $1`, [chAn]);
+      await pgImp.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chAn]);
+      await pgImp.query(`DELETE FROM nfe_xml WHERE chavenfe = $1`, [chAn]);
+      await pgImp.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad = 97096`);
+      for (const r of fcxAntes) await pgImp.query(`UPDATE produtos SET fatorcx = $1 WHERE idproduto = $2`, [r.fatorcx, r.idproduto]);
+    }
+
     // 50.5) fornecedor (CNPJ) desconhecido → 422 NFE_FORNECEDOR_NAO_ENCONTRADO.
     const nnf3 = 900003;
     const imp5 = await importar(mkXml(mkChave(nnf3, '99888777000166'), nnf3, '99888777000166'));

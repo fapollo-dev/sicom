@@ -3,6 +3,7 @@ import { AcessoService } from '../../shared/acesso/acesso.service';
 import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { ManifestoPrevisaoService } from './manifesto-previsao.service';
+import { ManifestoItensService } from './manifesto-itens.service';
 import { BusinessRuleError, ForbiddenActionError } from '../../shared/errors/app-error';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
 import { manifestarSchema, manifestarLoteSchema, type ManifestarDto, type ManifestarLoteDto } from '@apollo/shared';
@@ -18,6 +19,7 @@ export class ManifestoDfeController {
     private readonly svc: ManifestoDfeService,
     private readonly sefaz: SefazDfeService,
     private readonly previsao: ManifestoPrevisaoService,
+    private readonly itens: ManifestoItensService,
     private readonly acesso: AcessoService,
   ) {}
 
@@ -98,6 +100,38 @@ export class ManifestoDfeController {
   @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
   importar(@Param('cod', ParseIntPipe) cod: number) {
     return this.svc.importar(cod);
+  }
+
+  /** a análise dos itens da nota (o botão "Itens" da grade — TFrmAnalisaItensNfManifesto): grava os itens do XML e vincula os produtos */
+  @Get('itens/:chave')
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  analisarItens(@Param('chave') chave: string) {
+    return this.itens.analisar(chave);
+  }
+
+  @Post('itens/:chave/fatores')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  gravarFatores(@Param('chave') chave: string, @Body() body: { itens?: Array<{ nroitem?: unknown; fatorembal?: unknown }> }) {
+    const itens = (Array.isArray(body?.itens) ? body.itens : []).map((i) => ({ nroitem: Number(i.nroitem), fatorembal: Number(i.fatorembal) }))
+      .filter((i) => Number.isInteger(i.nroitem) && Number.isFinite(i.fatorembal));
+    return this.itens.gravarFatores(chave, itens);
+  }
+
+  @Post('itens/:chave/fator-todos')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  fatorParaTodos(@Param('chave') chave: string, @Body() body: { modo?: unknown }) {
+    return this.itens.fatorParaTodos(chave, body?.modo === 'unitario' ? 'unitario' : 'original');
+  }
+
+  @Post('itens/:chave/vincular')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
+  vincularItem(@Param('chave') chave: string, @Body() body: { nroitem?: unknown; idproduto?: unknown }) {
+    const nroitem = Number(body?.nroitem); const idproduto = Number(body?.idproduto);
+    if (!Number.isInteger(nroitem) || !Number.isInteger(idproduto) || idproduto <= 0) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: body?.idproduto });
+    return this.itens.vincular(chave, nroitem, idproduto);
   }
 
   @Get('xml/:chave')

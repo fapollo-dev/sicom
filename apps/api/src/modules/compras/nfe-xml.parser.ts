@@ -23,6 +23,12 @@ export interface NfeItemParsed {
   vUnCom: number;
   vProd: number;
   vDesc: number;
+  // a unidade tributável (cEANTrib/uTrib/qTrib/vUnTrib) e o indTot — a análise dos itens do manifesto guarda (NFE_NAO_CADASTRADAS_ITENS)
+  cEANTrib?: string;
+  uTrib?: string;
+  qTrib?: number;
+  vUnTrib?: number;
+  indTot?: string;
   origem?: string; // ICMS orig (CST-origem)
   cst?: string; // CST (regime normal)
   csosn?: string; // CSOSN (Simples)
@@ -187,6 +193,11 @@ export function parseNfeXml(xml: string): NfeParsed {
       vUnCom: num(prod.vUnCom),
       vProd: num(prod.vProd),
       vDesc: num(prod.vDesc),
+      cEANTrib: str(prod.cEANTrib) || undefined,
+      uTrib: str(prod.uTrib) || undefined,
+      qTrib: num(prod.qTrib),
+      vUnTrib: num(prod.vUnTrib),
+      indTot: str(prod.indTot) || undefined,
       origem: str(icms.orig) || undefined,
       cst,
       csosn,

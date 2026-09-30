@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirPagina } from '../../shared/print/imprimirPagina';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -33,6 +34,17 @@ interface Sugestao {
   configurado: boolean; codparceiro: number | null; fornecedor: string | null; jaGerada: boolean;
   parcelas: Array<{ nrparcela: string; valor: number; dtvenc: string | null }>;
 }
+interface ItemAnalise {
+  nroitem: number; codprod: string; ean: string; descricao: string; ncm: string; cfop: number | null; unidade: string; quantidade: number;
+  fatorembal: number; vrunitario: number; vrtotal: number; vrunitario_trib: number; idproduto: number | null; produto_codbarra: string | null;
+  produto_descricao: string | null; produto_cadastrado: 'S' | 'N';
+}
+interface Analise {
+  chave: string; numero: string; razao: string; cnpj: string; total: number; editavel: boolean;
+  parceiro: { codparceiro: number | null; status: 'ATIVO' | 'INATIVO' | 'NAO_CADASTRADO' }; itens: ItemAnalise[];
+}
+const STATUS_PARCEIRO: Record<Analise['parceiro']['status'], string> = { ATIVO: 'PARCEIRO ATIVO', INATIVO: 'PARCEIRO INATIVO', NAO_CADASTRADO: 'PARCEIRO NÃO CAD.' };
+
 const FONTE: Record<Sugestao['fonte'], string> = {
   FINANCEIRO: 'parcelas da grade financeira da nota',
   XML: 'duplicatas do XML',
@@ -100,6 +112,38 @@ export function ManifestoDfePage() {
       setBusy(false);
       await consultar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  // a análise dos itens da nota (o botão "Itens" da grade, só entrada)
+  const [analise, setAnalise] = useState<Analise | null>(null);
+  const [fatores, setFatores] = useState<Record<number, string>>({});
+  const [filtroItens, setFiltroItens] = useState<'T' | 'S' | 'N'>('T');
+  const refAnalise = useRef<HTMLDivElement>(null);
+  const abrirAnalise = (a: Analise) => { setAnalise(a); setFatores(Object.fromEntries(a.itens.map((i) => [i.nroitem, String(i.fatorembal)]))); };
+  const analisarItens = async (ch: string) => {
+    if (busy) return;
+    setBusy(true);
+    try { abrirAnalise(await req<Analise>(`/compras/manifesto-dfe/itens/${ch}`)); }
+    catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const acaoAnalise = async (caminho: string, body: unknown, msg: string) => {
+    if (!analise || busy) return;
+    setBusy(true);
+    try {
+      const r = await post<{ itens: ItemAnalise[] }>(`/compras/manifesto-dfe/itens/${analise.chave}/${caminho}`, body);
+      abrirAnalise({ ...analise, itens: r.itens });
+      mensagem.sucesso(msg);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const gravarFatores = () => acaoAnalise('fatores', { itens: Object.entries(fatores).map(([nroitem, f]) => ({ nroitem: Number(nroitem), fatorembal: Number(String(f).replace(',', '.')) || 0 })) }, 'Fatores gravados.');
+  const vincularItem = (it: ItemAnalise) => {
+    const cod = window.prompt(`Código interno do produto para "${it.descricao}":`);
+    if (!cod?.trim() || !/^\d+$/.test(cod.trim())) return;
+    void acaoAnalise('vincular', { nroitem: it.nroitem, idproduto: Number(cod.trim()) }, 'Item vinculado (referência do fornecedor gravada).');
+  };
+  const imprimirAnalise = () => {
+    const win = window.open('', '_blank', 'width=1000,height=700');
+    if (!win || !refAnalise.current || !analise) return;
+    imprimirPagina(win, refAnalise.current, `Produtos da NF ${analise.numero} — ${analise.razao}`, undefined, true);
   };
   const alternar = (ch: string) => setSel((s) => { const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; });
 
@@ -263,6 +307,7 @@ export function ManifestoDfePage() {
                   <td className="p-pad-xs">{String(l.contingencia)}</td>
                   <td className="p-pad-xs whitespace-nowrap">
                     <button className="underline" onClick={() => void verEventos(ch)}>eventos</button>
+                    {l.tipo === 'ENTRADA' && <>{' · '}<button className="underline" onClick={() => void analisarItens(ch)}>itens</button></>}
                     {l.tem_xml === true && <>{' · '}<button className="underline" onClick={() => void baixarXml(ch)}>xml</button></>}
                     {naoCad && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
                     {naoCad && l.ignorada !== 'S' && <>{' · '}<button className="underline" onClick={() => void importar(l)}>importar</button></>}
@@ -290,6 +335,55 @@ export function ManifestoDfePage() {
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {analise && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex flex-wrap items-baseline gap-gp-sm">
+            <strong>Itens da NF {analise.numero} — {analise.razao}</strong>
+            <span className="text-body-sm tabular-nums">{analise.cnpj}</span>
+            <span className={`text-body-sm font-semibold ${analise.parceiro.status === 'ATIVO' ? 'text-accent' : 'text-danger'}`}>{STATUS_PARCEIRO[analise.parceiro.status]}</span>
+            <span className="text-body-sm">Total {brl(analise.total)}</span>
+            {!analise.editavel && <span className="text-body-sm text-fg-muted">nota processada — fator só leitura</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-gp-sm">
+            <SelectField label="Mo&strar" value={filtroItens} onChange={(v) => setFiltroItens((v || 'T') as 'T' | 'S' | 'N')} options={[{ value: 'T', label: 'Todos' }, { value: 'S', label: 'Produtos cadastrados' }, { value: 'N', label: 'Produtos não cadastrados' }]} />
+            <Button label="&Gravar fatores" variant="soft" disabled={busy || !analise.editavel} onClick={() => void gravarFatores()} />
+            <Button label="Fator &original a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'original' }, 'Produtos atualizados com sucesso!')} />
+            <Button label="Fator &1,0 a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'unitario' }, 'Produtos atualizados com sucesso!')} />
+            <Button label="Im&primir" variant="ghost" onClick={imprimirAnalise} />
+            <Button label="&Fechar" variant="ghost" onClick={() => setAnalise(null)} />
+          </div>
+          <div ref={refAnalise} className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-body-sm">
+              <thead>
+                <tr className="text-left text-fg-muted">
+                  <th className="p-pad-xs">Item</th><th className="p-pad-xs">Cód. forn.</th><th className="p-pad-xs">EAN</th><th className="p-pad-xs">Descrição</th>
+                  <th className="p-pad-xs">NCM</th><th className="p-pad-xs">CFOP</th><th className="p-pad-xs">Un.</th><th className="p-pad-xs text-right">Qtde</th>
+                  <th className="p-pad-xs text-right">Fator</th><th className="p-pad-xs text-right">Vr. unit.</th><th className="p-pad-xs text-right">Vr. total</th>
+                  <th className="p-pad-xs text-right">Unit. c/ ST e IPI</th><th className="p-pad-xs">Produto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analise.itens.filter((i) => filtroItens === 'T' || i.produto_cadastrado === filtroItens).map((i) => (
+                  <tr key={i.nroitem} className={`border-t border-border ${i.produto_cadastrado === 'N' ? 'text-danger' : ''}`}>
+                    <td className="p-pad-xs tabular-nums">{i.nroitem}</td><td className="p-pad-xs">{i.codprod}</td><td className="p-pad-xs tabular-nums">{i.ean}</td>
+                    <td className="p-pad-xs">{i.descricao}</td><td className="p-pad-xs tabular-nums">{i.ncm}</td><td className="p-pad-xs tabular-nums">{i.cfop ?? ''}</td>
+                    <td className="p-pad-xs">{i.unidade}</td><td className="p-pad-xs text-right tabular-nums">{i.quantidade.toLocaleString('pt-BR')}</td>
+                    <td className="p-pad-xs text-right">{analise.editavel
+                      ? <input aria-label={`Fator do item ${i.nroitem}`} className="w-16 rounded-radius-sm border border-border bg-bg px-1 py-0.5 text-right tabular-nums" inputMode="decimal" value={fatores[i.nroitem] ?? ''} onChange={(e) => setFatores((f) => ({ ...f, [i.nroitem]: e.target.value }))} />
+                      : <span className="tabular-nums">{i.fatorembal.toLocaleString('pt-BR')}</span>}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(i.vrunitario)}</td><td className="p-pad-xs text-right tabular-nums">{brl(i.vrtotal)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(i.vrunitario_trib)}</td>
+                    <td className="p-pad-xs">{i.produto_cadastrado === 'S'
+                      ? <span>{i.idproduto} · {i.produto_codbarra ?? ''} · {i.produto_descricao ?? ''}</span>
+                      : <span>não cadastrado{analise.parceiro.codparceiro != null && <>{' · '}<button className="underline" onClick={() => vincularItem(i)}>vincular</button></>}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

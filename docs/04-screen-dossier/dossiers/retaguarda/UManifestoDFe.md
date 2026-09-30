@@ -30,7 +30,29 @@ Apollo (mig 030), que a carga enche com uma cópia do NFE_EVENTOS mas que o mani
 enviada pelo Apollo (gravada em `nfe_eventos`, como o legado) não apareceria na view. Agora lê NFE_EVENTOS/CHAVE_ACESSO, como
 a view da produção.
 
+## Corte "a análise dos itens da nota" (30/09/2026)
+
+`TFrmAnalisaItensNfManifesto` (uAnalisaItensNfManifesto.pas, o botão "Itens" da grade, só ENTRADA). **É viva e pesa no
+recebimento:** abrir a análise grava os itens do XML em NFE_NAO_CADASTRADAS_ITENS (o AfterPost do dataset aplica cada linha,
+uDMManifestoDFe.pas:420) — ~450 notas por mês na produção, 98% dos itens com produto — e a importação da NF usa o FATOREMBAL
+de cada item (`GetFatorEmbalagemManifesto`, NFe.pas:3092). O Apollo já lia esse fator na importação, mas nada o gravava: depois
+da virada, o fator da caixa corrigido pelo operador deixaria de existir.
+
+- `GET itens/:chave` (FormShow → `CarregarItensNotaFiscal` :690 → `CarregaCadastroProduto` :1306): exige o XML ("Nota fiscal não
+  liberada para visualização dos itens. Realize a ciência da operação."); insere os itens que faltam (fator 0), refaz ST/IPI dos
+  que já estão enquanto a nota não tem pedido; vincula cada item na ordem do legado — EAN (GTIN-14 sem o zero) ou código do
+  fornecedor → referência do fornecedor → código de barras / código auxiliar (com o zero à esquerda até 5 dígitos e o '0'+EAN
+  de 13) → código do fornecedor —, só com o emitente cadastrado (PARCEIROS_END pelo CNPJ: ATIVO / INATIVO / NÃO CAD.), e põe
+  o FATORCX do produto (0 → 1) no item que ainda não tem fator. VRUNITARIO_TRIB = vUnCom + ST/qCom + IPI/qCom.
+- Fator editável na grade enquanto a nota não está processada; "Atribuir fator original de todos" (FATORCX) e "fator 1,0 a
+  todos"; imprimir a grade (todos / cadastrados / não cadastrados — ImprimirRelatorioProdManifesto).
+- **Vincular** o item não reconhecido a um produto: grava a referência do fornecedor (o InsereRefFornecedorXML das opções
+  "anexar" da importação) e refaz o vínculo.
+
+**Fora, com prova:** a aba Financeiro da análise gravava FATURAMENTO_MANIFESTO, tabela que **não existe** na produção (o binário
+novo trocou pela previsão de A Pagar — `previsao-apagar-manifesto.md`); "Verificar nota fiscal com pedido de compra" é a análise
+pedido×NF (parada desde 09/01/2025); o cadastro de produto/parceiro a partir do XML (F2/F7) fica no cadastro.
+
 **Fora, com prova:** "Análise de pedido de compra" da linha — a análise pedido×NF parou em 09/01/2025 (9.030 análises, a
-última nessa data). A análise dos itens do XML (`uAnalisaItensNfManifesto`, 1.439 linhas) e a "conferência de preço simples"
-(relatório `conf - conferencia de preco simples nf.fr3`) são os próximos cortes. Colunas ALERTA/DESCRICAO_ALERTA são campos
+última nessa data). A "conferência de preço simples" (relatório `conf - conferencia de preco simples nf.fr3`) é o próximo corte. Colunas ALERTA/DESCRICAO_ALERTA são campos
 do dataset do binário novo (alerta fiscal), fora da view.
