@@ -54,5 +54,22 @@ passadas). Teste com os 6 modelos da produção e o pedido de devolução 10244 
   escolhido em `mniLayoutDaNota`; `uRptNF.fr3` e variantes PERSONALIZADAS) — mesmos datasets + `frxDBDatasetAnimal`.
 - **DANFE** (`ImprimirDANFE1`, ACBr `DANFeRetrato.fr3` PERSONALIZADO) e **Carta de correção** (`CartaCorrecao.fr3`, dataset
   `sqqCartaCorrecao`) — os datasets do ACBr (Identificacao, Emitente, Destinatario, Dados Produtos, …) precisam de recon próprio.
-- A Conferência de Nota (`TfrmConferenciaNota`) tem a mesma lista de conferência (itens marcados da grade, por descrição) e a
-  "Conferência por operadores" (`ConferenciaNFOperadores.fr3`).
+
+## Corte 2 — o menu Imprimir da Conferência de Nota (30/09/2026)
+
+O `pmImprimir` de `uConferenciaNota` (dfm:2242) — nenhuma das três existia no Apollo:
+- **Lista de Conferência** e **Lista de Conferência Usuários** (`ListadeConferenciaClick`, :969): a grade copiada, só os itens
+  **marcados** quando há marcado (`Filtered := not IsEmpty` — sem marcado, todos), por DESCRICAO; Nota e Empresa das consultas de
+  `ImprimeListadeConferencia`. A dos usuários (`ConferenciaNFOperadores.fr3`) imprime quem coletou e quem aprovou. Sem nota
+  carregada: "Informe a nota fiscal ou o lote.". `POST compras/conferencia-nota/:codnf/impressao`.
+- **Relatório** (`BtnImprimirFiltroClick`, :224): as entradas com coleta divergente por **fornecedor** (`aqqRelFornecedor`) ou por
+  **produto** (`aqqRelPro`) no período de DTCONTABIL com as horas da tela (padrão hoje 00:00 a hoje 00:00, como os JvDateEdit/
+  JvTimeEdit), filtros fornecedor/departamento/grupo/produto, a variável "Empresa" = razão social da empresa logada; vazio → "Não
+  existem notas fiscais com coletas divergentes lançadas para essa busca.". **Todas as lojas**, como o legado (as consultas não têm
+  IDEMPRESA). ⚠️ **Correção:** o filtro "Departamento" do legado comparava `PR.CODGRUPO` (cópia do "Grupo"); aqui é `PR.CODDPTO`.
+  `POST compras/conferencia-nota/relatorio-diferencas`.
+- O motor .fr3 ganhou as bandas **Header/Footer** da banda de dados (a que está logo acima/abaixo no desenho; `ReprintOnNewPage`,
+  `PrintIfDetailEmpty`), e a MasterData resolve o dataset pelo `DataSetName` (o UserName) antes do `DataSet` (o nome do componente
+  no form — "dbdRelFor").
+- **Fora, com prova:** o modo "por lote de notas" (`LOTE_CONFERENCIA_NF`: 4 lotes e 6 vínculos na produção inteira).
+- Smoke: 1 check (listas com e sem marcados, relatório por fornecedor e por produto, vazio).

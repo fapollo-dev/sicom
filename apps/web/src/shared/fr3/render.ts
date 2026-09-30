@@ -280,7 +280,7 @@ class Relatorio {
 
   /** o texto do memo; o memo ligado a campo (DataField) sem texto mostra o campo. */
   private modeloDoTexto(e: Estado, o: No): string {
-    return e.Text || (o.a.DataField ? `[<${nomeDs(o.a.DataSet || o.a.DataSetName) || 'frxDBDataset2'}."${o.a.DataField}">]` : '');
+    return e.Text || (o.a.DataField ? `[<${nomeDs(o.a.DataSetName || o.a.DataSet) || 'frxDBDataset2'}."${o.a.DataField}">]` : '');
   }
 
   /** expande os [ ] do texto de um memo com o DisplayFormat dele. */
@@ -387,7 +387,7 @@ class Relatorio {
   private htmlBarras(no: No, e: Estado): string {
     let valor = '';
     if (no.a.Expression) valor = texto(this.avaliarTexto(no.a.Expression));
-    else if (no.a.DataField) valor = texto(this.campo(no.a.DataSet || no.a.DataSetName || '', no.a.DataField));
+    else if (no.a.DataField) valor = texto(this.campo(no.a.DataSetName || no.a.DataSet || '', no.a.DataField));
     else valor = no.a.Text ?? '';
     const zoom = n(no.a.Zoom, 1);
     const d = desenhar(no.a.BarType ?? '', valor.trim(), no.a.CalcCheckSum === 'True', n(no.a.WideBarRatio, 2));
@@ -464,6 +464,11 @@ class Relatorio {
       const titulo = bandas.filter((b) => b.tag === 'TfrxReportTitle');
       const resumo = bandas.filter((b) => b.tag === 'TfrxReportSummary');
       const dados = bandas.filter((b) => b.tag === 'TfrxMasterData');
+      // o Header/Footer de uma banda de dados é o que está logo acima/abaixo dela no desenho (a ordem de Top)
+      const headerDe = (b: No) => bandas.filter((x) => x.tag === 'TfrxHeader' && n(x.a.Top) < n(b.a.Top))
+        .filter((x) => !dados.some((d) => d !== b && n(d.a.Top) > n(x.a.Top) && n(d.a.Top) < n(b.a.Top))).pop();
+      const footerDe = (b: No) => bandas.filter((x) => x.tag === 'TfrxFooter' && n(x.a.Top) > n(b.a.Top))
+        .find((x) => !dados.some((d) => d !== b && n(d.a.Top) < n(x.a.Top) && n(d.a.Top) > n(b.a.Top)));
       const alturaRod = rod.reduce((s, b) => s + n(b.a.Height), 0);
       const c = { atual: null as PaginaSaida | null, y: 0 };
       const emitir = (html: string) => c.atual!.html.push(html);
@@ -485,7 +490,7 @@ class Relatorio {
       for (const b of dados) {
         const cols = Math.max(1, Math.trunc(n(b.a.Columns, 1)));
         const cw = n(b.a.ColumnWidth), gap = n(b.a.ColumnGap);
-        const ds = b.a.DataSet || b.a.DataSetName || '';
+        const ds = b.a.DataSetName || b.a.DataSet || '';
         const linhas = ds ? this.linhas(ds).length : Math.trunc(n(b.a.RowCount));
         const nomeBanda = (b.a.Name ?? '').toLowerCase();
         const impressas: number[] = [];
@@ -493,10 +498,22 @@ class Relatorio {
         this.dsDaBanda.set(nomeBanda, ds);
         let col = 0;
         let alturaLinha = 0;
+        const header = headerDe(b);
+        const footer = footerDe(b);
+        const mostrarHeader = () => {
+          if (!header) return;
+          if (!cabe(n(header.a.Height) + n(b.a.Height))) novaPagina();
+          const r = this.banda(header, n(header.a.Left), c.y);
+          if (r) { emitir(r.html); c.y += r.altura; }
+        };
+        if (linhas > 0 || b.a.PrintIfDetailEmpty === 'True') mostrarHeader();
         for (let i = 0; i < linhas; i++) {
           if (ds) this.posicionar(ds, i);
           this.recno = i + 1;
-          if (col === 0 && !cabe(n(b.a.Height))) novaPagina();
+          if (col === 0 && !cabe(n(b.a.Height))) {
+            novaPagina();
+            if (header?.a.ReprintOnNewPage === 'True') mostrarHeader();
+          }
           const x = n(b.a.Left) + (cols > 1 ? col * (cw + gap) : 0);
           impressas.push(i);
           const r = this.banda(b, x, c.y);
@@ -507,6 +524,11 @@ class Relatorio {
           if (col >= cols) { col = 0; c.y += alturaLinha; alturaLinha = 0; }
         }
         if (col > 0) c.y += alturaLinha;
+        if (footer && (linhas > 0 || b.a.PrintIfDetailEmpty === 'True')) {
+          if (!cabe(n(footer.a.Height))) novaPagina();
+          const r = this.banda(footer, n(footer.a.Left), c.y);
+          if (r) { emitir(r.html); c.y += r.altura; }
+        }
       }
       for (const b of resumo) {
         if (!cabe(n(b.a.Height))) novaPagina();

@@ -6,6 +6,8 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -113,6 +115,22 @@ export function ConferenciaNotaPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  // o menu Imprimir (pmImprimir): as duas listas usam os itens marcados (ou todos) e o relatório abre o painel de filtro
+  const [painelRel, setPainelRel] = useState(false);
+  const [rel, setRel] = useState({ tipo: 'fornecedor' as 'fornecedor' | 'produto', dataIni: hojeNaLoja(), horaIni: '00:00', dataFim: hojeNaLoja(), horaFim: '00:00',
+    codparceiro: '', coddpto: '', codgrupo: '', codproduto: '' });
+  const imprimirLista = (tipo: 'lista' | 'usuarios') => {
+    if (!nf) { mensagem.erro(new Error('Informe a nota fiscal ou o lote.')); return; }
+    imprimirRelatorio(`/compras/conferencia-nota/${nf.codnf}/impressao`, { tipo, selecionados: [...sel] }).catch((e) => mensagem.erro(e));
+  };
+  const imprimirDiferencas = () => {
+    const cod = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : null);
+    imprimirRelatorio('/compras/conferencia-nota/relatorio-diferencas', {
+      tipo: rel.tipo, dataIni: rel.dataIni, horaIni: rel.horaIni, dataFim: rel.dataFim, horaFim: rel.horaFim,
+      codparceiro: cod(rel.codparceiro), coddpto: cod(rel.coddpto), codgrupo: cod(rel.codgrupo), codproduto: cod(rel.codproduto),
+    }).then(() => setPainelRel(false)).catch((e) => mensagem.erro(e));
+  };
+
   const alvo = filtro.trim().toUpperCase();
   const visiveis = alvo
     ? itens.filter((i) => `${i.descricao ?? ''} ${i.codbarra ?? ''} ${i.codprodnota ?? ''} ${i.codproduto}`.toUpperCase().includes(alvo))
@@ -128,7 +146,31 @@ export function ConferenciaNotaPage() {
         {nf && <div className="flex-1 text-body-sm">
           NF <b>{nf.nronf}</b>/{nf.serie} · {nf.fornecedor} · {brl(nf.totalnf)}
         </div>}
+        <div className="flex flex-wrap items-center gap-gp-xs">
+          <span className="text-body-sm text-fg-muted">Imprimir:</span>
+          <Button label="Relatório" variant="ghost" onClick={() => setPainelRel((v) => !v)} />
+          <Button label="Lista de conferência" variant="ghost" onClick={() => imprimirLista('lista')} />
+          <Button label="Lista de conferência usuários" variant="ghost" onClick={() => imprimirLista('usuarios')} />
+        </div>
       </div>
+
+      {painelRel && (
+        <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <span className="w-full text-body-sm font-semibold">Entradas com coleta divergente (todas as lojas, pela data contábil)</span>
+          <div className="w-36"><Field label="Período" type="date" value={rel.dataIni} onChange={(e) => setRel({ ...rel, dataIni: e.target.value })} /></div>
+          <div className="w-24"><Field label="Hora" type="time" value={rel.horaIni} onChange={(e) => setRel({ ...rel, horaIni: e.target.value })} /></div>
+          <div className="w-36"><Field label="até" type="date" value={rel.dataFim} onChange={(e) => setRel({ ...rel, dataFim: e.target.value })} /></div>
+          <div className="w-24"><Field label="Hora" type="time" value={rel.horaFim} onChange={(e) => setRel({ ...rel, horaFim: e.target.value })} /></div>
+          <div className="w-28"><Field label="Fornecedor" value={rel.codparceiro} onChange={(e) => setRel({ ...rel, codparceiro: e.target.value })} /></div>
+          <div className="w-28"><Field label="Departamento" value={rel.coddpto} onChange={(e) => setRel({ ...rel, coddpto: e.target.value })} /></div>
+          <div className="w-28"><Field label="Grupo" value={rel.codgrupo} onChange={(e) => setRel({ ...rel, codgrupo: e.target.value })} /></div>
+          <div className="w-28"><Field label="Produto" value={rel.codproduto} onChange={(e) => setRel({ ...rel, codproduto: e.target.value })} /></div>
+          <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={rel.tipo === 'fornecedor'} onChange={() => setRel({ ...rel, tipo: 'fornecedor' })} />Fornecedor</label>
+          <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={rel.tipo === 'produto'} onChange={() => setRel({ ...rel, tipo: 'produto' })} />Produto</label>
+          <Button label="&Imprimir" variant="soft" onClick={imprimirDiferencas} />
+          <Button label="Sair" variant="ghost" onClick={() => setPainelRel(false)} />
+        </div>
+      )}
 
       {totais && (
         <div className="flex flex-wrap gap-gp-sm">

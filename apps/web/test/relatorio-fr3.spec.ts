@@ -75,4 +75,25 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('Número NF: 4356');
     expect(t).toContain('IOG TREVO KIDS HK TREVO MOR 480G');
   });
+
+  it('lista de conferência usuários: o Footer vem depois do último item, com quem coletou e quem aprovou', () => {
+    const pgs = paginasDoModelo(modelo('conferencia-nf-operadores.fr3'), {
+      Nota: [{ NRONF: '4356', RAZAO: 'LATICINIOS TREVO LTDA', CHAVENFE: nota.CHAVENFE }], Empresa: [empresa],
+      Itens: [{ CODBARRA: '7896791905487', DESCRICAO: 'IOG TREVO KIDS', NOME: 'JOAO COLETOR', OPERADORAPROVACAO: 'MARIA SUPERVISORA' }],
+    }, agora);
+    const t = texto(pgs);
+    expect(t).toContain('JOAO COLETOR');
+    expect(t).toContain('MARIA SUPERVISORA');
+    expect(t.indexOf('Conferente:')).toBeGreaterThan(t.indexOf('IOG TREVO KIDS')); // o Footer1, depois dos itens
+  });
+
+  it('diferença de entradas por fornecedor: a variável Empresa e o "Página 1 de N" (TotalPages#)', () => {
+    const linhas = Array.from({ length: 80 }, (_, i) => ({ RAZAO: `FORNECEDOR ${String(i + 1).padStart(2, '0')}`, QUANTIDADE_NOTA: 10, QUANTIDADE_RECEBIDA: 9, DIFERENCA: -1 }));
+    const pgs = paginasDoModelo(modelo('rel-diferenca-entradas-for.fr3'), { frxDBDataset1: linhas }, agora, { Empresa: "'HIPER PINHEIRAO LTDA'" });
+    const t = texto(pgs);
+    expect(pgs.length).toBeGreaterThan(1);
+    expect(t).toContain('Empresa(s): HIPER PINHEIRAO LTDA');
+    expect(t).toContain(`Página 1 de ${pgs.length}`);
+    expect(t).toContain('FORNECEDOR 80');
+  });
 });

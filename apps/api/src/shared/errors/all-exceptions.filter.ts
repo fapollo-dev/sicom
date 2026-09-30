@@ -317,6 +317,8 @@ const CODE_PT: Record<string, string> = {
   // processamento / movimento de estoque (F3)
   NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',
   NF_IMPRESSAO_SEM_REGISTROS: 'Não existem registros a serem exibidos.',
+  CONFERENCIA_NOTA_NAO_INFORMADA: 'Informe a nota fiscal ou o lote.',
+  CONFERENCIA_SEM_DIVERGENCIA: 'Não existem notas fiscais com coletas divergentes lançadas para essa busca.',
   NF_SEM_PEDIDO_DEVOLUCAO: 'Nota Fiscal sem pedido de devolução associado.',
   RELATORIO_NF_DESCONHECIDO: 'Relatório da nota fiscal desconhecido.',
   RELATORIO_MODELO_NAO_ENCONTRADO: 'O modelo de relatório não está cadastrado.',

@@ -5,6 +5,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { LiberacaoService } from '../auth/liberacao.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -234,5 +235,91 @@ export class ConferenciaNotaService {
     if (!nf || num(nf.idempresa) !== emp) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
     if (String(nf.cancelada ?? 'N').toUpperCase() === 'S') throw new BusinessRuleError('NF_CANCELADA', { codnf });
     if (String(nf.tipo ?? '').toUpperCase() !== 'E') throw new BusinessRuleError('NF_NAO_ENTRADA', { codnf, tipo: nf.tipo });
+  }
+
+  // ─── impressões (o menu "Imprimir" da tela, pmImprimir: Relatório · Lista de Conferência · Lista de Conferência Usuários) ───
+
+  /**
+   * "Lista de Conferência" e "Lista de Conferência Usuários" (`ListadeConferenciaClick`, uConferenciaNota.pas:969): a grade copiada,
+   * só os itens MARCADOS quando há marcado (`Filtered := not IsEmpty`), por DESCRICAO, com a Nota e a Empresa das consultas de
+   * `ImprimeListadeConferencia` (:993); a dos usuários imprime quem coletou e quem aprovou (`ConferenciaNFOperadores.fr3`).
+   */
+  async impressaoLista(codnf: number, tipo: 'lista' | 'usuarios', selecionados: number[] = []): Promise<{ titulo: string; modelo: string; datasets: Record<string, Record<string, unknown>[]> }> {
+    const { emp } = this.ctx();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nota = (await sql<Record<string, unknown>>`
+      SELECT nf.nronf AS "NRONF", nf.codparceiro AS "CODPARCEIRO", nf.idempresa AS "IDEMPRESA", nf.chavenfe AS "CHAVENFE", p.razao AS "RAZAO", p.fantasia AS "FANTASIA"
+        FROM nf JOIN parceiros p ON nf.codparceiro = p.codparceiro
+       WHERE nf.codnf = ${codnf} AND nf.idempresa = ${emp}`.execute(db)).rows;
+    // "Informe a nota fiscal ou o lote." — sem a nota carregada o legado não imprime
+    if (!nota.length) throw new BusinessRuleError('CONFERENCIA_NOTA_NAO_INFORMADA', { codnf }, 'Informe a nota fiscal ou o lote.');
+    const empresa = (await sql<Record<string, unknown>>`SELECT idempresa AS "CODEMPRESA", razao_social AS "RAZAOSOCIAL", fantasia AS "FANTASIA"
+      FROM empresas WHERE idempresa = ${Number(nota[0].IDEMPRESA)}`.execute(db)).rows;
+    // a grade do legado (SQL_POR_NOTA_FISCAL, :1164): o item com a quantidade da nota × fator, a coleta e os operadores
+    const grade = (await sql<Record<string, unknown>>`
+      SELECT p.codnfprod AS "CODNFPROD", pr.codbarra AS "CODBARRA", p.descricao AS "DESCRICAO",
+             (p.quantidade * p.fatorembal)::float8 AS "QUANTIDADE", p.quantidade_coleta::float8 AS "QUANTIDADE_COLETA", p.produc_status AS "PRODUC_STATUS",
+             p.tentativas_coleta::float8 AS "TENTATIVAS_COLETA", to_char(p.data_coleta, 'YYYY-MM-DD"T"HH24:MI:SS') AS "DATA_COLETA", o.nome AS "NOME", p.codprodnota AS "CODPRODNOTA",
+             p.codproduto AS "CODPRODUTO", p.codoperador_aprova_coleta AS "CODOPERADOR_APROVA_COLETA", l.nome AS "OPERADORAPROVACAO", n.idempresa AS "IDEMPRESA"
+        FROM nf_prod p
+        LEFT JOIN nf n         ON n.codnf = p.codnf
+        LEFT JOIN produtos pr  ON pr.idproduto = p.codproduto
+        LEFT JOIN operadores o ON o.codoperador = p.usuario_coleta
+        LEFT JOIN operadores l ON l.codoperador = p.codoperador_aprova_coleta
+       WHERE n.codnf = ${codnf}
+       ORDER BY p.codnfprod`.execute(db)).rows;
+    const marcados = grade.filter((r) => selecionados.includes(Number(r.CODNFPROD)));
+    const itens = (marcados.length ? marcados : grade).slice().sort((a, b) => String(a.DESCRICAO ?? '').localeCompare(String(b.DESCRICAO ?? ''), 'pt-BR'));
+    const arquivo = tipo === 'usuarios' ? 'ConferenciaNFOperadores.fr3' : 'Rel_ListaConferenciaNF.fr3';
+    return { titulo: 'Lista para conferência', modelo: await modeloFr3(db, arquivo), datasets: { Nota: nota, Empresa: empresa, Itens: itens } };
+  }
+
+  /**
+   * "Relatório" (`BtnImprimirFiltroClick`, uConferenciaNota.pas:224): as entradas cuja quantidade coletada difere da quantidade da
+   * nota, por FORNECEDOR (`aqqRelFornecedor`, Rel_DiferencaEntradasFor.fr3) ou por PRODUTO (`aqqRelPro`, Rel_DiferencaEntradasPro.fr3),
+   * no período de DTCONTABIL com as horas da tela. Como o legado, **não filtra a loja** (as consultas não têm IDEMPRESA) e a variável
+   * "Empresa" do relatório é a razão social da empresa logada.
+   * ⚠️ Correção: o filtro "Departamento" do legado comparava `PR.CODGRUPO` (o mesmo do "Grupo", cópia do `VerificaFiltro`); aqui é
+   * `PR.CODDPTO`.
+   */
+  async relatorioDiferencas(f: { tipo: 'fornecedor' | 'produto'; dataIni: string; horaIni?: string; dataFim: string; horaFim?: string;
+    codparceiro?: number | null; coddpto?: number | null; codgrupo?: number | null; codproduto?: number | null }): Promise<{ titulo: string; modelo: string; datasets: Record<string, Record<string, unknown>[]>; variaveis: Record<string, string> }> {
+    const { emp } = this.ctx();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const hora = (h: string | undefined) => (/^\d{2}:\d{2}(:\d{2})?$/.test(h ?? '') ? (h!.length === 5 ? `${h}:00` : h!) : '00:00:00');
+    const d1 = `${f.dataIni} ${hora(f.horaIni)}`;
+    const d2 = `${f.dataFim} ${hora(f.horaFim)}`;
+    const filtros = [
+      f.codparceiro ? sql`AND n.codparceiro = ${f.codparceiro}` : sql``,
+      f.coddpto ? sql`AND pr.coddpto = ${f.coddpto}` : sql``,
+      f.codgrupo ? sql`AND pr.codgrupo = ${f.codgrupo}` : sql``,
+      f.codproduto ? sql`AND np.codproduto = ${f.codproduto}` : sql``,
+    ];
+    const porFornecedor = f.tipo === 'fornecedor';
+    const chave = porFornecedor ? sql`p.razao` : sql`np.descricao`;
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT ${chave} AS "${sql.raw(porFornecedor ? 'RAZAO' : 'DESCRICAO')}",
+             sum(np.quantidade * np.fatorembal)::float8 AS "QUANTIDADE_NOTA",
+             sum(np.quantidade_coleta)::float8 AS "QUANTIDADE_RECEBIDA",
+             (sum(np.quantidade_coleta) - sum(np.quantidade * np.fatorembal))::float8 AS "DIFERENCA"
+        FROM nf_prod np
+        JOIN nf n             ON n.codnf = np.codnf
+        LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+        LEFT JOIN produtos pr ON pr.idproduto = np.codproduto
+       WHERE n.dtcontabil::timestamp BETWEEN ${d1}::timestamp AND ${d2}::timestamp
+         AND np.quantidade_coleta IS NOT NULL
+         ${sql.join(filtros, sql` `)}
+       GROUP BY ${chave}
+      HAVING (sum(np.quantidade_coleta) - sum(np.quantidade * np.fatorembal)) <> 0
+       ORDER BY ${chave}`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('CONFERENCIA_SEM_DIVERGENCIA', undefined, 'Não existem notas fiscais com coletas divergentes lançadas para essa busca.');
+    const razao = (await sql<{ razao_social: string | null }>`SELECT razao_social FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0]?.razao_social ?? '';
+    return {
+      titulo: porFornecedor ? 'Diferença de entradas por fornecedor' : 'Diferença de entradas por produto',
+      modelo: await modeloFr3(db, porFornecedor ? 'Rel_DiferencaEntradasFor.fr3' : 'Rel_DiferencaEntradasPro.fr3'),
+      datasets: { [porFornecedor ? 'frxDBDataset1' : 'frxDBDataset2']: rows },
+      // frxReport1.Variables['Empresa'] := QuotedStr(razão social)
+      variaveis: { Empresa: `'${String(razao).replace(/'/g, "''")}'` },
+    };
   }
 }

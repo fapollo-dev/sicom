@@ -19188,6 +19188,28 @@ async function main() {
           && dev2.status === 200 && dv.length === 1 && Number(dv[0].QTD_NOTA_FISCAL) === 6 && Number(dv[0].QTD_DEVOLVIDA) === 3 && Number(dv[0].TOTAL_PRODUTO_DEVOLVIDO) === 20
           && dv[0].NRONF === '991390' && dv[0].CODBARRA === '7899913910001',
           { icms2: [icms2.status, st[0]], dev2: [dev2.status, dv[0]] });
+        // a Conferência de Nota (pmImprimir): as listas com os itens marcados (ou todos) por descrição e o relatório de diferenças
+        await pgIm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (991307, 1, 'ConferenciaNFOperadores.fr3', 'x', 'DEFAULT', $1), (991308, 1, 'Rel_DiferencaEntradasFor.fr3', 'x', 'DEFAULT', $1), (991309, 1, 'Rel_DiferencaEntradasPro.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3('CONF')]);
+        await pgIm.query(`UPDATE nf_prod SET quantidade_coleta = CASE codproduto WHEN 991390 THEN 20 ELSE 6 END, usuario_coleta = 7 WHERE codnf = $1`, [nfIm]);
+        const itZZ = Number((await pgIm.query(`SELECT codnfprod FROM nf_prod WHERE codnf = $1 AND codproduto = 991390`, [nfIm])).rows[0].codnfprod);
+        const post = async (path: string, body: unknown, h = H) => { const r = await fetch(`${base}/${path}`, { method: 'POST', headers: h, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const CN = 'compras/conferencia-nota';
+        const lTodos = await post(`${CN}/${nfIm}/impressao`, { tipo: 'lista', selecionados: [] });
+        const lMarc = await post(`${CN}/${nfIm}/impressao`, { tipo: 'usuarios', selecionados: [itZZ] });
+        const relF = await post(`${CN}/relatorio-diferencas`, { tipo: 'fornecedor', dataIni: '2044-11-06', dataFim: '2044-11-06', codparceiro: 2 });
+        const relP = await post(`${CN}/relatorio-diferencas`, { tipo: 'produto', dataIni: '2044-11-06', dataFim: '2044-11-06' });
+        const relVazio = await post(`${CN}/relatorio-diferencas`, { tipo: 'produto', dataIni: '2044-11-07', dataFim: '2044-11-07' });
+        const f1 = relF.j.datasets?.frxDBDataset1 ?? [];
+        const p1 = relP.j.datasets?.frxDBDataset2 ?? [];
+        check('CONFERÊNCIA DE NOTA [imprimir]: a lista sem marcados leva todos por descrição; a dos usuários só o marcado, com quem coletou; o relatório por fornecedor soma a nota (30) contra o recebido (26) e por produto só o item divergente; sem divergência → a mensagem do legado; a variável Empresa',
+          lTodos.status === 200 && lTodos.j.datasets?.Itens?.length === 2 && lTodos.j.datasets.Itens[0].DESCRICAO === 'AA PRIMEIRO SMOKE IMP' && lTodos.j.datasets?.Nota?.[0]?.NRONF === '991390'
+          && lMarc.status === 200 && lMarc.j.datasets?.Itens?.length === 1 && Number(lMarc.j.datasets.Itens[0].CODNFPROD) === itZZ && lMarc.j.datasets.Itens[0].NOME != null
+          && relF.status === 200 && f1.length === 1 && Number(f1[0].QUANTIDADE_NOTA) === 30 && Number(f1[0].QUANTIDADE_RECEBIDA) === 26 && Number(f1[0].DIFERENCA) === -4
+          && relP.status === 200 && p1.some((x: any) => x.DESCRICAO === 'ZZ ULTIMO SMOKE IMP' && Number(x.DIFERENCA) === -4) && !p1.some((x: any) => x.DESCRICAO === 'AA PRIMEIRO SMOKE IMP')
+          && relVazio.status === 422 && relVazio.j.message === 'Não existem notas fiscais com coletas divergentes lançadas para essa busca.' && String(relF.j.variaveis?.Empresa ?? '').startsWith("'"),
+          { lTodos: [lTodos.status, lTodos.j.datasets?.Itens?.map((x: any) => x.DESCRICAO)], lMarc: [lMarc.status, lMarc.j.datasets?.Itens], relF: [relF.status, f1], relP: [relP.status, p1], relVazio: [relVazio.status, relVazio.j.message] });
         await pgIm.query(`DELETE FROM pedido_devolucao_compra_i WHERE codpeddevcompra = 991390`);
         await pgIm.query(`DELETE FROM nf WHERE codnf = $1`, [nfDev]);
         await pgIm.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra = 991390`);
