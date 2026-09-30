@@ -613,9 +613,11 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
 
 // ───────────────────────────── Barra de ações NF-e (rodapé do legado) ─────────────────────────────
 
-const NFE_INERTES = ['Inutilizar', 'Imprimir', 'Importar', 'Salvar XML', 'Recuperar XML', 'Enviar Email'];
+const NFE_INERTES = ['Inutilizar', 'Importar', 'Salvar XML', 'Recuperar XML', 'Enviar Email'];
 
 function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carregar?: (id: number) => Promise<void> }) {
+  const { tem: podeNf } = useOpcoesDoForm('FRMNF');
+  const mensagem = useMensagem();
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   if (codnf == null) return null; // ações só em nota gravada (como o legado habilita o rodapé)
   return (
@@ -631,6 +633,9 @@ function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carr
         {/* strip inerte fiel ao rodapé "NF-e" do legado (fase futura / infra externa) */}
         <div className="flex flex-wrap items-center gap-gp-xs border-t border-border pt-pad-sm">
           <span className="text-body-sm text-fg-muted">NF-e:</span>
+          {/* "Imprimir" (btnImprimirNFe, Tag 1 — BTNIMPRIMIRNFE): o DANFE, depois do LinhaComandosNfeLiberada (uNF.pas:5529) */}
+          <Button label="Im&primir" variant="soft" disabled={!podeNf('BTNIMPRIMIRNFE')}
+            onClick={() => { imprimirRelatorio(`/fiscal/nf/${codnf}/danfe-rodape`).catch((e) => mensagem.erro(e)); }} />
           {NFE_INERTES.map((l) => (
             <button
               key={l}
@@ -652,6 +657,8 @@ function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carr
 
 /** as impressões do menu da NF (uNF.pas:13541-13635): o .fr3 do cliente com os datasets da nota, desenhado no navegador */
 const IMPRESSOES_NF: Array<{ relatorio: string; label: string }> = [
+  { relatorio: 'nota', label: 'Imprimir nota' },
+  { relatorio: 'espelho', label: 'Espelho da nota' },
   { relatorio: 'conferencia-devolucao-compra', label: 'Conferência de devolução de compra' },
   { relatorio: 'conferencia-preco-simples', label: 'Conferência de preço simplificada' },
   { relatorio: 'conferencia-preco', label: 'Conferência de preço completa' },
@@ -1262,6 +1269,11 @@ function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
             <Button label="&Cancelar NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => { setModo('cancelar'); setTexto(''); }} />
             <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
           </>
+        )}
+        {/* "Imprimir DANFE" do menu NF-e (ImprimirDANFE1, Tag 1, sob GerarNFe1): o layout uRptNFE da loja */}
+        {chavenfe && (
+          <Button label="Imprimir &DANFE" variant="soft" disabled={!podeNf('GERARNFE1') || !podeNf('IMPRIMIRDANFE1')}
+            onClick={() => { imprimirRelatorio(`/fiscal/nf/${codnf}/danfe`).catch((e) => mensagem.erro(e)); }} />
         )}
         {denegada && <small className="text-fg-danger">NFe denegada pela SEFAZ — emita uma nova nota.</small>}
         {cancelada && <small className="text-fg-muted">NFe cancelada.</small>}

@@ -129,10 +129,17 @@ class Relatorio {
   private readonly dsDaBanda = new Map<string, string>();
   private recno = 0;
   private pagina = 0;
+  /** o objeto do evento em curso (o `Sender` do script) */
+  private remetente = '';
+  /** a banda de dados passou do último registro (`MasterData1.DataSet.Eof`) */
+  private eof = false;
+  /** a página em montagem, para o script mexer nela (`Engine.NewPage`, `Engine.ShowBand`) */
+  private ctx: { y: () => number; novaPagina: () => void; mostrarBanda: (nome: string) => void } | null = null;
   private readonly funcoes: Record<string, (args: Valor[], amb: Ambiente) => Valor>;
   private readonly amb: Ambiente;
 
-  constructor(xml: string, dados: Registro[] | Conjuntos, private readonly agora: Date, variaveisExtras: Record<string, string> = {}, private readonly totalPaginas = 0) {
+  constructor(xml: string, dados: Registro[] | Conjuntos, private readonly agora: Date, variaveisExtras: Record<string, string> = {}, private readonly totalPaginas = 0,
+    textos: Record<string, string> = {}) {
     this.raiz = parse(xml);
     this.unico = Array.isArray(dados) ? dados : null;
     if (!Array.isArray(dados)) for (const [k, v] of Object.entries(dados)) this.conjuntos.set(nomeDs(k), v ?? []);
@@ -146,6 +153,8 @@ class Relatorio {
       no.filhos.forEach(indexar);
     };
     indexar(this.raiz);
+    // o texto que o legado põe no objeto antes de imprimir (`TfrxMemoView(frxReport.FindObject('MemoFaturamento')).Text := ...`)
+    for (const [nome, t] of Object.entries(textos)) { const e = this.estados.get(nome.toLowerCase()); if (e) e.Text = t; }
     const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
     const hora = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}:${String(agora.getSeconds()).padStart(2, '0')}`;
     this.funcoes = {
@@ -171,6 +180,7 @@ class Relatorio {
       ler: (c) => this.ler(c),
       gravar: (c, v) => this.gravar(c, v),
       agregado: (f, args) => this.agregado(f, args),
+      procedimento: (nome, args) => this.procedimento(nome, args),
     };
     // variáveis do relatório (<Variables>): o valor é uma expressão ('S' entre aspas)
     for (const v of this.raiz.filhos.filter((x) => x.tag === 'Variables').flatMap((x) => x.filhos)) {
@@ -218,20 +228,27 @@ class Relatorio {
     return null;
   }
 
-  private ler(c: string[]): Valor {
-    const [o, ...resto] = c;
+  /** o `Sender` do script é o objeto do evento em curso */
+  private resolver(c: string[]): string[] {
+    return c.length && c[0].toLowerCase() === 'sender' && this.remetente ? [this.remetente, ...c.slice(1)] : c;
+  }
+
+  private ler(caminho: string[]): Valor {
+    const [o, ...resto] = this.resolver(caminho);
     const e = this.estados.get(o.toLowerCase());
     if (!e) return this.locais.get(o.toLowerCase()) ?? this.variavel(o);
     const prop = resto.join('.').toLowerCase();
-    if (prop.endsWith('dataset.recno') || prop === 'recno') return this.recno;
+    // o RecNo do TfrxDataSet conta do zero (o [Line#] conta do um)
+    if (prop.endsWith('dataset.recno') || prop === 'recno') return Math.max(0, this.recno - 1);
+    if (prop.endsWith('dataset.eof') || prop === 'eof') return this.eof;
     if (prop === 'visible') return e.Visible;
     if (prop === 'text' || prop === 'memo.text' || prop === 'lines.text') return e.final ?? e.Text;
     if (prop === 'left' || prop === 'top' || prop === 'width' || prop === 'height') return e[(prop[0].toUpperCase() + prop.slice(1)) as 'Left'];
     return e.extras[prop] ?? null;
   }
 
-  private gravar(c: string[], v: Valor): void {
-    const [o, ...resto] = c;
+  private gravar(caminho: string[], v: Valor): void {
+    const [o, ...resto] = this.resolver(caminho);
     const e = this.estados.get(o.toLowerCase());
     if (!e || !resto.length) { this.locais.set(o.toLowerCase(), v); return; }
     const prop = resto.join('.').toLowerCase();
@@ -269,11 +286,33 @@ class Relatorio {
     return f === 'min' ? Math.min(...valores) : Math.max(...valores);
   }
 
+  /** os procedimentos do motor que o script chama: `Inc`/`Dec`, `Engine.NewPage`, `Engine.ShowBand(Banda)` */
+  private procedimento(nome: string, args: Expr[]): boolean {
+    if (nome === 'inc' || nome === 'dec') {
+      if (args[0]?.k !== 'id') return false;
+      const passo = args[1] ? numero(avaliar(args[1], this.amb, this.funcoes)) : 1;
+      this.gravar(args[0].caminho, numero(this.ler(args[0].caminho)) + (nome === 'inc' ? passo : -passo));
+      return true;
+    }
+    if (nome === 'engine.newpage') { this.ctx?.novaPagina(); return true; }
+    if (nome === 'engine.showband') {
+      const a = args[0];
+      const alvo = a?.k === 'id' ? a.caminho.join('.') : a ? String(avaliar(a, this.amb, this.funcoes) ?? '') : '';
+      if (alvo) this.ctx?.mostrarBanda(alvo);
+      return true;
+    }
+    return false;
+  }
+
   private evento(no: No, nomeEvento = 'OnBeforePrint'): void {
     const proc = no.a[nomeEvento];
     if (!proc) return;
     const corpo = this.prog.procedimentos.get(proc.toLowerCase());
-    if (corpo) { try { executar(corpo, this.amb, this.funcoes, this.prog); } catch { /* erro de script: segue como o preview */ } }
+    if (!corpo) return;
+    const antes = this.remetente;
+    this.remetente = no.a.Name ?? '';
+    try { executar(corpo, this.amb, this.funcoes, this.prog); } catch { /* erro de script: segue como o preview */ }
+    this.remetente = antes;
   }
 
   private estado(no: No): Estado | undefined { return no.a.Name ? this.estados.get(no.a.Name.toLowerCase()) : undefined; }
@@ -427,11 +466,16 @@ class Relatorio {
     return `<div class="o" style="left:${e.Left.toFixed(2)}px;top:${e.Top.toFixed(2)}px;width:${W.toFixed(2)}px;height:${H.toFixed(2)}px">${svg}</div>`;
   }
 
-  /** uma passada de banda (TfrxEngine.ShowBand): eventos, GetData e o HTML; depois restaura Text/geometria. */
-  private banda(b: No, x: number, y: number): { html: string; altura: number } | null {
+  /**
+   * Uma passada de banda (TfrxEngine.ShowBand): eventos, GetData e o HTML; depois restaura Text/geometria e roda o OnAfterPrint. Sem
+   * `y`, a banda vai para a altura corrente da página DEPOIS do evento — o evento pode ter aberto página (`Engine.NewPage`) ou desenhado
+   * outras bandas antes dela (`Engine.ShowBand`).
+   */
+  private banda(b: No, x: number, y?: number): { html: string; altura: number } | null {
     const eb = this.estado(b);
     this.evento(b);
     if (eb && !eb.Visible) return null;
+    const yy = y ?? this.ctx?.y() ?? 0;
     const objetos = b.filhos.filter((c) => c.a.Name && !BANDAS.has(c.tag));
     const salvos = objetos.map((o) => { const e = this.estado(o)!; return { e, Left: e.Left, Top: e.Top, Width: e.Width, Height: e.Height, Text: e.Text }; });
     for (const o of objetos) {
@@ -441,8 +485,9 @@ class Relatorio {
       if (e.Visible && /Memo|Rich/.test(o.tag)) e.final = this.expandir(this.modeloDoTexto(e, o), o);
     }
     const altura = eb ? eb.Height : n(b.a.Height);
-    const html = `<div class="b" style="left:${x.toFixed(2)}px;top:${y.toFixed(2)}px;width:${n(b.a.Width).toFixed(2)}px;height:${altura.toFixed(2)}px">${objetos.map((o) => this.htmlObjeto(o, this.estado(o)!)).join('')}</div>`;
+    const html = `<div class="b" style="left:${x.toFixed(2)}px;top:${yy.toFixed(2)}px;width:${n(b.a.Width).toFixed(2)}px;height:${altura.toFixed(2)}px">${objetos.map((o) => this.htmlObjeto(o, this.estado(o)!)).join('')}</div>`;
     for (const s of salvos) { Object.assign(s.e, { Left: s.Left, Top: s.Top, Width: s.Width, Height: s.Height, Text: s.Text }); s.e.final = null; s.e.feito = false; }
+    this.evento(b, 'OnAfterPrint');
     return { html, altura };
   }
 
@@ -460,6 +505,9 @@ class Relatorio {
       const bandas = pg.filhos.filter((c) => BANDAS.has(c.tag)).sort((a, b) => n(a.a.Top) - n(b.a.Top));
       const soltos = pg.filhos.filter((c) => !BANDAS.has(c.tag) && c.a.Name);
       const cab = bandas.filter((b) => b.tag === 'TfrxPageHeader');
+      // ColumnHeader: logo abaixo do cabeçalho de toda página; ColumnFooter: no fim de toda página, depois do último dado
+      const cabColuna = bandas.filter((b) => b.tag === 'TfrxColumnHeader');
+      const rodColuna = bandas.filter((b) => b.tag === 'TfrxColumnFooter');
       const rod = bandas.filter((b) => b.tag === 'TfrxPageFooter');
       const titulo = bandas.filter((b) => b.tag === 'TfrxReportTitle');
       const resumo = bandas.filter((b) => b.tag === 'TfrxReportSummary');
@@ -469,24 +517,39 @@ class Relatorio {
         .filter((x) => !dados.some((d) => d !== b && n(d.a.Top) > n(x.a.Top) && n(d.a.Top) < n(b.a.Top))).pop();
       const footerDe = (b: No) => bandas.filter((x) => x.tag === 'TfrxFooter' && n(x.a.Top) > n(b.a.Top))
         .find((x) => !dados.some((d) => d !== b && n(d.a.Top) < n(x.a.Top) && n(d.a.Top) > n(b.a.Top)));
-      const alturaRod = rod.reduce((s, b) => s + n(b.a.Height), 0);
-      const c = { atual: null as PaginaSaida | null, y: 0 };
+      const alturaRod = rod.reduce((s, b) => s + n(b.a.Height), 0) + rodColuna.reduce((s, b) => s + n(b.a.Height), 0);
+      const c = { atual: null as PaginaSaida | null, y: 0, fechando: false };
       const emitir = (html: string) => c.atual!.html.push(html);
+      const mostrar = (b: No) => { const r = this.banda(b, n(b.a.Left)); if (r) { emitir(r.html); c.y += r.altura; } };
+      const fechar = () => {
+        if (!c.atual || c.fechando) return;
+        c.fechando = true;
+        for (const b of rodColuna) mostrar(b);
+        this.fecharPagina(c.atual, rod, soltos, util);
+        c.fechando = false;
+      };
       const novaPagina = () => {
-        if (c.atual) this.fecharPagina(c.atual, rod, soltos, util);
+        fechar();
         this.pagina++;
         c.atual = { chave, larguraMm: W, alturaMm: H, margem: m, html: [] };
         saida.push(c.atual);
         c.y = 0;
         this.evento(pg);
-        for (const b of cab) { const r = this.banda(b, n(b.a.Left), c.y); if (r) { emitir(r.html); c.y += r.altura; } }
+        for (const b of cab) mostrar(b);
+        for (const b of cabColuna) mostrar(b);
+      };
+      this.ctx = {
+        y: () => c.y,
+        novaPagina,
+        mostrarBanda: (nome) => { const b = bandas.find((x) => (x.a.Name ?? '').toLowerCase() === nome.toLowerCase()); if (b) mostrar(b); },
       };
       // a banda cabe no que sobra da página (acima do rodapé); na página vazia sempre cabe
       const cabe = (h: number) => c.y + h <= util - alturaRod + 0.5 || c.y === 0;
       this.cursor.clear();
       this.recno = 0;
+      this.eof = false;
       novaPagina();
-      for (const b of titulo) { const r = this.banda(b, n(b.a.Left), c.y); if (r) { emitir(r.html); c.y += r.altura; } }
+      for (const b of titulo) mostrar(b);
       for (const b of dados) {
         const cols = Math.max(1, Math.trunc(n(b.a.Columns, 1)));
         const cw = n(b.a.ColumnWidth), gap = n(b.a.ColumnGap);
@@ -503,8 +566,7 @@ class Relatorio {
         const mostrarHeader = () => {
           if (!header) return;
           if (!cabe(n(header.a.Height) + n(b.a.Height))) novaPagina();
-          const r = this.banda(header, n(header.a.Left), c.y);
-          if (r) { emitir(r.html); c.y += r.altura; }
+          mostrar(header);
         };
         if (linhas > 0 || b.a.PrintIfDetailEmpty === 'True') mostrarHeader();
         for (let i = 0; i < linhas; i++) {
@@ -516,7 +578,7 @@ class Relatorio {
           }
           const x = n(b.a.Left) + (cols > 1 ? col * (cw + gap) : 0);
           impressas.push(i);
-          const r = this.banda(b, x, c.y);
+          const r = this.banda(b, x);
           if (!r) { impressas.pop(); continue; }
           emitir(r.html);
           alturaLinha = Math.max(alturaLinha, r.altura);
@@ -524,18 +586,19 @@ class Relatorio {
           if (col >= cols) { col = 0; c.y += alturaLinha; alturaLinha = 0; }
         }
         if (col > 0) c.y += alturaLinha;
+        this.eof = true;
         if (footer && (linhas > 0 || b.a.PrintIfDetailEmpty === 'True')) {
           if (!cabe(n(footer.a.Height))) novaPagina();
-          const r = this.banda(footer, n(footer.a.Left), c.y);
-          if (r) { emitir(r.html); c.y += r.altura; }
+          mostrar(footer);
         }
       }
+      this.eof = true;
       for (const b of resumo) {
         if (!cabe(n(b.a.Height))) novaPagina();
-        const r = this.banda(b, n(b.a.Left), c.y);
-        if (r) { emitir(r.html); c.y += r.altura; }
+        mostrar(b);
       }
-      if (c.atual) this.fecharPagina(c.atual, rod, soltos, util);
+      fechar();
+      this.ctx = null;
     }
     return saida;
   }
@@ -555,13 +618,13 @@ class Relatorio {
   }
 }
 
-export interface TrabalhoImpressao { modelo: string; registros: Registro[] | Conjuntos; variaveis?: Record<string, string> }
+export interface TrabalhoImpressao { modelo: string; registros: Registro[] | Conjuntos; variaveis?: Record<string, string>; textos?: Record<string, string> }
 
 /** as páginas de um trabalho de impressão (um Imprimir(frxReport1) do legado). */
-export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}): PaginaSaida[] {
+export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}, textos: Record<string, string> = {}): PaginaSaida[] {
   // [TotalPages#] pede a contagem antes: a primeira passada só conta as páginas (o DoublePass do FastReport)
-  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis).gerar().length : 0;
-  return new Relatorio(xml, dados, agora, variaveis, total).gerar();
+  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis, 0, textos).gerar().length : 0;
+  return new Relatorio(xml, dados, agora, variaveis, total, textos).gerar();
 }
 
 /** o documento HTML da impressão: cada tamanho de papel vira uma @page nomeada, uma etiqueta/folha por página. */
@@ -571,7 +634,7 @@ export function documentoDeImpressao(trabalhos: TrabalhoImpressao[], modelos: Re
   for (const t of trabalhos) {
     const xml = modelos[t.modelo];
     if (!xml) { avisos.push(`Modelo "${t.modelo}" não encontrado.`); continue; }
-    try { paginas.push(...paginasDoModelo(xml, t.registros, agora, t.variaveis)); } catch (e) { avisos.push(`Modelo "${t.modelo}": ${(e as Error).message}`); }
+    try { paginas.push(...paginasDoModelo(xml, t.registros, agora, t.variaveis, t.textos)); } catch (e) { avisos.push(`Modelo "${t.modelo}": ${(e as Error).message}`); }
   }
   const tamanhos = new Map<string, PaginaSaida>();
   for (const p of paginas) tamanhos.set(p.chave, p);

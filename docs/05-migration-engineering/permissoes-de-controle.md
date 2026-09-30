@@ -29,11 +29,11 @@ Das 150 opções sem equivalente no Apollo, as que ficam fora da tabela não tê
 | FRMETIQUETA (2.418.712) | `BTNIMPORT` | TBitBtn | TfrmMaster | DESABILITA — mas o código religa | 53/53 | 🪦 o código religa |
 | FRMMANIFESTODFE (67.138) | `BTNPESQUISAAVANCADA` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ✅ a lista com filtro de fornecedor/chave |
 | FRMMANIFESTODFE (67.138) | `BTNPESQUISARULTIMAS` | TBitBtn | TfrmMaster | DESABILITA | 50/50 | ✅ a lista (o Apollo pedia BTNBUSCARNOTAS, que é a consulta à SEFAZ) |
-| FRMNF (56.567) | `BTNIMPRIMIRNFE` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a impressão do DANFE não existe no Apollo (infra externa) |
+| FRMNF (56.567) | `BTNIMPRIMIRNFE` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | ✅ o botão "Imprimir" do rodapé (o DANFE do uRptNFE, mig 403) |
 | FRMNF (56.567) | `BTNINUTILIZARNFE` | TBitBtn | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a inutilização é a tela própria (FRMNFEINUTILIZADA), com o gate dela |
 | FRMNF (56.567) | `CANCELARNFEPELOXML1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a ação não existe no Apollo (consulta de status / cancelamento pelo XML) |
 | FRMNF (56.567) | `GERARNFE1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | ✅ transmitir e cancelar (submenus de "NF-e") |
-| FRMNF (56.567) | `IMPRIMIRDANFE1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a impressão do DANFE não existe no Apollo (infra externa) |
+| FRMNF (56.567) | `IMPRIMIRDANFE1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | ✅ "Imprimir DANFE" (com GERARNFE1, mig 403) |
 | FRMNF (56.567) | `STATUSNFE2` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a ação não existe no Apollo (consulta de status / cancelamento pelo XML) |
 | FRMNF (56.567) | `STATUSNFEPELOXML1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a ação não existe no Apollo (consulta de status / cancelamento pelo XML) |
 | FRMNF (56.567) | `STATUSSERVIO1` | TMenuItem | TfrmCadMasterDetalhe | DESABILITA (CadMaster: edits também) | 51/52 | a ação não existe no Apollo (consulta de status / cancelamento pelo XML) |

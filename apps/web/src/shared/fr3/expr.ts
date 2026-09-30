@@ -26,6 +26,7 @@ export type Stmt =
   | { k: 'se'; c: Expr; entao: Stmt; senao?: Stmt }
   | { k: 'bloco'; corpo: Stmt[] }
   | { k: 'chamada'; nome: string; args: Expr[] }
+  | { k: 'enquanto'; c: Expr; corpo: Stmt }
   | { k: 'nada' };
 
 export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt }
@@ -38,6 +39,8 @@ export interface Ambiente {
   gravar(caminho: string[], v: Valor): void;
   /** SUM/AVG/MIN/MAX/COUNT: os argumentos chegam sem avaliar (a expressão roda linha a linha da banda) */
   agregado?(funcao: string, args: Expr[]): Valor;
+  /** os procedimentos do motor que o script chama (`Inc(Linha)`, `Engine.NewPage`, `Engine.ShowBand(Banda)`); true = tratado */
+  procedimento?(nome: string, args: Expr[]): boolean;
   agora: Date;
 }
 
@@ -45,7 +48,7 @@ const AGREGADAS = new Set(['sum', 'avg', 'min', 'max', 'count']);
 
 type Tok = { t: 'num' | 'str' | 'dq' | 'id' | 'ref' | 'op' | 'fim'; v: string };
 
-const PALAVRAS = new Set(['and', 'or', 'not', 'div', 'mod', 'xor', 'if', 'then', 'else', 'begin', 'end', 'procedure', 'function', 'var', 'const', 'in']);
+const PALAVRAS = new Set(['and', 'or', 'not', 'div', 'mod', 'xor', 'if', 'then', 'else', 'begin', 'end', 'procedure', 'function', 'var', 'const', 'in', 'while', 'do']);
 
 function tokenizar(src: string): Tok[] {
   const out: Tok[] = [];
@@ -166,12 +169,24 @@ class Parser {
       const senao = this.aceita('else') ? this.comando() : undefined;
       return { k: 'se', c, entao, senao };
     }
+    if (this.aceita('while')) {
+      const c = this.expr();
+      this.espera('do');
+      return { k: 'enquanto', c, corpo: this.comando() };
+    }
     if (this.t.t === 'id') {
       const caminho = [this.t.v]; this.p++;
       while (this.eh('.') && this.toks[this.p + 1]?.t === 'id') { this.p++; caminho.push(this.t.v); this.p++; }
       if (this.aceita(':=')) return { k: 'atrib', alvo: caminho, e: this.expr() };
       const args: Expr[] = [];
       if (this.aceita('(')) { if (!this.eh(')')) do args.push(this.expr()); while (this.aceita(',')); this.espera(')'); }
+      // o typecast do Pascal no lado esquerdo: `TfrxMemoView(Sender).Visible := False` grava no objeto do argumento
+      if (this.eh('.') && this.toks[this.p + 1]?.t === 'id' && args.length === 1 && args[0].k === 'id') {
+        const alvo = [...args[0].caminho];
+        while (this.eh('.') && this.toks[this.p + 1]?.t === 'id') { this.p++; alvo.push(this.t.v); this.p++; }
+        if (this.aceita(':=')) return { k: 'atrib', alvo, e: this.expr() };
+        return { k: 'nada' };
+      }
       return { k: 'chamada', nome: caminho.join('.'), args };
     }
     this.p++;
@@ -339,6 +354,12 @@ export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: 
     case 'chamada': {
       const p = prog.procedimentos.get(s.nome.toLowerCase());
       if (p) executar(p, amb, funcoes, prog, prof + 1);
+      else amb.procedimento?.(s.nome.toLowerCase(), s.args);
+      return;
+    }
+    case 'enquanto': {
+      // guarda contra laço infinito de script: o relatório não trava a tela
+      for (let i = 0; i < 10000 && booleano(avaliar(s.c, amb, funcoes)); i++) executar(s.corpo, amb, funcoes, prog, prof + 1);
       return;
     }
     default: return;

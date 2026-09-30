@@ -1,6 +1,7 @@
 /**
  * Os códigos de barras do TfrxBarCodeView que os modelos `eti$` usam — EAN-13 (20 objetos), 2 de 5 intercalado (17) e
- * Code-128 (1) — mais EAN-8 e Code-39, desenhados em SVG no tamanho do FastReport: o módulo mede `Zoom` pixels.
+ * Code-128 (1) — mais EAN-8, Code-39 e o Code-128C da chave da NF-e (o DANFE uRptNFE), desenhados em SVG no tamanho do
+ * FastReport: o módulo mede `Zoom` pixels.
  *
  * EAN-13 como o TfrxBarcode com `CalcCheckSum` desligado (o padrão do objeto, e nenhum modelo o liga): o texto é
  * completado com zeros à esquerda até 13 dígitos e codificado como está — o código interno "0610" da banana sai
@@ -95,6 +96,21 @@ function code128(valor: string): Desenho | null {
   return { modulos: m, texto: [{ s: chars.join(''), x: 0, w: m.length }] };
 }
 
+/** Code-128 conjunto C (bcCode128C): pares de dígitos a partir do Start C; o dígito que sobra vai no conjunto B (Code B, 100) */
+function code128c(valor: string): Desenho | null {
+  const d = valor.replace(/\D/g, '');
+  if (!d.length) return null;
+  const codes = [105];
+  let i = 0;
+  for (; i + 1 < d.length; i += 2) codes.push(Number(d.slice(i, i + 2)));
+  if (i < d.length) codes.push(100, d.charCodeAt(i) - 32);
+  const soma = codes.reduce((acc, v, k) => acc + (k === 0 ? v : v * k), 0);
+  codes.push(soma % 103, 106);
+  let m = '';
+  for (const c of codes) [...PADROES_CODE128[c]].forEach((w, k) => { m += (k % 2 === 0 ? '1' : '0').repeat(Number(w)); });
+  return { modulos: m, texto: [{ s: d, x: 0, w: m.length }] };
+}
+
 const C39: Record<string, string> = {
   '0': 'nnnwwnwnn', '1': 'wnnwnnnnw', '2': 'nnwwnnnnw', '3': 'wnwwnnnnn', '4': 'nnnwwnnnw', '5': 'wnnwwnnnn', '6': 'nnwwwnnnn', '7': 'nnnwnnwnw',
   '8': 'wnnwnnwnn', '9': 'nnwwnnwnn', A: 'wnnnnwnnw', B: 'nnwnnwnnw', C: 'wnwnnwnnn', D: 'nnnnwwnnw', E: 'wnnnwwnnn', F: 'nnwnwwnnn',
@@ -119,5 +135,6 @@ export function desenhar(tipo: string, valor: string, calcCheck: boolean, larga:
   else if (t === 'bccodeean8') d = ean8(valor, calcCheck);
   else if (t.startsWith('bccode_2_5') || t === 'bccodeitf14') d = itf(valor, larga);
   else if (t.startsWith('bccode39')) d = code39(valor, larga);
+  else if (t === 'bccode128c') d = code128c(valor);
   return d ?? code128(valor);
 }

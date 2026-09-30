@@ -50,10 +50,8 @@ passadas). Teste com os 6 modelos da produção e o pedido de devolução 10244 
 
 ## Pendente (próximos cortes)
 
-- **Espelho da nota** (`uRptEspelhoNF.fr3`, Ctrl+N, :14616) e **Imprimir nota** (`mniImprimirNota`, Ctrl+I, :14711 — o layout
-  escolhido em `mniLayoutDaNota`; `uRptNF.fr3` e variantes PERSONALIZADAS) — mesmos datasets + `frxDBDatasetAnimal`.
-- **DANFE** (`ImprimirDANFE1`, ACBr `DANFeRetrato.fr3` PERSONALIZADO) e **Carta de correção** (`CartaCorrecao.fr3`, dataset
-  `sqqCartaCorrecao`) — os datasets do ACBr (Identificacao, Emitente, Destinatario, Dados Produtos, …) precisam de recon próprio.
+- **Carta de correção** (`ImprimirCartadeCorreco1`, `CartaCorrecao.fr3` no Config, dataset `sqqCartaCorrecao`/`NF_CARTA_CORRECAO`).
+- O envio por e-mail da NF-e e da carta, a consulta de status e o cancelamento pelo XML (SEFAZ).
 
 ## Corte 2 — o menu Imprimir da Conferência de Nota (30/09/2026)
 
@@ -73,3 +71,41 @@ O `pmImprimir` de `uConferenciaNota` (dfm:2242) — nenhuma das três existia no
   no form — "dbdRelFor").
 - **Fora, com prova:** o modo "por lote de notas" (`LOTE_CONFERENCIA_NF`: 4 lotes e 6 vínculos na produção inteira).
 - Smoke: 1 check (listas com e sem marcados, relatório por fornecedor e por produto, vazio).
+
+## Corte 3 — "Imprimir nota", "Espelho da nota" e o DANFE (30/09/2026)
+
+**Prova de uso:** a RELATORIOS tem layouts da nota por loja editados pelo cliente — `uRptNF2.fr3` (21/07/2025), `uRptNFE2.fr3`
+(22/07/2025) e um `uRptNFE50.fr3` novo (03/07/2026); 169 concessões de `IMPRIMIRDANFE1` na produção.
+
+| Menu | Modelo | Procedência |
+|---|---|---|
+| Imprimir nota (Ctrl+I) | `uRptNF<CODEMPRESA>.fr3`, senão `uRptNF.fr3` | `mniImprimirNotaClick` :14711 |
+| Espelho da nota (Ctrl+N) | `uRptEspelhoNF.fr3` | `mniEspelhoNotaClick` :14616 |
+| Imprimir DANFE (menu NF-e) e o botão "Imprimir" do rodapé | `uRptNFE<CODEMPRESA>.fr3`, senão `uRptNFE.fr3` | `ImprimirDANFE1Click` :13615 → `CriaNFE` (udmNF.pas:6017: `RelNFE` é sempre 'PERSONALIZADO') → `TNFe.ImprimirNFE` (NFe.pas:4274) |
+
+- **O DANFE do legado é um .fr3 do FastReport, não o do ACBr:** o `CriaNFE` carrega o uRptNFE com os mesmos datasets da tela.
+- **Datasets:** `dbdNota` com o **TOTALNOTA** (`cdsNotaCalcFields` — o `totalNfLegado` do Apollo) e a **HORASAIDA** (`TO_CHAR(DTHORASAIDA,
+  'HH24:MI')`); `dbdItensNota` com o **TOTALDESCONTOS** (a agregada `SUM(VRDESCPROD)` do cdsItensNota); `dbeEmpresa` = `SELECT E.* FROM
+  EMPRESAS` com os nomes do legado (CODEMPRESA, RAZAOSOCIAL, SERIE), **sem** senhas/hashes/tokens/certificados/CSC; `frxDBDatasetAnimal`
+  vazio (NF_ANIMAL tem 0 linhas na produção).
+- **Faturamento:** o `SetaFAturamento` (uNF.pas:15709) — "dd/mm/aaaa DUP: xxx      valor | ", quebra depois da 5ª, 9ª e 13ª parcela, a
+  duplicata pelo `EMPRESAS.MODELO_DUPLICATA`. No DANFE vai **com a modalidade** ("A VISTA" na parcela que vence na emissão) no objeto
+  `MemoFaturamento`, menos na nota de devolução (CFOP.DEVOLUCAO = 'S'). Em "Imprimir nota" o legado põe o texto na variável
+  FATURAMENTO — que nenhum layout da produção usa (o `MemoFaturamento` deles é vazio): a nota sai sem o faturamento, como no legado.
+- **Travas:** o DANFE só imprime com chave e NRONF ≠ 000000 (o legado não faz nada; aqui, "A nota não tem chave de NF-e para imprimir
+  o DANFE."). O botão do rodapé passa pelo `LinhaComandosNfeLiberada` (:17831): entrada de emissão de terceiros → "Comandos não
+  liberados para nota fiscal eletrônica de entrada de emissão de terceiros." (a "LIBERA COMANDOS NFE" mora no ConfigDB.xml da estação;
+  o padrão sem ela é 'NÃO').
+- **Permissões:** o item do menu exige GERARNFE1 + IMPRIMIRDANFE1 (Tag 1 nos dois); o botão, BTNIMPRIMIRNFE. Mig 403 (fixture).
+  `GET fiscal/nf/:id/danfe` e `…/danfe-rodape`; a nota e o espelho pela rota geral (`…/impressao/nota|espelho`).
+- **Estação (ConfigDB.xml, fora do banco), com o padrão do legado:** "CARREGAR DADOS EMPRESA NO DANFE AUTOMATICAMENTE" = 'NÃO'
+  (o `DADOS_AUTOMATICOS` que o script do uRptNFE lê); "Nº DE VIAS NF" = 1 (as cópias ficam no diálogo de impressão do navegador); o
+  `Images\logo.jpg` que troca a figura do DANFE fica a do próprio .fr3.
+- **Fora:** a consulta de status na SEFAZ que o legado faz antes de imprimir o DANFE (`ConsultaNFE(True)`; a SEFAZ do Apollo é
+  simulada).
+- **Motor .fr3:** `Engine.NewPage`, `Engine.ShowBand`, `Inc`/`Dec`, `while … do`, o typecast `TfrxMemoView(Sender).Visible := …`
+  (antes, um script com ele não compilava e o relatório perdia TODOS os eventos), `Sender`, `OnAfterPrint`, ColumnHeader/ColumnFooter
+  por página, `DataSet.Eof`, `DataSet.RecNo` a partir do zero, Code-128C (a chave no uRptNF) e o texto de objeto posto antes da
+  impressão. Testes com o uRptNF2 da loja 2 (60 itens: folha N de M, ColumnHeader só na 1ª) e o espelho (35 itens: linhas em branco
+  e os totais só na última folha).
+- Smoke: 1 check (nota, espelho, DANFE com e sem chave, rota genérica, RBAC, rodapé de terceiros).

@@ -96,4 +96,39 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain(`Página 1 de ${pgs.length}`);
     expect(t).toContain('FORNECEDOR 80');
   });
+
+  const notaCompleta = {
+    ...nota, SERIE: '1', TIPO: 'S', CFOP: '5202', DESCCFOP: 'DEVOLUCAO DE COMPRA', DTCONTABIL: '2026-09-08T00:00:00', HORASAIDA: '10:30', STATUSNFE: 'P',
+    PROTOCOLO_NFE: '131260000000001', TIPOFRETE: '9', TITULAR_TIPO: 'J', TITULAR_LOGRADOURO: 'ROD BR 050', TITULAR_CIDADE: 'UBERLANDIA', OBS: 'DEVOLUCAO PARCIAL',
+    TOTALPROD: 140.61, TOTALNF: 140.61, TOTALNOTA: 140.61, TOTALBASEICM: 0, TOTALICM: 0, TOTALIPI: 0, TOTALFRETE: 0, TOTALSEGURO: 0, TOTALACESSORIAS: 0,
+    TOTALICM_ST: 0, TOTALBASEICMT: 0, TOTALDESCFINAL: 0, QTDE: 38,
+  };
+  const empresaNf = { ...empresa, INSC: '0012345670011', NUMEITENSNOTA: 30, CLASSFISCAL: 'LR', ALQSIMPLESNAC: 0 };
+  const itensNf = (qtd: number) => Array.from({ length: qtd }, (_, i) => ({ CODBARRA: String(7896791900000 + i), DESCRICAO: `ITEM DEVOLVIDO ${i + 1}`, NCMSH: '04039000',
+    CST: 60, CFOP: '5202', UNIDADE: 'UN', QUANTIDADE: 1, FATOREMBAL: 1, VRCUSTO: 3.7, VRTOTALPRODUTOS: 3.7, VRBASECALCULO: 0, VRICM: 0, VRIPI: 0, ICMS: 0, IPI: 0, TOTALDESCONTOS: 0 }));
+
+  it('imprimir nota (uRptNF da loja 2): o script compila (o typecast do SetaVisible), a chave em Code-128C, o ColumnHeader só na 1ª página e a folha N de M', () => {
+    const pgs = paginasDoModelo(modelo('urptnf2.fr3'), { dbdNota: [notaCompleta], dbdItensNota: itensNf(60), dbeEmpresa: [empresaNf], frxDBDatasetAnimal: [] }, agora);
+    const t = texto(pgs);
+    expect(pgs.length).toBeGreaterThan(1);
+    expect(t).toContain('ITEM DEVOLVIDO 60');
+    expect(t).toContain(`Página 1 / ${pgs.length}`);
+    expect(t).toContain('LATICINIOS TREVO LTDA');
+    expect(pgs[0].html.join('')).toContain('<svg'); // o código de barras da chave
+    // o ColumnHeader (natureza da operação, destinatário, impostos, transporte) só na 1ª página (ColumnHeader1OnBeforePrint)
+    expect(texto([pgs[0]])).toContain('DEVOLUCAO DE COMPRA');
+    expect(texto(pgs.slice(1))).not.toContain('DEVOLUCAO DE COMPRA');
+    // mmTipoOnBeforePrint: saída imprime 1
+    expect(t).toMatch(/\b1\b/);
+  });
+
+  it('espelho da nota: as linhas em branco completam a folha e os totais só saem na última (MasterData1.DataSet.Eof); nas outras, ----', () => {
+    const pgs = paginasDoModelo(modelo('urpt-espelho-nf.fr3'), { dbdNota: [notaCompleta], dbdItensNota: itensNf(35), dbeEmpresa: [empresaNf] }, agora);
+    const t1 = texto([pgs[0]]);
+    const tn = texto([pgs[pgs.length - 1]]);
+    expect(pgs.length).toBe(2);
+    expect(t1).toContain('----');
+    expect(tn).toContain('140,61');
+    expect(tn).toContain('ITEM DEVOLVIDO 35');
+  });
 });

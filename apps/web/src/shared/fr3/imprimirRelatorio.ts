@@ -10,7 +10,7 @@ import { documentoDeImpressao, type Conjuntos } from './render';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 /** o que o servidor devolve: o .fr3, os datasets pelo UserName e as variáveis que o legado atribui (`frxReport.Variables[...]`) */
-export interface RelatorioFr3 { titulo: string; modelo: string; datasets: Conjuntos; variaveis?: Record<string, string> }
+export interface RelatorioFr3 { titulo: string; modelo: string; datasets: Conjuntos; variaveis?: Record<string, string>; textos?: Record<string, string> }
 
 export async function buscarRelatorio(path: string, corpo?: unknown): Promise<RelatorioFr3> {
   const res = await fetch(`${BASE}${path}`, corpo === undefined ? { method: 'GET', headers: apiHeaders() } : { method: 'POST', headers: apiHeaders(), body: JSON.stringify(corpo) });
@@ -28,7 +28,7 @@ export async function imprimirRelatorio(path: string, corpo?: unknown): Promise<
   const win = window.open('', '_blank', 'width=1000,height=760');
   try {
     const r = await buscarRelatorio(path, corpo);
-    const doc = documentoDeImpressao([{ modelo: 'relatorio', registros: r.datasets, variaveis: r.variaveis }], { relatorio: r.modelo }, new Date(), r.titulo);
+    const doc = documentoDeImpressao([{ modelo: 'relatorio', registros: r.datasets, variaveis: r.variaveis, textos: r.textos }], { relatorio: r.modelo }, new Date(), r.titulo);
     if (doc.avisos.length) throw new Error(doc.avisos.join('\n'));
     if (!win) throw new Error('O navegador bloqueou a janela de impressão.');
     win.document.open();

@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { totalNfLegado } from './nf-total';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { arred, calcValorCusto, custoDoItemNaEntrada, type EmpresaCusto } from './nf-custo-item';
 
@@ -30,10 +31,46 @@ export const RELATORIOS_NF = {
   'conferencia-devolucao-compra': { arquivo: 'conf - conferencia de pedido devolucao compra.fr3', titulo: 'Conferência de devoluções de compra' },
   /** "Imprimir Lista de Conferência" (:13631) */
   'lista-conferencia': { arquivo: 'Rel_ListaConferenciaNF.fr3', titulo: 'Lista para conferência' },
+  /** "Imprimir nota" (Ctrl+I, `mniImprimirNotaClick` :14711): `Config\uRptNF<CODEMPRESA>.fr3`, senão `uRptNF.fr3`, com a variável FATURAMENTO */
+  nota: { arquivo: 'uRptNF.fr3', titulo: 'Nota fiscal' },
+  /** "Espelho da nota" (Ctrl+N, `mniEspelhoNotaClick` :14616): `Config\uRptEspelhoNF.fr3` */
+  espelho: { arquivo: 'uRptEspelhoNF.fr3', titulo: 'Espelho da nota fiscal' },
+  /**
+   * "Imprimir DANFE" (menu NF-e, `ImprimirDANFE1Click` :13615, e o botão "Imprimir" do rodapé, `btnImprimirNFeClick` :5529): o
+   * `CriaNFE` carrega `Config\uRptNFE<CODEMPRESA>.fr3`, senão `uRptNFE.fr3` (udmNF.pas:6017 — RelNFE é sempre 'PERSONALIZADO'), e põe
+   * o faturamento com a modalidade no `MemoFaturamento` (menos na devolução); o `TNFe.ImprimirNFE` só imprime com chave e NRONF ≠ 000000.
+   */
+  danfe: { arquivo: 'uRptNFE.fr3', titulo: 'DANFE' },
 } as const;
 export type RelatorioNf = keyof typeof RELATORIOS_NF;
 
-export interface ImpressaoNf { relatorio: RelatorioNf; titulo: string; modelo: string; datasets: Record<string, Registro[]> }
+/** as variáveis do relatório (`frxReport.Variables[...]`) e o texto posto em objetos antes de imprimir (`FindObject('X').Text`) */
+export interface ImpressaoNf { relatorio: RelatorioNf; titulo: string; modelo: string; datasets: Record<string, Registro[]>; variaveis?: Record<string, string>; textos?: Record<string, string> }
+
+/** os relatórios do layout da nota (os datasets da tela inteira: nota, itens, empresa e o do gado) */
+const LAYOUT_DA_NOTA: readonly RelatorioNf[] = ['nota', 'espelho', 'danfe'];
+
+/**
+ * `SetaFAturamento` (uNF.pas:15709): as parcelas da FATURAMENTO da nota numa linha de texto — "dd/mm/aaaa DUP: xxx      valor | " —,
+ * quebrando depois da 5ª, da 9ª e da 13ª; com a modalidade (o DANFE), cada parcela começa por "A VISTA:" (vence na emissão) ou pela
+ * MODALIDADE. A duplicata segue o modelo da empresa (1: " DUP: <dup> "; 2: "<dup> "). Sem parcela: ".".
+ */
+export function textoFaturamento(parcelas: Array<{ data: string; duplicata?: string | null; valor: number; modalidade?: string | null }>, dtemissao: string,
+  modeloDuplicata: number, comModalidade: boolean): string {
+  if (!parcelas.length) return '.\n';
+  const linhas: string[] = [];
+  let texto = '';
+  parcelas.forEach((p, incr) => {
+    if (comModalidade) texto += `${p.data === dtemissao ? 'A VISTA' : String(p.modalidade ?? '')}:       `;
+    const dup = p.duplicata ? (modeloDuplicata === 1 ? ` DUP: ${p.duplicata} ` : modeloDuplicata === 2 ? `${p.duplicata} ` : '') : '';
+    const [a, m, d] = p.data.split('-');
+    // ConcatenaLeft(FormatFloat('0.00', valor), 10, ' '): o valor com vírgula, alinhado à direita em 10 posições
+    texto += `${d}/${m}/${a}${dup}${arred(p.valor, 2).toFixed(2).replace('.', ',').padStart(10, ' ')} | `;
+    if (incr === 4 || incr === 8 || incr === 12) { linhas.push(texto); texto = ''; }
+  });
+  if (texto) linhas.push(texto);
+  return linhas.map((l) => `${l}\n`).join('');
+}
 
 const n = (v: unknown): number => {
   const x = typeof v === 'number' ? v : Number(v ?? 0);
@@ -75,12 +112,17 @@ export class NfImpressaoService {
     return e;
   }
 
-  async imprimir(codnf: number, relatorio: RelatorioNf): Promise<ImpressaoNf> {
+  async imprimir(codnf: number, relatorio: RelatorioNf, opcoes: { rodape?: boolean } = {}): Promise<ImpressaoNf> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const def = RELATORIOS_NF[relatorio];
     const nota = await this.nota(db, codnf, emp);
+    // `LinhaComandosNfeLiberada` (uNF.pas:17831): os comandos do rodapé NF-e não valem para a entrada de emissão de terceiros — a
+    // "LIBERA COMANDOS NFE" mora no ConfigDB.xml da estação e o padrão (sem a chave) é 'NÃO'
+    if (opcoes.rodape && String(nota.tipo ?? '') === 'E' && n(nota.tipoemissao) === 1)
+      throw new BusinessRuleError('NFE_COMANDOS_NAO_LIBERADOS', { codnf }, 'Comandos não liberados para nota fiscal eletrônica de entrada de emissão de terceiros.');
     const datasets: Record<string, Registro[]> = {};
+    if (LAYOUT_DA_NOTA.includes(relatorio)) return this.layoutDaNota(db, relatorio, nota, emp);
     if (relatorio === 'lista-conferencia') Object.assign(datasets, await this.listaConferencia(db, codnf, nota));
     else {
       datasets.dbdNota = [maiusculas(nota, await numericas(db, ['nf']))];
@@ -105,6 +147,61 @@ export class NfImpressaoService {
       }
     }
     return { relatorio, titulo: def.titulo, modelo: await modeloFr3(db, def.arquivo), datasets };
+  }
+
+  /**
+   * A nota impressa (uRptNF), o espelho (uRptEspelhoNF) e o DANFE (uRptNFE): a nota com o TOTALNOTA calculado (cdsNotaCalcFields) e a
+   * HORASAIDA, os itens com o TOTALDESCONTOS (a agregada SUM(VRDESCPROD) do cdsItensNota), a empresa inteira e o dataset do gado
+   * (NF_ANIMAL — vazia na produção). O modelo da loja (`uRptNF<CODEMPRESA>.fr3`) vence o geral.
+   */
+  private async layoutDaNota(db: AnyDB, relatorio: RelatorioNf, nota: Registro, emp: number): Promise<ImpressaoNf> {
+    if (relatorio === 'danfe' && (!String(nota.chavenfe ?? '').trim() || String(nota.nronf ?? '') === '000000'))
+      throw new BusinessRuleError('NF_SEM_CHAVE_NFE', { codnf: nota.codnf }, 'A nota não tem chave de NF-e para imprimir o DANFE.');
+    const numsNf = await numericas(db, ['nf'], ['totalnota']);
+    const totalnota = totalNfLegado({ totalprod: n(nota.totalprod), totaldesc: n(nota.totaldesc), totalipi: n(nota.totalipi), totalicm_st: n(nota.totalicm_st) }, (k) => nota[k]);
+    const horasaida = nota.dthorasaida instanceof Date ? `${d2(nota.dthorasaida.getHours())}:${d2(nota.dthorasaida.getMinutes())}` : null;
+    const itens = await this.itens(db, nota, emp);
+    const totalDescontos = arred(itens.reduce((s, it) => s + n(it.VRDESCPROD), 0), 2);
+    const faturamento = relatorio === 'espelho' ? '' : await this.faturamento(db, nota, emp, relatorio === 'danfe');
+    const def = RELATORIOS_NF[relatorio];
+    const base = def.arquivo.replace(/\.fr3$/i, '');
+    const modelo = relatorio === 'espelho' ? await modeloFr3(db, def.arquivo)
+      : await modeloFr3(db, `${base}${emp}.fr3`).catch(() => modeloFr3(db, def.arquivo));
+    const devolucao = String(nota.devolucao ?? '').toUpperCase() === 'S';
+    return {
+      relatorio,
+      titulo: `${def.titulo} ${String(nota.nronf ?? '')}`.trim(),
+      modelo,
+      datasets: {
+        dbdNota: [maiusculas({ ...nota, totalnota, horasaida }, numsNf)],
+        dbdItensNota: itens.map((it) => ({ ...it, TOTALDESCONTOS: totalDescontos })),
+        dbeEmpresa: [await this.empresaCompleta(db, emp)],
+        frxDBDatasetAnimal: [],
+      },
+      ...(relatorio === 'nota' ? { variaveis: { FATURAMENTO: `'${faturamento.replace(/'/g, "''")}'` } } : {}),
+      ...(relatorio === 'danfe' && !devolucao ? { textos: { MemoFaturamento: faturamento } } : {}),
+    };
+  }
+
+  /** as parcelas da FATURAMENTO da nota no texto do `SetaFAturamento`, pelo modelo de duplicata da empresa */
+  private async faturamento(db: AnyDB, nota: Registro, emp: number, comModalidade: boolean): Promise<string> {
+    const parcelas = (await sql<{ data: string; duplicata: string | null; valor: string | number; modalidade: string | null }>`
+      SELECT to_char(data, 'YYYY-MM-DD') AS data, duplicata, valor, modalidade FROM faturamento WHERE idnf = ${n(nota.codnf)} ORDER BY codfaturamento`.execute(db)).rows;
+    const modelo = n((await sql<{ modelo_duplicata: unknown }>`SELECT modelo_duplicata FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0]?.modelo_duplicata);
+    const dtemissao = nota.dtemissao instanceof Date ? dataLocal(nota.dtemissao).slice(0, 10) : String(nota.dtemissao ?? '').slice(0, 10);
+    return textoFaturamento(parcelas.map((p) => ({ ...p, valor: n(p.valor) })), dtemissao, modelo || 1, comModalidade);
+  }
+
+  /**
+   * `dmPrincipal.Empresa` inteira (`SELECT E.* FROM EMPRESAS E`, udmPrincipal.dfm) como os layouts da nota a leem — com os nomes do legado
+   * (CODEMPRESA, RAZAOSOCIAL, SERIE) e o DADOS_AUTOMATICOS da estação ("CARREGAR DADOS EMPRESA NO DANFE AUTOMATICAMENTE", no ConfigDB.xml
+   * local; sem ele, 'NÃO') —, mas **sem** senhas, hashes, tokens, certificados e CSC.
+   */
+  private async empresaCompleta(db: AnyDB, emp: number): Promise<Registro> {
+    const r = (await sql<Registro>`SELECT * FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const seguro = Object.fromEntries(Object.entries(r).filter(([k]) => !/senha|token|certificado|csc|autenticacao|hash/i.test(k)));
+    const nums = await numericas(db, ['empresas']);
+    return maiusculas({ ...seguro, codempresa: r.idempresa, razaosocial: r.razao_social, serie: r.serie_nfe, dados_automaticos: 'NÃO' }, new Set([...nums, 'codempresa']));
   }
 
   /** a nota como o `qryNota` (udmNF.dfm:7): a NF com o titular, a transportadora e o CFOP */

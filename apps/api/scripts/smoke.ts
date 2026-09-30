@@ -19188,6 +19188,41 @@ async function main() {
           && dev2.status === 200 && dv.length === 1 && Number(dv[0].QTD_NOTA_FISCAL) === 6 && Number(dv[0].QTD_DEVOLVIDA) === 3 && Number(dv[0].TOTAL_PRODUTO_DEVOLVIDO) === 20
           && dv[0].NRONF === '991390' && dv[0].CODBARRA === '7899913910001',
           { icms2: [icms2.status, st[0]], dev2: [dev2.status, dv[0]] });
+        // o layout da nota: "Imprimir nota" (uRptNF da loja antes do geral), o espelho e o DANFE (uRptNFE, com o faturamento no MemoFaturamento)
+        await pgIm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (991310, 1, 'uRptNF.fr3', 'x', 'PERSONALIZADO', $1), (991311, 1, 'uRptNF1.fr3', 'x', 'PERSONALIZADO', $2), (991312, 1, 'uRptEspelhoNF.fr3', 'x', 'PERSONALIZADO', $3),
+          (991313, 1, 'uRptNFE.fr3', 'x', 'PERSONALIZADO', $4)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3('NOTA GERAL'), fr3('NOTA DA LOJA 1'), fr3('ESPELHO'), fr3('DANFE GERAL')]);
+        await pgIm.query(`INSERT INTO faturamento (codfaturamento, data, idnf, modalidade, valor, liberado, nrofatura, totalparcelasfatura, duplicata) VALUES
+          (991390, '2044-11-05', $1, 'A PAGAR', 80, 'N', 1, 2, '9913-44-A'), (991391, '2044-12-05', $1, 'A PAGAR', 80, 'N', 2, 2, '9913-44-B')`, [nfIm]);
+        const nota = await get(`${IM}/nota`);
+        const espelho = await get(`${IM}/espelho`);
+        const danfeSemChave = await get(`fiscal/nf/${nfIm}/danfe`);
+        await pgIm.query(`UPDATE nf SET chavenfe = '31441137954975000169550010009913901000000011', nronf = '991390' WHERE codnf = $1`, [nfIm]);
+        const danfe = await get(`fiscal/nf/${nfIm}/danfe`);
+        const danfeGenerico = await get(`${IM}/danfe`);
+        const danfeSemGrant = await get(`fiscal/nf/${nfIm}/danfe`, H_SEM_ACESSO);
+        await pgIm.query(`UPDATE nf SET tipoemissao = '1' WHERE codnf = $1`, [nfIm]);
+        const rodapeTerceiros = await get(`fiscal/nf/${nfIm}/danfe-rodape`);
+        await pgIm.query(`UPDATE nf SET tipoemissao = '0' WHERE codnf = $1`, [nfIm]);
+        const rodape = await get(`fiscal/nf/${nfIm}/danfe-rodape`);
+        const empN = nota.j.datasets?.dbeEmpresa?.[0] ?? {};
+        const fat = String(nota.j.variaveis?.FATURAMENTO ?? '');
+        const memo = String(danfe.j.textos?.MemoFaturamento ?? '');
+        check('NF [layout da nota]: "Imprimir nota" usa o uRptNF da loja (uRptNF1) antes do geral, com TOTALNOTA, HORASAIDA e o TOTALDESCONTOS nos itens, a empresa inteira sem senha/token/certificado e DADOS_AUTOMATICOS NÃO, e a variável FATURAMENTO; o espelho; o DANFE: sem chave → 422, com chave → o uRptNFE e o faturamento com a modalidade no MemoFaturamento ("A VISTA" na parcela da emissão); pelo roteamento genérico não sai; sem as opções do menu 403; o botão do rodapé recusa a entrada de terceiros',
+          nota.status === 200 && String(nota.j.modelo).includes('NOTA DA LOJA 1') && typeof nota.j.datasets?.dbdNota?.[0]?.TOTALNOTA === 'number'
+          && 'HORASAIDA' in (nota.j.datasets?.dbdNota?.[0] ?? {}) && 'TOTALDESCONTOS' in (nota.j.datasets?.dbdItensNota?.[0] ?? {}) && Array.isArray(nota.j.datasets?.frxDBDatasetAnimal)
+          && empN.RAZAOSOCIAL != null && empN.DADOS_AUTOMATICOS === 'NÃO' && !Object.keys(empN).some((k) => /SENHA|TOKEN|CERTIFICADO|CSC|HASH/.test(k))
+          && fat.includes('05/12/2044') && fat.includes('80,00') && !fat.includes('A VISTA')
+          && espelho.status === 200 && String(espelho.j.modelo).includes('ESPELHO')
+          && danfeSemChave.status === 422 && danfeSemChave.j.code === 'NF_SEM_CHAVE_NFE'
+          && danfe.status === 200 && String(danfe.j.modelo).includes('DANFE GERAL') && memo.startsWith('A VISTA:       05/11/2044') && memo.includes('A PAGAR:       05/12/2044')
+          && danfeGenerico.status === 422 && danfeSemGrant.status === 403
+          && rodapeTerceiros.status === 422 && rodapeTerceiros.j.code === 'NFE_COMANDOS_NAO_LIBERADOS' && rodape.status === 200,
+          { nota: [nota.status, nota.j.code, fat], empN: Object.keys(empN).filter((k) => /SENHA|TOKEN|CERT|CSC|HASH/.test(k)), espelho: espelho.status, danfeSemChave: [danfeSemChave.status, danfeSemChave.j.code],
+            danfe: [danfe.status, memo], danfeGenerico: danfeGenerico.status, danfeSemGrant: danfeSemGrant.status, rodape: [rodapeTerceiros.status, rodapeTerceiros.j.code, rodape.status] });
+        await pgIm.query(`DELETE FROM faturamento WHERE codfaturamento IN (991390, 991391)`);
+
         // a Conferência de Nota (pmImprimir): as listas com os itens marcados (ou todos) por descrição e o relatório de diferenças
         await pgIm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
           (991307, 1, 'ConferenciaNFOperadores.fr3', 'x', 'DEFAULT', $1), (991308, 1, 'Rel_DiferencaEntradasFor.fr3', 'x', 'DEFAULT', $1), (991309, 1, 'Rel_DiferencaEntradasPro.fr3', 'x', 'DEFAULT', $1)
