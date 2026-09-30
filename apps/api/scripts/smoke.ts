@@ -22286,6 +22286,33 @@ async function main() {
         const dest = (await pgMf.query(`SELECT cnpj_destinatario, razao_destinatario FROM nfe_nao_cadastradas WHERE chavenfe = $1`, [ch1])).rows[0] as any;
         check('MANIFESTO §206.2 [o destinatário]: o XML completo que chega depois do resumo grava na linha da fila o CNPJ do destinatário formatado (11.222.333/0001-81) e a razão como o emitente digitou ("JF SUPERMERCADOS LTDA ( 6607)" — na produção a razão varia assim, por fornecedor); o resumo não tem destinatário',
           dest?.cnpj_destinatario === '11.222.333/0001-81' && dest?.razao_destinatario === 'JF SUPERMERCADOS LTDA ( 6607)', { dest });
+        // §206.3 o VÍNCULO NF × DEVOLUÇÃO (NFE_REF_DEV_ENT_VINCULO): a nota de entrada do emitente (tpNF 0) com refNFe vincula a própria
+        // chave e cada referenciada (307 de 307 notas da produção); a mesma nota de novo não duplica
+        const procDev = `<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><NFe><infNFe Id="NFe${chSaida}" versao="4.00"><ide><tpNF>0</tpNF><finNFe>4</finNFe><NFref><refNFe>${ch2}</refNFe></NFref></ide><emit><CNPJ>22327834000149</CNPJ><xNome>FORNECEDOR SMOKE LTDA</xNome></emit></infNFe></NFe><protNFe><infProt><chNFe>${chSaida}</chNFe></infProt></protNFe></nfeProc>`;
+        await pgMf.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe_dev = $1`, [chSaida]);
+        await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, () => svc.processarDocs(1, [{ nsu: '10', schema: 'procNFe_v4.00.xsd', xml: procDev }]));
+        await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, () => svc.processarDocs(1, [{ nsu: '11', schema: 'procNFe_v4.00.xsd', xml: procDev }]));
+        const vinc = (await pgMf.query(`SELECT chavenfe FROM nfe_ref_dev_ent_vinculo WHERE chavenfe_dev = $1 ORDER BY chavenfe`, [chSaida])).rows.map((r: any) => r.chavenfe);
+        check('MANIFESTO §206.3 [o vínculo NF × devolução]: a nota de entrada do emitente com refNFe grava os pares {ela mesma, a referenciada} — e não duplica quando a nota chega de novo',
+          vinc.length === 2 && vinc.includes(chSaida) && vinc.includes(ch2), { vinc });
+        await pgMf.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe_dev = $1`, [chSaida]);
+        await pgMf.query(`DELETE FROM nfe_xml WHERE chavenfe = $1`, [chSaida]);
+
+        // PEDIDO_COMPRA_EMPRESA acompanha o pedido (mig 401): uma linha por loja do EMPRESAS, com o INDR do pedido
+        const pcE = Number((await pgMf.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, empresas) VALUES (2, 1, now(), 7, '1, 2') RETURNING codpedcomp`)).rows[0].codpedcomp);
+        const lojas = async () => (await pgMf.query(`SELECT codempresa, indr FROM pedido_compra_empresa WHERE codpedcomp = $1 ORDER BY codempresa`, [pcE])).rows.map((r: any) => `${r.codempresa}:${r.indr ?? ''}`).join(',');
+        const l12 = await lojas();
+        await pgMf.query(`UPDATE pedidocompra SET empresas = '2' WHERE codpedcomp = $1`, [pcE]);
+        const l2 = await lojas();
+        await pgMf.query(`UPDATE pedidocompra SET indr = 'E' WHERE codpedcomp = $1`, [pcE]);
+        const lE = await lojas();
+        await pgMf.query(`UPDATE pedidocompra SET empresas = NULL, indr = NULL WHERE codpedcomp = $1`, [pcE]);
+        const lNulo = await lojas();
+        check('PEDIDO DE COMPRA [as lojas do pedido]: PEDIDO_COMPRA_EMPRESA segue o EMPRESAS ("1, 2" → 1 e 2; "2" → só 2), leva o INDR do pedido (E) e, sem EMPRESAS, fica a loja do pedido — a fonte GET_PEDIDOCOMPRA faz JOIN nela',
+          l12 === '1:,2:' && l2 === '2:' && lE === '2:E' && lNulo === '1:', { l12, l2, lE, lNulo });
+        await pgMf.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = $1`, [pcE]);
+        await pgMf.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pcE]);
+
         await pgMf.query(`DELETE FROM nfe_xml WHERE chavenfe = $1`, [ch1]);
         await pgMf.query(`DELETE FROM nfe_eventos WHERE chave_acesso=$1`, [ch1]);
         await pgMf.query(`DELETE FROM nfe_nao_cadastradas WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);

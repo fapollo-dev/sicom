@@ -443,6 +443,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('398_catalogo_construtor_lote_e.sql'));
   await pool.query(sql('399_concat_nulo_como_oracle.sql'));
   await pool.query(sql('400_manifesto_eventos_da_view.sql'));
+  await pool.query(sql('401_pedido_compra_empresa.sql'));
   await pool.end();
   return pg;
 }

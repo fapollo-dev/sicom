@@ -170,6 +170,7 @@ export class SefazDfeService {
           if (dest.cnpj_destinatario) {
             await db.updateTable('nfe_nao_cadastradas').set(dest).where('chavenfe', '=', chave).where('idempresa', '=', emp).where('cnpj_destinatario', 'is', null).execute();
           }
+          await this.vincularDevolucao(db, chave, d.xml);
         }
         if (await this.registrarNaFila(db, emp, op, chave, d.xml)) completa ? completas++ : resumos++;
       } else if (d.schema.startsWith('resEvento') || d.schema.startsWith('procEventoNFe')) {
@@ -178,6 +179,22 @@ export class SefazDfeService {
       }
     }
     return { resumos, completas, eventos };
+  }
+
+  /**
+   * O VÍNCULO NF × DEVOLUÇÃO (NFE_REF_DEV_ENT_VINCULO — a coluna VINCULA_ENT_DEV da GET_NF_MANIFESTO). Quem grava é o binário
+   * novo (não está no fonte de 2020); a regra vem do dado: para a nota de ENTRADA do emitente (tpNF 0) que referencia outras
+   * (refNFe), o vínculo é a própria chave mais cada chave referenciada — 307 de 307 notas da produção seguem isso (601 pares;
+   * finNFe 4 em 233, 1 em 72, 5 em 2); 46 das 51 notas assim desde jun/2026 têm o vínculo. Sem duplicar o par que já existe.
+   */
+  private async vincularDevolucao(db: AnyDB, chave: string, xml: string): Promise<void> {
+    if (tag(xml, 'tpNF') !== '0') return;
+    const refs = Array.from(new Set([...xml.matchAll(/<refNFe>(\d{44})<\/refNFe>/g)].map((m) => m[1])));
+    if (!refs.length) return;
+    for (const ori of [chave, ...refs.filter((r) => r !== chave)]) {
+      await sql`INSERT INTO nfe_ref_dev_ent_vinculo (chavenfe_dev, chavenfe)
+                SELECT ${chave}, ${ori} WHERE NOT EXISTS (SELECT 1 FROM nfe_ref_dev_ent_vinculo WHERE chavenfe_dev = ${chave} AND chavenfe = ${ori})`.execute(db);
+    }
   }
 
   /** a linha da fila do manifesto; devolve false quando a chave já é NF ou já está na fila da empresa */

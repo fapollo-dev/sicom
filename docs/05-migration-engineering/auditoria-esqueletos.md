@@ -656,3 +656,19 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
     — uma tela do binário novo que o Apollo não tem; 72 contagens em set/2026) e a **apuração PIS/COFINS** (`apuracao_pc_det` com a
     estrutura do legado: CRÉDITO/DÉBITO, ENTRADA/SAÍDA NF/NFC-e, os valores *_APURA; o Apollo tem uma versão simplificada).
 - 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).
+
+## Tabelas lidas sem escritor (30/09/2026) — `tools/cutover/conferir-tabelas-sem-escritor.py`
+
+O quarto sentido: a tabela que o Apollo LÊ, que a carga enche e que nenhum código do Apollo grava — funciona no ensaio e
+para no dia seguinte à virada. Nasceu da análise dos itens do manifesto (a importação lia o FATOREMBAL de
+NFE_NAO_CADASTRADAS_ITENS e nada o gravava). 1ª rodada: 469 tabelas, 36 lidas e nunca gravadas, 20 com dado na produção:
+
+| Tabela | Veredito |
+|---|---|
+| NFE_NAO_CADASTRADAS_ITENS | **corrigido** — a análise dos itens do manifesto (`edf88c3`) |
+| PEDIDO_COMPRA_EMPRESA (~100/mês) | **corrigido** — uma linha por loja do EMPRESAS com o INDR do pedido (583/653 de 2026; mig 401, gatilho); a GET_PEDIDOCOMPRA faz JOIN nela |
+| NFE_REF_DEV_ENT_VINCULO (~20/mês) | **corrigido** — gravada na sincronização: nota tpNF 0 com refNFe → {ela, cada referenciada} (307/307 notas) |
+| HISTORICO_PDV, CAIXA_PDV, PDV | PDV (fora do escopo) |
+| RELATORIOS, RELATORIOS_CUSTOMIZADOS | os arquivos .fr3/.xml do binário novo e do construtor — o Apollo lê (modelos de etiqueta, importador); não há designer |
+| CONFIG_BALANCA, CONFIGURACOES_SPED, CONTABILISTA, CFG_DESCRICAO_NAO_IMPORTAR_OFX, BANDEIRA, GRUPO_OPERADOR, CONTACORRENTE | configuração/cadastro pequeno (1–332 linhas, sem data): a conferir tela a tela |
+| PC_BASECREDITO, PC_TAB_AJUSTE_*, PC_TIPOCREDITO*, CCLASS_TRIB_NCM | tabelas de referência (EFD/reforma) |
