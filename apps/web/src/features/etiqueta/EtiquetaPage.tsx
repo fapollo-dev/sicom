@@ -8,7 +8,7 @@ import {
   listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, etiquetasDaAgenda, listarModelos,
   importarCodigos, codigosDoArquivo, precoNaEtiqueta, etiquetasDeItens, lerPedidoDeItens, type Etiqueta,
 } from './etiquetaApi';
-import { documentoDeImpressao } from './fr3/render';
+import { documentoDeImpressao } from '../../shared/fr3/render';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const BACKUP = 'apollo.etiquetas.backup';

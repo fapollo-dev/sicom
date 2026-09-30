@@ -144,6 +144,8 @@ import { RazaoController } from './razao.controller';
 import { RazaoService } from './razao.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfClonarController } from './nf-clonar.controller';
+import { NfImpressaoController } from './nf-impressao.controller';
+import { NfImpressaoService } from './nf-impressao.service';
 import { NfClonarService } from './nf-clonar.service';
 import { NfScrapController } from './nf-scrap.controller';
 import { NfScrapService } from './nf-scrap.service';
@@ -208,6 +210,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfClonarController, // ClonaNF — clonar / nota de transferência entre lojas
+    NfImpressaoController, // o menu de impressões da NF (conferências, lista de conferência)
     NfScrapController, // importar SCRAP na NF de saída (uNF.pas:1880)
     NfVendasController, // a NF de cupom: importar VENDAS (uNF.pas:13201)
     NfDevolucaoVendasController, // a NF de entrada de devolução de vendas (uNF.pas:5900)
@@ -285,6 +288,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfFiscalService,
     NfProcessamentoService,
     NfClonarService,
+    NfImpressaoService,
     NfDecomposicaoService,
     NfScrapService,
     NfVendasService,

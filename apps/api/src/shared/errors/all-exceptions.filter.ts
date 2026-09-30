@@ -316,6 +316,10 @@ const CODE_PT: Record<string, string> = {
   NF_DUPLICADA: 'Esta nota fiscal já está lançada com o mesmo número e o mesmo fornecedor.',
   // processamento / movimento de estoque (F3)
   NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',
+  NF_IMPRESSAO_SEM_REGISTROS: 'Não existem registros a serem exibidos.',
+  NF_SEM_PEDIDO_DEVOLUCAO: 'Nota Fiscal sem pedido de devolução associado.',
+  RELATORIO_NF_DESCONHECIDO: 'Relatório da nota fiscal desconhecido.',
+  RELATORIO_MODELO_NAO_ENCONTRADO: 'O modelo de relatório não está cadastrado.',
   NF_JA_PROCESSADA: 'A nota selecionada já está processada!',
   NF_NAO_PROCESSADA: 'A nota fiscal não está processada.',
   NF_CANCELADA: 'Nota fiscal cancelada não pode ser modificada nem excluída.',

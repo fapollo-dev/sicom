@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -312,8 +313,9 @@ export function ManifestoDfePage() {
                     {naoCad && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
                     {naoCad && l.ignorada !== 'S' && <>{' · '}<button className="underline" onClick={() => void importar(l)}>importar</button></>}
                     {naoCad && l.ignorada !== 'S' && l.cancelamento !== 'SIM' && <>{' · '}<button className="underline" onClick={() => void abrirPrevisao(l)}>previsão a pagar</button></>}
-                    {/* os botões da grade com a nota cadastrada: a conferência da nota (TfrmConferenciaNota) */}
+                    {/* os botões da grade com a nota cadastrada: a conferência da nota (TfrmConferenciaNota) e a de preço (cxbtnConfpr) */}
                     {!naoCad && <>{' · '}<button className="underline" onClick={() => navigate(`/compras/conferencia-nota?codnf=${String(l.codigo)}`)}>conferência</button></>}
+                    {!naoCad && <>{' · '}<button className="underline" onClick={() => { imprimirRelatorio(`/fiscal/nf/${String(l.codigo)}/conferencia-preco-manifesto`).catch((e) => mensagem.erro(e)); }}>conf. preço</button></>}
                   </td>
                 </tr>
               );

@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { documentoDeImpressao, paginasDoModelo, cor } from '../src/features/etiqueta/fr3/render';
-import { formatFloat, formatDelphi } from '../src/features/etiqueta/fr3/formato';
-import { desenhar } from '../src/features/etiqueta/fr3/barras';
+import { documentoDeImpressao, paginasDoModelo, cor } from '../src/shared/fr3/render';
+import { formatFloat, formatDelphi } from '../src/shared/fr3/formato';
+import { desenhar } from '../src/shared/fr3/barras';
 
 /** os modelos vêm da tabela RELATORIOS da produção (o .fr3 que o legado carrega em Uetiqueta.pas:1407) */
 const modelo = (arq: string) => readFileSync(resolve(__dirname, 'fixtures/etiquetas', arq), 'utf8');

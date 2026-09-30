@@ -1,11 +1,13 @@
 /**
- * O PascalScript e as expressões do FastReport — o subconjunto que os modelos de etiqueta do legado usam.
+ * O PascalScript e as expressões do FastReport — o subconjunto que os modelos do legado (etiquetas e relatórios) usam.
  *
  * Expressões (o que vai entre colchetes no texto de um memo): campos `<frxDBDataset2."CAMPO">` ou `frxDBDataset2."CAMPO"`,
  * variáveis `<PAGINA1>`, `IIF`, `FormatFloat`, `Date`/`Time`, aritmética, comparação e concatenação com `+`.
  * Script (o `ScriptText` do relatório): `procedure X(Sender: TfrxComponent); begin ... end;` ligadas aos eventos
  * `OnBeforePrint`/`OnStartReport`, com atribuição a propriedade de objeto (`MemoVenda.Visible := True`), `if/then/else`
- * e blocos `begin/end`. É o que os 41 modelos `eti$` da produção usam (auditoria de set/2026) — nada além.
+ * e blocos `begin/end`. É o que os 41 modelos `eti$` da produção usam (auditoria de set/2026). Os relatórios (as conferências
+ * da NF) somam as agregadas do FastReport — `SUM(<ds."CAMPO">, MasterData1)`, `AVG`, `MIN`, `MAX`, `COUNT(MasterData1)` —,
+ * que o motor do relatório resolve sobre as linhas já impressas da banda (`Ambiente.agregado`).
  */
 
 export type Valor = number | string | boolean | Date | null;
@@ -34,8 +36,12 @@ export interface Ambiente {
   variavel(nome: string): Valor;
   ler(caminho: string[]): Valor;
   gravar(caminho: string[], v: Valor): void;
+  /** SUM/AVG/MIN/MAX/COUNT: os argumentos chegam sem avaliar (a expressão roda linha a linha da banda) */
+  agregado?(funcao: string, args: Expr[]): Valor;
   agora: Date;
 }
+
+const AGREGADAS = new Set(['sum', 'avg', 'min', 'max', 'count']);
 
 type Tok = { t: 'num' | 'str' | 'dq' | 'id' | 'ref' | 'op' | 'fim'; v: string };
 
@@ -287,6 +293,7 @@ export function avaliar(e: Expr, amb: Ambiente, funcoes: Record<string, (args: V
     case 'call': {
       const n = e.nome.toLowerCase();
       if (n === 'iif') return booleano(avaliar(e.args[0], amb, funcoes)) ? avaliar(e.args[1], amb, funcoes) : avaliar(e.args[2], amb, funcoes);
+      if (AGREGADAS.has(n) && amb.agregado) return amb.agregado(n, e.args);
       const f = funcoes[n];
       return f ? f(e.args.map((a) => avaliar(a, amb, funcoes)), amb) : null;
     }

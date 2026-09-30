@@ -54,5 +54,5 @@ novo trocou pela previsão de A Pagar — `previsao-apagar-manifesto.md`); "Veri
 pedido×NF (parada desde 09/01/2025); o cadastro de produto/parceiro a partir do XML (F2/F7) fica no cadastro.
 
 **Fora, com prova:** "Análise de pedido de compra" da linha — a análise pedido×NF parou em 09/01/2025 (9.030 análises, a
-última nessa data). A "conferência de preço simples" (relatório `conf - conferencia de preco simples nf.fr3`) é o próximo corte. Colunas ALERTA/DESCRICAO_ALERTA são campos
+última nessa data). ✅ A "conferência de preço simples" (o botão "Conf. Preço" da grade, `conf - conferencia de preco simples nf.fr3`, só na nota cadastrada) entrou em 30/09/2026 com as impressões da NF (`uNF-impressoes.md`). Colunas ALERTA/DESCRICAO_ALERTA são campos
 do dataset do binário novo (alerta fiscal), fora da view.

@@ -1,5 +1,7 @@
 /**
- * IMPRESSÃO DOS MODELOS DE ETIQUETA DO LEGADO (.fr3) — o motor do FastReport, no subconjunto que os modelos `eti$` usam.
+ * IMPRESSÃO DOS MODELOS DO LEGADO (.fr3) — o motor do FastReport, no subconjunto que os modelos da produção usam: as etiquetas
+ * (`eti$`) e os relatórios que o legado imprime com um frxDBDataset por tabela (as conferências da NF: `dbdNota` +
+ * `dbdItensNota`, com as agregadas `SUM`/`AVG`/`COUNT` no rodapé).
  *
  * O legado imprime a etiqueta carregando `Relatorios\eti$ - <modelo>.fr3` no TfrxReport (Uetiqueta.pas:1398-1452); a
  * produção guarda esses arquivos na tabela RELATORIOS (1.227 linhas; 41 modelos `eti$`). Aqui o mesmo arquivo é lido e
@@ -13,8 +15,13 @@
  * Paginação: as bandas empilham do alto da área útil; a que não cabe no que sobra da página abre página nova. O modelo
  * da loja (GONDULA PINHEIRAO, 99,8% das 78 mil impressões de 2026) tem papel 105×30 mm e banda de 24,8 mm: uma
  * etiqueta por página, que é como a impressora de etiquetas corta.
+ *
+ * Os dados: uma lista de registros (a etiqueta: todo `<ds."CAMPO">` lê o registro corrente, qualquer que seja o ds) ou um
+ * conjunto por nome de frxDBDataset (`{ dbdNota: [...], dbdItensNota: [...] }`). A MasterData percorre o conjunto do seu
+ * `DataSet` (o prefixo do form — "frmNF.dbdItensNota" — cai); os outros ficam no primeiro registro, como o cursor parado de um
+ * TDataSet que o relatório não percorre. `[TotalPages#]` faz duas passadas (o DoublePass do FastReport).
  */
-import { avaliar, compilarExpr, compilarScript, executar, texto, type Ambiente, type Expr, type Programa, type Valor } from './expr';
+import { avaliar, compilarExpr, compilarScript, executar, numero, texto, type Ambiente, type Expr, type Programa, type Valor } from './expr';
 import { aplicarDisplayFormat, formatDateTime, formatDelphi, formatFloat, type Separadores } from './formato';
 import { desenhar } from './barras';
 
@@ -98,6 +105,11 @@ const PAGINAS = new Set(['TfrxReportPage', 'TfrxDMPPage']);
 interface Estado { no: No; Visible: boolean; Left: number; Top: number; Width: number; Height: number; Text: string; final: string | null; feito: boolean; extras: Record<string, Valor> }
 
 export type Registro = Record<string, unknown>;
+/** os registros de cada frxDBDataset do relatório, pelo UserName */
+export type Conjuntos = Record<string, Registro[]>;
+
+/** o nome do dataset sem o prefixo do form ("frmNF.dbdItensNota" → "dbditensnota") */
+const nomeDs = (s: string | undefined): string => (s ?? '').slice((s ?? '').lastIndexOf('.') + 1).toLowerCase();
 
 export interface PaginaSaida { chave: string; larguraMm: number; alturaMm: number; margem: [number, number, number, number]; html: string[] }
 
@@ -108,14 +120,22 @@ class Relatorio {
   private readonly locais = new Map<string, Valor>();
   private readonly variaveis = new Map<string, Valor>();
   private readonly exprs = new Map<string, Expr | null>();
-  private registro: Registro = {};
+  private readonly unico: Registro[] | null;
+  private readonly conjuntos = new Map<string, Registro[]>();
+  /** o cursor de cada dataset (o único, quando os dados vêm como lista, fica na chave '') */
+  private readonly cursor = new Map<string, number>();
+  /** as linhas já impressas por banda de dados (as agregadas somam sobre elas) e o dataset de cada banda */
+  private readonly impressas = new Map<string, number[]>();
+  private readonly dsDaBanda = new Map<string, string>();
   private recno = 0;
   private pagina = 0;
   private readonly funcoes: Record<string, (args: Valor[], amb: Ambiente) => Valor>;
   private readonly amb: Ambiente;
 
-  constructor(xml: string, private readonly registros: Registro[], private readonly agora: Date, variaveisExtras: Record<string, string> = {}) {
+  constructor(xml: string, dados: Registro[] | Conjuntos, private readonly agora: Date, variaveisExtras: Record<string, string> = {}, private readonly totalPaginas = 0) {
     this.raiz = parse(xml);
+    this.unico = Array.isArray(dados) ? dados : null;
+    if (!Array.isArray(dados)) for (const [k, v] of Object.entries(dados)) this.conjuntos.set(nomeDs(k), v ?? []);
     this.prog = compilarScript(this.raiz.a['ScriptText.Text'] ?? '');
     const indexar = (no: No) => {
       const nome = no.a.Name;
@@ -146,10 +166,11 @@ class Relatorio {
     };
     this.amb = {
       agora,
-      campo: (_ds, campo) => this.campo(campo),
+      campo: (ds, campo) => this.campo(ds, campo),
       variavel: (nome) => this.variavel(nome),
       ler: (c) => this.ler(c),
       gravar: (c, v) => this.gravar(c, v),
+      agregado: (f, args) => this.agregado(f, args),
     };
     // variáveis do relatório (<Variables>): o valor é uma expressão ('S' entre aspas)
     for (const v of this.raiz.filhos.filter((x) => x.tag === 'Variables').flatMap((x) => x.filhos)) {
@@ -162,9 +183,23 @@ class Relatorio {
     try { return avaliar(compilarExpr(src), this.amb, this.funcoes); } catch { return src; }
   }
 
-  private campo(nome: string): Valor {
-    const k = Object.keys(this.registro).find((x) => x.toUpperCase() === nome.toUpperCase());
-    const v = k != null ? this.registro[k] : null;
+  private linhas(ds: string): Registro[] {
+    return this.unico ?? this.conjuntos.get(nomeDs(ds)) ?? [];
+  }
+
+  private registroDe(ds: string): Registro {
+    const chave = this.unico ? '' : nomeDs(ds);
+    return this.linhas(ds)[this.cursor.get(chave) ?? 0] ?? {};
+  }
+
+  private posicionar(ds: string, i: number): void {
+    this.cursor.set(this.unico ? '' : nomeDs(ds), i);
+  }
+
+  private campo(ds: string, nome: string): Valor {
+    const reg = this.registroDe(ds);
+    const k = Object.keys(reg).find((x) => x.toUpperCase() === nome.toUpperCase());
+    const v = k != null ? reg[k] : null;
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(T[\d:.]+)?$/.test(v)) {
       const [a, m, d] = v.slice(0, 10).split('-').map(Number);
       return new Date(a, m - 1, d); // TDateField
@@ -175,6 +210,7 @@ class Relatorio {
   private variavel(nome: string): Valor {
     const k = nome.toLowerCase();
     if (k === 'page#' || k === 'page') return this.pagina;
+    if (k === 'totalpages#' || k === 'totalpages') return this.totalPaginas || this.pagina;
     if (k === 'line#' || k === 'line') return this.recno;
     if (k === 'date') return this.funcoes.date([], this.amb);
     if (k === 'time') return this.funcoes.time([], this.amb);
@@ -207,6 +243,32 @@ class Relatorio {
     else e.extras[prop] = v;
   }
 
+  /**
+   * As agregadas do FastReport: a expressão roda em cada linha já impressa da banda (`SUM(<ds."X">, MasterData1)`); `COUNT(Banda)`
+   * conta as linhas. Sem a banda no argumento, vale a primeira banda de dados do relatório.
+   */
+  private agregado(f: string, args: Expr[]): Valor {
+    const nomeBanda = (e: Expr | undefined) => (e?.k === 'id' ? e.caminho.join('.') : e?.k === 'ref' && e.campo == null ? e.nome : '').toLowerCase();
+    const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || [...this.dsDaBanda.keys()][0] || '';
+    const linhas = this.impressas.get(banda) ?? [];
+    if (f === 'count') return linhas.length;
+    const ds = this.dsDaBanda.get(banda) ?? '';
+    const chave = this.unico ? '' : nomeDs(ds);
+    const antes = this.cursor.get(chave) ?? 0;
+    const valores: number[] = [];
+    for (const i of linhas) {
+      this.posicionar(ds, i);
+      let v: Valor = null;
+      try { v = avaliar(args[0], this.amb, this.funcoes); } catch { v = null; }
+      valores.push(numero(v));
+    }
+    this.cursor.set(chave, antes);
+    if (f === 'sum') return valores.reduce((a, b) => a + b, 0);
+    if (f === 'avg') return valores.length ? valores.reduce((a, b) => a + b, 0) / valores.length : 0;
+    if (!valores.length) return 0;
+    return f === 'min' ? Math.min(...valores) : Math.max(...valores);
+  }
+
   private evento(no: No, nomeEvento = 'OnBeforePrint'): void {
     const proc = no.a[nomeEvento];
     if (!proc) return;
@@ -218,7 +280,7 @@ class Relatorio {
 
   /** o texto do memo; o memo ligado a campo (DataField) sem texto mostra o campo. */
   private modeloDoTexto(e: Estado, o: No): string {
-    return e.Text || (o.a.DataField ? `[<frxDBDataset2."${o.a.DataField}">]` : '');
+    return e.Text || (o.a.DataField ? `[<${nomeDs(o.a.DataSet || o.a.DataSetName) || 'frxDBDataset2'}."${o.a.DataField}">]` : '');
   }
 
   /** expande os [ ] do texto de um memo com o DisplayFormat dele. */
@@ -325,7 +387,7 @@ class Relatorio {
   private htmlBarras(no: No, e: Estado): string {
     let valor = '';
     if (no.a.Expression) valor = texto(this.avaliarTexto(no.a.Expression));
-    else if (no.a.DataField) valor = texto(this.campo(no.a.DataField));
+    else if (no.a.DataField) valor = texto(this.campo(no.a.DataSet || no.a.DataSetName || '', no.a.DataField));
     else valor = no.a.Text ?? '';
     const zoom = n(no.a.Zoom, 1);
     const d = desenhar(no.a.BarType ?? '', valor.trim(), no.a.CalcCheckSum === 'True', n(no.a.WideBarRatio, 2));
@@ -416,23 +478,29 @@ class Relatorio {
       };
       // a banda cabe no que sobra da página (acima do rodapé); na página vazia sempre cabe
       const cabe = (h: number) => c.y + h <= util - alturaRod + 0.5 || c.y === 0;
-      this.registro = this.registros[0] ?? {};
-      this.recno = this.registros.length ? 1 : 0;
+      this.cursor.clear();
+      this.recno = 0;
       novaPagina();
       for (const b of titulo) { const r = this.banda(b, n(b.a.Left), c.y); if (r) { emitir(r.html); c.y += r.altura; } }
       for (const b of dados) {
         const cols = Math.max(1, Math.trunc(n(b.a.Columns, 1)));
         const cw = n(b.a.ColumnWidth), gap = n(b.a.ColumnGap);
-        const linhas = b.a.DataSet || b.a.DataSetName ? this.registros.length : Math.trunc(n(b.a.RowCount));
+        const ds = b.a.DataSet || b.a.DataSetName || '';
+        const linhas = ds ? this.linhas(ds).length : Math.trunc(n(b.a.RowCount));
+        const nomeBanda = (b.a.Name ?? '').toLowerCase();
+        const impressas: number[] = [];
+        this.impressas.set(nomeBanda, impressas);
+        this.dsDaBanda.set(nomeBanda, ds);
         let col = 0;
         let alturaLinha = 0;
         for (let i = 0; i < linhas; i++) {
-          this.registro = this.registros[i] ?? {};
+          if (ds) this.posicionar(ds, i);
           this.recno = i + 1;
           if (col === 0 && !cabe(n(b.a.Height))) novaPagina();
           const x = n(b.a.Left) + (cols > 1 ? col * (cw + gap) : 0);
+          impressas.push(i);
           const r = this.banda(b, x, c.y);
-          if (!r) continue;
+          if (!r) { impressas.pop(); continue; }
           emitir(r.html);
           alturaLinha = Math.max(alturaLinha, r.altura);
           col++;
@@ -465,15 +533,17 @@ class Relatorio {
   }
 }
 
-export interface TrabalhoImpressao { modelo: string; registros: Registro[]; variaveis?: Record<string, string> }
+export interface TrabalhoImpressao { modelo: string; registros: Registro[] | Conjuntos; variaveis?: Record<string, string> }
 
 /** as páginas de um trabalho de impressão (um Imprimir(frxReport1) do legado). */
-export function paginasDoModelo(xml: string, registros: Registro[], agora = new Date(), variaveis: Record<string, string> = {}): PaginaSaida[] {
-  return new Relatorio(xml, registros, agora, variaveis).gerar();
+export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}): PaginaSaida[] {
+  // [TotalPages#] pede a contagem antes: a primeira passada só conta as páginas (o DoublePass do FastReport)
+  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis).gerar().length : 0;
+  return new Relatorio(xml, dados, agora, variaveis, total).gerar();
 }
 
 /** o documento HTML da impressão: cada tamanho de papel vira uma @page nomeada, uma etiqueta/folha por página. */
-export function documentoDeImpressao(trabalhos: TrabalhoImpressao[], modelos: Record<string, string>, agora = new Date()): { html: string; paginas: number; avisos: string[] } {
+export function documentoDeImpressao(trabalhos: TrabalhoImpressao[], modelos: Record<string, string>, agora = new Date(), titulo = 'Etiquetas'): { html: string; paginas: number; avisos: string[] } {
   const paginas: PaginaSaida[] = [];
   const avisos: string[] = [];
   for (const t of trabalhos) {
@@ -496,6 +566,6 @@ export function documentoDeImpressao(trabalhos: TrabalhoImpressao[], modelos: Re
     '@media print{html,body{background:none}body{padding:0;display:block}.pg{box-shadow:none}.pg+.pg{break-before:page}}',
   ].join('\n');
   const corpo = paginas.map((p) => `<section class="pg" style="width:${p.larguraMm}mm;height:${p.alturaMm}mm;page:${p.chave}"><div class="ar" style="left:${p.margem[0]}mm;top:${p.margem[1]}mm;width:${(p.larguraMm - p.margem[0] - p.margem[2]).toFixed(3)}mm;height:${(p.alturaMm - p.margem[1] - p.margem[3]).toFixed(3)}mm">${p.html.join('')}</div></section>`).join('\n');
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas</title><style>${css}</style></head><body>${corpo}<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script></body></html>`;
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${css}</style></head><body>${corpo}<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script></body></html>`;
   return { html, paginas: paginas.length, avisos };
 }

@@ -19121,6 +19121,81 @@ async function main() {
         { semDir: semDir.status, ok: [ok.status, okJ.id], outroModelo: [outroModelo.status, outroModeloJ.code], filTara: filTara.status, edita: edita.status, editada, del: del.status, semGrant: semGrant.status });
     }
 
+    // ══ AS IMPRESSÕES DA NF (o menu da tela, uNF.pas:13541-13635): o .fr3 da RELATORIOS e os datasets do legado ═════════
+    {
+      const pgIm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        await pgIm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (991301, 1, 'conf - conferencia de preco simples nf.fr3', 'x', 'DEFAULT', $1), (991302, 1, 'conf - conferencia de preco simples nf.fr3', 'x', 'PERSONALIZADO', $2),
+          (991303, 1, 'conf - conferencia de impostos nf.fr3', 'x', 'DEFAULT', $3), (991304, 1, 'conf - conferencia de icms st recolher.fr3', 'x', 'DEFAULT', $3),
+          (991305, 1, 'conf - conferencia de pedido devolucao compra.fr3', 'x', 'DEFAULT', $3), (991306, 1, 'Rel_ListaConferenciaNF.fr3', 'x', 'DEFAULT', $3)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3('PADRAO'), fr3('DA LOJA'), fr3('CONF')]);
+        await pgIm.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (991390,'7899913900001','ZZ ULTIMO SMOKE IMP','UN',2,'T01','S'), (991391,'7899913910001','AA PRIMEIRO SMOKE IMP','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        const endIm = Number((await pgIm.query(`INSERT INTO parceiros_end (codparceiro, endereco, bairro, cidade, uf, cnpj_cpf, endereco_padrao) VALUES (2,'RUA IMP','CENTRO','UBERLANDIA','MG',NULL,'N') RETURNING codend`)).rows[0].codend);
+        const nfIm = Number((await pgIm.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, totalprod, totaldesc, cfop)
+          VALUES (1,'E',55,'1','991390','2044-11-05','2044-11-06',2,$1,'N','N',160,160,0,'1102') RETURNING codnf`, [endIm])).rows[0].codnf);
+        // 2 caixas de 12 a R$ 60,00 com 10% de desconto e 5% de IPI; 1 caixa de 6 a R$ 40,00
+        await pgIm.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, ipi, aliquota, cfop, cst, arredonda, icme, bcr) VALUES
+          ($1, 1, 991390, 'ZZ ULTIMO SMOKE IMP', 2, 6.49, 60, 12, 10, 5, 'T01', '1102', '000', 'S', 18, 100),
+          ($1, 2, 991391, 'AA PRIMEIRO SMOKE IMP', 1, 9.99, 40, 6, 0, 0, 'T01', '1102', '060', 'S', 0, 100)`, [nfIm]);
+        const IM = `fiscal/nf/${nfIm}/impressao`;
+        const get = async (path: string, h = H) => { const r = await fetch(`${base}/${path}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const simples = await get(`${IM}/conferencia-preco-simples`);
+        const impostos = await get(`${IM}/conferencia-impostos`);
+        const icms = await get(`${IM}/conferencia-icms-st`);
+        const dev = await get(`${IM}/conferencia-devolucao-compra`);
+        const lista = await get(`${IM}/lista-conferencia`);
+        const manif = await get(`fiscal/nf/${nfIm}/conferencia-preco-manifesto`);
+        const desconhecido = await get(`${IM}/qualquer`);
+        const semAcesso = await get(`${IM}/conferencia-impostos`, H_SEM_ACESSO);
+        const outraLoja = await get(`fiscal/nf/${nfIm}/impressao/conferencia-impostos`, { ...H, 'x-empresa-id': '2' });
+        const itS = simples.j.datasets?.dbdItensNota ?? [];
+        const it1 = (impostos.j.datasets?.dbdItensNota ?? []).find((x: any) => Number(x.CODPRODUTO) === 991390);
+        const modeloTexto = (m: string | undefined) => String(m ?? '');
+        check('NF [impressões]: a simplificada vem do PERSONALIZADO, com a nota (TITULAR_RAZAO, DTEMISSAO) e os itens por DESCRICAO; a de impostos traz o que o CalcValorNota calcula na abertura — desconto unitário 60/12×10% = 0,50, IPI 5% sobre 2×12×4,50 = 5,40, custo final 4,50, total dos produtos 120,00 —, a empresa sem senhas e o CST número (NUMBER no Oracle)',
+          simples.status === 200 && modeloTexto(simples.j.modelo).includes('DA LOJA') && simples.j.datasets?.dbdNota?.[0]?.NRONF === '991390'
+          && String(simples.j.datasets?.dbdNota?.[0]?.DTEMISSAO).startsWith('2044-11-05') && itS.length === 2 && itS[0].DESCRICAO === 'AA PRIMEIRO SMOKE IMP'
+          && itS[0].CODBARRA === '7899913910001' && Number(itS[1].VRVENDA) === 6.49 && typeof itS[1].VRVENDA === 'number'
+          && impostos.status === 200 && Math.abs(Number(it1?.VRDESCONTO) - 0.5) < 1e-9 && Math.abs(Number(it1?.VRIPI) - 5.4) < 1e-9
+          && Math.abs(Number(it1?.VRCUSTOFINALC) - 4.5) < 1e-9 && Number(it1?.VRTOTALPRODUTOS) === 120 && Number(it1?.TOTALPRODS) === 108 && it1?.CST === 0
+          && impostos.j.datasets?.dbeEmpresa?.length === 1 && !Object.keys(impostos.j.datasets?.dbeEmpresa?.[0] ?? {}).some((k) => /SENHA|TOKEN|CERTIFICADO|CSC/.test(k)),
+          { simples: [simples.status, simples.j.datasets?.dbdNota?.[0]?.NRONF, itS.map((x: any) => x.DESCRICAO)], it1: it1 && { VRDESCONTO: it1.VRDESCONTO, VRIPI: it1.VRIPI, VRCUSTOFINALC: it1.VRCUSTOFINALC, VRTOTALPRODUTOS: it1.VRTOTALPRODUTOS, TOTALPRODS: it1.TOTALPRODS, CST: it1.CST } });
+        check('NF [impressões]: ICMS ST sem item de MVA → "Não existem registros a serem exibidos."; devolução sem pedido → "Nota Fiscal sem pedido de devolução associado."; a lista de conferência com Nota/Empresa/Itens; o botão do Manifesto (FRMMANIFESTODFE) imprime a simplificada; relatório desconhecido 422; sem FRMNF 403; nota de outra loja → não encontrada',
+          icms.status === 422 && icms.j.message === 'Não existem registros a serem exibidos.' && dev.status === 422 && dev.j.code === 'NF_SEM_PEDIDO_DEVOLUCAO'
+          && lista.status === 200 && lista.j.datasets?.Nota?.[0]?.NRONF === '991390' && lista.j.datasets?.Itens?.length === 2 && lista.j.datasets?.Empresa?.length === 1
+          && manif.status === 200 && modeloTexto(manif.j.modelo).includes('DA LOJA') && desconhecido.status === 422 && semAcesso.status === 403 && [403, 422].includes(outraLoja.status),
+          { icms: [icms.status, icms.j.message], dev: [dev.status, dev.j.code], lista: lista.status, manif: manif.status, desconhecido: desconhecido.status, semAcesso: semAcesso.status, outraLoja: outraLoja.status });
+
+        // o ICMS ST: o item com indexador de MVA sai com a base e o ST externos e o que falta recolher; a devolução: os itens do pedido
+        const fig = Number((await pgIm.query(`SELECT codfigurafiscal FROM figura_fiscal ORDER BY codfigurafiscal LIMIT 1`)).rows[0]?.codfigurafiscal);
+        const idxIm = Number((await pgIm.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, aliquota_dest, icm_fonte, mva, reducao) VALUES ($1,'C',18,12,40,100) RETURNING codindexadortributario`, [fig])).rows[0].codindexadortributario);
+        await pgIm.query(`UPDATE nf_prod SET indexadortrib = $2, vrbase_stexterno = 151.2, streal = 9.07, vricms_stexterno = 9.07 WHERE codnf = $1 AND codproduto = 991390`, [nfIm, idxIm]);
+        await pgIm.query(`INSERT INTO pedido_devolucao_compra (codpeddevcompra, idempresa, codparceiro, data, status) VALUES (991390, 1, 2, now(), 'NOTA FISCAL EMITIDA')`);
+        const itIm = Number((await pgIm.query(`SELECT codnfprod FROM nf_prod WHERE codnf = $1 AND codproduto = 991391`, [nfIm])).rows[0].codnfprod);
+        await pgIm.query(`INSERT INTO pedido_devolucao_compra_i (codpeddevcompra, codnf, codnfprod, idproduto, nroitem, descricao_produto, qtd_nota_fiscal, fatorembalagem, total_produto_nota, qtd_devolvida, total_produto_devolvido)
+          VALUES (991390, $1, $2, 991391, 2, 'AA PRIMEIRO SMOKE IMP', 1, 6, 40, 3, 20)`, [nfIm, itIm]);
+        const nfDev = Number((await pgIm.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop, cod_ped_dev_compra)
+          VALUES (1,'S',55,'1','991391','2044-11-10','2044-11-10',2,$1,'N','N',20,'5202',991390) RETURNING codnf`, [endIm])).rows[0].codnf);
+        const icms2 = await get(`${IM}/conferencia-icms-st`);
+        const dev2 = await get(`fiscal/nf/${nfDev}/impressao/conferencia-devolucao-compra`);
+        const st = icms2.j.datasets?.frxDBDatasetICMSRecolher ?? [];
+        const dv = dev2.j.datasets?.frxDBRelPedDevCompra ?? [];
+        check('NF [impressões]: ICMS ST a recolher — só o item com MVA, com o valor (2×60 = 120), a MVA e as alíquotas do indexador e a base/ST externos; devolução de compra — a quantidade da nota vezes o fator (1×6 = 6), a devolvida, os totais e a nota de entrada',
+          icms2.status === 200 && st.length === 1 && Number(st[0].VALOR) === 120 && Number(st[0].MVA) === 40 && Number(st[0].ALIQ_INTERNA) === 18 && Number(st[0].ALIQ_CREDITO) === 12
+          && Number(st[0].ICMS_ST_BC) === 151.2 && Number(st[0].ICMS_ST_RECOLHER) === 9.07 && st[0].RAZAO_REMETENTE != null
+          && dev2.status === 200 && dv.length === 1 && Number(dv[0].QTD_NOTA_FISCAL) === 6 && Number(dv[0].QTD_DEVOLVIDA) === 3 && Number(dv[0].TOTAL_PRODUTO_DEVOLVIDO) === 20
+          && dv[0].NRONF === '991390' && dv[0].CODBARRA === '7899913910001',
+          { icms2: [icms2.status, st[0]], dev2: [dev2.status, dv[0]] });
+        await pgIm.query(`DELETE FROM pedido_devolucao_compra_i WHERE codpeddevcompra = 991390`);
+        await pgIm.query(`DELETE FROM nf WHERE codnf = $1`, [nfDev]);
+        await pgIm.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra = 991390`);
+      } finally {
+        await pgIm.end();
+      }
+    }
+
     // ══ AS REGRAS DO EXTRATO: o que não se importa e o que se lança sozinho (mig 298) ══════════════════
     {
       const pgOf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

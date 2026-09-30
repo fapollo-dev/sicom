@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { hojeNaLoja } from '../../shared/tempo/hoje';
+import { decodificarFr3 } from '../../shared/relatorios/modelo-fr3';
 import { ConfigService } from './config.service';
 
 type AnyDB = Kysely<any>;
@@ -689,9 +690,7 @@ export class EtiquetaService {
       const m = todos.find((x) => x.nome === nome);
       if (!m) throw new BusinessRuleError('MODELO_ETIQUETA_NAO_ENCONTRADO', { modelo: nome }, `O modelo de etiqueta "${nome}" não existe.`);
       const r = (await sql<{ arquivo: string | null }>`SELECT arquivo FROM relatorios WHERE codrelatorio = ${m.codrelatorio}`.execute(db)).rows[0];
-      const bruto = str(r?.arquivo).trim();
-      // a RELATORIOS guarda o .fr3 em base64 (o CLOB do binário novo); arquivo que já é XML passa direto
-      out[nome] = bruto.startsWith('<') ? bruto : Buffer.from(bruto, 'base64').toString('utf8').replace(/^﻿/, '');
+      out[nome] = decodificarFr3(r?.arquivo);
     }
     return out;
   }

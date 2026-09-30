@@ -49,6 +49,7 @@ import { decomporItemNf, lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo
 import { NfDecomposicaoModal } from './NfDecomposicaoModal';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
@@ -626,6 +627,7 @@ function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carr
           <NfeSefazSection form={form} />
           <GerarNotaSection form={form} carregar={carregar} />
         </div>
+        <ImpressoesSection form={form} />
         {/* strip inerte fiel ao rodapé "NF-e" do legado (fase futura / infra externa) */}
         <div className="flex flex-wrap items-center gap-gp-xs border-t border-border pt-pad-sm">
           <span className="text-body-sm text-fg-muted">NF-e:</span>
@@ -643,6 +645,35 @@ function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carr
         </div>
       </div>
     </fieldset>
+  );
+}
+
+// ───────────────────────────── Impressões (o menu da tela) ─────────────────────────────
+
+/** as impressões do menu da NF (uNF.pas:13541-13635): o .fr3 do cliente com os datasets da nota, desenhado no navegador */
+const IMPRESSOES_NF: Array<{ relatorio: string; label: string }> = [
+  { relatorio: 'conferencia-devolucao-compra', label: 'Conferência de devolução de compra' },
+  { relatorio: 'conferencia-preco-simples', label: 'Conferência de preço simplificada' },
+  { relatorio: 'conferencia-preco', label: 'Conferência de preço completa' },
+  { relatorio: 'conferencia-impostos', label: 'Conferência de impostos' },
+  { relatorio: 'conferencia-icms-st', label: 'Conferência ICMS ST a recolher' },
+  { relatorio: 'lista-conferencia', label: 'Lista de conferência' },
+];
+
+function ImpressoesSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const mensagem = useMensagem();
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return null;
+  const imprimir = (relatorio: string) => {
+    imprimirRelatorio(`/fiscal/nf/${codnf}/impressao/${relatorio}`).catch((e) => mensagem.erro(e));
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-gp-xs border-t border-border pt-pad-sm">
+      <span className="text-body-sm text-fg-muted">Imprimir:</span>
+      {IMPRESSOES_NF.map((i) => (
+        <Button key={i.relatorio} label={i.label} variant="ghost" onClick={() => imprimir(i.relatorio)} />
+      ))}
+    </div>
   );
 }
 

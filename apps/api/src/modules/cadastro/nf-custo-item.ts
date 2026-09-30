@@ -158,7 +158,27 @@ export function custoDoItemNaEntrada(it: ItemCustoEntrada, emp: EmpresaCusto, ct
   // o VRICM_CALC do gravar (uNF.pas:4920-4925): a base pela alíquota do ICME, arredondada ou truncada conforme o ARREDONDA
   const vricmCalc = (arredonda ? arred : trunca)(tempbaseicme * (aliqIcme / 100), 2);
 
-  // CalcValorCusto
+  const custo = calcValorCusto(it, emp, ctx, { qtdetotal, vrcustofinal, vrfrete, vrseguro, vripi, vripiDev, despextrap, tempicmeefetivo });
+  return { qtdetotal, vrcustofinal, vrcustofinalc, totalprods, vrfrete, vrseguro, vripi, tempicmeefetivo, tempbaseicme, vricmCalc, ...custo };
+}
+
+/** os valores do item que o CalcValorNota calcula antes do CalcValorCusto (entrada ou saída) */
+export interface BaseCustoItem {
+  qtdetotal: number;
+  vrcustofinal: number;
+  vrfrete: number;
+  vrseguro: number;
+  vripi: number;
+  vripiDev: number;
+  despextrap: number;
+  tempicmeefetivo: number;
+}
+
+/** `CalcValorCusto` (udmNF.pas:3773): os créditos, o custo real (TEMPVRCUSTO), o de reposição, o CSI e o PMZ — chamado pelos dois ramos do CalcValorNota */
+export function calcValorCusto(it: ItemCustoEntrada, emp: EmpresaCusto, ctx: ContextoCustoEntrada, b: BaseCustoItem):
+  Pick<CustoItemEntrada, 'creditoIcm' | 'creditoPis' | 'tempvrcusto' | 'tempvrcustorep' | 'tempvrcustocsi' | 'temppmz' | 'tempvrajcusto47530'> {
+  const { qtdetotal, vrcustofinal, vrfrete, vrseguro, vripi, vripiDev, despextrap, tempicmeefetivo } = b;
+  const aliquota = String(it.aliquota ?? '').trim().toUpperCase();
   const sn = String(emp.classfiscal ?? '').trim().toUpperCase() === 'SN';
   const lr = String(emp.classfiscal ?? '').trim().toUpperCase() === 'LR';
   const creditoIcm = !sn && aliquota.startsWith('T') ? arred((tempicmeefetivo * vrcustofinal) / 100, 2) : 0;
@@ -169,10 +189,7 @@ export function custoDoItemNaEntrada(it: ItemCustoEntrada, emp: EmpresaCusto, ct
   if (String(emp.uf ?? '').trim().toUpperCase() === 'MG' && n(it.vrbase_stexterno) > 0 && qtdetotal > 0) {
     tempvrajcusto47530 = arred((((n(it.vrbase_stexterno) / qtdetotal) - n(it.vrvenda)) * n(ctx.aliqInternaIndexador)) / 100, 2);
   }
-  if (!(qtdetotal > 0)) {
-    return { qtdetotal, vrcustofinal, vrcustofinalc, totalprods, vrfrete, vrseguro, vripi, tempicmeefetivo, tempbaseicme, vricmCalc, creditoIcm: 0, creditoPis: 0,
-      tempvrcusto: 0, tempvrcustorep: 0, tempvrcustocsi: 0, temppmz: 0, tempvrajcusto47530: 0 };
-  }
+  if (!(qtdetotal > 0)) return { creditoIcm: 0, creditoPis: 0, tempvrcusto: 0, tempvrcustorep: 0, tempvrcustocsi: 0, temppmz: 0, tempvrajcusto47530: 0 };
   const q = qtdetotal;
   const soma = vrcustofinal + n(it.depsacess) / q + vrseguro / q + vrfrete / q + vripi / q + vripiDev / q + n(it.vroutrasdesp) / q + st / q + fcpst / q
     + (n(emp.despfederativas) * vrcustofinal) / 100 + despextrap / q + (n(it.frete2) * vrcustofinal) / 100 + n(it.vrcustoajustenf) / q;
@@ -182,8 +199,7 @@ export function custoDoItemNaEntrada(it: ItemCustoEntrada, emp: EmpresaCusto, ct
   const aliqSaida = aliquota.startsWith('T') ? n(it.icms) : 0;
   const margemZero = 100 - (n(it.aliqpiss) + n(it.aliqcofinss) + aliqSaida + n(emp.despoperacional));
   const temppmz = margemZero !== 0 ? (tempvrcusto / margemZero) * 100 : 0;
-  return { qtdetotal, vrcustofinal, vrcustofinalc, totalprods, vrfrete, vrseguro, vripi, tempicmeefetivo, tempbaseicme, vricmCalc, creditoIcm, creditoPis,
-    tempvrcusto, tempvrcustorep, tempvrcustocsi, temppmz, tempvrajcusto47530 };
+  return { creditoIcm, creditoPis, tempvrcusto, tempvrcustorep, tempvrcustocsi, temppmz, tempvrajcusto47530 };
 }
 
 export interface MargemItem {
