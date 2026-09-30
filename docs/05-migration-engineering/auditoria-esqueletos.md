@@ -656,6 +656,12 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
     — uma tela do binário novo que o Apollo não tem; 72 contagens em set/2026) e a **apuração PIS/COFINS** (`apuracao_pc_det` com a
     estrutura do legado: CRÉDITO/DÉBITO, ENTRADA/SAÍDA NF/NFC-e, os valores *_APURA; o Apollo tem uma versão simplificada).
 - 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).
+- **4ª rodada (30/09/2026) — as tabelas de PK composta:** o conferidor passou a amostrar pela ordem da PK composta (o índice
+  da própria PK, com stopkey) ou, sem PK, pela 1ª coluna de data em tabela de até 200 mil linhas com estatística; e ganhou corte de
+  90 s por consulta (a VENDAS, 18,9 milhões, é cortada e reconectada só leitura) e `--so=` para reamostrar sem refazer o resto.
+  Das 57 que ficavam de fora, 33 entraram na amostra e deram **5 candidatas, nenhuma lacuna**: `pedidos.PROC_FIN`/`CONSULTAPDV` e
+  `cx_pedidos.CODCXPEDIDOS`/`CODOPERADORA`/`DEBITO_CREDITO` — o Apollo só faz UPDATE nessas tabelas (o faturamento liquida o pedido),
+  nunca cria a linha; quem cria é o PDV/balcão.
 
 ## Tabelas lidas sem escritor (30/09/2026) — `tools/cutover/conferir-tabelas-sem-escritor.py`
 

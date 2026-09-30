@@ -22,7 +22,7 @@ Sai a lista das colunas preenchidas em >= 50% das linhas recentes do legado que 
 é um candidato a olhar: pode ser coluna de outro processo (integração, PDV), pode ser buraco.
 
 Uso (só leitura no Oracle):
-    python3 tools/cutover/conferir-colunas-nao-escritas.py [--min=0.5] [--amostra=2000]
+    python3 tools/cutover/conferir-colunas-nao-escritas.py [--min=0.5] [--amostra=2000] [--so=tabela1,tabela2]
 """
 import ast
 import json
@@ -92,8 +92,11 @@ def main() -> int:
         for rx in GRAVA:
             gravadas |= {m.lower() for m in rx.findall(t)}
     gravadas &= set(schema)
+    if ARGS.get('so'):  # --so=t1,t2: só estas tabelas (reamostrar sem refazer as outras)
+        gravadas &= {x.strip() for x in ARGS['so'].split(',')}
 
     c = oracledb.connect(**ORACLE)
+    c.call_timeout = 90000  # uma consulta que passa de 90 s (a VENDAS, 18,9 milhões) é cortada: triagem não pesa na produção
     cu = c.cursor()
     cu.execute("SET TRANSACTION READ ONLY")
     origens = {t: TABELA_ORIGEM.get(t, t.upper()) for t in gravadas}
@@ -106,7 +109,26 @@ def main() -> int:
                     join user_cons_columns cc on cc.constraint_name = c.constraint_name
                    where c.constraint_type = 'P' and c.table_name in ({lista})
                      and (select count(*) from user_cons_columns x where x.constraint_name = c.constraint_name) = 1""")
-    pk = dict(cu.fetchall())
+    pk = {t: f'"{col}" desc' for t, col in cu.fetchall()}
+    # PK composta: a ordem do índice da própria PK (todas as colunas desc) — "mais nova" pela chave, com stopkey no índice
+    cu.execute(f"""select c.table_name, listagg('"' || cc.column_name || '" desc', ', ') within group (order by cc.position)
+                     from user_constraints c join user_cons_columns cc on cc.constraint_name = c.constraint_name
+                    where c.constraint_type = 'P' and c.table_name in ({lista})
+                    group by c.table_name having count(*) > 1""")
+    composta = dict(cu.fetchall())
+    # sem PK: a 1ª coluna de data, só em tabela pequena (ordenar milhões de linhas sem índice pesa na produção)
+    cu.execute(f"select table_name, num_rows from user_tables where table_name in ({lista})")
+    linhas_est = {t: n for t, n in cu.fetchall()}  # sem estatística (None) = tamanho desconhecido: não ordena
+    NOME_DATA = re.compile(r'^(DTULTIMALTERACAO|DTCADASTRO|DATA\w*|DT\w*)$')
+    for o, cols in cols_origem.items():
+        if o in pk:
+            continue
+        if o in composta:
+            pk[o] = composta[o]
+            continue
+        datas = [col for col, tipo in cols if (tipo == 'DATE' or tipo.startswith('TIMESTAMP')) and NOME_DATA.match(col)]
+        if datas and linhas_est.get(o) is not None and linhas_est[o] <= 200000:
+            pk[o] = f'"{datas[0]}" desc nulls last'
 
     achados = []
     sem_pk = []
@@ -141,12 +163,19 @@ def main() -> int:
         if not candidatas:
             continue
         amostra = (f'(select {", ".join(chr(34) + col + chr(34) for col, _, _ in candidatas)} from "{o}" '
-                   f'order by "{pk[o]}" desc) where rownum <= {AMOSTRA}')
+                   f'order by {pk[o]}) where rownum <= {AMOSTRA}')
         conta = ", ".join(f'count("{col}")' for col, _, _ in candidatas)
+        print(f'  · {t}', file=sys.stderr, flush=True)
         try:
             cu.execute(f'select count(*), {conta} from {amostra}')
         except oracledb.DatabaseError as e:
             print(f'  ! {t}: {e}', file=sys.stderr)
+            sem_pk.append(t)
+            # o corte por tempo derruba a sessão no modo thin: abre outra, de novo só leitura
+            c = oracledb.connect(**ORACLE)
+            c.call_timeout = 90000
+            cu = c.cursor()
+            cu.execute("SET TRANSACTION READ ONLY")
             continue
         linha = cu.fetchone()
         total = linha[0] or 0
@@ -162,7 +191,7 @@ def main() -> int:
             achados.append((t, d, tipo, n, total, moda, nm))
 
     print(f'# colunas preenchidas em >= {MINIMO:.0%} das {AMOSTRA} linhas mais novas do legado que nenhum código do Apollo cita')
-    print(f'# tabelas gravadas pelo Apollo: {len(gravadas)} · com PK simples na origem: {len(gravadas) - len(sem_pk)}')
+    print(f'# tabelas gravadas pelo Apollo: {len(gravadas)} · amostradas (PK simples, PK composta ou data): {len(gravadas) - len(sem_pk)}')
     atual = None
     cobertas = 0
     for t, d, tipo, n, total, moda, nm in achados:
@@ -178,7 +207,7 @@ def main() -> int:
             continue
         print(f'  {d:32} {tipo:14} {n:>6}/{total:<6} {n / total:6.1%}   moda={str(moda)[:24]!s:26} {nm / total:6.1%}   default={padrao}')
     if sem_pk:
-        print(f'\n# sem PK simples na origem (não amostradas): {", ".join(sem_pk)}')
+        print(f'\n# sem PK e grandes demais para ordenar pela data (não amostradas): {", ".join(sem_pk)}')
     print(f'\n# {len(achados) - cobertas} candidatas ({cobertas} cobertas pelo DEFAULT do destino ficaram de fora)')
     return 0
 
