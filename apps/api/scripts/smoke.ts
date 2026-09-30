@@ -19099,6 +19099,28 @@ async function main() {
       }
     }
 
+    // ══ O CONFIGURADOR DA BALANÇA (TfrmConfExportaBalanca — BTNCONFIGURABAL): as regras do btnAddItemClick ═══════════════
+    {
+      const EB = 'cadastro/exporta-balanca';
+      const cfgPost = async (b: Record<string, unknown>) => fetch(`${base}/${EB}/configs`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+      const base0 = { tipo_bal: 'TOLEDO', mod_bal: 'PRIX4-N', campo_setor: 'Código da Balança', export_nutricional: true };
+      const semDir = await cfgPost({ ...base0, dir_bal: '' });
+      const ok = await cfgPost({ ...base0, dir_bal: 'D:\\SMOKE\\BAL' });
+      const okJ = (await ok.json().catch(() => ({}))) as any;
+      const outroModelo = await cfgPost({ ...base0, dir_bal: 'D:\\SMOKE\\BAL', mod_bal: 'PRIX5-N' });
+      const outroModeloJ = (await outroModelo.json().catch(() => ({}))) as any;
+      const filTara = await cfgPost({ ...base0, dir_bal: 'D:\\SMOKE\\FIL', tipo_bal: 'FILIZOLA', exporta_tara: true });
+      const edita = await cfgPost({ ...base0, id: okJ.id, dir_bal: 'D:\\SMOKE\\BAL', mod_bal: 'PRIX5-N' });
+      const lista = (await (await fetch(`${base}/${EB}/configs`, { headers: H })).json().catch(() => [])) as any[];
+      const editada = lista.find((c) => Number(c.id) === Number(okJ.id));
+      const del = await fetch(`${base}/${EB}/configs/${okJ.id}`, { method: 'DELETE', headers: H });
+      const semGrant = await fetch(`${base}/${EB}/configs`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ ...base0, dir_bal: 'X' }) });
+      check('BALANÇA [o configurador]: sem diretório → "Empresa/Diretório invalido!"; grava; mesma loja e diretório com OUTRO modelo → "NÃO PERMITIDO!!"; Filizola com tara → 422; editar a própria config troca o modelo; excluir; sem BTNCONFIGURABAL → 403',
+        semDir.status === 422 && ok.status === 200 && Number(okJ.id) > 0 && outroModelo.status === 422 && outroModeloJ.code === 'CONFIG_BALANCA_DIRETORIO_MODELO'
+        && filTara.status === 422 && edita.status === 200 && editada?.mod_bal === 'PRIX5-N' && editada?.export_nutricional === 'S' && del.status === 200 && semGrant.status === 403,
+        { semDir: semDir.status, ok: [ok.status, okJ.id], outroModelo: [outroModelo.status, outroModeloJ.code], filTara: filTara.status, edita: edita.status, editada, del: del.status, semGrant: semGrant.status });
+    }
+
     // ══ AS REGRAS DO EXTRATO: o que não se importa e o que se lança sozinho (mig 298) ══════════════════
     {
       const pgOf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
@@ -19152,6 +19174,13 @@ async function main() {
           await pgOf.query(`DELETE FROM conciliacao_bancaria_mov WHERE cb_id = ANY($1)`, [cbs]);
           await pgOf.query(`DELETE FROM conciliacao_bancaria WHERE cb_id = ANY($1)`, [cbs]);
         }
+        // a lista das descrições ignoradas pela tela (CFG_DESCRICAO_NAO_IMPORTAR_OFX): acrescentar, listar, tirar
+        const addIg = (await (await fetch(`${base}/${CB}/descricoes-ignoradas`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO, descricao: 'RES APLIC AUT MAIS' }) })).json().catch(() => [])) as string[];
+        const tirIg = (await (await fetch(`${base}/${CB}/descricoes-ignoradas`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO, descricao: 'APL APLIC AUT MAIS', remover: true }) })).json().catch(() => [])) as string[];
+        const vazIg = await fetch(`${base}/${CB}/descricoes-ignoradas`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO, descricao: ' ' }) });
+        check('OFX [a lista das descrições ignoradas]: a tela acrescenta (RES APLIC AUT MAIS) e tira (APL APLIC AUT MAIS) sem SQL; descrição vazia → 422',
+          JSON.stringify(addIg) === JSON.stringify(['APL APLIC AUT MAIS', 'RES APLIC AUT MAIS']) && JSON.stringify(tirIg) === JSON.stringify(['RES APLIC AUT MAIS']) && vazIg.status === 422,
+          { addIg, tirIg, vaz: vazIg.status });
         await pgOf.query(`DELETE FROM caixa WHERE codconta = $1`, [cO]);
         await pgOf.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1`, [cO]);
         await pgOf.query(`DELETE FROM movimentacao_bancaria_ofx WHERE codconta = $1`, [cO]);

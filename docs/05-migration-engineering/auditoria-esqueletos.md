@@ -671,5 +671,10 @@ NFE_NAO_CADASTRADAS_ITENS e nada o gravava). 1ª rodada: 469 tabelas, 36 lidas e
 | HISTORICO_PDV, CAIXA_PDV, PDV | PDV (fora do escopo) |
 | RELATORIOS, RELATORIOS_CUSTOMIZADOS | os arquivos .fr3/.xml do binário novo e do construtor — o Apollo lê (modelos de etiqueta, importador); não há designer |
 | CONTABILISTA | **corrigido** — a aba do UCadEmpresa no cadastro de empresa; e achou o furo maior: os dois SPED do Apollo não geravam o **registro 0100** (obrigatório nas duas escriturações) — agora geram, do contabilista da empresa (Uspedfiscal.pas:1661, uSpedPisCofins.pas:416) |
-| CONFIG_BALANCA, CONFIGURACOES_SPED, CFG_DESCRICAO_NAO_IMPORTAR_OFX, BANDEIRA, GRUPO_OPERADOR, CONTACORRENTE | configuração/cadastro pequeno (1–332 linhas, sem data): a conferir tela a tela |
+| CONFIG_BALANCA | **corrigido** — o Configurador (TfrmConfExportaBalanca, BTNCONFIGURABAL) na tela de exportação, com as três regras do btnAddItemClick (diretório; mesmo diretório com outro modelo; Filizola sem tara) |
+| CFG_DESCRICAO_NAO_IMPORTAR_OFX | **corrigido** — a lista por conta na conciliação (tabela do binário novo; sem tela, só mudaria por SQL) |
+| CONFIGURACOES_SPED | sem escritor nem no fonte do legado (só o UdmSpedPisCofins lê); 1 linha posta por fora — fica como está |
+| CONTACORRENTE | mapa PDV × forma de pagamento → conta contábil (CODPDV, IDPGTO, CODPLC): configuração do PDV |
+| BANDEIRA | tabela de referência das bandeiras de cartão |
+| GRUPO_OPERADOR | falso positivo — só aparece nos tipos (db-types.ts), nenhum código lê |
 | PC_BASECREDITO, PC_TAB_AJUSTE_*, PC_TIPOCREDITO*, CCLASS_TRIB_NCM | tabelas de referência (EFD/reforma) |

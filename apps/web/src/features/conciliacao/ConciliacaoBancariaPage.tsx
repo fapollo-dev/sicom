@@ -4,7 +4,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
-import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, excluirOfx, type Conciliada } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, excluirOfx, type Conciliada, descricoesIgnoradas, gravarDescricaoIgnorada } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -145,6 +145,7 @@ export function ConciliacaoBancariaPage() {
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
         <Button label="E&xcluir do extrato" variant="ghost" disabled={busy || !selOfx.size || !pode('BTNPERMISSAOEXCLUIROFX')} onClick={() => void excluirSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>
+        {conta && <IgnoradasOfx codconta={Number(conta)} />}
         <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. O lote só concilia INTEIRO (uma baixa em lote vira um movimento no extrato). Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
       </div>
 
@@ -208,6 +209,33 @@ export function ConciliacaoBancariaPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** as descrições do extrato que a importação do .ofx ignora nesta conta (igualdade exata — CFG_DESCRICAO_NAO_IMPORTAR_OFX) */
+function IgnoradasOfx({ codconta }: { codconta: number }) {
+  const mensagem = useMensagem();
+  const [lista, setLista] = useState<string[]>([]);
+  const [nova, setNova] = useState('');
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => { if (aberto) void descricoesIgnoradas(codconta).then(setLista).catch((e) => mensagem.erro(e)); }, [codconta, aberto, mensagem]);
+  const gravar = async (d: string, remover: boolean) => {
+    try { setLista(await gravarDescricaoIgnorada(codconta, d, remover)); if (!remover) setNova(''); } catch (e) { mensagem.erro(e); }
+  };
+  return (
+    <div className="w-full text-body-sm">
+      <button className="underline" onClick={() => setAberto((a) => !a)}>{aberto ? 'Fechar' : 'Descrições que a importação ignora'}</button>
+      {aberto && (
+        <div className="mt-gp-xs flex flex-wrap items-center gap-gp-sm">
+          {lista.map((d) => (
+            <span key={d} className="rounded-radius-sm border border-border px-1">{d} <button aria-label={`Tirar ${d}`} className="underline" onClick={() => void gravar(d, true)}>tirar</button></span>
+          ))}
+          {!lista.length && <span className="text-fg-muted">nenhuma</span>}
+          <input aria-label="Nova descrição ignorada" className="rounded-radius-sm border border-border bg-bg px-1 py-0.5" maxLength={250} placeholder="descrição exata do extrato" value={nova} onChange={(e) => setNova(e.target.value)} />
+          <Button label="Acrescentar" variant="ghost" disabled={!nova.trim()} onClick={() => void gravar(nova, false)} />
         </div>
       )}
     </div>

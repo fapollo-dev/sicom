@@ -70,6 +70,32 @@ export class ConciliacaoBancariaService {
     if (!c) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { codconta });
   }
 
+  /**
+   * AS DESCRIÇÕES QUE A IMPORTAÇÃO IGNORA (CFG_DESCRICAO_NAO_IMPORTAR_OFX — tabela do binário novo; no cliente, a aplicação
+   * automática do banco na conta 42). A importação compara por igualdade exata (`chaveDescricao`); aqui a lista da conta, para
+   * acrescentar e tirar sem SQL depois da virada.
+   */
+  async descricoesIgnoradas(codconta: number): Promise<string[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.contaDaEmpresa(db, codconta, emp);
+    return ((await db.selectFrom('cfg_descricao_nao_importar_ofx').select('descricao').where('codconta', '=', codconta).orderBy('descricao').execute()) as Array<{ descricao: string }>)
+      .map((r) => r.descricao);
+  }
+
+  async gravarDescricaoIgnorada(codconta: number, descricao: string, remover: boolean): Promise<string[]> {
+    const emp = this.emp();
+    const d = String(descricao ?? '').trim();
+    if (!d) throw new BusinessRuleError('OFX_DESCRICAO_OBRIGATORIA', {}, 'Informe a descrição do extrato.');
+    const db = this.dbp.forTenant() as AnyDB;
+    await db.transaction().execute(async (trx: AnyDB) => {
+      await this.contaDaEmpresa(trx, codconta, emp);
+      await trx.deleteFrom('cfg_descricao_nao_importar_ofx').where('codconta', '=', codconta).where('descricao', '=', d).execute();
+      if (!remover) await trx.insertInto('cfg_descricao_nao_importar_ofx').values({ codconta, descricao: d.slice(0, 250) }).execute();
+    });
+    return this.descricoesIgnoradas(codconta);
+  }
+
   /** importa as linhas do extrato (dedup por FITID). Retorna quantas entraram e quantas eram duplicadas. */
   async importar(dto: { codconta: number; nomeArquivo?: string; linhas: Array<{ data: string; valor: number; credito_debito: 'C' | 'D'; descricao?: string; transacao_id?: string; check_num?: string }> }): Promise<{ codconta: number; inseridas: number; duplicadas: number; ignoradas: number }> {
     const emp = this.emp();

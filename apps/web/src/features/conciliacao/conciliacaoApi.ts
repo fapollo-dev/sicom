@@ -28,6 +28,11 @@ export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro
 export function importarOfx(codconta: number, nomeArquivo: string, conteudo: string): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
   return req('/cadastro/conciliacao-bancaria/importar-ofx', { method: 'POST', body: JSON.stringify({ codconta, nomeArquivo, conteudo }) });
 }
+/** as descrições do extrato que a importação ignora (CFG_DESCRICAO_NAO_IMPORTAR_OFX) */
+export function descricoesIgnoradas(codconta: number): Promise<string[]> { return req(`/cadastro/conciliacao-bancaria/descricoes-ignoradas?codconta=${codconta}`, { method: 'GET' }); }
+export function gravarDescricaoIgnorada(codconta: number, descricao: string, remover = false): Promise<string[]> {
+  return req('/cadastro/conciliacao-bancaria/descricoes-ignoradas', { method: 'POST', body: JSON.stringify({ codconta, descricao, remover }) });
+}
 export function pendentes(codconta: number): Promise<{ ofx: OfxLinha[]; mov: MovLinha[] }> { return req(`/cadastro/conciliacao-bancaria/pendentes?codconta=${codconta}`, { method: 'GET' }); }
 export interface LoteSugerido { mbo_id: number; idlote: number; codmovcontas: number[]; valor: number; data: string }
 export function sugestoes(codconta: number): Promise<{ pares: Par[]; lotes: LoteSugerido[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}`, { method: 'GET' }); }

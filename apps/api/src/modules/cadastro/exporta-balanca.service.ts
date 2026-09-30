@@ -71,6 +71,57 @@ export class ExportaBalancaService {
       .selectFrom('config_balanca').selectAll().where('idempresa', '=', emp).orderBy('id').execute()) as Record<string, unknown>[];
   }
 
+  /**
+   * O CONFIGURADOR (`TfrmConfExportaBalanca`, uConfigExportaBalanca.pas — o botão "Configurador", BTNCONFIGURABAL): a balança da
+   * loja — diretório, tipo (TOLEDO / FILIZOLA / AMBAS), modelo (PRIX4-N, PRIX4 / PRIX4-R, REDE MGVIII, PRIX5-N), o campo do setor
+   * ("Código do Departamento" / "Código da Balança"), tabela nutricional, receita e tara. As regras do `btnAddItemClick` (:96):
+   * sem diretório → "Empresa/Diretório invalido!Tente novamente!"; a mesma loja com o mesmo diretório para modelo diferente → "NÃO
+   * PERMITIDO!!…" (CheckConfigBalanca); Filizola não exporta tara. O legado grava a edição apagando e inserindo (novo ID); aqui a
+   * linha é alterada no lugar — o ID é só a chave.
+   */
+  async gravarConfig(dto: {
+    id?: number | null; dir_bal?: string; tipo_bal?: string; mod_bal?: string; campo_setor?: string;
+    export_nutricional?: boolean; export_receita?: boolean; exporta_tara?: boolean; exporta_rdc429?: boolean;
+  }) {
+    const emp = this.emp();
+    const dir = String(dto.dir_bal ?? '').trim();
+    if (!dir) throw new BusinessRuleError('CONFIG_BALANCA_DIRETORIO', {}, 'Empresa/Diretório invalido!Tente novamente!');
+    const tipo = String(dto.tipo_bal ?? '').toUpperCase();
+    if (!['TOLEDO', 'FILIZOLA', 'AMBAS'].includes(tipo)) throw new BusinessRuleError('CONFIG_BALANCA_TIPO', { tipo_bal: dto.tipo_bal });
+    const modelo = String(dto.mod_bal ?? '');
+    if (!['PRIX4-N', 'PRIX4 / PRIX4-R', 'REDE MGVIII', 'PRIX5-N'].includes(modelo)) throw new BusinessRuleError('CONFIG_BALANCA_MODELO', { mod_bal: dto.mod_bal });
+    const setor = String(dto.campo_setor ?? '');
+    if (!['Código do Departamento', 'Código da Balança'].includes(setor)) throw new BusinessRuleError('CONFIG_BALANCA_SETOR', { campo_setor: dto.campo_setor });
+    if (tipo === 'FILIZOLA' && dto.exporta_tara) throw new BusinessRuleError('CONFIG_BALANCA_FILIZOLA_TARA', {}, 'A balança Filizola não pode exportar tara.');
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const conflito = (await sql<{ id: number }>`SELECT id FROM config_balanca WHERE idempresa = ${emp} AND dir_bal = ${dir} AND mod_bal <> ${modelo}
+                                                   AND id <> ${dto.id ?? -1} LIMIT 1`.execute(trx)).rows[0];
+      if (conflito) throw new BusinessRuleError('CONFIG_BALANCA_DIRETORIO_MODELO', {}, 'NÃO PERMITIDO!! Empresa com mesmo diretório para modelo diferentes...!');
+      const valores = {
+        dir_bal: dir.slice(0, 200), tipo_bal: tipo, mod_bal: modelo, campo_setor: setor,
+        export_nutricional: dto.export_nutricional ? 'S' : 'N', export_receita: dto.export_receita ? 'S' : 'N',
+        exporta_tara: dto.exporta_tara ? 'S' : 'N', exporta_rdc429: dto.exporta_rdc429 ? 'S' : 'N',
+      };
+      if (dto.id != null) {
+        const r = await trx.updateTable('config_balanca').set(valores).where('id', '=', Number(dto.id)).where('idempresa', '=', emp).executeTakeFirst();
+        if (!Number((r as any)?.numUpdatedRows ?? 0)) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id: dto.id });
+        return { id: Number(dto.id) };
+      }
+      await sql`SELECT setval('seq_config_balanca', greatest((SELECT last_value FROM seq_config_balanca), (SELECT coalesce(max(id), 0) FROM config_balanca))::bigint, true)`.execute(trx);
+      const ins = (await trx.insertInto('config_balanca').values({ idempresa: emp, ...valores }).returning('id').executeTakeFirstOrThrow()) as { id: number };
+      return { id: Number(ins.id) };
+    });
+  }
+
+  /** "Excluir item" do configurador (DMConfExportaBalanca.Deletar) */
+  async excluirConfig(id: number) {
+    const emp = this.emp();
+    const r = await (this.dbp.forTenant() as AnyDB).deleteFrom('config_balanca').where('id', '=', id).where('idempresa', '=', emp).executeTakeFirst();
+    if (!Number((r as any)?.numDeletedRows ?? 0)) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id });
+    return { id, removida: true };
+  }
+
   /** gera os arquivos TOLEDO da config. Devolve os .txt (nome+conteúdo) p/ o front baixar. */
   async gerar(configId: number): Promise<{ config: number; modelo: string; produtos: number; arquivos: ArquivoBalanca[]; nutricional: { linhas: number; pulados: number } }> {
     const emp = this.emp();

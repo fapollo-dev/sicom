@@ -39,6 +39,22 @@ export class ConciliacaoBancariaController {
     return this.svc.excluirOfx({ codconta: body.codconta, mboIds: body.mboIds });
   }
 
+  /** as descrições do extrato que a importação ignora (CFG_DESCRICAO_NAO_IMPORTAR_OFX) */
+  @Get('descricoes-ignoradas')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
+  descricoesIgnoradas(@Query('codconta', ParseIntPipe) codconta: number) {
+    return this.svc.descricoesIgnoradas(codconta);
+  }
+
+  @Post('descricoes-ignoradas')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
+  gravarDescricaoIgnorada(@Body() body: { codconta?: unknown; descricao?: unknown; remover?: unknown }) {
+    const cod = Number(body?.codconta);
+    if (!Number.isInteger(cod) || cod <= 0) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { codconta: body?.codconta });
+    return this.svc.gravarDescricaoIgnorada(cod, String(body?.descricao ?? ''), body?.remover === true);
+  }
+
   /** pendentes: extrato não-conciliado × razão não-conciliado da conta. */
   @Get('pendentes')
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
