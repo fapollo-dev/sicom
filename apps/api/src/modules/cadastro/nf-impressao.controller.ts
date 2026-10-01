@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { NfImpressaoService, RELATORIOS_NF, type RelatorioNf } from './nf-impressao.service';
+import { ExportaNfeService } from './exporta-nfe.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -8,7 +9,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 @Controller('fiscal/nf')
 @UseGuards(AcessoGuard)
 export class NfImpressaoController {
-  constructor(private readonly svc: NfImpressaoService) {}
+  constructor(private readonly svc: NfImpressaoService, private readonly exportacao: ExportaNfeService) {}
 
   @Get(':id/impressao/:relatorio')
   @RequerAcesso('FRMNF', 'FRMNF')
@@ -39,5 +40,15 @@ export class NfImpressaoController {
   @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
   conferenciaPrecoManifesto(@Param('id', ParseIntPipe) id: number) {
     return this.svc.imprimir(id, 'conferencia-preco-simples');
+  }
+
+  /**
+   * "Salvar XML" do rodapé NF-e (btnSaveXml, `DMNF.SalvaXMLNFe`): o XML da nota. O legado REGERA o XML pelo ACBr, consulta a SEFAZ e
+   * grava `<chave>-NFe.xml` numa pasta da estação; aqui sai o XML guardado da nota (NFE_XML — o autorizado), como a exportação de NF-e.
+   */
+  @Get(':id/xml')
+  @RequerAcesso('FRMNF', 'FRMNF')
+  xml(@Param('id', ParseIntPipe) id: number) {
+    return this.exportacao.xml(id);
   }
 }

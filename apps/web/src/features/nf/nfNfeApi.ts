@@ -54,3 +54,8 @@ export function cancelarNf(codnf: number, body: CancelarNfDto): Promise<EventoRe
 export function cceNf(codnf: number, body: CceNfDto): Promise<EventoResultado & { seq: number }> {
   return req<EventoResultado & { seq: number }>(`/fiscal/nf/${codnf}/cce`, { body: JSON.stringify(body) });
 }
+
+/** "Salvar XML" (btnSaveXml): o XML de NF-e guardado da nota (NFE_XML), para baixar como `<chave>-NFe.xml` */
+export function xmlDaNota(codnf: number): Promise<{ codnf: number; chavenfe: string | null; xml: string }> {
+  return req(`/fiscal/nf/${codnf}/xml`, { method: 'GET' });
+}

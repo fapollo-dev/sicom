@@ -318,6 +318,7 @@ const CODE_PT: Record<string, string> = {
   NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',
   NF_IMPRESSAO_SEM_REGISTROS: 'Não existem registros a serem exibidos.',
   NF_SEM_CHAVE_NFE: 'A nota não tem chave de NF-e para imprimir o DANFE.',
+  NFE_SEM_XML: 'A nota não tem XML de NF-e guardado.',
   NFE_COMANDOS_NAO_LIBERADOS: 'Comandos não liberados para nota fiscal eletrônica de entrada de emissão de terceiros.',
   CONFERENCIA_NOTA_NAO_INFORMADA: 'Informe a nota fiscal ou o lote.',
   CONFERENCIA_SEM_DIVERGENCIA: 'Não existem notas fiscais com coletas divergentes lançadas para essa busca.',

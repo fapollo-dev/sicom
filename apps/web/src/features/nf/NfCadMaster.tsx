@@ -48,7 +48,7 @@ import { decomporItemNf, lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo
   type PaiDecomposicao, clonarNf } from './nfProcessamentoApi';
 import { NfDecomposicaoModal } from './NfDecomposicaoModal';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
-import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
+import { transmitirNf, cancelarNf, cceNf, xmlDaNota } from './nfNfeApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
@@ -613,7 +613,7 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
 
 // ───────────────────────────── Barra de ações NF-e (rodapé do legado) ─────────────────────────────
 
-const NFE_INERTES = ['Inutilizar', 'Importar', 'Salvar XML', 'Recuperar XML', 'Enviar Email'];
+const NFE_INERTES = ['Inutilizar', 'Importar', 'Recuperar XML', 'Enviar Email'];
 
 function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carregar?: (id: number) => Promise<void> }) {
   const { tem: podeNf } = useOpcoesDoForm('FRMNF');
@@ -636,6 +636,15 @@ function AcoesNfeBar({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carr
           {/* "Imprimir" (btnImprimirNFe, Tag 1 — BTNIMPRIMIRNFE): o DANFE, depois do LinhaComandosNfeLiberada (uNF.pas:5529) */}
           <Button label="Im&primir" variant="soft" disabled={!podeNf('BTNIMPRIMIRNFE')}
             onClick={() => { imprimirRelatorio(`/fiscal/nf/${codnf}/danfe-rodape`).catch((e) => mensagem.erro(e)); }} />
+          {/* "Salvar XML" (btnSaveXml): o XML guardado da nota, baixado como <chave>-NFe.xml (o nome que o legado grava) */}
+          <Button label="Salvar &XML" variant="soft" onClick={() => {
+            xmlDaNota(codnf).then((r) => {
+              const url = URL.createObjectURL(new Blob([r.xml], { type: 'application/xml' }));
+              const a = document.createElement('a');
+              a.href = url; a.download = `${r.chavenfe ?? codnf}-NFe.xml`; a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }).catch((e) => mensagem.erro(e));
+          }} />
           {NFE_INERTES.map((l) => (
             <button
               key={l}

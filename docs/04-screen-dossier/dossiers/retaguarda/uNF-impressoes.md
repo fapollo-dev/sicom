@@ -48,10 +48,14 @@ passadas). Teste com os 6 modelos da produção e o pedido de devolução 10244 
 
 **Smoke:** 3 checks (as 6 impressões, as mensagens, RBAC, loja; o ICMS ST com indexador de MVA; a devolução com o fator).
 
-## Pendente (próximos cortes)
+## O resto do menu e do rodapé NF-e — vereditos (01/10/2026)
 
-- **Carta de correção** (`ImprimirCartadeCorreco1`, `CartaCorrecao.fr3` no Config, dataset `sqqCartaCorrecao`/`NF_CARTA_CORRECAO`).
-- O envio por e-mail da NF-e e da carta, a consulta de status e o cancelamento pelo XML (SEFAZ).
+| Item | Veredito | Prova |
+|---|---|---|
+| Imprimir Carta de Correção (`CartaCorrecao.fr3`) | 🪦 morto | o dataset é a `NF_CARTA_CORRECAO`: **3 linhas na produção inteira, a última de 27/07/2023** (o veredito MORTA já estava no `conferir-tabelas-fora.py`: a CC-e viva está na NFE_EVENTOS 110110) |
+| Verificar NF com pedido de compra (`TFrmanalisaPedComp_NF`) | 🪦 morto | a liberação grava `STATUS_PEDCOMP` na NF (ou na NFE_NAO_CADASTRADAS, pelo Manifesto): **nulo nas 7.467 NFs de 2026 e nas 44.145 notas do manifesto**; `NF_FINANCEIRO_DIF_PEDIDO` e `NF_PEDCOMP_DIV_FINANCEIRO` vazias. A análise viva é a APN (pendências; 13 a 54 por mês em 2026), convertida |
+| Salvar XML (`btnSaveXml`) | ✅ 01/10/2026 | `GET fiscal/nf/:id/xml`: o XML guardado (NFE_XML) baixado como `<chave>-NFe.xml`. ⚠️ o legado regera o XML pelo ACBr e consulta a SEFAZ antes de gravar na pasta da estação |
+| Cancelar NFe Manual, Preencher chave, Consultar/Status NFe, Status pelo XML, Cancelar pelo XML, Contingência SVC, Recuperar XML, Importar (XML local), Importar XML para o Banco, Enviar NF-e/Carta por e-mail, Inutilizar | SEFAZ / ACBr | o "cancelar manual" é um `ACBrNFe.Cancelamento` com a chave digitada (não um registro local); todos dependem da transmissão real (a SEFAZ do Apollo é simulada) — vão com o épico F6b. A inutilização é a tela própria (FRMNFEINUTILIZADA) |
 
 ## Corte 2 — o menu Imprimir da Conferência de Nota (30/09/2026)
 

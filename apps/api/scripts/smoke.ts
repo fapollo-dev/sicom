@@ -19221,6 +19221,14 @@ async function main() {
           && rodapeTerceiros.status === 422 && rodapeTerceiros.j.code === 'NFE_COMANDOS_NAO_LIBERADOS' && rodape.status === 200,
           { nota: [nota.status, nota.j.code, fat], empN: Object.keys(empN).filter((k) => /SENHA|TOKEN|CERT|CSC|HASH/.test(k)), espelho: espelho.status, danfeSemChave: [danfeSemChave.status, danfeSemChave.j.code],
             danfe: [danfe.status, memo], danfeGenerico: danfeGenerico.status, danfeSemGrant: danfeSemGrant.status, rodape: [rodapeTerceiros.status, rodapeTerceiros.j.code, rodape.status] });
+        // "Salvar XML" do rodapé: o XML guardado da nota (sem XML → "A nota não tem XML de NF-e guardado.")
+        const semXml = await get(`fiscal/nf/${nfIm}/xml`);
+        await pgIm.query(`INSERT INTO nfe_xml (codnf, idempresa, chavenfe, modelo, xml) VALUES ($1, 1, '31441137954975000169550010009913901000000011', 55, '<nfeProc>SMOKE</nfeProc>')`, [nfIm]);
+        const comXml = await get(`fiscal/nf/${nfIm}/xml`);
+        check('NF [Salvar XML]: sem XML guardado → NFE_SEM_XML; com ele, o XML e a chave para o nome <chave>-NFe.xml',
+          semXml.status === 422 && semXml.j.code === 'NFE_SEM_XML' && comXml.status === 200 && comXml.j.xml === '<nfeProc>SMOKE</nfeProc>' && comXml.j.chavenfe === '31441137954975000169550010009913901000000011',
+          { semXml: [semXml.status, semXml.j.code], comXml: [comXml.status, comXml.j.chavenfe] });
+        await pgIm.query(`DELETE FROM nfe_xml WHERE codnf = $1`, [nfIm]);
         await pgIm.query(`DELETE FROM faturamento WHERE codfaturamento IN (991390, 991391)`);
 
         // a Conferência de Nota (pmImprimir): as listas com os itens marcados (ou todos) por descrição e o relatório de diferenças
