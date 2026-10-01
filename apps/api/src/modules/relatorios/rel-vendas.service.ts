@@ -108,6 +108,8 @@ export class RelVendasService {
         'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), 'p.unidade',
         sql`d.descricao`.as('departamento'), sql`g.descricao`.as('grupo'),
         sql`sg.descricao`.as('subgrupo'), sql`sc.descricao`.as('secao'),
+        // os códigos da família (o GetSQL(1) os traz: o layout "Resumo de Vendas" agrupa pelo CODGRUPO)
+        'p.coddpto', 'p.codgrupo', 'p.codsubgrupo', 'p.codsecao',
         sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
         sql`sum(${bruto})`.as('bruto'),
         sql`round(sum(${custoItem})::numeric, 2)`.as('total_custo'),
@@ -162,7 +164,7 @@ export class RelVendasService {
     if (f.aliquota) q = q.where(sql`v.aliquota`, 'like', `%${f.aliquota}%`);
     if (f.nropdv != null) q = q.where(sql`v.nropedido`, 'like', `${String(f.nropdv).padStart(2, '0')}%`); // fiel: prefixo
 
-    const grupoBase = ['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'd.descricao', 'g.descricao', 'sg.descricao', 'sc.descricao'];
+    const grupoBase = ['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'd.descricao', 'g.descricao', 'sg.descricao', 'sc.descricao', 'p.coddpto', 'p.codgrupo', 'p.codsubgrupo', 'p.codsecao'];
     q = f.agruparEmpresas ? q.groupBy(grupoBase) : q.groupBy(['v.idempresa', ...grupoBase]);
     // teto de linhas: o legado NÃO tem limite. Pedimos MAX+1 p/ DETECTAR o corte — devolver 20k linhas e um
     // total somado só sobre elas seria um número silenciosamente errado (a cauda alfabética desaparece).

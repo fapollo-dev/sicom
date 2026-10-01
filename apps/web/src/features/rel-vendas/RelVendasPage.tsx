@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -52,16 +53,29 @@ export function RelVendasPage() {
   const [totais, setTotais] = useState<Totais | null>(null);
   const [filtro, setFiltro] = useState<Filtro | null>(null);
   const [busy, setBusy] = useState(false);
+  // os layouts `ven2_01` do cliente (o combo do hub legado); só os que o Apollo alimenta por inteiro
+  const [layouts, setLayouts] = useState<Array<{ arquivo: string; completo: boolean; faltam: string[] }>>([]);
+  const [layout, setLayout] = useState('');
+  useEffect(() => {
+    fetch(`${BASE}/relatorios/vendas/layouts/01`, { headers: apiHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((l: Array<{ arquivo: string; completo: boolean; faltam: string[] }>) => { setLayouts(l); setLayout(l.find((x) => x.completo)?.arquivo ?? ''); })
+      .catch(() => setLayouts([]));
+  }, []);
+  const filtroAtual = () => ({
+    dtini, dtfim, canceladas, promocao: promocao === 'T' ? undefined : promocao,
+    produto: produto || undefined, fornecedor: fornecedor || undefined,
+    custoReposicao: custoRep, filtrarHora, horaIni, horaFim,
+  });
+  const imprimir = () => {
+    imprimirRelatorio('/relatorios/vendas/produtos-vendidos/impressao', { ...filtroAtual(), layout }).catch((e) => mensagem.erro(e));
+  };
 
   const gerar = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await req<{ linhas: Linha[]; totais: Totais; filtro: Filtro }>('/relatorios/vendas/produtos-vendidos', {
-        dtini, dtfim, canceladas, promocao: promocao === 'T' ? undefined : promocao,
-        produto: produto || undefined, fornecedor: fornecedor || undefined,
-        custoReposicao: custoRep, filtrarHora, horaIni, horaFim,
-      });
+      const r = await req<{ linhas: Linha[]; totais: Totais; filtro: Filtro }>('/relatorios/vendas/produtos-vendidos', filtroAtual());
       setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
       if (!r.linhas.length) mensagem.sucesso('Nenhuma venda no período/filtro.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
@@ -103,6 +117,15 @@ export function RelVendasPage() {
         {filtrarHora && <><div className="w-24"><Field label="De" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} /></div><div className="w-24"><Field label="Até" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} /></div><small className="text-fg-muted">janela contínua: {dtini} {horaIni} → {dtfim} {horaFim}</small></>}
         <Button label="&Gerar" variant="soft" disabled={busy} onClick={() => void gerar()} />
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
+        {/* "Imprimir" no layout .fr3 do cliente (URelVendas.pas:531 — o arquivo escolhido no combo) */}
+        <div className="w-80"><SelectField label="&Layout de impressão" value={layout} onChange={setLayout}
+          options={layouts.filter((l) => l.completo).map((l) => ({ value: l.arquivo, label: l.arquivo.replace(/\.fr3$/i, '') }))} /></div>
+        <Button label="&Imprimir" variant="ghost" disabled={!layout || busy} onClick={imprimir} />
+        {layouts.some((l) => !l.completo) && (
+          <small className="w-full text-fg-muted">
+            Fora da lista (o layout usa campos que a consulta do Apollo não tem): {layouts.filter((l) => !l.completo).map((l) => `${l.arquivo.replace(/\.fr3$/i, '')} (${l.faltam.join(', ')})`).join('; ')}.
+          </small>
+        )}
       </div>
 
       {filtro?.truncado && (

@@ -22,3 +22,20 @@ export async function modeloFr3(db: AnyDB, arquivo: string): Promise<string> {
   if (!r?.arquivo) throw new BusinessRuleError('RELATORIO_MODELO_NAO_ENCONTRADO', { arquivo }, `O modelo de relatório "${arquivo}" não está cadastrado.`);
   return decodificarFr3(r.arquivo);
 }
+
+/**
+ * Os arquivos de um prefixo (o `GetFileList('Relatorios\ven2_*.*')` do hub de vendas): um por nome, o PERSONALIZADO antes do DEFAULT,
+ * na ordem do nome (a do diretório do Windows).
+ */
+export async function modelosDoPrefixo(db: AnyDB, prefixo: string): Promise<Array<{ arquivo: string; xml: string }>> {
+  const rows = (await sql<{ nome_relatorio: string; arquivo: string | null }>`
+    SELECT nome_relatorio, arquivo FROM relatorios
+     WHERE lower(nome_relatorio) LIKE ${`${prefixo.toLowerCase()}%`} AND lower(nome_relatorio) LIKE '%.fr3' AND coalesce(indr, 'I') <> 'E'
+     ORDER BY CASE WHEN upper(tipo) = 'PERSONALIZADO' THEN 0 ELSE 1 END, codrelatorio DESC`.execute(db)).rows;
+  const vistos = new Map<string, { arquivo: string; xml: string }>();
+  for (const r of rows) {
+    const k = r.nome_relatorio.toLowerCase();
+    if (!vistos.has(k) && r.arquivo) vistos.set(k, { arquivo: r.nome_relatorio, xml: decodificarFr3(r.arquivo) });
+  }
+  return [...vistos.values()].sort((a, b) => a.arquivo.toUpperCase().localeCompare(b.arquivo.toUpperCase()));
+}

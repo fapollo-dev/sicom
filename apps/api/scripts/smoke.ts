@@ -26185,6 +26185,24 @@ async function main() {
           && iInat.status === 200 && String(iInat.j.textos?.Agenda ?? '').includes('AGENDA REL 275') && (iInat.j.datasets?.dbdRelProdAtivo ?? []).length === 1
           && iVazio.status === 422 && iVazio.j.message === 'Nenhum registro encontrado!',
           { iAg: [iAg.status, iAg.j.code], iVend: [iVend.status, dV, iVend.j.variaveis], iTv: [iTv.status, iTv.j.variaveis], iTot: iTot.status, iLoja: [iLoja.status, iLoja.j.datasets?.dbdPorLoja, iLoja.j.variaveis], iFim: iFim.j.textos, iInat: iInat.j.textos, iVazio: [iVazio.status, iVazio.j.message] });
+        // o hub de vendas (rel 01) no layout do cliente: só os layouts cujos campos do dbdConsulta o Apollo fornece
+        const resumo = Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxMasterData Name="MasterData1" Height="20" DataSetName="dbdConsulta"><TfrxMemoView Name="M" Width="300" Height="20" Text="[dbdConsulta.&#34;ST_TOTAL_VENDA&#34;] [dbdConsulta.&#34;TOTAL_VENDA&#34;]"/></TfrxMasterData></TfrxReportPage></TfrxReport>`).toString('base64');
+        await pgAr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992789, 1, 'ven2_01 - Resumo_de_Vendas.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [resumo]);
+        const lays = (await (await fetch(`${base}/relatorios/vendas/layouts/01`, { headers: H })).json().catch(() => [])) as any[];
+        const hubPost = async (b: unknown) => { const r = await fetch(`${base}/relatorios/vendas/produtos-vendidos/impressao`, { method: 'POST', headers: H, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const hub = await hubPost({ dtini: '2026-07-10', dtfim: '2026-07-12', layout: 'ven2_01 - Produtos_vendidos_no_periodo.fr3' });
+        const hubIncompleto = await hubPost({ dtini: '2026-07-10', dtfim: '2026-07-12', layout: 'ven2_01 - Resumo_de_Vendas.fr3' });
+        const hubVazio = await hubPost({ dtini: '2026-01-01', dtfim: '2026-01-02', layout: 'ven2_01 - Produtos_vendidos_no_periodo.fr3' });
+        const outroRel = await fetch(`${base}/relatorios/vendas/layouts/02`, { headers: H });
+        const hP1 = (hub.j.datasets?.dbdConsulta ?? []).find((l: any) => Number(l.IDPRODUTO) === 992751);
+        const lResumo = lays.find((l) => l.arquivo === 'ven2_01 - Resumo_de_Vendas.fr3');
+        check('HUB DE VENDAS [rel 01 no layout do cliente]: a lista traz os ven2_01 com o que falta (o Resumo de Vendas usa ST_TOTAL_VENDA, sem procedência); imprimir manda o dbdConsulta nos nomes do GetSQL(1) (P1 nos dias inteiros: 4 un, R$ 34, o CODGRUPO), o período e as variáveis do rodapé; layout incompleto → 422; sem venda → "Não há venda no filtro informado. Verifique!"; outro relatório ainda não converte',
+          lays.some((l) => l.arquivo === 'ven2_01 - Produtos_vendidos_no_periodo.fr3' && l.completo) && lResumo?.completo === false && (lResumo?.faltam ?? []).includes('ST_TOTAL_VENDA')
+          && hub.status === 200 && Number(hP1?.QTDE) === 4 && Number(hP1?.TOTAL_VENDA) === 34 && 'CODGRUPO' in (hP1 ?? {}) && hub.j.variaveis?.DtInicial === "'10/07/2026'"
+          && hub.j.variaveis?.AGRUPA_EMPRESA === "'N'" && Number(hub.j.variaveis?.TOTAL_VENDA) > 0 && String(hub.j.textos?.SysMemo10 ?? '').includes('TOTAL_')
+          && hubIncompleto.status === 422 && hubIncompleto.j.code === 'RELATORIO_LAYOUT_INCOMPLETO'
+          && hubVazio.status === 422 && hubVazio.j.message === 'Não há venda no filtro informado. Verifique!' && outroRel.status === 422,
+          { lays, hub: [hub.status, hub.j.code, hP1, hub.j.variaveis], hubIncompleto: [hubIncompleto.status, hubIncompleto.j.code], hubVazio: [hubVazio.status, hubVazio.j.message], outroRel: outroRel.status });
         await pgAr.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992780 AND 992789`);
       } finally {
         await pgAr.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 27501 AND 27506`);

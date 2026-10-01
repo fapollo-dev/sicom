@@ -7,6 +7,7 @@ import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { colunasNumericas, dataBr, registroFr3, textoVariavel, type RegistroFr3 } from '../../shared/relatorios/registro-fr3';
 import { AgendaPromocaoRelService, type FiltroRelAgenda } from './agenda-promocao-rel.service';
 import { ConfigService } from '../cadastro/config.service';
+import { linhaGetSql01, textosLucroBruto } from './rel-vendas-fr3.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -86,7 +87,7 @@ export class AgendaPromocaoFr3Service {
         if (!((r.departamentos ?? []) as unknown[]).length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', { tipo: f.tipo }, 'Nenhum registro encontrado!');
         return {
           titulo, modelo: await modeloFr3(db, 'Rel_Produtos_Vendidos_no_Periodo_Agrupado.fr3'),
-          datasets: { dbdConsulta: linhas.map((l) => reg(linhaVendidos(l))), frxDBDatasetD: ((r.departamentos ?? []) as RegistroFr3[]).map(reg) },
+          datasets: { dbdConsulta: linhas.map(linhaGetSql01), frxDBDatasetD: ((r.departamentos ?? []) as RegistroFr3[]).map(reg) },
           // trNormal usa as datas da AGENDA (edtDtInicio/edtDtFim), não as do diálogo (uCadAgendaPromocao.pas:2068)
           variaveis: periodo(dtAgendaIni, dtAgendaFim),
         };
@@ -101,22 +102,14 @@ export class AgendaPromocaoFr3Service {
         const porVenda = String((await this.config.resolver('RELATORIO_VENDAS_LUCRO_BRUTO', { empresaId: emp })) ?? 'TOTAL CUSTO').toUpperCase() === 'TOTAL VENDA';
         return {
           titulo, modelo: await modeloFr3(db, 'ven2_01 - Produtos_vendidos_no_periodo.fr3'),
-          datasets: { dbdConsulta: linhas.map((l) => reg(linhaVendidos(l))) },
+          datasets: { dbdConsulta: linhas.map(linhaGetSql01) },
           variaveis: {
             ...periodo(dataBr(String(r.dtini ?? '')), dataBr(String(r.dtfim ?? ''))),
             MARGEM_BRUTA: String(pct(vrCusto)), TOTAL_VENDA: String(vrVenda), LUCRO_BRUTO: String(r2(vrVenda - vrCusto)),
             LUCRO_BRUTO_PERC: String(pct(vrVenda - vrCusto)), TOTAL_CUSTO: String(vrCusto), TOTAL_ACRES: String(vrAcres), DESCONTOTOTAL: '0',
           },
           // o % de lucro bruto dos memos SysMemo10/SysMemo15 segue a config LucroBruto (:1931-1952) e o total de desconto sai 0,00 (:1925)
-          textos: {
-            MemoTOTAL_DESC: '0,00',
-            SysMemo10: porVenda
-              ? '[iif(<dbdConsulta."TOTAL_VENDA"> > 0, (((<dbdConsulta."TOTAL_VENDA">-<dbdConsulta."TOTAL_CUSTO">) / <dbdConsulta."TOTAL_VENDA">)) * 100, 0)]%'
-              : '[iif(<dbdConsulta."TOTAL_CUSTO"> > 0, ((<dbdConsulta."TOTAL_VENDA"> / <dbdConsulta."TOTAL_CUSTO">) - 1) * 100, 0)]%',
-            SysMemo15: porVenda
-              ? '[((SUM(<dbdConsulta."TOTAL_VENDA">-<dbdConsulta."TOTAL_CUSTO">,MasterData1) / SUM(<dbdConsulta."TOTAL_VENDA">,MasterData1))) * 100]%'
-              : '[((SUM(<dbdConsulta."TOTAL_VENDA">,MasterData1) / SUM(<dbdConsulta."TOTAL_CUSTO">,MasterData1)) - 1) * 100]%',
-          },
+          textos: { MemoTOTAL_DESC: '0,00', ...textosLucroBruto(porVenda) },
         };
       }
       case 'totais': case 'totais-itens':
@@ -166,18 +159,4 @@ export class AgendaPromocaoFr3Service {
         throw new BusinessRuleError('RELATORIO_TIPO_INVALIDO', { tipo: f.tipo });
     }
   }
-}
-
-/**
- * A linha do relatório de produtos vendidos com os nomes do `TVendas.GetSQL(1)` (uVendas.pas:1814-1866 — o TEMP): TOTAL_VENDA é o
- * líquido (venda + acréscimo − desconto), MARGEM o markup (venda/custo − 1), RENTABILIDADE o markdown, VRVENDA_UNI o bruto ÷ qtde.
- */
-function linhaVendidos(l: RegistroFr3): RegistroFr3 {
-  return {
-    idempresa: l.idempresa, codbarra: l.codbarra, qtde: l.qtde, total_custo: l.total_custo, total_venda: l.total_venda, descricao: l.descricao,
-    rentabilidade: l.rentabilidade, desc_promocao: l.desc_promocao, desc_departamento: l.desc_departamento, desc_operador: l.desc_operador,
-    desc_scanntech: 0, desc_acumulativo: 0, desc_func: 0, desc_atarejo: 0, desc_gestao_promocao: 0, desc_crescevendas: 0,
-    acrescimo: l.acrescimo, lucro: l.lucro, margem: l.margem, idproduto: l.idproduto, unidade: l.unidade, depto: l.departamento, grupo: l.grupo,
-    subgrupo: l.subgrupo, secao: l.secao, vrvenda_uni: l.vrvenda_uni, vrcusto_uni: l.vrcusto_uni,
-  };
 }
