@@ -128,6 +128,11 @@ class Relatorio {
   private readonly impressas = new Map<string, number[]>();
   private readonly dsDaBanda = new Map<string, string>();
   private recno = 0;
+  /** o [Line#]: a linha da banda de dados, que recomeça a cada grupo */
+  private linhaBanda = 0;
+  /** a banda em desenho (as agregadas de um GroupFooter somam só o grupo) e onde cada grupo começou nas linhas impressas */
+  private bandaAtual: No | null = null;
+  private readonly inicioGrupo = new Map<No, number>();
   private pagina = 0;
   /** o objeto do evento em curso (o `Sender` do script) */
   private remetente = '';
@@ -146,7 +151,8 @@ class Relatorio {
     this.prog = compilarScript(this.raiz.a['ScriptText.Text'] ?? '');
     const indexar = (no: No) => {
       const nome = no.a.Name;
-      if (nome) this.estados.set(nome.toLowerCase(), {
+      // só os objetos do relatório (Tfrx*): o <item Name="DtInicial"> das variáveis não é objeto e esconderia a variável
+      if (nome && no.tag.startsWith('Tfrx')) this.estados.set(nome.toLowerCase(), {
         no, Visible: no.a.Visible !== 'False', Left: n(no.a.Left), Top: n(no.a.Top), Width: n(no.a.Width), Height: n(no.a.Height),
         Text: no.a.Text ?? '', final: null, feito: false, extras: {},
       });
@@ -181,6 +187,7 @@ class Relatorio {
       gravar: (c, v) => this.gravar(c, v),
       agregado: (f, args) => this.agregado(f, args),
       procedimento: (nome, args) => this.procedimento(nome, args),
+      funcao: (nome, args) => this.funcaoDeObjeto(nome, args),
     };
     // variáveis do relatório (<Variables>): o valor é uma expressão ('S' entre aspas)
     for (const v of this.raiz.filhos.filter((x) => x.tag === 'Variables').flatMap((x) => x.filhos)) {
@@ -221,7 +228,7 @@ class Relatorio {
     const k = nome.toLowerCase();
     if (k === 'page#' || k === 'page') return this.pagina;
     if (k === 'totalpages#' || k === 'totalpages') return this.totalPaginas || this.pagina;
-    if (k === 'line#' || k === 'line') return this.recno;
+    if (k === 'line#' || k === 'line') return this.linhaBanda;
     if (k === 'date') return this.funcoes.date([], this.amb);
     if (k === 'time') return this.funcoes.time([], this.amb);
     if (this.variaveis.has(k)) return this.variaveis.get(k)!;
@@ -267,7 +274,10 @@ class Relatorio {
   private agregado(f: string, args: Expr[]): Valor {
     const nomeBanda = (e: Expr | undefined) => (e?.k === 'id' ? e.caminho.join('.') : e?.k === 'ref' && e.campo == null ? e.nome : '').toLowerCase();
     const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || [...this.dsDaBanda.keys()][0] || '';
-    const linhas = this.impressas.get(banda) ?? [];
+    const todas = this.impressas.get(banda) ?? [];
+    // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo)
+    const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' ? this.inicioGrupo.get(this.bandaAtual) : undefined;
+    const linhas = inicio != null ? todas.slice(inicio) : todas;
     if (f === 'count') return linhas.length;
     const ds = this.dsDaBanda.get(banda) ?? '';
     const chave = this.unico ? '' : nomeDs(ds);
@@ -284,6 +294,16 @@ class Relatorio {
     if (f === 'avg') return valores.length ? valores.reduce((a, b) => a + b, 0) / valores.length : 0;
     if (!valores.length) return 0;
     return f === 'min' ? Math.min(...valores) : Math.max(...valores);
+  }
+
+  /** `Banda.DataSet.HasField('CAMPO')`: o dataset da banda tem o campo (o legado troca o layout conforme a consulta que o alimenta) */
+  private funcaoDeObjeto(nome: string, args: Valor[]): Valor | undefined {
+    const m = /^(\w+)\.dataset\.hasfield$/.exec(nome);
+    if (!m) return undefined;
+    const banda = this.estados.get(m[1]);
+    const ds = banda ? banda.no.a.DataSetName || banda.no.a.DataSet || '' : '';
+    const campo = texto(args[0] ?? '').toUpperCase();
+    return this.linhas(ds).some((r) => Object.keys(r).some((k) => k.toUpperCase() === campo));
   }
 
   /** os procedimentos do motor que o script chama: `Inc`/`Dec`, `Engine.NewPage`, `Engine.ShowBand(Banda)` */
@@ -415,6 +435,18 @@ class Relatorio {
       const ajuste = no.a.Stretched === 'False' ? (no.a.Center === 'True' ? 'none' : 'none') : no.a.KeepAspectRatio === 'False' ? 'fill' : 'contain';
       return `<img class="o" style="${box}object-fit:${ajuste};${no.a.Center === 'True' ? 'object-position:center;' : 'object-position:left top;'}" src="${src}" alt=""/>`;
     }
+    if (tag === 'TfrxCheckBoxView') {
+      // marcado pelo script (`CheckBox1.Checked := True`), pelo campo ou pela propriedade do arquivo
+      let marcado: unknown = e.extras.checked;
+      if (marcado == null && no.a.DataField) marcado = this.campo(no.a.DataSetName || no.a.DataSet || '', no.a.DataField);
+      if (marcado == null && no.a.Expression) marcado = this.avaliarTexto(no.a.Expression);
+      if (marcado == null) marcado = no.a.Checked !== 'False';
+      const sim = marcado === true || ['T', 'S', 'TRUE', '1', 'Y'].includes(String(marcado).toUpperCase());
+      const cc = cor(no.a.CheckColor, '#000000') ?? '#000000';
+      const marca = sim ? (no.a.CheckStyle === 'csCross' ? '✗' : no.a.CheckStyle === 'csLineCross' ? '╳' : '✓') : (no.a.UncheckStyle === 'usCross' ? '✗' : '');
+      const lado = Math.min(e.Width, e.Height);
+      return `<div class="o" style="${box}display:flex;align-items:center;justify-content:center;border:1px solid #000;color:${cc};font-size:${(lado * 0.8).toFixed(1)}px;line-height:1">${marca}</div>`;
+    }
     if (tag === 'TfrxGradientView') {
       const a = cor(no.a.BeginColor, '#ffffff'), b = cor(no.a.EndColor, '#000000');
       const dir = no.a.Style === 'gsHorizontal' ? 'to right' : 'to bottom';
@@ -472,6 +504,12 @@ class Relatorio {
    * outras bandas antes dela (`Engine.ShowBand`).
    */
   private banda(b: No, x: number, y?: number): { html: string; altura: number } | null {
+    const anterior = this.bandaAtual;
+    this.bandaAtual = b;
+    try { return this.desenharBanda(b, x, y); } finally { this.bandaAtual = anterior; }
+  }
+
+  private desenharBanda(b: No, x: number, y?: number): { html: string; altura: number } | null {
     const eb = this.estado(b);
     this.evento(b);
     if (eb && !eb.Visible) return null;
@@ -568,13 +606,49 @@ class Relatorio {
           if (!cabe(n(header.a.Height) + n(b.a.Height))) novaPagina();
           mostrar(header);
         };
+        // os grupos da banda: GroupHeader acima dela (de fora para dentro, pela ordem de Top) e GroupFooter abaixo (de dentro para
+        // fora) — o rodapé do grupo mais interno é o primeiro abaixo da banda
+        const entre = (x: No, de: number, ate: number) => !dados.some((d) => d !== b && n(d.a.Top) > de && n(d.a.Top) < ate);
+        const cabGrupo = bandas.filter((x) => x.tag === 'TfrxGroupHeader' && n(x.a.Top) < n(b.a.Top) && entre(x, n(x.a.Top), n(b.a.Top)));
+        const rodGrupo = bandas.filter((x) => x.tag === 'TfrxGroupFooter' && n(x.a.Top) > n(b.a.Top) && entre(x, n(b.a.Top), n(x.a.Top)));
+        const grupos = cabGrupo.map((h, k) => ({ h, f: rodGrupo[cabGrupo.length - 1 - k] as No | undefined, valor: undefined as string | undefined }));
+        const condicao = (h: No): string => { try { return texto(avaliar(compilarExpr(h.a.Condition ?? ''), this.amb, this.funcoes)); } catch { return ''; } };
+        // fecha os grupos do mais interno até `ate`, com o cursor na última linha do grupo (o FastReport volta um registro)
+        const fecharGrupos = (ate: number, ultima: number) => {
+          if (ds) this.posicionar(ds, ultima);
+          for (let k = grupos.length - 1; k >= ate; k--) {
+            const f = grupos[k].f;
+            if (!f) continue;
+            if (!cabe(n(f.a.Height))) novaPagina();
+            mostrar(f);
+          }
+        };
         if (linhas > 0 || b.a.PrintIfDetailEmpty === 'True') mostrarHeader();
+        this.linhaBanda = 0;
         for (let i = 0; i < linhas; i++) {
           if (ds) this.posicionar(ds, i);
           this.recno = i + 1;
+          if (grupos.length) {
+            const valores = grupos.map((g) => condicao(g.h));
+            const nivel = i === 0 ? 0 : valores.findIndex((v, k) => v !== grupos[k].valor);
+            if (nivel >= 0) {
+              if (i > 0) { fecharGrupos(nivel, i - 1); if (ds) this.posicionar(ds, i); }
+              for (let k = nivel; k < grupos.length; k++) {
+                const g = grupos[k];
+                g.valor = valores[k];
+                if (g.f) this.inicioGrupo.set(g.f, impressas.length);
+                if (g.h.a.StartNewPage === 'True' && i > 0) novaPagina();
+                if (!cabe(n(g.h.a.Height) + n(b.a.Height))) novaPagina();
+                mostrar(g.h);
+              }
+              this.linhaBanda = 0;
+            }
+          }
+          this.linhaBanda++;
           if (col === 0 && !cabe(n(b.a.Height))) {
             novaPagina();
             if (header?.a.ReprintOnNewPage === 'True') mostrarHeader();
+            for (const g of grupos) if (g.h.a.ReprintOnNewPage === 'True') mostrar(g.h);
           }
           const x = n(b.a.Left) + (cols > 1 ? col * (cw + gap) : 0);
           impressas.push(i);
@@ -587,6 +661,7 @@ class Relatorio {
         }
         if (col > 0) c.y += alturaLinha;
         this.eof = true;
+        if (grupos.length && linhas > 0) fecharGrupos(0, linhas - 1);
         if (footer && (linhas > 0 || b.a.PrintIfDetailEmpty === 'True')) {
           if (!cabe(n(footer.a.Height))) novaPagina();
           mostrar(footer);

@@ -26152,6 +26152,40 @@ async function main() {
           && Number((fimP.j.linhas ?? []).find((l: any) => Number(l.idproduto) === 992751)?.preco2) === 11
           && semAcesso.status === 403,
           { vend: { s: vend.status, p1: lin(vend, 992751), p2: lin(vend, 992752)?.total_venda, dep: vend.j.departamentos, e: vend.j.code }, tv: (tv.j.linhas ?? []).length, tot: t0, totIt: totIt.j.linhas, loja: loja.j.porProduto, padrao: { l: padrao.j.linhas, hi: padrao.j.horaIni, hf: padrao.j.horaFim }, inat: inat.j.linhas, fim: (fimP.j.linhas ?? []).map((l: any) => [l.codagenda, l.idproduto, l.preco2]), semAcesso: semAcesso.status });
+
+        // a impressão no layout do cliente (os .fr3 da RELATORIOS + os datasets do GeralRel)
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        const modelos = ['ListagemAgendaPromocao.fr3', 'Rel_Produtos_Vendidos_no_Periodo_Agrupado.fr3', 'ven2_01 - Produtos_vendidos_no_periodo.fr3', 'CadAgenda_Vendas_Rebaixa.fr3',
+          'AgendaPromocaoVendidosPorLoja.fr3', 'ListagemProdutosFimPromocao.fr3', 'Agenda_Promocao_Produtos_Inativos.fr3'];
+        for (const [i, nome] of modelos.entries()) {
+          await pgAr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992780 + i, nome, fr3(nome)]);
+        }
+        const imp = async (q: string) => {
+          const r = await fetch(`${base}/relatorios/agenda-promocao/${ag}/impressao?${q}`, { headers: H });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const iAg = await imp('tipo=agenda');
+        const iVend = await imp(`tipo=vendidos&${per}`);
+        const iTv = await imp(`tipo=tv&${per}`);
+        const iTot = await imp(`tipo=totais&${per}`);
+        const iLoja = await imp(`tipo=por-loja&${per}`);
+        const iFim = await imp('tipo=fim-promocao&dtfim=2026-07-12');
+        const iInat = await imp('tipo=inativos');
+        const iVazio = await imp('tipo=totais&dtini=2026-01-01&dtfim=2026-01-02');
+        const dV = (iVend.j.datasets?.dbdConsulta ?? []).find((l: any) => Number(l.IDPRODUTO) === 992751);
+        check('AGENDA §275 [impressão no layout do cliente]: a agenda (frxDBDatasetA/B, com o VRCUSTOREP), "vendidos" com o dbdConsulta nos nomes do GetSQL(1) e as DATAS DA AGENDA nas variáveis, "oferta em TV" com o CalculaTotais e o % pela config, totais, por loja no pivô Q1 com QtdEmpresa = comprimento das lojas, fim da promoção e inativos com os memos; consulta vazia → "Nenhum registro encontrado!"',
+          iAg.status === 200 && String(iAg.j.modelo).includes('ListagemAgendaPromocao') && iAg.j.datasets?.frxDBDatasetA?.[0]?.NOMEPROMO === 'AGENDA REL 275'
+          && (iAg.j.datasets?.frxDBDatasetB ?? []).length === 2 && 'VRCUSTOREP' in (iAg.j.datasets?.frxDBDatasetB?.[0] ?? {})
+          && iVend.status === 200 && Number(dV?.TOTAL_VENDA) === 26 && Number(dV?.QTDE) === 3 && 'DEPTO' in (dV ?? {}) && (iVend.j.datasets?.frxDBDatasetD ?? []).length >= 1
+          && iVend.j.variaveis?.DtInicial === "'10/07/2026'" && iVend.j.variaveis?.HrInicial === "'08:00'" && iVend.j.variaveis?.Empresa === "'1'"
+          && iTv.status === 200 && iTv.j.variaveis?.TOTAL_VENDA === '15' && String(iTv.j.textos?.SysMemo10 ?? '').includes('TOTAL_') && iTv.j.textos?.MemoTOTAL_DESC === '0,00'
+          && iTot.status === 200 && Number(iTot.j.datasets?.dbdConsulta?.[0]?.VR_TOTAL_VENDA) === 31
+          && iLoja.status === 200 && Number(iLoja.j.datasets?.dbdPorLoja?.find((p: any) => Number(p.IDPRODUTO) === 992751)?.Q1) === 2 && iLoja.j.variaveis?.QtdEmpresa === '1'
+          && iFim.status === 200 && iFim.j.textos?.dtFimPromocao === '12/07/2026' && iFim.j.textos?.Empresas === 'Empresa: 1'
+          && iInat.status === 200 && String(iInat.j.textos?.Agenda ?? '').includes('AGENDA REL 275') && (iInat.j.datasets?.dbdRelProdAtivo ?? []).length === 1
+          && iVazio.status === 422 && iVazio.j.message === 'Nenhum registro encontrado!',
+          { iAg: [iAg.status, iAg.j.code], iVend: [iVend.status, dV, iVend.j.variaveis], iTv: [iTv.status, iTv.j.variaveis], iTot: iTot.status, iLoja: [iLoja.status, iLoja.j.datasets?.dbdPorLoja, iLoja.j.variaveis], iFim: iFim.j.textos, iInat: iInat.j.textos, iVazio: [iVazio.status, iVazio.j.message] });
+        await pgAr.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992780 AND 992789`);
       } finally {
         await pgAr.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 27501 AND 27506`);
         if (agendas.length) {

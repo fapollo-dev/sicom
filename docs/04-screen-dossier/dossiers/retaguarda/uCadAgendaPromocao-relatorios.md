@@ -64,3 +64,23 @@ relatório, o período, gera e imprime pelo navegador.
 - RBAC: `POST cadastro/etiqueta/da-agenda` pelo gate da agenda; o imprimir da tela de etiquetas aceita também quem chega pela
   agenda ou pelo Ajuste de Preços (`@RequerAcessoDeAlgum`), porque o legado abre a tela por Create; sem "Consulta Preço" a
   tela só fica sem a fila do coletor.
+
+## 5. A impressão no layout do cliente (.fr3) — 01/10/2026
+
+Até aqui "Imprimir" era a página do navegador. Agora é o .fr3 que o legado carrega (`GeralRel`, `GerarRelProdInativos`,
+`btnImprimirClick`), da RELATORIOS (PERSONALIZADO antes do DEFAULT), com os datasets do legado — `GET relatorios/agenda-promocao/:id/impressao`
+(`AgendaPromocaoFr3Service`), desenhado pelo motor `shared/fr3`. "Gerar" continua mostrando a prévia na tela.
+
+| relatório | modelo | o que vai junto |
+|---|---|---|
+| imprimir a agenda | ListagemAgendaPromocao / RelatorioAgendaPromocaoAgrupadoDepto | frxDBDatasetA (a agenda, datas com hora), B (os itens), C (por depto). O item ganhou o **VRCUSTOREP** da loja: o DEFAULT de 06/08/2025 do layout o imprime (o `sqqAgendaPromocaoItem` de 2020 não tem — binário novo) |
+| vendidos | Rel_Produtos_Vendidos_no_Periodo_Agrupado | dbdConsulta nos nomes do `GetSQL(1)` (TEMP: TOTAL_VENDA líquido, MARGEM markup, DEPTO…), frxDBDatasetD (`GetSQL(1000)`); as variáveis DtInicial/DtFinal são as **datas da agenda** (`edtDtInicio/edtDtFim`, :2068), não as do diálogo — fiel |
+| TV/rádio/tabloide/interna | ven2_01 - Produtos_vendidos_no_periodo | as datas do diálogo; o `CalculaTotais` (MARGEM_BRUTA, TOTAL_VENDA, LUCRO_BRUTO, LUCRO_BRUTO_PERC, TOTAL_CUSTO, TOTAL_ACRES — sem venda, 0 onde o legado divide por zero); o % de lucro dos memos SysMemo10/15 pela config de lucro bruto; MemoTOTAL_DESC = 0,00 |
+| totais / com itens | CadAgenda_Vendas_Rebaixa(_Itens) | dbdConsulta |
+| por loja | AgendaPromocaoVendidosPorLoja | `Length(Empresa) <= 5` (o TEXTO "1,2,3"): o pivô Q/C/V pelo código da loja 1 a 3, senão a lista (a página 2 do layout, agrupada por produto); QtdEmpresa = esse comprimento. ⚠️ loja de código fora de 1..3 derruba o pivô do legado ("Não foi possível carregar todos os dados."); aqui ela não entra no pivô |
+| fim da promoção | ListagemProdutosFimPromocao | os memos dtFimPromocao e "Empresa: <loja>" |
+| inativos | Agenda_Promocao_Produtos_Inativos | os memos Empresas e "Agenda: <cód> - <nome>" |
+
+Consulta de venda vazia → "Nenhum registro encontrado!" (:1966). Os logos de disco (`images\logorel.jpg`, `logocli<loja>.jpg`) ficam
+os do próprio .fr3. Motor: GroupHeader/GroupFooter (com a soma do grupo), CheckBox, `DataSet.HasField`, variáveis do arquivo
+não confundidas com objetos. Smoke §275 (impressão).

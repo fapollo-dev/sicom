@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, dataLocal, registroFr3 } from '../../shared/relatorios/registro-fr3';
 import { totalNfLegado } from './nf-total';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { arred, calcValorCusto, custoDoItemNaEntrada, type EmpresaCusto } from './nf-custo-item';
@@ -83,24 +84,8 @@ const trunca = (x: number, casas = 2): number => {
 };
 const sub = (cfop: unknown) => String(cfop ?? '').slice(1, 4);
 const d2 = (x: number) => String(x).padStart(2, '0');
-/** a data como o node-pg a montou (o `date` do PG vira meia-noite local): 'AAAA-MM-DDTHH:MM:SS', que o motor do .fr3 lê como TDateTime */
-const dataLocal = (d: Date) => `${d.getFullYear()}-${d2(d.getMonth() + 1)}-${d2(d.getDate())}T${d2(d.getHours())}:${d2(d.getMinutes())}:${d2(d.getSeconds())}`;
-/**
- * O registro com as chaves como o dataset do Delphi as expõe (maiúsculas). O node-pg entrega numeric/bigint como texto: as colunas
- * numéricas (pelo tipo, `numericas`) viram número — o DisplayFormat `%2.2n` do .fr3 só formata número, e o texto numérico do
- * cadastro (CST '060', CNPJ, código de barras) fica texto.
- */
-const maiusculas = (r: Registro, nums: Set<string> = new Set()): Registro => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.toUpperCase(),
-  v instanceof Date ? dataLocal(v) : typeof v === 'string' && v !== '' && nums.has(k.toLowerCase()) && Number.isFinite(Number(v)) ? Number(v) : v]));
-
-/** as colunas numéricas das tabelas (numeric, inteiros, ponto flutuante), mais os apelidos numéricos da consulta */
-async function numericas(db: AnyDB, tabelas: string[], apelidos: string[] = []): Promise<Set<string>> {
-  const r = (await sql<{ column_name: string }>`
-    SELECT DISTINCT column_name FROM information_schema.columns
-     WHERE table_schema = current_schema() AND table_name = ANY(${tabelas})
-       AND data_type IN ('numeric', 'integer', 'bigint', 'smallint', 'double precision', 'real')`.execute(db)).rows;
-  return new Set([...r.map((x) => x.column_name), ...apelidos]);
-}
+const maiusculas = registroFr3;
+const numericas = colunasNumericas;
 
 @Injectable()
 export class NfImpressaoService {

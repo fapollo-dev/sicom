@@ -41,6 +41,8 @@ export interface Ambiente {
   agregado?(funcao: string, args: Expr[]): Valor;
   /** os procedimentos do motor que o script chama (`Inc(Linha)`, `Engine.NewPage`, `Engine.ShowBand(Banda)`); true = tratado */
   procedimento?(nome: string, args: Expr[]): boolean;
+  /** as funções de objeto do relatório (`MasterData1.DataSet.HasField('X')`); undefined = não é dela */
+  funcao?(nome: string, args: Valor[]): Valor | undefined;
   agora: Date;
 }
 
@@ -310,7 +312,8 @@ export function avaliar(e: Expr, amb: Ambiente, funcoes: Record<string, (args: V
       if (n === 'iif') return booleano(avaliar(e.args[0], amb, funcoes)) ? avaliar(e.args[1], amb, funcoes) : avaliar(e.args[2], amb, funcoes);
       if (AGREGADAS.has(n) && amb.agregado) return amb.agregado(n, e.args);
       const f = funcoes[n];
-      return f ? f(e.args.map((a) => avaliar(a, amb, funcoes)), amb) : null;
+      if (f) return f(e.args.map((a) => avaliar(a, amb, funcoes)), amb);
+      return amb.funcao?.(n, e.args.map((a) => avaliar(a, amb, funcoes))) ?? null;
     }
     case 'un': {
       const v = avaliar(e.e, amb, funcoes);

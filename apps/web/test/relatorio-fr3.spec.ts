@@ -131,4 +131,55 @@ describe('relatórios do legado com vários datasets', () => {
     expect(tn).toContain('140,61');
     expect(tn).toContain('ITEM DEVOLVIDO 35');
   });
+
+  const agendaA = { CODAGENDA: 1201, NOMEPROMO: 'OFERTAS DE OUTUBRO', FLAGPROMOCAO: 'A', DTINICIOPROMOCAO: '2026-10-01T07:00:00', DTFIMPROMOCAO: '2026-10-15T23:59:00' };
+
+  it('imprimir a agenda (ListagemAgendaPromocao): o script põe o texto da flag e os itens saem com o preço da promoção', () => {
+    const itens = [{ CODAGENDA: 1201, CODBARRA: '7891000100103', DEPTO: 'MERCEARIA', DESCRICAO: 'LEITE COND MOCA 395G', EMPRESAS: '1,2', PRECO2: 0, UNIDADE: 'UN', VLRPROMOCAO: 5.99, VRCUSTOREP: 4.1, VRVENDA: 7.49 }];
+    const t = texto(paginasDoModelo(modelo('listagem-agenda-promocao.fr3'), { frxDBDatasetA: [agendaA], frxDBDatasetB: itens }, agora));
+    expect(t).toContain('Flag agenda: ABERTA');
+    expect(t).toContain('OFERTAS DE OUTUBRO');
+    expect(t).toContain('LEITE COND MOCA 395G');
+    expect(t).toContain('5,99');
+  });
+
+  it('vendidos por loja: com mais de 5 caracteres de lojas o script esconde a página do pivô e a lista agrupa por produto, com a soma de cada grupo', () => {
+    const lista = [
+      { CODPRODUTO: 10, CODBARRA: '1', DESCRICAO: 'ARROZ 5KG', IDEMPRESA: 1, QTDE: 3, VRVENDA: 60, VRCUSTO: 40 },
+      { CODPRODUTO: 10, CODBARRA: '1', DESCRICAO: 'ARROZ 5KG', IDEMPRESA: 52, QTDE: 2, VRVENDA: 40, VRCUSTO: 26 },
+      { CODPRODUTO: 11, CODBARRA: '2', DESCRICAO: 'FEIJAO 1KG', IDEMPRESA: 2, QTDE: 5, VRVENDA: 45, VRCUSTO: 30 },
+    ];
+    const pgs = paginasDoModelo(modelo('agenda-vendidos-por-loja.fr3'), { dbdPorLoja: lista }, agora, { QtdEmpresa: '7', Empresa: "'1,2,52'" });
+    const t = texto(pgs);
+    expect(t).not.toContain('Loja 3'); // a página do pivô (Page1) ficou invisível
+    expect(t.match(/ARROZ 5KG/g)?.length).toBe(1); // o GroupHeader sai uma vez por produto
+    expect(t).toContain('100,00'); // a soma da venda do grupo do arroz (60 + 40)
+    expect(t).toContain('Empresa(s): 1,2,52');
+  });
+
+  it('vendidos por loja: com até 5 caracteres, o pivô Q/C/V das lojas 1 a 3 e o total por loja no resumo', () => {
+    const pivo = [{ IDPRODUTO: 10, CODBARRAS: '1', DESCRICAO: 'ARROZ 5KG', Q1: 3, C1: 40, V1: 60, Q2: 1, C2: 13, V2: 20, Q3: 0, C3: 0, V3: 0 },
+      { IDPRODUTO: 11, CODBARRAS: '2', DESCRICAO: 'FEIJAO 1KG', Q1: 0, C1: 0, V1: 0, Q2: 5, C2: 30, V2: 45, Q3: 0, C3: 0, V3: 0 }];
+    const t = texto(paginasDoModelo(modelo('agenda-vendidos-por-loja.fr3'), { dbdPorLoja: pivo }, agora, { QtdEmpresa: '3', Empresa: "'1,2'" }));
+    expect(t).toContain('Loja 3');
+    expect(t).toContain('65,00'); // SUM(V2) = 20 + 45
+  });
+
+  it('produtos inativos: o CheckBox de mídia segue o campo pelo script', () => {
+    const pgs = paginasDoModelo(modelo('agenda-produtos-inativos.fr3'), { dbdRelProdAtivo: [{ CODBARRA: '1', DESCRICAO: 'ARROZ 5KG', DEPTO: 'MERCEARIA', UNIDADE: 'UN', VRVENDA: 20, VLRPROMOCAO: 17.9, TV: 'T', RADIO: 'F', TABLOIDE: 'F', INTERNO: 'F', ATUALIZACAO_GRUPO: 'N' }] }, agora, {}, { Agenda: 'Agenda: 1201 - OFERTAS DE OUTUBRO', Empresas: 'Empresa: 1' });
+    const html = pgs.map((p) => p.html.join('')).join('');
+    expect(texto(pgs)).toContain('Agenda: 1201 - OFERTAS DE OUTUBRO');
+    expect(html.match(/✓/g)?.length).toBe(1); // só a TV marcada
+  });
+
+  it('produtos vendidos (ven2_01): o HasField do OnStartReport mantém o total de descontos, as variáveis do CalculaTotais e o % pela config', () => {
+    const linhas = [{ IDEMPRESA: 1, CODBARRA: '1', DESCRICAO: 'ARROZ 5KG', QTDE: 10, UNIDADE: 'UN', TOTAL_VENDA: 200, TOTAL_CUSTO: 150, DESC_PROMOCAO: 12.5, MARGEM: 33.33, VRVENDA_UNI: 21.25, VRCUSTO_UNI: 15, DEPTO: 'MERCEARIA', GRUPO: 'GRAOS', SUBGRUPO: 'ARROZ' }];
+    const t = texto(paginasDoModelo(modelo('ven2-01-produtos-vendidos.fr3'), { dbdConsulta: linhas }, agora,
+      { DtInicial: "'01/10/2026'", DtFinal: "'15/10/2026'", HrInicial: "'07:00'", HrFinal: "'23:59'", Empresa: "'1'", TOTAL_VENDA: '200', LUCRO_BRUTO: '50', MARGEM_BRUTA: '75', LUCRO_BRUTO_PERC: '25' },
+      { SysMemo10: '[iif(<dbdConsulta."TOTAL_CUSTO"> > 0, ((<dbdConsulta."TOTAL_VENDA"> / <dbdConsulta."TOTAL_CUSTO">) - 1) * 100, 0)]%' }));
+    expect(t).toContain('Total Descontos:');
+    expect(t).toContain('12,50');
+    expect(t).toContain('Periodo: 01/10/2026 até 15/10/2026 das 07:00 às 23:59');
+    expect(t).toContain('33,33'); // o markup da linha pelo SysMemo10 trocado (200/150 − 1)
+  });
 });

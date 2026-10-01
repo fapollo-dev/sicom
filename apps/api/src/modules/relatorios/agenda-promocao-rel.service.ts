@@ -137,6 +137,8 @@ export class AgendaPromocaoRelService {
       .innerJoin('multi_preco as m', (j) => j.onRef('m.idproduto', '=', 'x.idproduto').on('m.idempresa', '=', emp))
       .leftJoin('familias_prod as d', (j) => j.onRef('d.codfamilia', '=', 'z.coddpto').on('d.tipo', '=', 'D'))
       .select(['x.codagenda', 'x.idproduto', 'z.codbarra', 'z.descricao', 'z.unidade', sql`d.descricao`.as('depto'), 'x.empresas', 'x.vlrpromocao', 'x.ativo',
+        // VRCUSTOREP: o layout ListagemAgendaPromocao (DEFAULT de 06/08/2025) imprime o custo de reposição da loja
+        'm.vrcustorep',
         sql`coalesce(x.vrvenda, m.vrvenda)`.as('vrvenda'),
         sql`case when ${desc2} <> 0 then case when z.tpdescpreco2 = 'D' then m.vrvenda + ${desc2}
                                           when z.tpdescpreco2 = 'P' then m.vrvenda + (m.vrvenda * ${desc2} / 100) else 0 end else 0 end`.as('preco2')])
@@ -146,7 +148,7 @@ export class AgendaPromocaoRelService {
     if (!agrupar) q = q.where('x.ativo', '=', 'S');
     else if (f.exibir === 'S' || f.exibir === 'N') q = q.where('x.ativo', '=', f.exibir);
     const itens = ((await q.orderBy(sql`d.descricao`).orderBy('z.descricao').execute()) as Record<string, unknown>[])
-      .map((r) => ({ ...r, vrvenda: r2(num(r.vrvenda)), vlrpromocao: r2(num(r.vlrpromocao)), preco2: r2(num(r.preco2)) }));
+      .map((r) => ({ ...r, vrvenda: r2(num(r.vrvenda)), vlrpromocao: r2(num(r.vlrpromocao)), preco2: r2(num(r.preco2)), vrcustorep: r.vrcustorep == null ? null : num(r.vrcustorep) }));
     if (!agrupar) return { agrupar: false, linhas: itens };
     const departamentos = ((await sql<Record<string, unknown>>`
       SELECT d.descricao AS depto, sum(x.vlrpromocao) AS vr_total_depto

@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import { relatorioAgenda, type RelAgendaResposta, type TipoRelAgenda } from './agendaPromocaoApi';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const TIPOS: Array<{ value: TipoRelAgenda; label: string }> = [
   { value: 'agenda', label: 'Imprimir a agenda' },
@@ -71,7 +72,8 @@ function Tabela({ cols, linhas }: { cols: Col[]; linhas: Array<Record<string, un
 
 /**
  * RELATÓRIOS DA AGENDA (menu "Outros" do uCadAgendaPromocao). O período abre com as datas da agenda (frmPeriodoRelAgenda);
- * as horas são as do início/fim da agenda; no "fim da promoção" só a data final vale. Imprime a folha pelo navegador.
+ * as horas são as do início/fim da agenda; no "fim da promoção" só a data final vale. "Gerar" mostra a prévia na tela; "Imprimir"
+ * imprime no layout .fr3 do cliente (o mesmo que o legado carrega), desenhado pelo navegador.
  */
 export function AgendaPromocaoRelatorios({ codagenda }: { codagenda: number }) {
   const mensagem = useMensagem();
@@ -82,13 +84,20 @@ export function AgendaPromocaoRelatorios({ codagenda }: { codagenda: number }) {
   const [res, setRes] = useState<RelAgendaResposta | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const parametros = () => {
+    const semPeriodo = tipo === 'inativos' || tipo === 'agenda';
+    return { tipo, dtini: semPeriodo || tipo === 'fim-promocao' ? undefined : dtini, dtfim: semPeriodo ? undefined : dtfim, agrupar: tipo === 'agenda' ? agrupar : undefined };
+  };
   const gerar = async () => {
     setOcupado(true);
     try {
-      const semPeriodo = tipo === 'inativos' || tipo === 'agenda';
-      const r = await relatorioAgenda(codagenda, { tipo, dtini: semPeriodo || tipo === 'fim-promocao' ? undefined : dtini, dtfim: semPeriodo ? undefined : dtfim, agrupar: tipo === 'agenda' ? agrupar : undefined });
-      setRes(r);
+      setRes(await relatorioAgenda(codagenda, parametros()));
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  // o layout do cliente (RELATORIOS) com os datasets do legado
+  const imprimir = () => {
+    const q = new URLSearchParams(Object.entries(parametros()).filter(([, v]) => v != null && v !== '') as Array<[string, string]>);
+    imprimirRelatorio(`/relatorios/agenda-promocao/${codagenda}/impressao?${q.toString()}`).catch((e) => mensagem.erro(e));
   };
 
   const lojas = res?.tipo === 'por-loja' ? [...new Set((res.porProduto ?? []).flatMap((p) => Object.keys(p.lojas)))].sort((a, b) => Number(a) - Number(b)) : [];
@@ -100,7 +109,7 @@ export function AgendaPromocaoRelatorios({ codagenda }: { codagenda: number }) {
         {tipo !== 'inativos' && tipo !== 'agenda' && tipo !== 'fim-promocao' && <div className="w-40"><Field label="Data &inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>}
         {tipo !== 'inativos' && tipo !== 'agenda' && <div className="w-40"><Field label={tipo === 'fim-promocao' ? 'Data fim promoção' : 'Data &final'} type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>}
         <Button label={ocupado ? 'Gerando…' : '&Gerar'} variant="soft" disabled={ocupado} onClick={() => void gerar()} />
-        {res && <Button label="Im&primir" variant="ghost" onClick={() => window.print()} />}
+        <Button label="Im&primir" variant="ghost" disabled={ocupado} onClick={imprimir} />
       </div>
       {res && (
         <div className="flex flex-col gap-gp-sm overflow-x-auto">
