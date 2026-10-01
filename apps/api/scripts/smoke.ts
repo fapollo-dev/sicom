@@ -26851,6 +26851,184 @@ async function main() {
         await pgEx.end();
       }
     }
+    // ══ §285 PRODUTO — HISTÓRICO DAS MOVIMENTAÇÕES (as sub-abas do UCadProduto e as impressões no layout do cliente) ══════
+    {
+      const pgHm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const [P, F] = [992850, 992849];
+      const notas: number[] = [];
+      const pedidosC: number[] = [];
+      const agendas: number[] = [];
+      const tinhaRel2 = Number((await pgHm.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const hist = async (aba: string, q: string, h: Record<string, string> = H) => {
+        const r = await fetch(`${base}/cadastro/produtos/${P}/historico/${aba}?${q}`, { headers: h });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, j, linhas: (j.linhas ?? []) as any[], totais: j.totais ?? {} };
+      };
+      const imp = async (path: string) => {
+        const r = await fetch(`${base}/cadastro/produtos/${P}/${path}`, { headers: H });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        if (!tinhaRel2) await pgHm.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgHm.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+            (${P}, '7899000992850', 'HIST285 KIT', 'UN', 2, 'T01', 'S'), (${F}, '7899000992849', 'HIST285 FILHO', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgHm.query(`DELETE FROM composicao WHERE idproduto = $1`, [P]);
+        await pgHm.query(`INSERT INTO composicao (idproduto, idproduto_01, qtde, valor) VALUES ($1, $2, 2, 3.5)`, [P, F]);
+        const razao = async (c: number) => String((await pgHm.query(`SELECT razao FROM parceiros WHERE codparceiro = $1`, [c])).rows[0]?.razao ?? '');
+        const [r2, r22] = [await razao(2), await razao(22)];
+        // vendas: a do produto, a do FILHO (codproduto outro, idproduto_filho = P), a cancelada, a da loja 2 e a de fora do período
+        await pgHm.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 28501 AND 28505 AND nroserie = '285'`);
+        await pgHm.query(`INSERT INTO vendas (codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, idproduto_filho, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, codvendedor) VALUES
+            (992851, 1, '2052-04-10 10:00:00-03', '285A', '285', 28501, 1, ${P}, NULL, 2, 5, 'A', 'N', 'S', 2, 22),
+            (992852, 1, '2052-04-11 11:00:00-03', '285B', '285', 28502, 1, ${F}, ${P}, 1, 7, 'A', NULL, 'S', 2, NULL),
+            (992853, 1, '2052-04-11 12:00:00-03', '285C', '285', 28503, 1, ${P}, NULL, 9, 9, 'A', 'S', 'S', 2, NULL),
+            (992854, 2, '2052-04-12 12:00:00-03', '285D', '285', 28504, 1, ${P}, NULL, 4, 1, 'A', 'N', 'S', 2, NULL),
+            (992855, 1, '2052-05-12 12:00:00-03', '285E', '285', 28505, 1, ${P}, NULL, 8, 1, 'A', 'N', 'S', 2, NULL)`);
+        // pedidos: o do tipo P (o total soma o desconto/acréscimo do item) e um orçamento
+        await pgHm.query(`DELETE FROM pedidos WHERE nropedido IN ('285P', '285O')`);
+        await pgHm.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro) VALUES
+            ('285P', 1, 1, ${P}, 'HIST285 KIT', 'UN', 3, 4, 1, 1, '2052-04-10 09:00', 'N', 'P', 2),
+            ('285O', 1, 1, ${P}, 'HIST285 KIT', 'UN', 5, 4, 0, 1, '2052-04-10 09:00', 'N', 'O', 2)`);
+        // notas: entrada processada (2 cx de 6), entrada não processada, entrada CANCELADA (mais nova), devolução e uma saída
+        const nf = async (parc: number, nro: string, tipo: string, proc: string, canc: string, dt: string, fin: string, qt: number, fat: number) => {
+          const id = Number((await pgHm.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, finalidade, cfop)
+              VALUES (1, $1, $2, 55, '1', $3, $4, $5, $6, $6, $7, '1102') RETURNING codnf`, [parc, nro, tipo, proc, canc, dt, fin])).rows[0].codnf);
+          notas.push(id);
+          await pgHm.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrcusto) VALUES ($1, $2, $3, $4, 10)`, [id, P, qt, fat]);
+          return id;
+        };
+        const e1 = await nf(2, '285001', 'E', 'S', 'N', '2052-04-05', '1', 2, 6);
+        await nf(22, '285002', 'E', 'N', 'N', '2052-04-06', '1', 1, 1);
+        await nf(2, '285003', 'E', 'S', 'S', '2052-04-08', '1', 5, 1);
+        await nf(20, '285004', 'E', 'S', 'N', '2052-04-09', '4', 1, 1);
+        await nf(2, '285005', 'S', 'S', 'N', '2052-04-07', '1', 3, 1);
+        // pedidos de compra: '1, 2' (o formato da produção — com espaço) rateado nas 2 lojas e ligado à entrada; '2' só da loja 2
+        const pc = async (emps: string, rateio: Array<[number, number]>) => {
+          const id = Number((await pgHm.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, empresas, fechado) VALUES (2, 1, '2052-04-04 08:00', $1, 'N') RETURNING codpedcomp`, [emps])).rows[0].codpedcomp);
+          pedidosC.push(id);
+          const it = Number((await pgHm.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto) VALUES ($1, $2, 2.5, 1, 1, 1, 2.5, 2.5) RETURNING codpedcompi`, [id, P])).rows[0].codpedcompi);
+          for (const [loja, q] of rateio) await pgHm.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, qtde, qtdtotal, totalcusto) VALUES ($1, $2, $3, $3, $3 * 2.5)`, [it, loja, q]);
+          return id;
+        };
+        const pc12 = await pc('1, 2', [[1, 4], [2, 2]]);
+        const pc2 = await pc('2', [[2, 1]]);
+        await pgHm.query(`INSERT INTO pedido_nf (codpedido, codnf, tipo) VALUES ($1, $2, 'P')`, [pc12, e1]);
+        // kardex: a baixa do PDV carregada (delta negativo, origem VENDAS + o CODVENDAS do legado), a entrada processada pelo Apollo
+        // (origem NF, CODNF, qtde positiva), a REVERSÃO dela (tipo E com o saldo caindo), um ajuste sem documento e a loja 2
+        await pgHm.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, codnf, historico, data, id_origem_documento) VALUES
+            (${P}, 1, 'S', -2, 10, 8, 'VENDAS', NULL, 'BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO: 285A', '2052-04-20 09:00:00-03', 992851),
+            (${P}, 1, 'E', 12, 8, 20, 'NF', ${e1}, 'ENTRADA DE ESTOQUE; REF. NOTA COD: ${e1}', '2052-04-20 10:00:00-03', NULL),
+            (${P}, 1, 'E', 12, 20, 8, 'NF-REV', ${e1}, 'ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA COD. ${e1}', '2052-04-21 10:00:00-03', NULL),
+            (${P}, 1, 'E', 1, 8, 9, 'AJUSTE', NULL, 'AJUSTE 285', '2052-04-21 11:00:00-03', NULL),
+            (${P}, 2, 'E', 5, 0, 5, 'AJUSTE', NULL, 'AJUSTE LOJA 2', '2052-04-21 12:00:00-03', NULL)`);
+        // promoção: a agenda dentro do período e a que termina depois
+        for (const [ini, fim, vlr] of [['2052-04-02 00:00:00-03', '2052-04-09 23:59:59-03', 4.5], ['2052-04-25 00:00:00-03', '2052-05-05 23:59:59-03', 4]] as const) {
+          const ag = Number((await pgHm.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao) VALUES (1, 'AGENDA 285', $1, $2) RETURNING codagenda`, [ini, fim])).rows[0].codagenda);
+          agendas.push(ag);
+          await pgHm.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao, empresas, vrvenda) VALUES ($1, $2, $3, '1', NULL)`, [ag, P, vlr]);
+        }
+        // inventário rotativo: lote 992850 com uma coleta SUBSTITUIR (anterior 10, coletado 7) e o fechamento no período
+        await pgHm.query(`DELETE FROM inventario_rotativo WHERE lote = 992850`);
+        await pgHm.query(`INSERT INTO inventario_rotativo (idempresa, lote, nomelote, operacao, destino, idproduto, qtd_anterior, qtd_atual, qtd_coletada, data, operador) VALUES
+            (1, 992850, 'LOTE 285', 'SUBSTITUIR', 'LOJA', ${P}, 10, 7, 7, '2052-04-12 10:00:00-03', 7),
+            (1, 992850, 'LOTE 285', 'FECHADO', NULL, NULL, NULL, NULL, NULL, '2052-04-12 18:00:00-03', 7)`);
+
+        const per = 'dtini=2052-04-01&dtfim=2052-04-30';
+        const vend = await hist('vendas', per);
+        const vend12 = await hist('vendas', `${per}&empresas=1,2`);
+        const ped = await hist('pedidos', per);
+        const pcL = await hist('pedido-compra', per);
+        const pcL2 = await hist('pedido-compra', `${per}&empresas=2`);
+        const ent = await hist('entradas', per);
+        const sai = await hist('saidas', per);
+        const kdx = await hist('estoque', 'dtini=2052-04-20&dtfim=2052-04-21');
+        const forn = await hist('fornecedores', per);
+        const promo = await hist('promocao', per);
+        const inv = await hist('inventario-rotativo', per);
+        const semPer = await hist('vendas', '');
+        const foraEsc = await hist('vendas', `${per}&empresas=999`);
+        const semAcesso = await hist('vendas', per, H_SEM_ACESSO);
+        const v1 = vend.linhas.find((l) => l.nropedido === '285A');
+        const vf = vend.linhas.find((l) => l.nropedido === '285B');
+        const pcLinhas = pcL.linhas.filter((l) => pedidosC.includes(Number(l.codpedcomp)));
+        const k = kdx.linhas;
+        const [kVenda, kNf, kRev, kAj] = k;
+        const f2 = forn.linhas.find((l) => Number(l.codparceiro) === 2);
+        check('PRODUTO §285 [histórico das movimentações — as consultas]: Vendas traz a venda do produto e a do FILHO (total 10 e 7, total qtde 3), sem a cancelada, a da loja 2 e a de fora do período; com as lojas 1,2 entra a da loja 2; Pedidos só o tipo P com o desconto/acréscimo no total (3 × 5 = 15); o pedido de compra "1, 2" (com espaço, como a produção grava) sai por loja do rateio com a NF de entrada, e o "2" só com a loja 2 marcada; Entradas pela data contábil sem a cancelada (a devolução entra — a aba não filtra finalidade), com a qtde × fator e as somas processada/não processada (13 + 1); Saídas a nota S; sem período → 422; loja fora do operador → 422; sem a tela → 403',
+          vend.status === 200 && vend.linhas.length === 2 && Number(v1?.total) === 10 && Number(vf?.total) === 7 && vend.totais.total_qtde === 3 && v1?.razao === r2 && v1?.razao_1 === r22 && v1?.nrocupom === '28501'
+          && vend12.linhas.length === 3
+          && ped.status === 200 && ped.linhas.length === 1 && Number(ped.linhas[0].total) === 15 && ped.linhas[0].nrocupom === ''
+          && pcLinhas.length === 2 && pcLinhas.every((l) => Number(l.codpedcomp) === pc12 && l.nronf === '285001' && l.proc === 'ABERTO')
+          && pcLinhas.map((l) => `${l.idempresa}:${Number(l.qtde)}:${Number(l.total)}`).join(',') === '1:4:10,2:2:5' && pcL.totais.total_qtde === 6
+          && pcL2.linhas.some((l) => Number(l.codpedcomp) === pc2)
+          && ent.status === 200 && ent.linhas.length === 3 && ent.totais.total_qtde === 14 && ent.totais.total_qtde_processada === 13 && ent.totais.total_qtde_nao_processada === 1
+          && ent.linhas.some((l) => l.proc === 'NÃO PROCESSADA') && !ent.linhas.some((l) => l.nronf === '285003')
+          && sai.linhas.length === 1 && sai.linhas[0].nronf === '285005'
+          && semPer.status === 422 && semPer.j.code === 'PERIODO_OBRIGATORIO' && foraEsc.status === 422 && foraEsc.j.code === 'EMPRESA_FORA_DO_ESCOPO' && semAcesso.status === 403,
+          { vend: [vend.status, vend.j.code, vend.linhas, vend.totais], vend12: vend12.linhas.length, ped: ped.linhas, pc: [pcL.status, pcL.j.code, pcLinhas, pcL.totais], pc2: pcL2.linhas.map((l) => l.codpedcomp), ent: [ent.status, ent.linhas.map((l) => [l.nronf, l.proc, l.qtdembal]), ent.totais], sai: sai.linhas.map((l) => l.nronf), semPer: [semPer.status, semPer.j.code], foraEsc: [foraEsc.status, foraEsc.j.code], semAcesso: semAcesso.status });
+        check('PRODUTO §285 [o kardex do binário novo, fornecedores, promoção e inventário rotativo]: o kardex de UMA loja na ordem da data, com o movimento pelo saldo (a baixa do PDV carregada −2; a entrada do Apollo +12; a REVERSÃO, gravada com tipo E, sai −12) e o documento no histórico — a venda ganha " NFC-e 28501--Serie 285" com CODNF = o CODVENDAS do legado e NRONF " CUPOM 28501"; a nota do Apollo (origem NF sem ID) cai no ramo do CODNF: " NF-E 285001--SERIE 1"; o ajuste fica como está; a loja 2 não entra. Fornecedores: a última entrada de cada um no período, sem a devolução (finalidade 4) — e a cancelada conta, como no legado (sem filtro de cancelada); Promoção: só a agenda que começa e termina no período, valor de venda nulo → 0; Inventário rotativo: o lote fechado, 7 − 10 = −3',
+          kdx.status === 200 && k.length === 4 && Number(kVenda?.saida) === -2 && Number(kVenda?.entrada) === 0 && String(kVenda?.historico).endsWith(' NFC-e 28501--Serie 285')
+          && Number(kVenda?.codnf) === 992851 && kVenda?.nronf === ' CUPOM 28501' && Number(kVenda?.qtde_atual) === 8
+          && Number(kNf?.entrada) === 12 && String(kNf?.historico).endsWith(' NF-E 285001--SERIE 1') && Number(kNf?.codnf) === e1 && kNf?.nronf === ' NF 285001'
+          && Number(kRev?.saida) === -12 && Number(kRev?.entrada) === 0
+          && kAj?.historico === 'AJUSTE 285' && Number(kAj?.codnf) === 0 && kAj?.nronf === '' && kdx.j.empresas?.join(',') === '1'
+          && forn.status === 200 && forn.linhas.length === 2 && String(f2?.dtemissao).startsWith('2052-04-08') && !forn.linhas.some((l) => Number(l.codparceiro) === 20)
+          && promo.status === 200 && promo.linhas.length === 1 && Number(promo.linhas[0].vlrpromocao) === 4.5 && Number(promo.linhas[0].vrvenda) === 0
+          && inv.status === 200 && inv.linhas.length === 1 && Number(inv.linhas[0].diferenca_qtd) === -3 && Number(inv.linhas[0].lote) === 992850,
+          { kdx: [kdx.status, kdx.j.code, k.map((l) => [l.data, l.entrada, l.saida, l.qtde_atual, l.historico, l.codnf, l.nronf])], forn: forn.linhas, promo: promo.linhas, inv: [inv.status, inv.j.code, inv.linhas] });
+
+        // as impressões no layout do cliente (os .fr3 da RELATORIOS)
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        const modelos = ['Rel_HistoricoVendasPedidos.fr3', 'Rel_HistoricoEntradas.fr3', 'Rel_HistoricoSaidas.fr3', 'Rel_FichaKardex.fr3', 'Rel_Cad_Prod_Hist_InvRotResumido.fr3', 'Rel_ComposicaoProduto.fr3'];
+        for (const [i, nome] of modelos.entries()) {
+          await pgHm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992850 + i, nome, fr3(nome)]);
+        }
+        const iV = await imp(`historico/vendas/impressao?${per}`);
+        const iE = await imp(`historico/entradas/impressao?${per}`);
+        const iK = await imp('historico/estoque/impressao?dtini=2052-04-20&dtfim=2052-04-21');
+        const iI = await imp(`historico/inventario-rotativo/impressao?${per}`);
+        const iVazio = await imp('historico/saidas/impressao?dtini=2052-01-01&dtfim=2052-01-02');
+        const iPromo = await imp(`historico/promocao/impressao?${per}`);
+        const iC = await imp('composicao/impressao');
+        const dV = (iV.j.datasets?.frxDBDtsVendas ?? []).find((l: any) => l.NROPEDIDO === '285A');
+        const empK = iK.j.datasets?.frxDBDtsEmpresa?.[0] ?? {};
+        check('PRODUTO §285 [as impressões no layout do cliente]: Vendas no Rel_HistoricoVendasPedidos com o frxDBDtsVendas (RAZAO e RAZAO_1, TOTAL numérico) e as variáveis do botão (período entre aspas, Empresa = a do login sem aspas); Entradas com o qtdEmbal; a ficha kardex com o frxDBDtsHistoricoProd, a empresa do login (sem senha) e sem a variável Empresa; o inventário rotativo no frxDBPadrao; sem linha → "Não existe informações para serem impressas. Verifique !!!"; a Promoção não imprime (o Imprimir dela chama o do inventário rotativo no legado); a composição com o frxDBDComposicao e o código de barras e a descrição nos memos',
+          iV.status === 200 && String(iV.j.modelo).includes('Rel_HistoricoVendasPedidos') && dV?.TOTAL === 10 && dV?.RAZAO === r2 && dV?.RAZAO_1 === r22
+          && iV.j.variaveis?.DtInicial === "'01/04/2052'" && iV.j.variaveis?.DtFinal === "'30/04/2052'" && iV.j.variaveis?.Empresa === '1'
+          && iE.status === 200 && (iE.j.datasets?.frxDBDtsEntradas ?? []).some((l: any) => l.QTDEMBAL === 12)
+          && iK.status === 200 && (iK.j.datasets?.frxDBDtsHistoricoProd ?? []).length === 4 && iK.j.datasets.frxDBDtsHistoricoProd[0].SAIDA === -2
+          && 'RAZAOSOCIAL' in empK && !Object.keys(empK).some((c) => /SENHA|TOKEN|CERTIFICADO/.test(c)) && !('Empresa' in (iK.j.variaveis ?? {}))
+          && iI.status === 200 && iI.j.datasets?.frxDBPadrao?.[0]?.DIFERENCA_QTD === -3
+          && iVazio.status === 422 && iVazio.j.message === 'Não existe informações para serem impressas. Verifique !!!'
+          && iPromo.status === 422 && iPromo.j.code === 'HISTORICO_SEM_IMPRESSAO'
+          && iC.status === 200 && iC.j.textos?.memoCodBarra === '7899000992850' && iC.j.textos?.memoDescricao === 'HIST285 KIT'
+          && iC.j.datasets?.frxDBDComposicao?.length === 1 && iC.j.datasets.frxDBDComposicao[0].QTDE === 2 && iC.j.datasets.frxDBDComposicao[0].CODBARRA === '7899000992849',
+          { iV: [iV.status, iV.j.code, dV, iV.j.variaveis], iE: [iE.status, iE.j.datasets?.frxDBDtsEntradas], iK: [iK.status, iK.j.code, iK.j.datasets?.frxDBDtsHistoricoProd?.[0], Object.keys(empK).length, iK.j.variaveis], iI: [iI.status, iI.j.datasets], iVazio: [iVazio.status, iVazio.j.message], iPromo: [iPromo.status, iPromo.j.code], iC: [iC.status, iC.j.code, iC.j.textos, iC.j.datasets] });
+      } finally {
+        await pgHm.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992850 AND 992855`).catch(() => undefined);
+        await pgHm.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 28501 AND 28505 AND nroserie = '285'`).catch(() => undefined);
+        await pgHm.query(`DELETE FROM pedidos WHERE nropedido IN ('285P', '285O')`).catch(() => undefined);
+        await pgHm.query(`DELETE FROM historico_prod WHERE idproduto = $1`, [P]).catch(() => undefined);
+        await pgHm.query(`DELETE FROM inventario_rotativo WHERE lote = 992850`).catch(() => undefined);
+        if (pedidosC.length) {
+          await pgHm.query(`DELETE FROM pedido_nf WHERE codpedido = ANY($1::int[])`, [pedidosC]).catch(() => undefined);
+          await pgHm.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ANY($1::int[]))`, [pedidosC]).catch(() => undefined);
+          await pgHm.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = ANY($1::int[])`, [pedidosC]).catch(() => undefined);
+          await pgHm.query(`DELETE FROM pedidocompra WHERE codpedcomp = ANY($1::int[])`, [pedidosC]).catch(() => undefined);
+        }
+        if (notas.length) {
+          await pgHm.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgHm.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+        }
+        if (agendas.length) {
+          await pgHm.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = ANY($1::int[])`, [agendas]).catch(() => undefined);
+          await pgHm.query(`DELETE FROM agenda_promocao WHERE codagenda = ANY($1::int[])`, [agendas]).catch(() => undefined);
+        }
+        await pgHm.query(`DELETE FROM composicao WHERE idproduto = $1`, [P]).catch(() => undefined);
+        if (!tinhaRel2) await pgHm.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgHm.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

@@ -118,6 +118,8 @@ import { ProdutoFilhosController } from './produto-filhos.controller';
 import { ProdutoFilhosService } from './produto-filhos.service';
 import { ProdutoEstoqueController } from './produto-estoque.controller';
 import { ProdutoEstoqueService } from './produto-estoque.service';
+import { ProdutoHistoricoController } from './produto-historico.controller';
+import { ProdutoHistoricoService } from './produto-historico.service';
 import { NfAggregateController } from './nf.aggregate';
 import { UnidadeCrudController } from './unidade.crud';
 import { FamiliasCrudController } from './familias.crud';
@@ -192,6 +194,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ProdutoAggregateController, // engine MESTRE-DETALHE (Produto núcleo: master + codauxiliar)
     ProdutoFilhosController, // grid read-only de variações filhas (aba TsFilhos)
     ProdutoEstoqueController, // posição de estoque read-only (saldo/empresa + Kardex)
+    ProdutoHistoricoController, // histórico das movimentações (sub-abas + impressões) e a impressão da composição
     NfAggregateController, // engine MESTRE-DETALHE (NF núcleo: header + itens + referências; SEM efeitos)
     UnidadeCrudController, // engine (lookup de apoio do Produto)
     FamiliasCrudController, // engine (lookup único G/S/D/O/R do Produto)
@@ -282,6 +285,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ParceiroHistoricoService,
     ProdutoFilhosService,
     ProdutoEstoqueService,
+    ProdutoHistoricoService,
     DatabaseProvider,
     ConfigService,
     ConfiguracoesAdminService,

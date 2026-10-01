@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="42360,6286506597" ReportOptions.Description.Text="" ReportOptions.LastChange="43403,4407764352" ScriptLanguage="PascalScript" ScriptText.Text="&#13;&#10;begin&#13;&#10;&#13;&#10;end.">
+  <Datasets>
+    <item DataSet="frxDBDtsEmpresa" DataSetName="frxDBDtsEmpresa"/>
+    <item DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas"/>
+  </Datasets>
+  <Variables>
+    <item Name="DtInicial" Value="'01/10/2018'"/>
+    <item Name="DtFinal" Value="'30/10/2018'"/>
+    <item Name="Empresa" Value="1"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="210" PaperHeight="297" PaperSize="9" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="">
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="30,36948769" Left="0" Top="211,65368" Width="718,1107" ColumnWidth="0" ColumnGap="0" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" RowCount="0">
+      <TfrxMemoView Name="frxDBDtsEntradasNRONF" Left="66,82684" Top="4,61957078" Width="56,02671154" Height="18,89765" DataField="NRONF" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBDtsEntradas.&#34;NRONF&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasDTEMISSAO" Left="1,53846154" Top="4,61957078" Width="63,71901923" Height="18,89765" DataField="DTEMISSAO" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBDtsEntradas.&#34;DTEMISSAO&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasQUANTIDADE" Left="125,86577769" Top="4,61957078" Width="52,91342" Height="18,89765" DataField="QUANTIDADE" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBDtsEntradas.&#34;QUANTIDADE&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasVRCUSTO" Left="249,74894231" Top="4,61957078" Width="55,72384769" Height="18,89765" DataField="VRCUSTO" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBDtsEntradas.&#34;VRCUSTO&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasTOTAL" Left="308,94462769" Top="3,85034001" Width="56,49307846" Height="18,89765" DataField="TOTAL" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBDtsEntradas.&#34;TOTAL&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasRAZAO" Left="385,58479692" Top="4,61957078" Width="237,39555692" Height="18,89765" DataField="RAZAO" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="[frxDBDtsEntradas.&#34;RAZAO&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasPROC" Left="627,81556615" Top="3,08110924" Width="85,28773615" Height="25,05149615" DataField="PROC" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="[frxDBDtsEntradas.&#34;PROC&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasqtdEmbal" Left="182,97424077" Top="4,61957078" Width="61,2053423" Height="18,89765" DataField="qtdEmbal" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="0" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBDtsEntradas.&#34;qtdEmbal&#34;]"/>
+    </TfrxMasterData>
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="132,28355" Left="0" Top="18,89765" Width="718,1107">
+      <TfrxMemoView Name="Memo2" Left="298,11650308" Top="11,33859" Width="153,82201154" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="HISTÓRICO DE ENTRADAS"/>
+      <TfrxLineView Name="Line1" Left="0" Top="108,57483" Width="718,11023622" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxSysMemoView Name="SysMemo2" Left="696,65399" Top="12,33859" Width="41,57483" Height="11,33859" DisplayFormat.FormatStr="hh:mm:ss" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TIME]"/>
+      <TfrxSysMemoView Name="SysMemo5" Left="578,70903" Top="12,33859" Width="113,3859" Height="11,33859" DisplayFormat.FormatStr="DD/MM/YYYY" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[DATE]"/>
+      <TfrxMemoView Name="Memo4" Left="1,53846154" Top="110,58512923" Width="63,71901923" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Data"/>
+      <TfrxMemoView Name="Memo5" Left="66,82684" Top="110,58512923" Width="56,02671154" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="NF"/>
+      <TfrxMemoView Name="Memo6" Left="125,63500846" Top="110,58512923" Width="52,91342" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Qtde"/>
+      <TfrxMemoView Name="Memo7" Left="182,97424077" Top="110,58512923" Width="61,2053423" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Qtd. Emb."/>
+      <TfrxMemoView Name="Memo8" Left="249,74894231" Top="110,58512923" Width="55,72384769" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Vr. Custo"/>
+      <TfrxMemoView Name="Memo9" Left="308,94462769" Top="111,35436" Width="56,49307846" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Total"/>
+      <TfrxMemoView Name="Memo14" Left="7,55906" Top="37,7953" Width="351,49629" Height="37,7953" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Periodo: [DtInicial] até [Dtfinal]&#13;&#10;Empresa(s): [Empresa]"/>
+      <TfrxMemoView Name="Memo15" Left="627,81556615" Top="111,89282154" Width="79,90312077" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Proc."/>
+      <TfrxMemoView Name="Memo16" Left="385,58479692" Top="111,81589846" Width="237,39555692" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Razão"/>
+      <TfrxLineView Name="Line3" Left="0" Top="129,82684" Width="718,110236220472" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo3" Left="0" Top="86,92919" Width="64,25201" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Produto: "/>
+      <TfrxMemoView Name="frxDBDtsEntradasCODBARRA" Left="71,81107" Top="86,92919" Width="113,3859" Height="18,89765" DataField="CODBARRA" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="[frxDBDtsEntradas.&#34;CODBARRA&#34;]"/>
+      <TfrxMemoView Name="frxDBDtsEntradasDESCRICAO" Left="192,75603" Top="86,92919" Width="514,01608" Height="18,89765" DataField="DESCRICAO" DataSet="frxDBDataSetEntradas" DataSetName="frxDBDtsEntradas" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="[frxDBDtsEntradas.&#34;DESCRICAO&#34;]"/>
+    </TfrxPageHeader>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="42,7953" Left="0" Top="302,3624" Width="718,1107">
+      <TfrxLineView Name="Line2" Left="0" Top="3,67718" Width="718,110236220472" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxSysMemoView Name="SysMemo1" Left="532,91373" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Página [PAGE#] de [TOTALPAGES#]"/>
+      <TfrxMemoView Name="Memo1" Left="-1,22047" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Apollo Sistemas de Gestão"/>
+      <TfrxMemoView Name="Memo10" Left="-1,22047" Top="19,89765" Width="105,82684" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Fone : (34) 3229-3291"/>
+    </TfrxPageFooter>
+  </TfrxReportPage>
+</TfrxReport>

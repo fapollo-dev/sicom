@@ -35,6 +35,8 @@ import { ReceitaModal } from './ReceitaModal';
 import { FatorConversaoModal } from './FatorConversaoModal';
 import { getProdutosFilhos, type ProdutoFilho } from './produtoFilhosApi';
 import { getPosicaoEstoque, type EstoqueSaldo, type EstoqueMovimento } from './produtoEstoqueApi';
+import { HistoricoMovimentacoesSection } from './HistoricoMovimentacoesSection';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
@@ -231,6 +233,8 @@ export function ProdutoCadMaster() {
           <ProdutosFilhosSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           {/* Posição de estoque (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex), read-only. */}
           <PosicaoEstoqueSection form={form} />
+          {/* Histórico das movimentações (TbsHistoricoMovimentacoes) — as sub-abas de consulta e as impressões no layout do cliente. */}
+          <HistoricoMovimentacoesSection idproduto={Number(form.watch('idproduto' as never)) || undefined} />
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
@@ -1251,6 +1255,9 @@ function ComposicaoSection({
   produtoOptions: Opcao[];
 }) {
   const pode = useContext(PodeCtx);
+  const mensagem = useMensagem();
+  // a impressão lê a composição GRAVADA (o servidor monta o dataset do sqqComposicao)
+  const idproduto = Number(form.watch('idproduto' as never)) || undefined;
   const { fields, append, update, remove } = useFieldArray<
     CriarProdutoDto,
     'composicoes',
@@ -1325,8 +1332,12 @@ function ComposicaoSection({
 
   return (
     <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+      {/* o "Imprimir" (Tag 3: fora do liga/desliga da edição) fica na legenda — a 1ª legenda não herda o disabled do fieldset */}
+      <legend className="flex items-center gap-gp-sm px-pad-xs text-body-sm font-semibold text-fg-default">
         Composição (kit)
+        {idproduto != null && (
+          <Button label="&Imprimir" variant="ghost" onClick={() => imprimirRelatorio(`/cadastro/produtos/${idproduto}/composicao/impressao`).catch((e) => mensagem.erro(e))} />
+        )}
       </legend>
       <div className="flex flex-col gap-gp-sm">
         <div>

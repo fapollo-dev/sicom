@@ -183,8 +183,9 @@ Handlers próprios de `UCadProduto.pas`. O ciclo CRUD (gravar/editar/excluir/pes
 | Q13 | `cdsProdForn` / **PRODUTOS_FORN_DESASSOCIADOS** + **PRODUTOS_ANP** | por `IDPRODUTO` | fornecedores desassociados; ANP/combustível |
 | Q14 | `cdsImagens`/`cdsLoteValidade` / **PRODUTOS_IMAGENS** + **LOTE_PRODUTO_VALIDADE** | por `IDPRODUTO` | imagens BLOB; lotes/validade |
 
-### Q15 — Histórico de movimentações (DINÂMICA, read-only) — `[.pas montada]` `[inferido até runtime]`
-- Montada por período/empresa/produto; `CommandText` + `Open`. Read-only. Forma final depende de captura V$SQL.
+### Q15 — Histórico de movimentações (read-only) — `[udmCadProduto.dfm]` + `[UCadProduto.pas]` + `[V$SQL produção 01/10/2026]`
+- 9 sub-abas, cada uma com período e lojas próprios; o SQL de cada uma e a conversão estão em **"Corte Histórico das Movimentações
+  (01/10/2026)"** no fim deste dossiê.
 
 ### Queries inline (`.pas`, escritas/checagens) `[.pas]`
 - `btnExcluirClick` → `SELECT … FROM NF_PROD WHERE CODPRODUTO=<idproduto>` (trava de exclusão, BR-14) `[.pas:L2536]`.
@@ -447,3 +448,48 @@ operador no contexto (rotina do sistema) não há controle. NCM (`EDTNCMSH`) e f
 auxiliar" (ninguém tem a opção e a produção exclui por outro caminho). Smoke §268. Mecanismo e fila das outras telas:
 `docs/05-migration-engineering/permissoes-de-controle.md`.
 
+## Corte "Histórico das Movimentações" (01/10/2026)
+
+A aba `TbsHistoricoMovimentacoes` (Tag 20: consulta liberada fora da edição; botões com Tag 5, sem permissão de controle → vale o acesso
+à tela FRMCADPRODUTO). API `GET cadastro/produtos/:id/historico/:aba` e `…/:aba/impressao` (`produto-historico.service.ts`); web
+`HistoricoMovimentacoesSection` no cadastro. Lojas = `GetMultiEmpresa` (as marcadas ∩ as do operador; vazio = a do login —
+`shared/acesso/empresas-do-operador.ts`).
+
+| Sub-aba | Fonte no legado | Regra | Imprimir |
+|---|---|---|---|
+| Vendas / Pedidos (`RGorigem`) | `btnConsClick` (SQL montado no .pas) | VENDAS: o produto casa também pelo FILHO (`IDPRODUTO_FILHO`); PEDIDOS: `TIPO='P'` e o total soma `DESC_ACRE_ITEM`; não cancelados; Nro.Cupom só na VENDAS; "Total Quantidade" = SUM(QTDE) | `Rel_HistoricoVendasPedidos.fr3` (frxDBDtsVendas; DtInicial/DtFinal entre aspas, Empresa = a do login) |
+| Pedido de compra | `sqqPedCompra` | uma linha por loja do rateio (`PEDIDO_COMPRA_QTDE` com qtde > 0) e por NF de entrada ligada (`PEDIDO_NF` tipo P); status FECHADO/ABERTO; lojas pelo texto EMPRESAS (ver veredito 1) | não tem |
+| Notas de entrada / saída | `ssqlHistoricoEntradas` / `sqqNF_Saida` | pela data CONTÁBIL, `CANCELADA='N'` (a devolução entra — a aba não filtra finalidade); Qtde. Total = qtde × fator; somas processada/não processada | `Rel_HistoricoEntradas.fr3` / `Rel_HistoricoSaidas.fr3` |
+| Estoque (kardex) | `sqqHistorico` — **no SQL do binário novo** (V$SQL `3qatcktzz3h1c`) | UMA loja (`GetMultiEmpresa(False)`); ENTRADA/SAÍDA pelo sinal do movimento; o histórico ganha o documento: ORIGEM_DOCUMENTO VENDAS → " NFC-e <cupom>--Serie <série>" (CODNF = o CODVENDAS do legado, NRONF " CUPOM n"), NF → " NF-e …", PEDIDOS → o documento do pedido; sem origem e com CODNF → " NF-E …--SERIE …" | `Rel_FichaKardex.fr3` (+ frxDBDtsEmpresa do login) |
+| Fornecedores | `BtnBuscarFornecedoresClick` | a última entrada de cada fornecedor no período (maior CODNF do último dia), fora as devoluções (FINALIDADE 4); **a cancelada conta** (o legado não filtra); padrão: início do mês até hoje | não tem |
+| Promoção | `QryHistPromo` | as agendas do produto que começam E terminam no período, sem filtro de loja; VRVENDA nulo → 0 | ver veredito 3 |
+| Inventário rotativo | `QryHistInvRot` (resumido) | lotes FECHADOS no período na loja do login; por lote, a coleta desde a última SUBSTITUIR − a quantidade anterior da primeira, no último registro (destino LOJA/DEPÓSITO) | `Rel_Cad_Prod_Hist_InvRotResumido.fr3` (frxDBPadrao) |
+| Estoque depósito / produção | `cdsHistoricoDeposito` / `cdsHistoricoProducao` | **MORTAS** com prova (`conferir-tabelas-fora.py`: HISTORICO_PROD_DEP 19 linhas, ESTOQUE_DEP todo zero, última 15/07/2023; HISTORICO_PROD_PRODUCAO termina em 07/11/2023) | — |
+
+Composição: o "Imprimir" (`btnImprimirComposicaoClick`, Tag 3 — fora do liga/desliga da edição) → `Rel_ComposicaoProduto.fr3` com o
+`sqqComposicao` gravado e o código de barras/descrição do produto nos memos `memoCodBarra`/`memoDescricao`
+(`GET cadastro/produtos/:id/composicao/impressao`). Sem linha nas impressões das abas: "Não existe informações para serem impressas.
+Verifique !!!" (a da composição imprime mesmo vazia, como o legado).
+
+Vereditos:
+1. **Lojas do pedido de compra.** O fonte compara `REPLACE(EMPRESAS,' ','') LIKE '%,<loja>,%'` e a produção grava '1' e '1, 2'
+   (13.085 de 13.085 pedidos em 01/10/2026): sem vírgula nas pontas o LIKE só casa a loja do MEIO da lista, e a aba volta vazia para
+   quase todo pedido. O binário novo não deixou o SQL no V$SQL. Aqui a lista ganha as vírgulas das pontas — a intenção do LIKE.
+2. **Kardex: as notas processadas pelo Apollo.** Elas gravam ORIGEM 'NF' com o CODNF e sem ID_ORIGEM_DOCUMENTO (o legado grava a nota
+   sem origem). No SQL da produção o `WHEN ORIGEM_DOCUMENTO = 'NF'` viria antes e procuraria a nota pelo ID nulo — a NF sumiria do
+   histórico. As origens só valem com o ID do documento; sem ele, o ramo do CODNF (idêntico para o dado do legado: 215.825 de 215.825
+   movimentos VENDAS de set/2026 têm o ID). O movimento assinado é saldo novo − saldo anterior: a carga guarda o QTDE_ALTER assim, e os
+   movimentos do Apollo gravam a quantidade positiva com o tipo do DOCUMENTO (na reversão de uma entrada o tipo é E e o saldo cai).
+3. **Promoção não imprime.** O "Imprimir" da aba Promoção chama `BtnImprimirHistPromoClick`, o mesmo do inventário rotativo: carrega
+   o `Rel_Cad_Prod_Hist_InvRotResumido.fr3` com o `QryHistInvRot` (ou diz que não há informações). O `Rel_CadProd_HistoricoPromocao.fr3`
+   da RELATORIOS (DEFAULT 352, PERSONALIZADO 940; ausente no repositório de mai/2020) é cópia do layout de vendas — dataset
+   frxDBDtsVendas, campos da venda, nenhum da agenda —, sem prova de qual botão do binário novo o carrega. Fica a grade; o Imprimir
+   mora no inventário rotativo.
+4. **"Detalhar" do kardex** (`ProcessaHistorico`): abre a consulta de histórico de vendas (PDV/balcão) ou a NF conforme o texto do
+   histórico — navegação para outras telas, próximo corte.
+5. Índices (mig 405): `vendas (idproduto_filho, dtvenda)` parcial — o OR do filho varreria 18,9 mi de linhas — e `pedido_nf (codpedido, tipo)`.
+6. O motor do .fr3 passou a guardar a HORA dos campos data-hora (era tudo TDateField): o `dd/mm/yyyy hh:mm:ss` da Ficha Kardex e a
+   data da venda sem DisplayFormat saem com a hora, como no FastReport.
+
+Smoke §285 (3 checks); web `relatorio-fr3.spec.ts` com os layouts PERSONALIZADOS da produção (ficha kardex, vendas/pedidos, entradas,
+inventário rotativo, composição).

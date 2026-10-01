@@ -873,6 +873,8 @@ const CODE_PT: Record<string, string> = {
   SCRAP_SEM_LIBERADOR: 'Nenhum usuário foi definido para liberar reimportações de SCRAP.',
   SCRAP_ESTOQUE_JA_BAIXADO: 'O SCRAP já baixou o estoque no próprio lançamento; importá-lo na nota baixaria de novo.',
   SCRAP_NAO_ENCONTRADO: 'SCRAP não encontrado nesta empresa.',
+  HISTORICO_ABA_DESCONHECIDA: 'Aba do histórico das movimentações desconhecida.',
+  HISTORICO_SEM_IMPRESSAO: 'Esta aba do histórico não tem impressão.',
   SCRAP_SEM_ITENS: 'Os SCRAP\'s selecionados não têm itens a faturar.',
   SCRAP_SEM_PARCEIRO_EMPRESA: 'A empresa não está cadastrada como parceiro (endereço com o CNPJ da empresa) — a nota de perda é emitida para ela mesma.',
   SCRAP_BAIXA_PELA_NF: 'A baixa do estoque do SCRAP é feita pela nota fiscal de perda (config BAIXAR_ESTOQUE_NO_SCRAP desligada).',

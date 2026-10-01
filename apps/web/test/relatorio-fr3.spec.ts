@@ -198,4 +198,57 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('TOMATE KG');
     expect(t).toContain('14,50'); // SUM(TOTAL, DetailData1) no rodapé do grupo
   });
+
+  it('ficha kardex (Rel_FichaKardex): a data com a HORA do movimento, a saída negativa e a empresa do login no cabeçalho', () => {
+    const pgs = paginasDoModelo(modelo('rel-ficha-kardex.fr3'), {
+      frxDBDtsHistoricoProd: [
+        { DATA: '2026-09-25T07:05:45', HISTORICO: 'BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO: 21250926070426 NFC-e 9282--Serie 21', ENTRADA: 0, SAIDA: -0.126, QTDE_ATUAL: 18242.123, CODBARRA: '2000001', DESCRICAO: 'BANANA PRATA KG', UNIDADE: 'KG' },
+        { DATA: '2026-09-25T10:00:00', HISTORICO: 'ENTRADA DE ESTOQUE; REF. NOTA COD: 5 NF-E 162189--SERIE 1', ENTRADA: 120, SAIDA: 0, QTDE_ATUAL: 18362.123, CODBARRA: '2000001', DESCRICAO: 'BANANA PRATA KG', UNIDADE: 'KG' },
+      ],
+      frxDBDtsEmpresa: [{ ...empresa, INSC: '0012345', FONE1: '3432293291', ENDERECO: 'AV BRASIL', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA' }],
+    }, agora, { DtInicial: "'25/09/2026'", DtFinal: "'25/09/2026'" });
+    const t = texto(pgs);
+    expect(t).toContain('25/09/2026 07:05:45');
+    expect(t).toContain('-0,13');
+    expect(t).toContain('NFC-e 9282--Serie 21');
+    expect(t).toContain('HIPER PINHEIRAO LTDA');
+    expect(t).toContain('BANANA PRATA KG');
+  });
+
+  it('histórico de vendas/pedidos e de entradas: o período e a Empresa do botão, a data-hora da venda e o total de itens do rodapé', () => {
+    const v = texto(paginasDoModelo(modelo('rel-historico-vendas-pedidos.fr3'), {
+      frxDBDtsVendas: [
+        { DTVENDA: '2026-09-10T10:00:00', NROPEDIDO: '285A', VRVENDA: 5, QTDE: 2, TOTAL: 10, PROMOCAO: 'N', RAZAO: 'CONSUMIDOR', RAZAO_1: 'VENDEDOR 1', CODBARRA: '7899000992850', DESCRICAO: 'HIST285 KIT' },
+        { DTVENDA: '2026-09-11T11:00:00', NROPEDIDO: '285B', VRVENDA: 7, QTDE: 1, TOTAL: 7, PROMOCAO: 'S', RAZAO: 'CONSUMIDOR', RAZAO_1: null, CODBARRA: '7899000992850', DESCRICAO: 'HIST285 KIT' },
+      ],
+    }, agora, { DtInicial: "'01/09/2026'", DtFinal: "'30/09/2026'", Empresa: '1' }));
+    expect(v).toContain('01/09/2026 até 30/09/2026');
+    expect(v).toContain('Empresa(s): 1');
+    expect(v).toContain('10/09/2026 10:00:00');
+    expect(v).toContain('VENDEDOR 1');
+    expect(v).toContain('3,00'); // Total Itens: SUM(QTDE) %2.2f
+    const e = texto(paginasDoModelo(modelo('rel-historico-entradas.fr3'), {
+      frxDBDtsEntradas: [{ DTEMISSAO: '2026-09-05T00:00:00', NRONF: '285001', QUANTIDADE: 2, QTDEMBAL: 12, VRCUSTO: 10, TOTAL: 20, RAZAO: 'LATICINIOS TREVO LTDA', PROC: 'PROCESSADA', CODBARRA: '7899000992850', DESCRICAO: 'HIST285 KIT' }],
+    }, agora, { DtInicial: "'01/09/2026'", DtFinal: "'30/09/2026'", Empresa: '1' }));
+    expect(e).toContain('285001');
+    expect(e).toContain('12,00'); // o qtdEmbal do layout casa com o QTDEMBAL do servidor
+    expect(e).toContain('PROCESSADA');
+  });
+
+  it('inventário rotativo do produto e composição: o frxDBPadrao com a diferença do lote, e os memos do cabeçalho trocados pelo produto', () => {
+    const i = texto(paginasDoModelo(modelo('rel-cad-prod-hist-invrot.fr3'), {
+      frxDBPadrao: [{ LOTE: 73, DIFERENCA_QTD: -3, DATA: '2026-05-28T00:00:00', CODBARRA: '7899000992850', DESCRICAO: 'HIST285 KIT' }],
+    }, agora, { DtInicial: "'01/05/2026'", DtFinal: "'31/05/2026'", Empresa: '1' }));
+    expect(i).toContain('HISTÓRICO DE INVENTÁRIO ROTATIVO');
+    expect(i).toContain('7899000992850 - HIST285 KIT');
+    expect(i).toContain('28/05/2026');
+    expect(i).toContain('-3');
+    const c = texto(paginasDoModelo(modelo('rel-composicao-produto.fr3'), {
+      frxDBDComposicao: [{ CODBARRA: '7899000992849', DESCRICAO: 'HIST285 FILHO', QTDE: 2 }],
+    }, agora, {}, { memoCodBarra: '7899000992850', memoDescricao: 'HIST285 KIT' }));
+    expect(c).toContain('HIST285 KIT');
+    expect(c).toContain('7899000992850');
+    expect(c).not.toContain('Produto Teste');
+    expect(c).toContain('HIST285 FILHO');
+  });
 });

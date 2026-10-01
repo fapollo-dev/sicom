@@ -218,8 +218,11 @@ class Relatorio {
     const k = Object.keys(reg).find((x) => x.toUpperCase() === nome.toUpperCase());
     const v = k != null ? reg[k] : null;
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(T[\d:.]+)?$/.test(v)) {
+      // a data é TDateField (meia-noite); a data-hora (TSQLTimeStampField: o kardex, a venda) guarda a hora — sem DisplayFormat o
+      // FastReport a mostra com a hora, e o 'dd/mm/yyyy hh:mm:ss' do layout precisa dela
       const [a, m, d] = v.slice(0, 10).split('-').map(Number);
-      return new Date(a, m - 1, d); // TDateField
+      const [hh, mi, ss] = (v.slice(11, 19) || '00:00:00').split(':').map((x) => Number(x) || 0);
+      return new Date(a, m - 1, d, hh, mi, ss);
     }
     return (v as Valor) ?? null;
   }
