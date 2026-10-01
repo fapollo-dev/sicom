@@ -132,7 +132,7 @@ class Relatorio {
   private linhaBanda = 0;
   /** a banda em desenho (as agregadas de um GroupFooter somam só o grupo) e onde cada grupo começou nas linhas impressas */
   private bandaAtual: No | null = null;
-  private readonly inicioGrupo = new Map<No, number>();
+  private readonly inicioGrupo = new Map<No, Map<string, number>>();
   private pagina = 0;
   /** o objeto do evento em curso (o `Sender` do script) */
   private remetente = '';
@@ -276,7 +276,7 @@ class Relatorio {
     const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || [...this.dsDaBanda.keys()][0] || '';
     const todas = this.impressas.get(banda) ?? [];
     // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo)
-    const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' ? this.inicioGrupo.get(this.bandaAtual) : undefined;
+    const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' ? this.inicioGrupo.get(this.bandaAtual)?.get(banda) : undefined;
     const linhas = inicio != null ? todas.slice(inicio) : todas;
     if (f === 'count') return linhas.length;
     const ds = this.dsDaBanda.get(banda) ?? '';
@@ -550,11 +550,6 @@ class Relatorio {
       const titulo = bandas.filter((b) => b.tag === 'TfrxReportTitle');
       const resumo = bandas.filter((b) => b.tag === 'TfrxReportSummary');
       const dados = bandas.filter((b) => b.tag === 'TfrxMasterData');
-      // o Header/Footer de uma banda de dados é o que está logo acima/abaixo dela no desenho (a ordem de Top)
-      const headerDe = (b: No) => bandas.filter((x) => x.tag === 'TfrxHeader' && n(x.a.Top) < n(b.a.Top))
-        .filter((x) => !dados.some((d) => d !== b && n(d.a.Top) > n(x.a.Top) && n(d.a.Top) < n(b.a.Top))).pop();
-      const footerDe = (b: No) => bandas.filter((x) => x.tag === 'TfrxFooter' && n(x.a.Top) > n(b.a.Top))
-        .find((x) => !dados.some((d) => d !== b && n(d.a.Top) < n(x.a.Top) && n(d.a.Top) > n(b.a.Top)));
       const alturaRod = rod.reduce((s, b) => s + n(b.a.Height), 0) + rodColuna.reduce((s, b) => s + n(b.a.Height), 0);
       const c = { atual: null as PaginaSaida | null, y: 0, fechando: false };
       const emitir = (html: string) => c.atual!.html.push(html);
@@ -588,29 +583,39 @@ class Relatorio {
       this.eof = false;
       novaPagina();
       for (const b of titulo) mostrar(b);
-      for (const b of dados) {
+      // as bandas de dados: a MasterData percorre o seu dataset; a DetailData logo abaixo dela (antes da próxima MasterData) roda a cada
+      // linha do mestre — só as linhas do detalhe com `__MESTRE` = a linha do mestre, quando o dataset traz a ligação
+      const todosDados = bandas.filter((x) => x.tag === 'TfrxMasterData' || x.tag === 'TfrxDetailData');
+      const detalhesDe = (b: No) => {
+        const proximo = dados.find((d) => n(d.a.Top) > n(b.a.Top));
+        return bandas.filter((x) => x.tag === 'TfrxDetailData' && n(x.a.Top) > n(b.a.Top) && (!proximo || n(x.a.Top) < n(proximo.a.Top)));
+      };
+      const processar = (b: No, mestre?: number) => {
         const cols = Math.max(1, Math.trunc(n(b.a.Columns, 1)));
         const cw = n(b.a.ColumnWidth), gap = n(b.a.ColumnGap);
         const ds = b.a.DataSetName || b.a.DataSet || '';
-        const linhas = ds ? this.linhas(ds).length : Math.trunc(n(b.a.RowCount));
+        const todas = ds ? this.linhas(ds) : [];
+        const indices = ds
+          ? todas.map((_, i) => i).filter((i) => mestre == null || !('__MESTRE' in (todas[i] ?? {})) || Number(todas[i].__MESTRE) === mestre)
+          : Array.from({ length: Math.trunc(n(b.a.RowCount)) }, (_, i) => i);
         const nomeBanda = (b.a.Name ?? '').toLowerCase();
-        const impressas: number[] = [];
+        const impressas = this.impressas.get(nomeBanda) ?? [];
         this.impressas.set(nomeBanda, impressas);
         this.dsDaBanda.set(nomeBanda, ds);
         let col = 0;
         let alturaLinha = 0;
-        const header = headerDe(b);
-        const footer = footerDe(b);
+        // o Header/Footer e os grupos da banda são os que estão logo acima/abaixo dela, sem outra banda de dados no meio
+        const entre = (de: number, ate: number) => !todosDados.some((d) => d !== b && n(d.a.Top) > de && n(d.a.Top) < ate);
+        const header = bandas.filter((x) => x.tag === 'TfrxHeader' && n(x.a.Top) < n(b.a.Top) && entre(n(x.a.Top), n(b.a.Top))).pop();
+        const footer = bandas.find((x) => x.tag === 'TfrxFooter' && n(x.a.Top) > n(b.a.Top) && entre(n(b.a.Top), n(x.a.Top)));
         const mostrarHeader = () => {
           if (!header) return;
           if (!cabe(n(header.a.Height) + n(b.a.Height))) novaPagina();
           mostrar(header);
         };
-        // os grupos da banda: GroupHeader acima dela (de fora para dentro, pela ordem de Top) e GroupFooter abaixo (de dentro para
-        // fora) — o rodapé do grupo mais interno é o primeiro abaixo da banda
-        const entre = (x: No, de: number, ate: number) => !dados.some((d) => d !== b && n(d.a.Top) > de && n(d.a.Top) < ate);
-        const cabGrupo = bandas.filter((x) => x.tag === 'TfrxGroupHeader' && n(x.a.Top) < n(b.a.Top) && entre(x, n(x.a.Top), n(b.a.Top)));
-        const rodGrupo = bandas.filter((x) => x.tag === 'TfrxGroupFooter' && n(x.a.Top) > n(b.a.Top) && entre(x, n(b.a.Top), n(x.a.Top)));
+        // os grupos: GroupHeader acima (de fora para dentro, pela ordem de Top) e GroupFooter abaixo (de dentro para fora)
+        const cabGrupo = bandas.filter((x) => x.tag === 'TfrxGroupHeader' && n(x.a.Top) < n(b.a.Top) && entre(n(x.a.Top), n(b.a.Top)));
+        const rodGrupo = bandas.filter((x) => x.tag === 'TfrxGroupFooter' && n(x.a.Top) > n(b.a.Top) && entre(n(b.a.Top), n(x.a.Top)));
         const grupos = cabGrupo.map((h, k) => ({ h, f: rodGrupo[cabGrupo.length - 1 - k] as No | undefined, valor: undefined as string | undefined }));
         const condicao = (h: No): string => { try { return texto(avaliar(compilarExpr(h.a.Condition ?? ''), this.amb, this.funcoes)); } catch { return ''; } };
         // fecha os grupos do mais interno até `ate`, com o cursor na última linha do grupo (o FastReport volta um registro)
@@ -623,21 +628,25 @@ class Relatorio {
             mostrar(f);
           }
         };
-        if (linhas > 0 || b.a.PrintIfDetailEmpty === 'True') mostrarHeader();
+        const temLinhas = indices.length > 0;
+        if (temLinhas || b.a.PrintIfDetailEmpty === 'True') mostrarHeader();
         this.linhaBanda = 0;
-        for (let i = 0; i < linhas; i++) {
+        let anterior = -1;
+        for (let k = 0; k < indices.length; k++) {
+          const i = indices[k];
           if (ds) this.posicionar(ds, i);
           this.recno = i + 1;
           if (grupos.length) {
             const valores = grupos.map((g) => condicao(g.h));
-            const nivel = i === 0 ? 0 : valores.findIndex((v, k) => v !== grupos[k].valor);
+            const nivel = k === 0 ? 0 : valores.findIndex((v, j) => v !== grupos[j].valor);
             if (nivel >= 0) {
-              if (i > 0) { fecharGrupos(nivel, i - 1); if (ds) this.posicionar(ds, i); }
-              for (let k = nivel; k < grupos.length; k++) {
-                const g = grupos[k];
-                g.valor = valores[k];
-                if (g.f) this.inicioGrupo.set(g.f, impressas.length);
-                if (g.h.a.StartNewPage === 'True' && i > 0) novaPagina();
+              if (k > 0) { fecharGrupos(nivel, anterior); if (ds) this.posicionar(ds, i); }
+              for (let j = nivel; j < grupos.length; j++) {
+                const g = grupos[j];
+                g.valor = valores[j];
+                // onde cada banda de dados estava quando o grupo começou: a agregada do rodapé soma dali em diante
+                if (g.f) this.inicioGrupo.set(g.f, new Map([...this.impressas].map(([nome, l]) => [nome, l.length])));
+                if (g.h.a.StartNewPage === 'True' && k > 0) novaPagina();
                 if (!cabe(n(g.h.a.Height) + n(b.a.Height))) novaPagina();
                 mostrar(g.h);
               }
@@ -654,19 +663,32 @@ class Relatorio {
           impressas.push(i);
           const r = this.banda(b, x);
           if (!r) { impressas.pop(); continue; }
+          anterior = i;
           emitir(r.html);
           alturaLinha = Math.max(alturaLinha, r.altura);
           col++;
           if (col >= cols) { col = 0; c.y += alturaLinha; alturaLinha = 0; }
+          if (b.tag === 'TfrxMasterData') {
+            const detalhes = detalhesDe(b);
+            if (detalhes.length) {
+              if (col > 0) { c.y += alturaLinha; alturaLinha = 0; col = 0; }
+              const linhaMestre = this.linhaBanda;
+              for (const d of detalhes) processar(d, i);
+              if (ds) this.posicionar(ds, i);
+              this.recno = i + 1;
+              this.linhaBanda = linhaMestre;
+            }
+          }
         }
         if (col > 0) c.y += alturaLinha;
-        this.eof = true;
-        if (grupos.length && linhas > 0) fecharGrupos(0, linhas - 1);
-        if (footer && (linhas > 0 || b.a.PrintIfDetailEmpty === 'True')) {
+        if (mestre == null) this.eof = true;
+        if (grupos.length && anterior >= 0) fecharGrupos(0, anterior);
+        if (footer && (temLinhas || b.a.PrintIfDetailEmpty === 'True')) {
           if (!cabe(n(footer.a.Height))) novaPagina();
           mostrar(footer);
         }
-      }
+      };
+      for (const b of dados) processar(b);
       this.eof = true;
       for (const b of resumo) {
         if (!cabe(n(b.a.Height))) novaPagina();

@@ -182,4 +182,20 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('Periodo: 01/10/2026 até 15/10/2026 das 07:00 às 23:59');
     expect(t).toContain('33,33'); // o markup da linha pelo SysMemo10 trocado (200/150 − 1)
   });
+
+  it('scrap (extr - Scrap): a DetailData dos itens roda sob o mestre e o grupo soma a quantidade e o total', () => {
+    const pgs = paginasDoModelo(modelo('extr-scrap.fr3'), {
+      frxDBScrap: [{ CODSCRAP: 42, DT_CADASTRO: '2026-09-30T00:00:00', DESCCODPLC: '3.1', DESCRICAO: 'PERDAS HORTIFRUTI', OBS: 'VENCIDOS' }],
+      frxDBScrapitem: [
+        { IDPRODUTO: 10, CODBARRA: '1', DESCRICAO: 'BANANA KG', QTDE: 3, ORIGEM: 'L', MOTIVO: 'V', VR_CUSTO: 2, TOTAL: 6.3 },
+        { IDPRODUTO: 11, CODBARRA: '2', DESCRICAO: 'TOMATE KG', QTDE: 2, ORIGEM: 'L', MOTIVO: 'V', VR_CUSTO: 4, TOTAL: 8.2 },
+      ],
+      frxDBEmpresa: [{ FANTASIA: 'HIPER PINHEIRAO', CNPJ: '37954975000169', CIDADE: 'UBERLANDIA', UF: 'MG' }],
+    }, agora);
+    const t = texto(pgs);
+    expect(t).toContain('PERDAS HORTIFRUTI');
+    expect(t).toContain('BANANA KG');
+    expect(t).toContain('TOMATE KG');
+    expect(t).toContain('14,50'); // SUM(TOTAL, DetailData1) no rodapé do grupo
+  });
 });

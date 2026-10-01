@@ -100,3 +100,13 @@ nunca era lançada (produção 2025-26: 12.006 linhas, R$ −9.169.081,45 em 607
 - `usucadastro` do item gravado. «Aplicar» só aparece com BAIXAR_ESTOQUE_NO_SCRAP='S' ('N' no cliente).
 - Apoio da tela: `GET cadastro/scrap/apoio/dados` (situações, centros de perda com as flags e a lista por situação, setores,
   parceiro, configurações).
+
+## Imprimir Scrap (01/10/2026)
+
+O menu "Imprimir Scrap" (`ImprimirScrap1Click`, uCadSCRAP.pas:1600) não existia no Apollo. Agora `GET cadastro/scrap/:id/impressao`
+devolve o `extr - Scrap.fr3` da RELATORIOS (PERSONALIZADO antes do DEFAULT) com os datasets do legado: **frxDBScrap** (o `sqqSCRAP` —
+centro de custo, observação, situação), **frxDBScrapitem** (o `sqqSCRAP_Item` — o TOTAL é a quantidade × o custo **atual** da loja no
+MULTI_PRECO, não o custo gravado no item; fiel) e **frxDBEmpresa** (a empresa logada, sem senhas/tokens/certificados). O layout é
+mestre-detalhe (DetailData dos itens com um grupo que soma quantidade e total), e o motor `shared/fr3` ganhou a DetailData. O menu não
+tem Tag: vale o acesso à tela (`FRMCADSCRAP`; mig 404 dá a opção ao operador de fixture). Botão "Imprimir" no lançamento gravado.
+Smoke 47b.1b.

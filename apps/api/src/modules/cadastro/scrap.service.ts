@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -145,5 +147,47 @@ export class ScrapService {
       saldo_anterior: saldoAnt, saldo_novo: saldoNovo, origem: 'SCRAP', codnf: null,
       historico, data: sql`now()`, codoperador: op,
     }).execute();
+  }
+
+  /**
+   * "Imprimir Scrap" (`ImprimirScrap1Click`, uCadSCRAP.pas:1600): o `extr - Scrap.fr3` da RELATORIOS com o scrap da tela
+   * (frxDBScrap = `sqqSCRAP`), os itens dele (frxDBScrapitem = `sqqSCRAP_Item`: o TOTAL é a quantidade × o custo ATUAL da loja no
+   * MULTI_PRECO, não o custo gravado no item — fiel) e a empresa logada (frxDBEmpresa). O menu não tem Tag: vale o acesso à tela.
+   */
+  async impressao(codscrap: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const scrap = (await sql<Record<string, unknown>>`
+      SELECT a.codscrap, a.dt_cadastro, a.codplc, p.desccodplc, a.obs, p.descricao, a.idempresa, a.codparceiro, pa.razao, a.idsituacao_nf,
+             e.razao_social AS razaosocial, s.descricao AS situacao_descricao
+        FROM scrap a
+        LEFT JOIN plc p          ON p.codplc = a.codplc
+        LEFT JOIN parceiros pa   ON pa.codparceiro = a.codparceiro
+        LEFT JOIN empresas e     ON e.idempresa = a.idempresa
+        LEFT JOIN situacao_nf s  ON s.idsituacao_nf = a.idsituacao_nf
+       WHERE a.codscrap = ${codscrap} AND a.idempresa = ${emp}`.execute(db)).rows[0];
+    if (!scrap) throw new BusinessRuleError('SCRAP_NAO_ENCONTRADO', { codscrap }, 'Scrap não encontrado.');
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT a.codscrapitem, a.codscrap, a.idproduto, a.qtde, a.origem, a.motivo, a.faturado, a.vr_custo,
+             CASE WHEN a.idproduto_filho IS NULL OR a.idproduto_filho = 0 THEN b.descricao
+                  ELSE (SELECT pf.descricao FROM produtos pf WHERE pf.idproduto = a.idproduto_filho) END AS descricao,
+             b.codbarra, m.vrcusto, a.vrcustorep, m.idempresa, a.qtde * m.vrcusto AS total, d.descricao AS depto, a.idproduto_filho,
+             a.imp_vendas, a.origem_perda, a.codsetor, st.descricao AS setor, a.codmotivoop, o.descricao AS motivo_perda, a.codfor,
+             f.razao AS fornecedor
+        FROM scrap_item a
+        LEFT JOIN produtos b          ON b.idproduto = a.idproduto
+        LEFT JOIN parceiros f         ON f.codparceiro = a.codfor
+        LEFT JOIN familias_prod d     ON d.codfamilia = b.coddpto AND d.tipo = 'D'
+        LEFT JOIN familias_prod st    ON st.codfamilia = a.codsetor AND st.tipo = 'S'
+        LEFT JOIN motivos_operacao o  ON o.codmotivoop = a.codmotivoop AND o.tipo_operacao = 'PERDA'
+        LEFT JOIN multi_preco m       ON m.idproduto = a.idproduto AND m.idempresa = ${emp}
+       WHERE a.codscrap = ${codscrap}
+       ORDER BY a.codscrapitem`.execute(db)).rows;
+    const nums = await colunasNumericas(db, ['scrap', 'scrap_item'], ['vrcusto', 'total']);
+    return {
+      titulo: `Scrap ${codscrap}`,
+      modelo: await modeloFr3(db, 'extr - Scrap.fr3'),
+      datasets: { frxDBScrap: [registroFr3(scrap, nums)], frxDBScrapitem: itens.map((r) => registroFr3(r, nums)), frxDBEmpresa: [await empresaParaRelatorio(db, emp)] },
+    };
   }
 }

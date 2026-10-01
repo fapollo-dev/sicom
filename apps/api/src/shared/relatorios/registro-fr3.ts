@@ -32,3 +32,15 @@ export async function colunasNumericas(db: AnyDB, tabelas: string[], apelidos: s
 
 /** um texto para `frxReport.Variables[...]` com aspas (o `QuotedStr` do legado): a variável do FastReport é uma expressão */
 export const textoVariavel = (s: string): string => `'${String(s).replace(/'/g, "''")}'`;
+
+/**
+ * `dmPrincipal.Empresa` (`SELECT E.* FROM EMPRESAS E`, udmPrincipal.dfm) como os layouts a leem — com os nomes do legado (CODEMPRESA,
+ * RAZAOSOCIAL, SERIE) e o DADOS_AUTOMATICOS da estação (ConfigDB.xml local; sem ele, 'NÃO') —, mas **sem** senhas, hashes, tokens,
+ * certificados e CSC.
+ */
+export async function empresaParaRelatorio(db: AnyDB, emp: number): Promise<RegistroFr3> {
+  const r = (await sql<RegistroFr3>`SELECT * FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+  const seguro = Object.fromEntries(Object.entries(r).filter(([k]) => !/senha|token|certificado|csc|autenticacao|hash/i.test(k)));
+  const nums = await colunasNumericas(db, ['empresas']);
+  return registroFr3({ ...seguro, codempresa: r.idempresa, razaosocial: r.razao_social, serie: r.serie_nfe, dados_automaticos: 'NÃO' }, new Set([...nums, 'codempresa']));
+}

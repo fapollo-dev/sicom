@@ -4,7 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
-import { colunasNumericas, dataLocal, registroFr3 } from '../../shared/relatorios/registro-fr3';
+import { colunasNumericas, dataLocal, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 import { totalNfLegado } from './nf-total';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { arred, calcValorCusto, custoDoItemNaEntrada, type EmpresaCusto } from './nf-custo-item';
@@ -160,7 +160,7 @@ export class NfImpressaoService {
       datasets: {
         dbdNota: [maiusculas({ ...nota, totalnota, horasaida }, numsNf)],
         dbdItensNota: itens.map((it) => ({ ...it, TOTALDESCONTOS: totalDescontos })),
-        dbeEmpresa: [await this.empresaCompleta(db, emp)],
+        dbeEmpresa: [await empresaParaRelatorio(db, emp)],
         frxDBDatasetAnimal: [],
       },
       ...(relatorio === 'nota' ? { variaveis: { FATURAMENTO: `'${faturamento.replace(/'/g, "''")}'` } } : {}),
@@ -177,17 +177,6 @@ export class NfImpressaoService {
     return textoFaturamento(parcelas.map((p) => ({ ...p, valor: n(p.valor) })), dtemissao, modelo || 1, comModalidade);
   }
 
-  /**
-   * `dmPrincipal.Empresa` inteira (`SELECT E.* FROM EMPRESAS E`, udmPrincipal.dfm) como os layouts da nota a leem — com os nomes do legado
-   * (CODEMPRESA, RAZAOSOCIAL, SERIE) e o DADOS_AUTOMATICOS da estação ("CARREGAR DADOS EMPRESA NO DANFE AUTOMATICAMENTE", no ConfigDB.xml
-   * local; sem ele, 'NÃO') —, mas **sem** senhas, hashes, tokens, certificados e CSC.
-   */
-  private async empresaCompleta(db: AnyDB, emp: number): Promise<Registro> {
-    const r = (await sql<Registro>`SELECT * FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
-    const seguro = Object.fromEntries(Object.entries(r).filter(([k]) => !/senha|token|certificado|csc|autenticacao|hash/i.test(k)));
-    const nums = await numericas(db, ['empresas']);
-    return maiusculas({ ...seguro, codempresa: r.idempresa, razaosocial: r.razao_social, serie: r.serie_nfe, dados_automaticos: 'NÃO' }, new Set([...nums, 'codempresa']));
-  }
 
   /** a nota como o `qryNota` (udmNF.dfm:7): a NF com o titular, a transportadora e o CFOP */
   private async nota(db: AnyDB, codnf: number, emp: number): Promise<Registro> {

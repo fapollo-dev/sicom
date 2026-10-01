@@ -4213,6 +4213,20 @@ async function main() {
           cr.status === 201 && codscrap > 0 && Number(it0.vr_custo) === 10 && Number(it0.qtde) === 8 && Number(it0.codmotivoop) === 261,
           { status: cr.status, codscrap, item: it0 });
 
+        // 47b.1b) "Imprimir Scrap": o extr - Scrap.fr3 com o scrap, os itens (TOTAL = qtde × custo atual da loja) e a empresa
+        await pgSc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (994701, 1, 'extr - Scrap.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64')]);
+        const impSc = await fetch(`${base}/${SC}/${codscrap}/impressao`, { headers: H });
+        const impScJ = (await impSc.json().catch(() => ({}))) as any;
+        const impScSem = await fetch(`${base}/${SC}/${codscrap}/impressao`, { headers: H_SEM_ACESSO });
+        const impScOutro = await fetch(`${base}/${SC}/999999/impressao`, { headers: H });
+        check('SCRAP [imprimir]: o .fr3 com frxDBScrap (o cabeçalho), frxDBScrapitem (qtde 8 × custo 10 = TOTAL 80) e frxDBEmpresa sem senhas; sem a tela 403; scrap inexistente 422',
+          impSc.status === 200 && Number(impScJ.datasets?.frxDBScrap?.[0]?.CODSCRAP) === codscrap && Number(impScJ.datasets?.frxDBScrapitem?.[0]?.TOTAL) === 80
+          && Number(impScJ.datasets?.frxDBScrapitem?.[0]?.QTDE) === 8 && impScJ.datasets?.frxDBEmpresa?.length === 1
+          && !Object.keys(impScJ.datasets?.frxDBEmpresa?.[0] ?? {}).some((k) => /SENHA|TOKEN|CERTIFICADO/.test(k))
+          && impScSem.status === 403 && impScOutro.status === 422,
+          { status: impSc.status, scrap: impScJ.datasets?.frxDBScrap?.[0], item: impScJ.datasets?.frxDBScrapitem?.[0], sem: impScSem.status, outro: impScOutro.status });
+
         // 47b.2) aplicar → baixa estoque (50→42) + kardex origem='SCRAP' (S, 8) + mov_estoque='S'.
         const ap = await fetch(`${base}/${SC}/${codscrap}/aplicar`, { method: 'POST', headers: H });
         const k = await kardexSc();

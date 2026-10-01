@@ -36,4 +36,11 @@ export class ScrapController {
   estornar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.estornar(id);
   }
+
+  /** "Imprimir Scrap" (o menu sem Tag: o acesso à tela) — o .fr3 do cliente com o scrap e os itens */
+  @Get(':id/impressao')
+  @RequerAcesso('FRMCADSCRAP', 'FRMCADSCRAP')
+  impressao(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.impressao(id);
+  }
 }

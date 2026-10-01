@@ -6,6 +6,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   listarScraps, obterScrap, criarScrap, atualizarScrap, excluirScrap, aplicarScrap, estornarScrap, listarMotivosPerda, apoioScrap,
   type ScrapHeader, type ScrapDetalhe, type ScrapItem, type MotivoPerda, type ScrapApoio,
@@ -188,6 +189,8 @@ export function ScrapPage() {
           {apoio?.baixarEstoque && !!sel.codscrap && !aplicado && <Button label="&Aplicar (baixar estoque)" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void aplicar()} />}
           {aplicado && <Button label="&Estornar baixa" variant="soft" disabled={busy} onClick={() => void estornar()} />}
           {!!sel.codscrap && <Button label="E&xcluir" variant="ghost" disabled={busy || aplicado} onClick={() => void excluir()} />}
+          {/* "Imprimir Scrap" (ImprimirScrap1Click): o extr - Scrap.fr3 do cliente com o lançamento gravado */}
+          {!!sel.codscrap && <Button label="&Imprimir" variant="ghost" disabled={busy} onClick={() => { imprimirRelatorio(`/cadastro/scrap/${sel.codscrap}/impressao`).catch((e) => mensagem.erro(e)); }} />}
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
           <small className="w-full text-fg-muted">Valor da perda = quantidade × custo (MULTI_PRECO); ao gravar, a diferença vai à CAIXA gerencial no centro de custo. {dirty && !aplicado ? 'Há alterações não gravadas. ' : ''}{apoio?.baixarEstoque ? '«Aplicar» dá baixa no estoque; para editar itens de uma perda aplicada, estorne antes.' : 'A baixa de estoque é feita pela NF de perda.'}</small>
         </div>
