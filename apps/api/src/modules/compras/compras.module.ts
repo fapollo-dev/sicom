@@ -11,6 +11,7 @@ import { CondicoesPagtoCrudController } from './condicoes-pagto.crud';
 import { ImportacaoNfeController } from './importacao-nfe.controller';
 import { PedidoCompraService } from './pedido-compra.service';
 import { PedidoImpressaoService } from './pedido-impressao.service';
+import { PedidoPendenciasService } from './pedido-pendencias.service';
 import { PedidoItemPrecoService } from './pedido-item-preco.service';
 import { PrecificacaoModule } from '../precificacao/precificacao.module';
 import { RecebimentoService } from './recebimento.service';
@@ -69,6 +70,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController, RelAnalisePedidoNfController,
   ],
-  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, PedidoItemPrecoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, ManifestoItensService, ManifestoPrevisaoService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, PedidoPendenciasService, PedidoItemPrecoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, ManifestoItensService, ManifestoPrevisaoService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

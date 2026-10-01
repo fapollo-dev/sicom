@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" EngineOptions.DoublePass="True" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="39765,6742319444" ReportOptions.Description.Text="" ReportOptions.LastChange="43363,7354029051" ScriptLanguage="PascalScript" ScriptText.Text="var&#13;&#10;  I: Integer;&#13;&#10;  ListaCampos: TStrings;&#13;&#10;  Comp: TFrxComponent;                                                   &#13;&#10;&#13;&#10;begin&#13;&#10;  ListaCampos := TStringList.Create;                                                           &#13;&#10;  try&#13;&#10;    MasterData1.DataSet.GetFieldList(ListaCampos);              &#13;&#10;    for I := 0 to ListaCampos.Count - 1 do&#13;&#10;    begin&#13;&#10;      if Copy(ListaCampos[I], 1, 3) = 'EMP' then&#13;&#10;      begin&#13;&#10;        Comp := PageHeader1.FindObject('MemCaption' + ListaCampos[I]);&#13;&#10;        if Comp &#60;&#62; nil then&#13;&#10;          TfrxMemoView(Comp).Visible := True;&#13;&#10;&#13;&#10;        Comp := MasterData1.FindObject('Mem' + ListaCampos[I]);&#13;&#10;        if Comp &#60;&#62; nil then&#13;&#10;        begin                    &#13;&#10;          TfrxMemoView(Comp).Visible := True;&#13;&#10;          TfrxMemoView(Comp).Text    := '[FDBTrocas.&#34;' + ListaCampos[I] + '&#34;]';                                             &#13;&#10;        end;                              &#13;&#10;      end;                &#13;&#10;    end;              &#13;&#10;  finally&#13;&#10;    ListaCampos.Free;              &#13;&#10;  end;          &#13;&#10;end." OnStartReport="FrxRelatorioOnStartReport" OnStopReport="FrxRelatorioOnStopReport">
+  <Datasets>
+    <item DataSet="FDBPedidoCompra" DataSetName="FDBPedidoCompra"/>
+    <item DataSet="FDBTrocas" DataSetName="FDBTrocas"/>
+  </Datasets>
+  <Variables>
+    <item Name=" CAT"/>
+    <item Name="MARGEM_BRUTA" Value="36,68"/>
+    <item Name="TOTAL_CUSTO" Value="10425,17"/>
+    <item Name="TOTAL_VENDA" Value="28424,75"/>
+    <item Name="LUCRO_BRUTO_PERC" Value="63,32"/>
+    <item Name="LUCRO_BRUTO" Value="17999,58"/>
+    <item Name=" New Category2"/>
+    <item Name="TOTAL_ACRES" Value="0"/>
+    <item Name="DtInicial" Value="'01/08/2016'"/>
+    <item Name="DtFinal" Value="'01/08/2016'"/>
+    <item Name="HrInicial" Value="'00:00'"/>
+    <item Name="HrFinal" Value="'23:59'"/>
+    <item Name="Empresa" Value="'1'"/>
+    <item Name="DESCONTOTOTAL" Value="0"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="210" PaperHeight="297" PaperSize="9" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="" OnBeforePrint="Page1OnBeforePrint">
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="143,62208874" Left="0" Top="18,89765" Width="718,1107">
+      <TfrxMemoView Name="Memo1" Align="baCenter" Left="204,09462" Top="11,33859" Width="309,92146" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-16" Font.Name="Arial" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="TROCAS PENDENTES"/>
+      <TfrxSysMemoView Name="SysMemo2" Left="672,65399" Top="12,33859" Width="41,57483" Height="11,33859" DisplayFormat.FormatStr="hh:mm:ss" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TIME]"/>
+      <TfrxSysMemoView Name="SysMemo5" Left="553,57514" Top="12,33859" Width="113,3859" Height="11,33859" DisplayFormat.FormatStr="DD/MM/YYYY" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[DATE]"/>
+      <TfrxMemoView Name="FDBPedidoCompraCODPEDCOMP" Left="0" Top="71,81107" Width="181,41744" Height="18,89765" DataSet="FDBPedidoCompra" DataSetName="FDBPedidoCompra" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Pedido de compra: [FDBPedidoCompra.&#34;CODPEDCOMP&#34;]"/>
+      <TfrxMemoView Name="FDBPedidoCompraDATA" Left="245,66945" Top="71,81107" Width="204,09462" Height="18,89765" DataSet="FDBPedidoCompra" DataSetName="FDBPedidoCompra" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Data de emissão: [FDBPedidoCompra.&#34;DATA&#34;]"/>
+      <TfrxMemoView Name="FDBPedidoCompraDT_VENCIMENTO" Left="480,00031" Top="71,81107" Width="238,11039" Height="18,89765" DataSet="FDBPedidoCompra" DataSetName="FDBPedidoCompra" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Data de vencimento: [FDBPedidoCompra.&#34;DT_VENCIMENTO&#34;]"/>
+      <TfrxMemoView Name="FDBPedidoCompraRAZAO" Left="0" Top="90,70866142" Width="668,97681" Height="18,89765" DataSet="FDBPedidoCompra" DataSetName="FDBPedidoCompra" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Fornecedor: [FDBPedidoCompra.&#34;RAZAO&#34;]"/>
+      <TfrxLineView Name="Line1" Left="0" Top="141,732283464567" Width="718,11023622" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxPictureView Name="Picture1" Left="0" Top="0" Width="139,84261" Height="68,03154" Center="True" Stretched="False" HightQuality="True" Transparent="False" TransparentColor="16777215"/>
+      <TfrxMemoView Name="Memo4" Left="0" Top="120,94496" Width="94,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Barras"/>
+      <TfrxMemoView Name="Memo6" Left="346,93723" Top="120,94496" Width="75,59050724" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Data"/>
+      <TfrxMemoView Name="Memo11" Left="98,26778" Top="120,94496" Width="102,04731" Height="18,89765" DataSetName="FDBPendenciasFornecedor" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Descrição"/>
+      <TfrxMemoView Name="MemCaptionEmp1" Left="430,86642" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 1"/>
+      <TfrxMemoView Name="MemCaptionEmp2" Left="480,00031" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 2"/>
+      <TfrxMemoView Name="MemCaptionEmp3" Left="529,1342" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 3"/>
+      <TfrxMemoView Name="MemCaptionEmp4" Left="577,48856" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 4"/>
+      <TfrxMemoView Name="Memo8" Left="626,62245" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 5"/>
+      <TfrxMemoView Name="Memo10" Left="675,75634" Top="120,94496" Width="41,57480559" Height="18,89765" Visible="False" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Emp 6"/>
+    </TfrxPageHeader>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="42,7953" Left="0" Top="347,71676" Width="718,1107">
+      <TfrxLineView Name="Line2" Left="0" Top="3,67718" Width="718,110236220472" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxSysMemoView Name="SysMemo1" Left="532,91373" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Página [PAGE#] de [TOTALPAGES#]"/>
+      <TfrxMemoView Name="Memo2" Left="-1,22047" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Apollo Sistemas de Gestão"/>
+      <TfrxMemoView Name="Memo3" Left="-1,22047" Top="19,89765" Width="105,82684" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Fone : (34) 3229-3291"/>
+    </TfrxPageFooter>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="18,89765" Left="0" Top="245,66945" Width="718,1107" ColumnWidth="0" ColumnGap="0" DataSet="FDBTrocas" DataSetName="FDBTrocas" RowCount="0">
+      <TfrxMemoView Name="FDBTrocasCODIGOBARRA" Left="0" Top="0" Width="94,48825" Height="18,89765" DataField="CODIGOBARRA" DataSet="FDBTrocas" DataSetName="FDBTrocas" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[FDBTrocas.&#34;CODIGOBARRA&#34;]"/>
+      <TfrxMemoView Name="FDBTrocasDESCRICAO" Left="98,26778" Top="0" Width="245,66945" Height="18,89765" DataField="DESCRICAO" DataSet="FDBTrocas" DataSetName="FDBTrocas" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" WordBreak="True" WordWrap="False" Text="[FDBTrocas.&#34;DESCRICAO&#34;]"/>
+      <TfrxMemoView Name="FDBTrocasDATA" Left="346,93723" Top="0" Width="79,37013" Height="18,89765" DataField="DATA" DataSet="FDBTrocas" DataSetName="FDBTrocas" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[FDBTrocas.&#34;DATA&#34;]"/>
+      <TfrxMemoView Name="MemEmp1" Left="430,86642" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="MemEmp2" Left="480,00031" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="MemEmp3" Left="529,1342" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="MemEmp4" Left="577,48856" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="MemEmp5" Left="626,62245" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="MemEmp6" Left="675,75634" Top="0" Width="41,57480559" Height="18,89765" Visible="False" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text=""/>
+    </TfrxMasterData>
+    <TfrxHeader Name="Header1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="0" Left="0" Top="222,99227" Width="718,1107"/>
+    <TfrxFooter Name="Footer1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="0,377952755905512" Left="0" Top="287,24428" Width="718,1107">
+      <TfrxLineView Name="Line3" Left="0" Top="0" Width="718,11023622" Height="0" Color="0" Frame.Typ="4"/>
+    </TfrxFooter>
+  </TfrxReportPage>
+</TfrxReport>

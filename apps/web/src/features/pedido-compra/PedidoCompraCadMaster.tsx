@@ -27,6 +27,9 @@ import {
   atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido,
 } from './pedidoCompraApi';
 import { imprimirPedido } from './imprimirPedido';
+import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import type { PendenciasFornecedor } from './pedidoCompraApi';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
 import { NumberField } from '../../shared/ui/NumberField';
 import { hojeNaLoja } from '../../shared/tempo';
@@ -174,6 +177,7 @@ function PedidoForm({
   const est = estadoLojas(form);
   const bonificado = (form.watch('bonificacao' as any) as string | undefined) === 'S';
   const liberado = editavel && !est.travado;
+  const pendForn = usePendenciasFornecedor(form, editavel);
 
   return (
     <div className="flex flex-col gap-form-gap">
@@ -197,7 +201,8 @@ function PedidoForm({
       )}
 
       <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
-      <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} />
+      <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} pendForn={pendForn} />
+      <PendenciasFornecedorSection form={form} dados={pendForn} />
       <ParcelasSection form={form} editavel={liberado} />
       <RecebimentoSection form={form} />
     </div>
@@ -443,13 +448,21 @@ function ItensSection({
   editavel,
   produtoOptions,
   produtoAliquotas,
+  pendForn,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   produtoOptions: Opcao[];
   produtoAliquotas: Record<string, string>;
+  pendForn: PendenciasFornecedor | null;
 }) {
   const { tem: pode } = useOpcoesDoForm('FRMPEDIDOCOMPRA');
+  // ao precificar um item com troca em aberto do fornecedor (uPedidoCompra.pas:5505): o aviso do legado
+  const avisarTroca = (idproduto: unknown) => {
+    if (pendForn && pendForn.trocas.some((t) => Number(t.idproduto) === Number(idproduto))) {
+      window.alert(`Existem trocas em aberto para o fornecedor ${pendForn.razao ?? ''}`);
+    }
+  };
   const { fields, append, update, remove } = useFieldArray<CriarPedidoCompraDto, 'itens', 'fieldId'>({
     control: form.control,
     name: 'itens',
@@ -482,6 +495,7 @@ function ItensSection({
 
   const onConfirmar = (item: PedidoCompraItemDto) => {
     if (editIdx == null) return;
+    if (editIdx < 0) avisarTroca(item.idproduto);
     if (editIdx < 0) append(item);
     else update(editIdx, item);
     setEditIdx(null);
@@ -559,7 +573,7 @@ function ItensSection({
             icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             onClick: (r: PedidoCompraItemDto & { fieldId: string }) => {
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
-              if (idx >= 0) setEditIdx(idx);
+              if (idx >= 0) { avisarTroca(r.idproduto); setEditIdx(idx); }
             },
           },
           // "F10 - Excluir" (btnExcluirI): desabilitado sem a opção — permissões de controle (6 de 34 operador×loja sem)
@@ -959,6 +973,10 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
         <Button label="&Imprimir pedido" variant="ghost" onClick={() => void imprimir(false)} />
         <Button label="Imprimir a&grupado" variant="ghost" onClick={() => void imprimir(true)} />
+        {codpedcomp != null && (
+          <Button label="Imprimir conferência de pre&ço" variant="ghost"
+            onClick={() => imprimirRelatorio(`/compras/pedidos/${codpedcomp}/impressao/conferencia-preco`).catch((e) => mensagem.erro(e))} />
+        )}
         <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
         <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />
         <small className="text-fg-muted">

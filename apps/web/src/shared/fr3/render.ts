@@ -118,6 +118,8 @@ class Relatorio {
   private readonly prog: Programa;
   private readonly estados = new Map<string, Estado>();
   private readonly locais = new Map<string, Valor>();
+  /** as TStringList do script (`TStringList.Create`): a variável guarda o identificador da lista */
+  private readonly listas = new Map<string, string[]>();
   private readonly variaveis = new Map<string, Valor>();
   private readonly exprs = new Map<string, Expr | null>();
   private readonly unico: Registro[] | null;
@@ -240,12 +242,29 @@ class Relatorio {
 
   /** o `Sender` do script é o objeto do evento em curso */
   private resolver(c: string[]): string[] {
-    return c.length && c[0].toLowerCase() === 'sender' && this.remetente ? [this.remetente, ...c.slice(1)] : c;
+    if (c.length && c[0].toLowerCase() === 'sender' && this.remetente) return [this.remetente, ...c.slice(1)];
+    // a variável que guarda um objeto (`Comp := PageHeader1.FindObject(...)`; `TfrxMemoView(Comp).Visible := True`)
+    if (c.length > 1 && !this.estados.has(c[0].toLowerCase())) {
+      const ref = this.locais.get(c[0].toLowerCase());
+      if (typeof ref === 'string' && this.estados.has(ref.toLowerCase())) return [ref, ...c.slice(1)];
+    }
+    return c;
+  }
+
+  private lista(nomeVar: string): string[] | undefined {
+    const h = this.locais.get(nomeVar.toLowerCase());
+    return typeof h === 'string' ? this.listas.get(h) : undefined;
   }
 
   private ler(caminho: string[]): Valor {
+    if (caminho.join('.').toLowerCase() === 'tstringlist.create') {
+      const h = `\u0001lista${this.listas.size + 1}`;
+      this.listas.set(h, []);
+      return h;
+    }
     const [o, ...resto] = this.resolver(caminho);
     const e = this.estados.get(o.toLowerCase());
+    if (!e && resto.length === 1 && resto[0].toLowerCase() === 'count' && this.lista(o)) return this.lista(o)!.length;
     if (!e) return this.locais.get(o.toLowerCase()) ?? this.variavel(o);
     const prop = resto.join('.').toLowerCase();
     // o RecNo do TfrxDataSet conta do zero (o [Line#] conta do um)
@@ -301,6 +320,10 @@ class Relatorio {
 
   /** `Banda.DataSet.HasField('CAMPO')`: o dataset da banda tem o campo (o legado troca o layout conforme a consulta que o alimenta) */
   private funcaoDeObjeto(nome: string, args: Valor[]): Valor | undefined {
+    const item = /^(\w+)\[\]$/.exec(nome);
+    if (item) return this.lista(item[1])?.[Math.trunc(Number(args[0]) || 0)] ?? null;
+    // `Banda.FindObject('Nome')`: o objeto (pelo nome) ou nil
+    if (/^\w+\.findobject$/.test(nome)) { const e = this.estados.get(texto(args[0] ?? '').toLowerCase()); return e ? e.no.a.Name ?? null : null; }
     const m = /^(\w+)\.dataset\.hasfield$/.exec(nome);
     if (!m) return undefined;
     const banda = this.estados.get(m[1]);
@@ -317,6 +340,16 @@ class Relatorio {
       this.gravar(args[0].caminho, numero(this.ler(args[0].caminho)) + (nome === 'inc' ? passo : -passo));
       return true;
     }
+    // `Banda.DataSet.GetFieldList(Lista)`: os campos do dataset da banda, na ordem (os nomes como o Delphi expõe — maiúsculas)
+    const gl = /^(\w+)\.dataset\.getfieldlist$/.exec(nome);
+    if (gl) {
+      const lista = args[0]?.k === 'id' ? this.lista(args[0].caminho.join('.')) : undefined;
+      const banda = this.estados.get(gl[1]);
+      const ds = banda ? banda.no.a.DataSetName || banda.no.a.DataSet || '' : '';
+      if (lista) { lista.length = 0; lista.push(...Object.keys(this.linhas(ds)[0] ?? {}).map((k) => k.toUpperCase())); }
+      return true;
+    }
+    if (/\.free$/.test(nome)) return true;
     if (nome === 'engine.newpage') { this.ctx?.novaPagina(); return true; }
     if (nome === 'engine.showband') {
       const a = args[0];

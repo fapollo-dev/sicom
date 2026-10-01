@@ -226,3 +226,16 @@ export function vincularProdutos(codfor: number, vinculos: VinculoProduto[]): Pr
 export function cadastrarParceiroDoXml(dados: Record<string, unknown>): Promise<{ codparceiro: number }> {
   return req(`/cadastro/parceiros`, { method: 'POST', body: JSON.stringify(dados) });
 }
+
+/** as abas "Pendências do fornecedor" e "Trocas" (QryPendenciasFornecedor / cdsTrocas) e o aviso do VerificaPendencias */
+export interface PendenciasFornecedor {
+  pendencias: Array<Record<string, unknown>>;
+  trocas: Array<Record<string, unknown>>;
+  empresas: number[];
+  aviso: string;
+  razao: string | null;
+  mensagem: string | null;
+}
+export function pendenciasFornecedor(codparceiro: number, empresas: string): Promise<PendenciasFornecedor> {
+  return req(`/compras/pedidos/fornecedor/${codparceiro}/pendencias?${new URLSearchParams({ empresas }).toString()}`);
+}

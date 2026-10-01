@@ -879,6 +879,7 @@ const CODE_PT: Record<string, string> = {
   HISTORICO_MOVIMENTO_NAO_ENCONTRADO: 'Nenhuma movimentação foi encontrada para ser detalhada.',
   AJUSTE_PERIODO_INVERTIDO: 'A data inicial não pode ser maior que a final.',
   PEDIDO_NAO_INFORMADO: 'Informe o número do pedido.',
+  RELATORIO_DESCONHECIDO: 'Relatório desconhecido.',
   SCRAP_SEM_ITENS: 'Os SCRAP\'s selecionados não têm itens a faturar.',
   SCRAP_SEM_PARCEIRO_EMPRESA: 'A empresa não está cadastrada como parceiro (endereço com o CNPJ da empresa) — a nota de perda é emitida para ela mesma.',
   SCRAP_BAIXA_PELA_NF: 'A baixa do estoque do SCRAP é feita pela nota fiscal de perda (config BAIXAR_ESTOQUE_NO_SCRAP desligada).',

@@ -10,6 +10,7 @@ import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
 import { estadoFechamento, formatarEmpresas, lojaFechada, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
 import { configNaTrx, herdarDoCatalogo } from './pedido-heranca';
 import { reratearParcelas } from './pedido-parcelas';
+import { mensagemPendencias, pendenciasDoFornecedor, trocasDoFornecedor } from './pedido-pendencias.service';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -401,20 +402,18 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       }
     }
 
-    // (3) pendências financeiras do fornecedor (AVISA_PENDENCIAS_FORNECEDOR='B' bloqueia; 'S' é aviso de UI):
-    // A Receber NÃO QUITADO do fornecedor (VerificaPendencias, uPedidoCompra.pas:4255). Só ao DEFINIR (create)
-    // ou TROCAR o fornecedor — M3: o legado só chama VerificaPendencias na seleção do fornecedor (:6516/6614),
-    // não a cada gravar; um PUT de formulário completo reenvia o mesmo codparceiro e não deve re-travar.
+    // (3) pendências do fornecedor (AVISA_PENDENCIAS_FORNECEDOR='B' bloqueia; 'S' — a produção — é o aviso da tela):
+    // `VerificaPendencias` (uPedidoCompra.pas:4255) sobre as duas abas — o A Receber NÃO QUITADO, fora dos agrupados e vencido até
+    // ontem, de QUALQUER loja (`QryPendenciasFornecedor`), e as trocas pendentes nas lojas do pedido (`cdsTrocas`). Ao DEFINIR (create)
+    // ou TROCAR o fornecedor; um PUT de formulário completo reenvia o mesmo codparceiro e não re-trava. ⚠️ O legado também chama no
+    // "Editar" (:6614) e, no 'B', aceita a liberação por login (USUARIOS_PERMITIDOS_LIBERAR_PENDENCIAS_FORNECEDOR_PC) depois do
+    // "Deseja continuar?" — aqui o 'B' bloqueia sem liberação (modo dormente: a produção usa 'S').
     const trocouFornecedor = cod != null && (atual == null || cod !== Number(atual.codparceiro));
     if (interativo && trocouFornecedor && (await cfgValor(db, 'AVISA_PENDENCIAS_FORNECEDOR', emp)) === 'B') {
-      const pend = await db
-        .selectFrom('areceber')
-        .select('codrcb')
-        .where('codparceiro', '=', cod)
-        .where('codempresa', '=', emp)
-        .where('quitada', '=', 'N')
-        .executeTakeFirst();
-      if (pend) throw new BusinessRuleError('PEDIDO_FORNECEDOR_PENDENCIAS', { codparceiro: cod });
+      const lojas = lojasDoPedido((dto as Record<string, unknown>).empresas ?? atual?.empresas, emp);
+      const [pend, trocas] = await Promise.all([pendenciasDoFornecedor(db, cod), trocasDoFornecedor(db, cod, lojas)]);
+      const msg = mensagemPendencias(pend.length > 0, trocas.length > 0);
+      if (msg) throw new BusinessRuleError('PEDIDO_FORNECEDOR_PENDENCIAS', { codparceiro: cod }, msg);
     }
   },
   // Guarda de EXCLUSÃO (btnExcluirClick, uPedidoCompra.pas:6661): o fechamento de qualquer loja. Não há trava de "faturado": o

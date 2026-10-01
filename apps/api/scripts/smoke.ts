@@ -8614,17 +8614,25 @@ async function main() {
     const f57GDias = await crPed({ codparceiro: 22, data: '2026-07-01', cd1: 60, itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
     const f57GDiasJ = (await f57GDias.json().catch(() => ({}))) as any;
     await pgF57.query(`UPDATE parceiros SET qtde_dias_maximo_fp_pc=NULL WHERE codparceiro=22`);
-    await pgF57.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado) VALUES (22, 1, now(), now(), 10, 'N', 'N')`);
+    // a pendência do QryPendenciasFornecedor: não quitada, fora dos agrupados, vencida até ONTEM, de qualquer loja
+    // (fornecedor próprio: a regra não filtra loja nem data inicial — o 22 já tem títulos vencidos de outras seções)
+    await pgF57.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, frn) VALUES (992870, 'FORN GATE 57', 'FG57', 'S') ON CONFLICT DO NOTHING`);
     await pgF57.query(`UPDATE configuracoes SET valor='B' WHERE codigo='AVISA_PENDENCIAS_FORNECEDOR'`);
-    const f57GPend = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    await pgF57.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado) VALUES (992870, 1, now(), now(), 10, 'N', 'N')`);
+    await pgF57.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado, agrupado) VALUES (992870, 1, now(), now() - interval '5 days', 10, 'N', 'N', 'S')`);
+    const f57GHoje = await crPed({ codparceiro: 992870, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57GHojeJ = (await f57GHoje.json().catch(() => ({}))) as any;
+    await pgF57.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado) VALUES (992870, 2, now(), now() - interval '2 days', 10, 'N', 'N')`);
+    const f57GPend = await crPed({ codparceiro: 992870, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
     const f57GPendJ = (await f57GPend.json().catch(() => ({}))) as any;
     await pgF57.query(`UPDATE configuracoes SET valor='N' WHERE codigo='AVISA_PENDENCIAS_FORNECEDOR'`);
-    await pgF57.query(`DELETE FROM areceber WHERE codparceiro=22 AND valor=10 AND quitada='N'`);
-    check('FINAL: gates do gravar — condição obrigatória → 422; prazo 60 > máx 30 do fornecedor → 422; pendências (B) → 422',
+    await pgF57.query(`DELETE FROM areceber WHERE codparceiro=992870`);
+    check('FINAL: gates do gravar — condição obrigatória → 422; prazo 60 > máx 30 do fornecedor → 422; pendências (B): o título que vence HOJE e o AGRUPADO não contam; o vencido anteontem de OUTRA loja conta (o legado não filtra a empresa) → 422 com a mensagem do legado',
       f57GCond.status === 422 && f57GCondJ.code === 'PEDIDO_SEM_CONDICAO_OBRIGATORIA'
       && f57GDias.status === 422 && f57GDiasJ.code === 'PEDIDO_PRAZO_EXCEDE_FORNECEDOR'
-      && f57GPend.status === 422 && f57GPendJ.code === 'PEDIDO_FORNECEDOR_PENDENCIAS',
-      { cond: [f57GCond.status, f57GCondJ.code], dias: [f57GDias.status, f57GDiasJ.code], pend: [f57GPend.status, f57GPendJ.code] });
+      && f57GHojeJ.code !== 'PEDIDO_FORNECEDOR_PENDENCIAS'
+      && f57GPend.status === 422 && f57GPendJ.code === 'PEDIDO_FORNECEDOR_PENDENCIAS' && String(f57GPendJ.message).startsWith('O fornecedor possui pendências financeiras'),
+      { cond: [f57GCond.status, f57GCondJ.code], dias: [f57GDias.status, f57GDiasJ.code], hoje: [f57GHoje.status, f57GHojeJ.code], pend: [f57GPend.status, f57GPendJ.code, f57GPendJ.message] });
 
     // 57.8) SITUAÇÃO-NF: classificada no pedido (1031) é carregada à NF de entrada no gerar-nf.
     const f57PSit = await crPed({ codparceiro: 22, data: '2026-07-01', idsituacao_nf: 1031, itens: [{ idproduto: 1, fatorembalagem: 2, vrcusto: 5 }] });
@@ -27058,6 +27066,73 @@ async function main() {
         await pgHm.query(`DELETE FROM composicao WHERE idproduto = $1`, [P]).catch(() => undefined);
         if (!tinhaRel2) await pgHm.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
         await pgHm.end();
+      }
+    }
+    // ══ §286 PEDIDO DE COMPRA — as abas "Pendências do fornecedor" e "Trocas", o aviso e as impressões (uPedidoCompra) ══════
+    {
+      const pgPf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FORN = 992860;
+      const P = 992861;
+      let pc = 0;
+      const trocas: number[] = [];
+      try {
+        await pgPf.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, frn) VALUES ($1, 'FORNECEDOR 286', 'F286', 'S') ON CONFLICT DO NOTHING`, [FORN]);
+        await pgPf.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES ($1, '7899000992861', 'PROD 286', 'UN', $2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`, [P, FORN]);
+        // A Receber do fornecedor: o vencido anteontem (conta, mesmo da loja 2), o que vence hoje e o agrupado (não contam) e o quitado
+        await pgPf.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado, duplicata, agrupado) VALUES
+            ($1, 2, now() - interval '30 days', now() - interval '2 days', 50, 'N', 'N', 'DUP286', NULL),
+            ($1, 1, now(), now(), 60, 'N', 'N', NULL, NULL),
+            ($1, 1, now(), now() - interval '9 days', 70, 'N', 'N', NULL, 'S'),
+            ($1, 1, now(), now() - interval '9 days', 80, 'S', 'N', NULL, NULL)`, [FORN]);
+        // trocas: uma aberta na loja 1 (3 un), uma aberta na loja 2 (2 un) e uma fechada
+        for (const [emp, qt, fechado] of [[1, 3, 'N'], [2, 2, 'N'], [1, 9, 'S']] as const) {
+          const t = Number((await pgPf.query(`INSERT INTO troca (idempresa, codparceiro, data) VALUES ($1, $2, '2026-09-20') RETURNING codtroca`, [emp, FORN])).rows[0].codtroca);
+          trocas.push(t);
+          await pgPf.query(`INSERT INTO itens_troca (codtroca, idempresa, idproduto, qtde, fechado) VALUES ($1, $2, $3, $4, $5)`, [t, emp, P, qt, fechado]);
+        }
+        pc = Number((await pgPf.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, dt_vencimento, empresas, fechado) VALUES ($1, 1, '2026-09-30', '2026-10-30', '1, 2', 'N') RETURNING codpedcomp`, [FORN])).rows[0].codpedcomp);
+        await pgPf.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto, vrvenda) VALUES ($1, $2, 2.5, 1, 1, 1, 2.5, 2.5, 4.99)`, [pc, P]);
+
+        const cons = async (q: string) => { const r = await fetch(`${base}/compras/pedidos/fornecedor/${FORN}/pendencias?${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const c12 = await cons('empresas=1, 2');
+        const c1 = await cons('');
+        const semAcesso = await fetch(`${base}/compras/pedidos/fornecedor/${FORN}/pendencias`, { headers: H_SEM_ACESSO });
+        const t12 = (c12.j.trocas ?? [])[0] ?? {};
+        check('PEDIDO DE COMPRA §286 [pendências e trocas do fornecedor]: a aba de pendências traz o A Receber não quitado, fora dos agrupados e vencido até ontem — de qualquer loja (o da loja 2 entra; o que vence hoje, o agrupado e o quitado não); as trocas abertas saem com uma coluna EMP por loja do pedido (lojas 1 e 2: 3 e 2; a fechada não entra; só a loja 1 → EMP1 = 3); o aviso do VerificaPendencias com o texto do legado e a config da produção; sem a tela → 403',
+          c12.status === 200 && (c12.j.pendencias ?? []).length === 1 && c12.j.pendencias[0].duplicata === 'DUP286' && Number(c12.j.pendencias[0].valor) === 50 && Number(c12.j.pendencias[0].codempresa) === 2
+          && (c12.j.trocas ?? []).length === 1 && Number(t12.emp1) === 3 && Number(t12.emp2) === 2 && t12.codigobarra === '7899000992861'
+          && (c1.j.trocas ?? []).length === 1 && Number(c1.j.trocas[0].emp1) === 3 && !('emp2' in c1.j.trocas[0])
+          && c12.j.mensagem === 'O fornecedor possui pendências financeiras e trocas pendentes.' && typeof c12.j.aviso === 'string'
+          && semAcesso.status === 403,
+          { c12: [c12.status, c12.j.code, c12.j.pendencias, c12.j.trocas, c12.j.mensagem, c12.j.aviso], c1: c1.j.trocas, semAcesso: semAcesso.status });
+
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['PedCompraPendenciasFornecedor.fr3', 'PedCompraTrocas.fr3', 'conf - conferencia de preco pedcomp.fr3'].entries()) {
+          await pgPf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992860 + i, nome, fr3(nome)]);
+        }
+        const imp = async (tipo: string, forn = FORN) => { const r = await fetch(`${base}/compras/pedidos/fornecedor/${forn}/impressao/${tipo}`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomp: pc, data: '2026-09-30', dt_vencimento: '2026-10-30', empresas: '1, 2' }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const iP = await imp('pendencias');
+        const iT = await imp('trocas');
+        const iVazio = await imp('trocas', 2);
+        const conf = (await (await fetch(`${base}/compras/pedidos/${pc}/impressao/conferencia-preco`, { headers: H })).json().catch(() => ({}))) as any;
+        check('PEDIDO DE COMPRA §286 [as impressões no layout do cliente]: pendências no PedCompraPendenciasFornecedor.fr3 (FDBPendenciasFornecedor + o cabeçalho da tela no FDBPedidoCompra, com a razão do fornecedor); trocas no PedCompraTrocas.fr3 com as colunas EMP (o script do layout liga as que existem); sem troca → "Nenhuma troca foi encontrada."; a conferência de preço com os itens (frxDBDataset2: código de barras, descrição, preço de venda) e o pedido (frxDBDataset3)',
+          iP.status === 200 && iP.j.datasets?.FDBPendenciasFornecedor?.[0]?.DUPLICATA === 'DUP286' && iP.j.datasets?.FDBPedidoCompra?.[0]?.RAZAO === 'FORNECEDOR 286'
+          && iP.j.datasets.FDBPedidoCompra[0].CODPEDCOMP === pc && iP.j.datasets.FDBPedidoCompra[0].DATA === '2026-09-30T00:00:00'
+          && iT.status === 200 && iT.j.datasets?.FDBTrocas?.[0]?.EMP1 === 3 && iT.j.datasets.FDBTrocas[0].EMP2 === 2
+          && iVazio.status === 422 && iVazio.j.message === 'Nenhuma troca foi encontrada.'
+          && conf.datasets?.frxDBDataset2?.[0]?.CODBARRA === '7899000992861' && conf.datasets.frxDBDataset2[0].VRVENDA === 4.99 && conf.datasets?.frxDBDataset3?.[0]?.RAZAO === 'FORNECEDOR 286',
+          { iP: [iP.status, iP.j.code, iP.j.datasets], iT: [iT.status, iT.j.code, iT.j.datasets?.FDBTrocas], iVazio: [iVazio.status, iVazio.j.message], conf: [conf.code, conf.datasets] });
+      } finally {
+        await pgPf.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992860 AND 992862`).catch(() => undefined);
+        if (pc) {
+          await pgPf.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [pc]).catch(() => undefined);
+          await pgPf.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+          await pgPf.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+          await pgPf.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+        }
+        if (trocas.length) await pgPf.query(`DELETE FROM troca WHERE codtroca = ANY($1::int[])`, [trocas]).catch(() => undefined);
+        await pgPf.query(`DELETE FROM areceber WHERE codparceiro = $1`, [FORN]).catch(() => undefined);
+        await pgPf.end();
       }
     }
   } finally {

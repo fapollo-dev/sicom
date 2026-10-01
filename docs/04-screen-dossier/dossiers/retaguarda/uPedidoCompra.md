@@ -576,3 +576,26 @@ da tabela do fornecedor) e na consulta dos associados (uPedidoCompra.dfm:4972). 
   parcelas ficam como estão.
 - **CODCOMPRADOR** do PEDIDO_COMPRA_QTDE (coluna do binário novo; 88.121 de 89.322 preenchidos): o motor reconstrói o neto, então
   a linha regravada reaplica o de antes e a nova leva o operador.
+
+## Pendências e trocas do fornecedor (01/10/2026)
+
+As abas `TbsPendenciasFornecedor` e `TbsTrocas` (abertas a cada escolha do fornecedor — `AbrePendenciasFornecedor`/`AbreCdsTroca`; a aba
+fica vermelha com registro) e o `VerificaPendencias`, que o Apollo só tinha pela metade (a trava 'B', com outra consulta):
+- **Pendências** (`QryPendenciasFornecedor`): A Receber do fornecedor NÃO quitado, fora dos agrupados, vencido até ONTEM, de qualquer loja
+  (o legado não filtra a empresa) — duplicata, emissão, vencimento, valor, empresa, centro de custo. Duplo clique abre o título no A
+  Receber (`?codigo=`). Produção: 115 fornecedores com pendência hoje.
+- **Trocas** (`sqqTrocas` + `OpenEmpresas`): os itens de troca não fechados das lojas do pedido (ITENS_TROCA_QTDE ≡ itens_troca, 1:1) e
+  os pedidos de devolução de PRODUTO_TROCA 'S' sem nota nem cancelados, com uma coluna EMP<n> por loja do pedido. Produção: 130 itens
+  abertos (o último de 09/2025); devoluções de troca abertas: 0.
+- **Aviso** (AVISA_PENDENCIAS_FORNECEDOR — **'S' na produção**): "O fornecedor possui pendências financeiras e trocas pendentes." ao
+  escolher o fornecedor e ao entrar em edição; e "Existem trocas em aberto para o fornecedor <razão>" ao precificar um item com troca
+  aberta (uPedidoCompra.pas:5505).
+- **Trava 'B'**: agora com a consulta do legado (sem filtro de loja, agrupado e vencimento) e as trocas, com a mensagem do legado. ⚠️ O
+  legado também a chama no "Editar" e aceita a liberação por login (USUARIOS_PERMITIDOS_LIBERAR_PENDENCIAS_FORNECEDOR_PC) depois do
+  "Deseja continuar?" — aqui o 'B' bloqueia sem liberação, ao definir/trocar o fornecedor (modo dormente na produção).
+- **Impressões**: PedCompraPendenciasFornecedor.fr3 / PedCompraTrocas.fr3 (FDBPendenciasFornecedor / FDBTrocas + FDBPedidoCompra = o
+  cabeçalho da tela, que pode não estar gravado; a razão vem do cadastro) — o layout de trocas liga as colunas EMP pelo script
+  (`DataSet.GetFieldList` + `FindObject`; o motor .fr3 ganhou `for`, `try/finally`, `TStringList` e a referência a objeto em variável);
+  e a "Conferência de Preço" do menu (conf - conferencia de preco pedcomp.fr3: os itens na ordem da descrição com o preço de venda).
+API `GET compras/pedidos/fornecedor/:codparceiro/pendencias`, `POST …/impressao/:tipo`, `GET compras/pedidos/:id/impressao/conferencia-preco`
+(acesso à tela FRMPEDIDOCOMPRA). Smoke §286 e §57.7.

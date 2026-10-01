@@ -2,12 +2,14 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseG
 import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { PedidoImpressaoService } from './pedido-impressao.service';
+import { PedidoPendenciasService } from './pedido-pendencias.service';
 import { PedidoItemPrecoService } from './pedido-item-preco.service';
 import { RecebimentoService } from './recebimento.service';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 
 /**
  * PEDIDO DE COMPRA — controller VERTICAL das transições de ESTADO (fechar/reabrir) + RECEBIMENTO
@@ -24,6 +26,7 @@ export class PedidoCompraController {
     private readonly analise: AnalisePedidoNfService,
     private readonly impressaoSvc: PedidoImpressaoService,
     private readonly precoItem: PedidoItemPrecoService,
+    private readonly pendencias: PedidoPendenciasService,
   ) {}
 
   /** mig 307 — o PREÇO DO ITEM (o modal `uPrecificacaoProdutos`): créditos, custo líquido, PMZ, sugerida e a escada.
@@ -42,6 +45,30 @@ export class PedidoCompraController {
   @Get('heranca/:idproduto')
   heranca(@Param('idproduto', ParseIntPipe) idproduto: number, @Query('codparceiro') codparceiro?: string) {
     return this.svc.heranca(idproduto, codparceiro ? Number(codparceiro) : null);
+  }
+
+  /** as abas "Pendências do fornecedor" e "Trocas" (abertas a cada escolha do fornecedor) e o aviso do VerificaPendencias; as lojas
+   *  são as do pedido na tela (`?empresas=1, 2`) */
+  @Get('fornecedor/:codparceiro/pendencias')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  pendenciasFornecedor(@Param('codparceiro', ParseIntPipe) codparceiro: number, @Query('empresas') empresas?: string) {
+    return this.pendencias.consultar(codparceiro, empresas);
+  }
+
+  /** o "Imprimir" do menu das abas (PedCompraPendenciasFornecedor.fr3 / PedCompraTrocas.fr3) com o cabeçalho da tela */
+  @Post('fornecedor/:codparceiro/impressao/:tipo')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  impressaoPendencias(@Param('codparceiro', ParseIntPipe) codparceiro: number, @Param('tipo') tipo: string,
+    @Body() cab: { codpedcomp?: number | null; data?: string | null; dt_vencimento?: string | null; empresas?: string }) {
+    if (tipo !== 'pendencias' && tipo !== 'trocas') throw new BusinessRuleError('RELATORIO_DESCONHECIDO', { tipo });
+    return this.pendencias.impressao(tipo, codparceiro, cab ?? {});
+  }
+
+  /** "Imprimir Conferência de Preço" (o conf - conferencia de preco pedcomp.fr3 do cliente) */
+  @Get(':id/impressao/conferencia-preco')
+  conferenciaPreco(@Param('id', ParseIntPipe) id: number) {
+    return this.pendencias.conferenciaPreco(id);
   }
 
   /** a IMPRESSÃO do pedido (`ped_compra.fr3` por loja; `?agrupado=1` = `ped_compra_agrupado.fr3`). Leitura: como o

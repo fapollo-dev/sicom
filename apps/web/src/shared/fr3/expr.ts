@@ -27,6 +27,8 @@ export type Stmt =
   | { k: 'bloco'; corpo: Stmt[] }
   | { k: 'chamada'; nome: string; args: Expr[] }
   | { k: 'enquanto'; c: Expr; corpo: Stmt }
+  | { k: 'para'; v: string[]; de: Expr; ate: Expr; desce: boolean; corpo: Stmt }
+  | { k: 'tente'; corpo: Stmt[]; fim: Stmt[]; excecao: Stmt[] | null }
   | { k: 'nada' };
 
 export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt }
@@ -50,7 +52,8 @@ const AGREGADAS = new Set(['sum', 'avg', 'min', 'max', 'count']);
 
 type Tok = { t: 'num' | 'str' | 'dq' | 'id' | 'ref' | 'op' | 'fim'; v: string };
 
-const PALAVRAS = new Set(['and', 'or', 'not', 'div', 'mod', 'xor', 'if', 'then', 'else', 'begin', 'end', 'procedure', 'function', 'var', 'const', 'in', 'while', 'do']);
+const PALAVRAS = new Set(['and', 'or', 'not', 'div', 'mod', 'xor', 'if', 'then', 'else', 'begin', 'end', 'procedure', 'function', 'var', 'const', 'in', 'while', 'do',
+  'for', 'to', 'downto', 'try', 'finally', 'except']);
 
 function tokenizar(src: string): Tok[] {
   const out: Tok[] = [];
@@ -176,6 +179,32 @@ class Parser {
       this.espera('do');
       return { k: 'enquanto', c, corpo: this.comando() };
     }
+    // `for I := 0 to Lista.Count - 1 do …` (o layout de trocas do pedido de compra liga as colunas por loja assim)
+    if (this.aceita('for')) {
+      const v = [this.t.v]; this.p++;
+      this.espera(':=');
+      const de = this.expr();
+      const desce = this.aceita('downto');
+      if (!desce) this.espera('to');
+      const ate = this.expr();
+      this.espera('do');
+      return { k: 'para', v, de, ate, desce, corpo: this.comando() };
+    }
+    // `try … finally … end` / `try … except … end`
+    if (this.aceita('try')) {
+      const lista = (...fins: string[]) => {
+        const out: Stmt[] = [];
+        while (!fins.some((f) => this.eh(f)) && !this.fim()) { out.push(this.comando()); if (!this.aceita(';')) break; }
+        return out;
+      };
+      const corpo = lista('finally', 'except', 'end');
+      let fim: Stmt[] = [];
+      let excecao: Stmt[] | null = null;
+      if (this.aceita('finally')) fim = lista('end');
+      else if (this.aceita('except')) excecao = lista('end');
+      this.espera('end');
+      return { k: 'tente', corpo, fim, excecao };
+    }
     if (this.t.t === 'id') {
       const caminho = [this.t.v]; this.p++;
       while (this.eh('.') && this.toks[this.p + 1]?.t === 'id') { this.p++; caminho.push(this.t.v); this.p++; }
@@ -247,6 +276,12 @@ class Parser {
         this.espera(')');
         return { k: 'call', nome: caminho.join('.'), args };
       }
+      // o item de uma lista (`ListaCampos[I]`): a função de objeto `<nome>[]` do ambiente
+      if (this.aceita('[')) {
+        const i = this.expr();
+        this.espera(']');
+        return { k: 'call', nome: `${caminho.join('.')}[]`, args: [i] };
+      }
       return { k: 'id', caminho };
     }
     throw new Error(`expressão inválida perto de '${t.v}'`);
@@ -285,6 +320,8 @@ const booleano = (v: Valor): boolean => (typeof v === 'boolean' ? v : typeof v =
 function comparar(a: Valor, b: Valor): number {
   if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
   if (a == null && b == null) return 0;
+  // `Comp <> nil`: o objeto achado (o nome dele) não é nil
+  if ((a == null && typeof b === 'string' && b !== '') || (b == null && typeof a === 'string' && a !== '')) return a == null ? -1 : 1;
   // Variant do Delphi: número × string numérica compara como número; string vazia × número = 0
   const x = a instanceof Date ? a.getTime() : numero(a);
   const y = b instanceof Date ? b.getTime() : numero(b);
@@ -363,6 +400,26 @@ export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: 
     case 'enquanto': {
       // guarda contra laço infinito de script: o relatório não trava a tela
       for (let i = 0; i < 10000 && booleano(avaliar(s.c, amb, funcoes)); i++) executar(s.corpo, amb, funcoes, prog, prof + 1);
+      return;
+    }
+    case 'para': {
+      const de = Math.trunc(numero(avaliar(s.de, amb, funcoes)));
+      const ate = Math.trunc(numero(avaliar(s.ate, amb, funcoes)));
+      for (let i = de, n = 0; (s.desce ? i >= ate : i <= ate) && n < 10000; i += s.desce ? -1 : 1, n++) {
+        amb.gravar(s.v, i);
+        executar(s.corpo, amb, funcoes, prog, prof + 1);
+      }
+      return;
+    }
+    case 'tente': {
+      try {
+        for (const c of s.corpo) executar(c, amb, funcoes, prog, prof + 1);
+      } catch (e) {
+        if (!s.excecao) throw e;
+        for (const c of s.excecao) executar(c, amb, funcoes, prog, prof + 1);
+      } finally {
+        for (const c of s.fim) executar(c, amb, funcoes, prog, prof + 1);
+      }
       return;
     }
     default: return;

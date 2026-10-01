@@ -251,4 +251,38 @@ describe('relatórios do legado com vários datasets', () => {
     expect(c).not.toContain('Produto Teste');
     expect(c).toContain('HIST285 FILHO');
   });
+
+  it('trocas do pedido de compra (PedCompraTrocas): o script lista os campos do dataset (GetFieldList), acha as colunas EMP (FindObject) e as liga', () => {
+    const pgs = paginasDoModelo(modelo('pedcompra-trocas.fr3'), {
+      FDBTrocas: [{ IDPRODUTO: 992861, CODIGOBARRA: '7899000992861', DESCRICAO: 'PROD 286', DATA: '2026-09-20T00:00:00', EMP1: 3, EMP2: 2 }],
+      FDBPedidoCompra: [{ CODPEDCOMP: 4321, DATA: '2026-09-30T00:00:00', DT_VENCIMENTO: '2026-10-30T00:00:00', RAZAO: 'FORNECEDOR 286' }],
+    }, agora);
+    const t = texto(pgs);
+    expect(t).toContain('TROCAS PENDENTES');
+    expect(t).toContain('Pedido de compra: 4321');
+    expect(t).toContain('FORNECEDOR 286');
+    expect(t).toContain('PROD 286');
+    expect(t).toContain('Emp 1');
+    expect(t).toContain('Emp 2');
+    expect(t).not.toContain('Emp 3');
+    // as quantidades das lojas saem nos memos que o script ligou
+    expect(t).toContain('20/09/2026 3,00 2,00');
+  });
+
+  it('pendências do fornecedor e conferência de preço do pedido: as grades com o cabeçalho da tela', () => {
+    const p = texto(paginasDoModelo(modelo('pedcompra-pendencias-fornecedor.fr3'), {
+      FDBPendenciasFornecedor: [{ CODRCB: 1, DUPLICATA: 'DUP286', DTVENDA: '2026-09-01T00:00:00', DTVENC: '2026-09-29T00:00:00', VALOR: 50, CODEMPRESA: 2, CENTRO_CUSTO: 'CLIENTES' }],
+      FDBPedidoCompra: [{ CODPEDCOMP: 4321, DATA: '2026-09-30T00:00:00', DT_VENCIMENTO: '2026-10-30T00:00:00', RAZAO: 'FORNECEDOR 286' }],
+    }, agora));
+    expect(p).toContain('DUP286');
+    expect(p).toContain('FORNECEDOR 286');
+    expect(p).toContain('29/09/2026');
+    const c = texto(paginasDoModelo(modelo('conf-preco-pedcomp.fr3'), {
+      frxDBDataset2: [{ CODBARRA: '7899000992861', DESCRICAO: 'PROD 286', VRVENDA: 4.99 }],
+      frxDBDataset3: [{ CODPEDCOMP: 4321, DATA: '2026-09-30T00:00:00', RAZAO: 'FORNECEDOR 286' }],
+    }, agora));
+    expect(c).toContain('Conferencia de preço');
+    expect(c).toContain('PROD 286');
+    expect(c).toContain('4321');
+  });
 });
