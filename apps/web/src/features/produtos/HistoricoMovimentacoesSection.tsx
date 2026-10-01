@@ -5,7 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { hojeNaLoja } from '../../shared/tempo';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
-import { consultaHistorico, getHistorico, type AbaHistorico, type RespostaHistorico } from './produtoHistoricoApi';
+import { consultaHistorico, getDetalheKardex, getHistorico, rotaDoDetalhe, type AbaHistorico, type RespostaHistorico } from './produtoHistoricoApi';
 
 const ABAS: Array<{ id: AbaHistorico; label: string }> = [
   { id: 'vendas', label: 'Vendas' },
@@ -98,6 +98,15 @@ export function HistoricoMovimentacoesSection({ idproduto }: { idproduto: number
     imprimirRelatorio(`/cadastro/produtos/${idproduto}/historico/${aba}/impressao?${consultaHistorico(filtro())}`).catch((e) => mensagem.erro(e));
   };
 
+  // "Detalhar" (`BtnDetalharHistoricoEClick`): a janela abre no clique (o bloqueador de popups engole a aberta depois do await)
+  const detalhar = (codmov: unknown) => {
+    if (idproduto == null) return;
+    const win = window.open('', '_blank');
+    getDetalheKardex(idproduto, Number(codmov))
+      .then((d) => { if (win) win.location.href = rotaDoDetalhe(d); })
+      .catch((e) => { win?.close(); mensagem.erro(e); });
+  };
+
   const cols = COLS[aba];
   return (
     <fieldset className="rounded-radius-base border border-border p-pad-md">
@@ -124,11 +133,12 @@ export function HistoricoMovimentacoesSection({ idproduto }: { idproduto: number
                 <small className="text-fg-muted">{aba === 'promocao' || aba === 'inventario-rotativo' ? 'Não há registros para esse filtro!' : 'Nenhum registro encontrado.'}</small>
               ) : (
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-border text-left">{cols.map((c) => <th key={c.k} className={`p-pad-xs ${c.n ? 'text-right' : ''}`}>{c.t}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-border text-left">{cols.map((c) => <th key={c.k} className={`p-pad-xs ${c.n ? 'text-right' : ''}`}>{c.t}</th>)}{aba === 'estoque' && <th />}</tr></thead>
                   <tbody>
                     {res.linhas.map((l, i) => (
                       <tr key={i} className="border-b border-border/50">
                         {cols.map((c) => <td key={c.k} className={`p-pad-xs ${c.n ? 'text-right tabular-nums' : ''}`}>{(c.f ?? txt)(l[c.k])}</td>)}
+                        {aba === 'estoque' && <td className="p-pad-xs"><Button label="Detalhar" variant="ghost" onClick={() => detalhar(l.codmov)} /></td>}
                       </tr>
                     ))}
                   </tbody>

@@ -47,3 +47,13 @@
   no saldo do depósito (antes a opção "depósito" alterava a loja); o estorno reconhece 'D' e o 'DEPOSITO' do inventário rotativo.
 - Histórico do kardex com o texto do trigger ESTOQUE_AJUSTE: "AJUSTE DE ESTOQUE LOJA <motivo> OPERADOR:<login>" (ajuste 23915).
 - Smoke §209.
+
+## A aba "Histórico" (01/10/2026)
+
+Faltava a `TbsConsulta` do legado (`BtnFiltrarConsClick` → `QryConsulta`, UdmAjusteEstoque.dfm): os ajustes da loja do login com o
+produto e o período opcionais (`FiltroData`: só com as duas datas; inicial maior que a final → "A data inicial não pode ser maior que a
+final."), na ordem da data, com motivo, produto e operador. `GET cadastro/ajuste-estoque/consulta` e o "Imprimir"
+(`consulta/impressao`): o AjusteEstoque.fr3 do cliente com o dataset FDBAjusteEstoque, PERIODO = "<inicial> à <final>" e EMPRESA entre
+aspas; sem ajuste, "Não foram encontrados ajustes para imprimir". Os botões não têm Tag (o acesso à tela), e a aba também é a que o
+"Detalhar" do kardex do produto abre (`?idproduto=&data=`; aceita o acesso ao FRMCADPRODUTO). O "Exportar" (Excel) fica com a
+exportação genérica da grade. Smoke §285.

@@ -83,6 +83,60 @@ export class ConsHistVendasService {
     return dto.idempresa;
   }
 
+  /**
+   * O PEDIDO DE BALCÃO (o "Detalhar" do kardex do produto sobre "BAIXA DE ESTOQUE DERIVADO DO BALCAO PEDIDO:", UCadProduto.pas
+   * `ProcessaHistorico`): o frmConsHistVendas aberto com o `sqqConsHistVendas` — os itens da PEDIDOS do número na loja do login, com o
+   * total do item somando DESC_ACRE_ITEM (e o DESC_ACRE no TOTAL) — e as finalizadoras da CX_PEDIDOS do número (`SELECT OPERACAO, VALOR`,
+   * sem loja e sem troco). Na produção são 7.832 movimentos de mai/2022 a set/2023.
+   */
+  async consultarPedido(nropedido: string) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = this.emp();
+    const rows = (await sql<Record<string, any>>`
+      SELECT v.nropedido, p.razao AS cliente, ve.razao AS vendedor, v.dtvenda,
+             (v.qtde * (v.vrvenda + v.desc_acre_item)) + v.desc_acre AS total, v.qtde * (v.vrvenda + v.desc_acre_item) AS total_item,
+             v.codbarra, v.descricao, v.unidade, v.qtde, v.vrvenda, v.vrcusto, v.aliquota, v.nroitem, o.nome, v.obs, v.cancelado, v.tipocanc,
+             v.desc_acre, v.idempresa,
+             CASE WHEN coalesce(v.cancelado, 'N') = 'S' THEN (v.qtde * (v.vrvenda + v.desc_acre_item)) + v.desc_acre ELSE 0 END AS total_canc
+        FROM pedidos v
+        LEFT JOIN parceiros p   ON p.codparceiro = v.codparceiro
+        LEFT JOIN parceiros ve  ON ve.codparceiro = v.codvendedor
+        LEFT JOIN operadores o  ON o.codoperador = v.operador
+       WHERE v.nropedido = ${nropedido} AND v.idempresa = ${emp}
+       ORDER BY v.nroitem`.execute(db)).rows;
+    if (!rows.length) return this.vazio(false);
+    const itens: ItemCupom[] = rows.map((r) => ({
+      nropedido: r.nropedido ?? null, nrocupom: 0, nroitem: r.nroitem == null ? null : Number(r.nroitem),
+      codbarra: r.codbarra ?? null, descricao: r.descricao ?? null, unidade: r.unidade ?? null,
+      qtde: num(r.qtde), vrvenda: num(r.vrvenda), aliquota: r.aliquota ?? null,
+      total: r2(num(r.total)), total_item: r2(num(r.total_item)), total_canc: r2(num(r.total_canc)), acrescimo: 0, desconto: 0,
+      cancelado: r.cancelado ?? null,
+      cancitem: String(r.cancelado ?? 'N') === 'S' ? 'CANCELADO' : '',
+      canc: String(r.tipocanc ?? 'N') === 'C' ? 'CUPOM CANCELADO' : '',
+    }));
+    const fin = (await sql<{ operacao: string | null; valor: unknown }>`
+      SELECT operacao, valor FROM cx_pedidos WHERE nropedido = ${nropedido} ORDER BY codcxpedidos`.execute(db)).rows;
+    const finalizadores = fin.map((f) => ({ operacao: f.operacao ?? null, valor: r2(num(f.valor)) }));
+    const subtotal = r2(itens.reduce((t, i) => t + i.total_item, 0));
+    const cancelados = r2(itens.reduce((t, i) => t + i.total_canc, 0));
+    const primeira = rows[0];
+    return {
+      encontrado: true,
+      cupom_cancelado: itens.some((i) => i.canc !== ''),
+      cabecalho: {
+        nropedido: primeira.nropedido ?? null, nrocupom: 0, idempresa: Number(primeira.idempresa), dtvenda: primeira.dtvenda ?? null,
+        cliente: primeira.cliente ?? null, vendedor: primeira.vendedor ?? null, operador: primeira.nome ?? null,
+        desc_acre: primeira.desc_acre == null ? null : r2(num(primeira.desc_acre)), venda_nfc: null,
+        // o modo pedido esconde a impressão (FlagImpressao := False)
+        permite_ticket: false, titulo: 'PEDIDO',
+      },
+      itens,
+      totais: { qtd_itens: itens.length, subtotal, cancelados, total: r2(subtotal - cancelados) },
+      finalizadores,
+      total_finalizadores: r2(finalizadores.reduce((t, f) => t + f.valor, 0)),
+    };
+  }
+
   /** resposta de "não achou" (com ou sem o aviso de cupom cancelado). */
   private vazio(cupomCancelado: boolean) {
     return {

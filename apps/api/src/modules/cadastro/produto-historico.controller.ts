@@ -23,6 +23,13 @@ const filtro = (q: Record<string, string | undefined>): FiltroHistorico => ({
 export class ProdutoHistoricoController {
   constructor(private readonly svc: ProdutoHistoricoService) {}
 
+  /** o "Detalhar" de uma linha do kardex: a tela (e a chave) que o legado abre para o movimento */
+  @Get(':id/historico/estoque/:codmov/detalhe')
+  @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')
+  detalhar(@Param('id', ParseIntPipe) id: number, @Param('codmov', ParseIntPipe) codmov: number) {
+    return this.svc.detalhar(id, codmov);
+  }
+
   /** a sub-aba (`vendas`, `pedidos`, `pedido-compra`, `entradas`, `saidas`, `estoque`, `fornecedores`, `promocao`, `inventario-rotativo`) */
   @Get(':id/historico/:aba')
   @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')

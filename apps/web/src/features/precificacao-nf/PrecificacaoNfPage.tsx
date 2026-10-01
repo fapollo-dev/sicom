@@ -365,7 +365,7 @@ export function PrecificacaoNfPage() {
               <Button label="Precificação por custo [F4]" variant="soft" disabled={!atalhoItem}
                 onClick={() => navegar(`/estoque/precificacao?idproduto=${atalhoItem?.idproduto ?? ''}`)} />
               <Button label="Nota fiscal [F5]" variant="soft" disabled={!atalhoItem}
-                onClick={() => navegar(`/fiscal/notas/entrada?codnf=${atalhoItem?.codnf ?? ''}`)} />
+                onClick={() => navegar(`/fiscal/notas/entrada?codigo=${atalhoItem?.codnf ?? ''}`)} />
               <Button label="Financeiro da nota [F6]" variant="soft" disabled={!atalhoItem}
                 onClick={() => navegar(`/cadastro/apagar?codnf=${atalhoItem?.codnf ?? ''}`)} />
             </div>

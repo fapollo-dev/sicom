@@ -204,3 +204,15 @@ Divergências deliberadas do endpoint `listar`, todas de proteção:
 Um bug de integração que a auditoria pegou e vale registrar: entrar pela lista numa venda de **ECF**
 (`VENDA_NFC='N'` — 3.791.058 linhas no golden) não abria, porque a consulta assumia o ramo NFC-e por default. Ao
 entrar **pelo pedido**, o ramo agora vem da própria venda.
+
+## O modo PEDIDO e a entrada pelo kardex (01/10/2026)
+
+O "Detalhar" do kardex do produto (`ProcessaHistorico`, UCadProduto.pas) abre esta tela de dois jeitos:
+- baixa/estorno do PDV: com o pedido (os 14 caracteres do histórico), o PDV (os 2 primeiros) e a loja do movimento — a consulta
+  normal (`?nropedido=&empresa=`);
+- baixa do BALCÃO: o modo pedido (`?balcao=1&nropedido=`; TituloRel 'PEDIDO', sem pesquisa nem impressão) — o `sqqConsHistVendas` sobre a
+  **PEDIDOS** da loja do login (total do item com DESC_ACRE_ITEM, e o DESC_ACRE no TOTAL) e as finalizadoras da **CX_PEDIDOS**
+  (`SELECT OPERACAO, VALOR … WHERE NROPEDIDO`, sem loja e sem troco). `POST relatorios/hist-vendas/consultar-pedido`. Na produção:
+  7.832 movimentos de balcão, mai/2022–set/2023.
+Aberta assim a tela não tem o gate próprio (`TfrmConsHistVendas` criado de dentro do cadastro): a consulta aceita também o acesso ao
+FRMCADPRODUTO. Smoke §285.

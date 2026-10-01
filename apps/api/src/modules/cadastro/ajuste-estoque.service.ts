@@ -3,6 +3,8 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, dataBr, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -177,6 +179,48 @@ export class AjusteEstoqueService {
       saldo_anterior: saldoAnt, saldo_novo: saldoNovo, origem: 'AJUSTE', codnf: null,
       historico, data: sql`now()`, codoperador: op,
     }).execute();
+  }
+
+  /**
+   * A aba "Histórico" do legado (`BtnFiltrarConsClick` → `QryConsulta`, UdmAjusteEstoque.dfm): os ajustes da loja do login, com o
+   * período (`FiltroData`: só quando as duas datas vêm; inicial > final recusa) e o produto opcionais, na ordem da data.
+   */
+  async consulta(f: { dtini?: string; dtfim?: string; idproduto?: number }): Promise<Record<string, unknown>[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (f.dtini && f.dtfim && f.dtini > f.dtfim) {
+      throw new BusinessRuleError('AJUSTE_PERIODO_INVERTIDO', { dtini: f.dtini, dtfim: f.dtfim }, 'A data inicial não pode ser maior que a final.');
+    }
+    const data = sql`coalesce(a.data, a.dtcadastro)`;
+    return (await sql<Record<string, unknown>>`
+      SELECT a.codajuste, to_char(${data}, 'YYYY-MM-DD"T"HH24:MI:SS') AS data, a.idproduto, a.operacao, a.destino, a.qtde, a.codmotivo,
+             a.codoperador, a.idempresa, a.minimo, a.maximo, a.obs, m.descricao AS motivo, p.descricao AS produto, o.nome AS operador,
+             a.qtdeanterior, a.qtdeatual, a.estornado
+        FROM ajuste_estoque a
+        LEFT JOIN produtos p   ON p.idproduto = a.idproduto
+        LEFT JOIN motivos m    ON m.codmotivo = a.codmotivo
+        LEFT JOIN operadores o ON o.codoperador = a.codoperador
+       WHERE a.idempresa = ${emp}
+         ${f.dtini && f.dtfim ? sql`AND ${data}::date BETWEEN ${f.dtini}::date AND ${f.dtfim}::date` : sql``}
+         ${f.idproduto ? sql`AND a.idproduto = ${f.idproduto}` : sql``}
+       ORDER BY ${data}, a.codajuste`.execute(db)).rows;
+  }
+
+  /**
+   * "Imprimir" da consulta (`BtnImprimirClick`): o AjusteEstoque.fr3 com o dataset FDBAjusteEstoque; PERIODO = "<inicial> à <final>"
+   * e EMPRESA = a do login, entre aspas. Sem ajuste: a mensagem do legado.
+   */
+  async impressaoConsulta(f: { dtini?: string; dtfim?: string; idproduto?: number }) {
+    const linhas = await this.consulta(f);
+    if (!linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados ajustes para imprimir');
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nums = await colunasNumericas(db, ['ajuste_estoque']);
+    return {
+      titulo: 'Ajustes de estoque',
+      modelo: await modeloFr3(db, 'AjusteEstoque.fr3'),
+      datasets: { FDBAjusteEstoque: linhas.map((l) => registroFr3(l, nums)) },
+      variaveis: { PERIODO: textoVariavel(`${dataBr(f.dtini)} à ${dataBr(f.dtfim)}`), EMPRESA: textoVariavel(String(this.emp())) },
+    };
   }
 
   /** histórico de ajustes (lista/tela) — enriquecido com produto/motivo. */

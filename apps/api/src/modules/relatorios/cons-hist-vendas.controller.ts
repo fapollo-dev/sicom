@@ -1,8 +1,9 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 import { consHistVendasSchema, histVendasListarSchema, type ConsHistVendasDto, type HistVendasListarDto } from '@apollo/shared';
 import { ConsHistVendasService } from './cons-hist-vendas.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -14,11 +15,23 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 export class ConsHistVendasController {
   constructor(private readonly svc: ConsHistVendasService) {}
 
+  /** a consulta de um cupom — também a do "Detalhar" do kardex do produto, que abre a tela sem o gate dela (`TfrmConsHistVendas` criado
+   *  de dentro do cadastro de produto) */
   @Post('consultar')
   @HttpCode(200)
-  @RequerAcesso('FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS')
+  @RequerAcessoDeAlgum(['FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'])
   consultar(@Body(new ZodValidationPipe(consHistVendasSchema)) dto: ConsHistVendasDto) {
     return this.svc.consultar(dto);
+  }
+
+  /** o pedido de BALCÃO (o "Detalhar" do kardex do produto): os itens da PEDIDOS e as finalizadoras da CX_PEDIDOS */
+  @Post('consultar-pedido')
+  @HttpCode(200)
+  @RequerAcessoDeAlgum(['FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'])
+  consultarPedido(@Body() body: { nropedido?: string }) {
+    const nro = String(body?.nropedido ?? '').trim();
+    if (!nro) throw new BusinessRuleError('PEDIDO_NAO_INFORMADO');
+    return this.svc.consultarPedido(nro);
   }
 
   /** a LISTA de vendas do período (o botão de pesquisa do legado, sobre GET_HIST_VENDAS). */

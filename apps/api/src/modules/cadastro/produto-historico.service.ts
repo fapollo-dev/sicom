@@ -126,6 +126,64 @@ export class ProdutoHistoricoService {
   }
 
   /**
+   * "Detalhar" do kardex (`BtnDetalharHistoricoEClick` → `ProcessaHistorico`, UCadProduto.pas): pelo TEXTO do histórico da linha (o do
+   * SQL do binário novo, com o documento no fim) decide a tela que abre:
+   *  - "BAIXA/ESTORNO DE ESTOQUE DERIVADO DO PDV PEDIDO:" → a consulta de histórico de vendas do pedido (os 14 caracteres depois do
+   *    texto), na loja da linha;
+   *  - "BAIXA DE ESTOQUE DERIVADO DO BALCAO PEDIDO:" → a mesma tela no modo pedido (PEDIDOS + CX_PEDIDOS), na loja do login;
+   *  - entrada/saída/estorno de NOTA → a NF: o CODNF da linha, ou o código recortado do texto; entrada/saída pelo texto e o estorno
+   *    pelo tipo da nota (`GetTipoNota`; nota não achada = saída, como o legado);
+   *  - "AJUSTE DE ESTOQUE" → o histórico do ajuste de estoque no dia do movimento, filtrado pelo produto;
+   *  - o resto: "Não foi possível detalhar esta movimentação."
+   */
+  async detalhar(idproduto: number, codmov: number) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const linha = (await this.kardex(db, idproduto, null, null, codmov))[0];
+    if (!linha) throw new BusinessRuleError('HISTORICO_MOVIMENTO_NAO_ENCONTRADO', { codmov }, 'Nenhuma movimentação foi encontrada para ser detalhada.');
+    const h = String(linha.historico ?? '');
+    const t = h.trim();
+    const tem = (x: string) => h.includes(x);
+    const ateOPontoEVirgula = (x: string) => { const y = x.trim(); const i = y.indexOf(';'); return i < 0 ? '' : y.slice(0, i); };
+    const naoDa = () => new BusinessRuleError('HISTORICO_SEM_DETALHE', { codmov }, 'Não foi possível detalhar esta movimentação.');
+
+    if (tem('BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO:') || tem('ESTORNO DE ESTOQUE DERIVADO DO PDV PEDIDO:')) {
+      const nropedido = tem('BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO:') ? h.slice(41, 55) : h.slice(43, 57);
+      return { destino: 'venda' as const, nropedido, idempresa: Number(linha.idempresa) };
+    }
+    if (tem('BAIXA DE ESTOQUE DERIVADO DO BALCAO PEDIDO:')) {
+      return { destino: 'pedido' as const, nropedido: t.slice(43, 63).trim() };
+    }
+    const notaE = tem('ENTRADA DE ESTOQUE; REF. NOTA COD:') || tem('ENTRADA DE ESTOQUE REF. A NOTA COD.');
+    const notaS = tem('SAIDA DE ESTOQUE; REF. NOTA COD:') || tem('SAIDA DE ESTOQUE REF. A NOTA COD.');
+    const estorno = tem('ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA') || tem('ESTORNO DE ESTOQUE  REF. A DENEGACAO DA NOTA COD.')
+      || tem('ESTORNO DE ESTOQUE  REF. A REVERSAO DO PROCESSAMENTO DA NOTA COD.');
+    if (notaE || notaS || estorno) {
+      let origem = Number(linha.codnf ?? 0) > 0 ? String(linha.codnf) : '';
+      if (!origem) {
+        if (tem('ENTRADA DE ESTOQUE; REF. NOTA COD:')) origem = ateOPontoEVirgula(t.slice(35));
+        else if (tem('ENTRADA DE ESTOQUE REF. A NOTA COD.')) origem = t.slice(36);
+        else if (tem('SAIDA DE ESTOQUE; REF. NOTA COD:')) origem = ateOPontoEVirgula(t.slice(33));
+        else if (tem('SAIDA DE ESTOQUE REF. A NOTA COD.')) origem = t.slice(34);
+        else if (tem('ESTORNO DE ESTOQUE  REF. A REVERSAO DO PROCESSAMENTO DA NOTA COD.')) origem = t.slice(66);
+        else if (tem('ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA')) origem = ateOPontoEVirgula(t.slice(49));
+        else origem = ateOPontoEVirgula(t.slice(50));
+      }
+      const codnf = Number(origem.trim());
+      if (!Number.isInteger(codnf) || codnf <= 0) throw naoDa();
+      let entrada = notaE;
+      if (!notaE && !notaS) {
+        const nf = (await sql<{ tipo: string | null }>`SELECT tipo FROM nf WHERE codnf = ${codnf}`.execute(db)).rows[0];
+        entrada = String(nf?.tipo ?? '') === 'E';
+      }
+      return { destino: 'nf' as const, codnf, tipo: entrada ? ('E' as const) : ('S' as const) };
+    }
+    if (tem('AJUSTE DE ESTOQUE')) {
+      return { destino: 'ajuste' as const, data: String(linha.data ?? '').slice(0, 10), idproduto };
+    }
+    throw naoDa();
+  }
+
+  /**
    * "Imprimir" da composição (`btnImprimirComposicaoClick`): o Rel_ComposicaoProduto.fr3 com os itens do kit (`sqqComposicao`: o item com
    * a chave de composição do produto, na ordem da descrição) e o código de barras e a descrição do produto nos memos do cabeçalho.
    */
@@ -217,7 +275,10 @@ export class ProdutoHistoricoService {
    *    origem 'NF' com o CODNF e sem ID_ORIGEM_DOCUMENTO: caem neste ramo, como as do legado (que não têm origem) — as origens só valem com
    *    o ID do documento.
    */
-  private async kardex(db: AnyDB, id: number, p: { ini: string; fim: string }, emp: number): Promise<Linha[]> {
+  private async kardex(db: AnyDB, id: number, p: { ini: string; fim: string } | null, emp: number | null, codmov?: number): Promise<Linha[]> {
+    const filtro = codmov != null
+      ? sql`h.codmov = ${codmov}`
+      : sql`h.data >= ${p?.ini}::date AND h.data < ${p?.fim}::date + 1 AND h.idempresa = ${emp}`;
     return (await sql<Linha>`
       SELECT h.idproduto, to_char(h.data, ${DH}) AS data,
              CASE WHEN h.saldo_novo - h.saldo_anterior > 0 THEN h.saldo_novo - h.saldo_anterior ELSE 0 END AS entrada,
@@ -245,9 +306,7 @@ export class ProdutoHistoricoService {
         LEFT JOIN LATERAL (SELECT nf.codnf, nf.nronf, nf.serie FROM nf WHERE r.tipo IN ('NF', 'NFCOD') AND nf.codnf = r.doc LIMIT 1) n ON true
         LEFT JOIN LATERAL (SELECT vd.codvendas_legado AS codvendas, vd.nrocupom, vd.nroserie FROM vendas vd
                             WHERE r.tipo = 'VENDAS' AND vd.codvendas_legado = r.doc LIMIT 1) v ON true
-       WHERE h.idproduto = ${id}
-         AND h.data >= ${p.ini}::date AND h.data < ${p.fim}::date + 1
-         AND h.idempresa = ${emp}
+       WHERE h.idproduto = ${id} AND ${filtro}
        ORDER BY h.data, h.codmov`.execute(db)).rows;
   }
 

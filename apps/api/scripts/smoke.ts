@@ -15171,7 +15171,10 @@ async function main() {
         const hv8 = await hvPost({ nrocupom: 8101, pdv: 7 }, H_SEM_ACESSO);
         // empresa 2: o RBAC é POR EMPRESA (o grant foi semeado só p/ a empresa 1) → 403 antes de qualquer leitura;
         // e com grant na empresa 2 o cupom da empresa 1 continua invisível (o filtro é por idempresa).
+        // (a consulta também abre pelo "Detalhar" do kardex do produto: o acesso ao FRMCADPRODUTO vale — sai da empresa 2 durante o teste)
+        const tirouProd2 = (await pgHv.query(`DELETE FROM permissoes WHERE form = 'FRMCADPRODUTO' AND opcao = 'FRMCADPRODUTO' AND codoperador = 7 AND codempresa = 2`)).rowCount ?? 0;
         const hv9 = await hvPost({ nrocupom: 8101, pdv: 7 }, { ...H, 'x-empresa-id': '2' });
+        if (tirouProd2) await pgHv.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCADPRODUTO','FRMCADPRODUTO',7,2)`);
         await pgHv.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCONSHISTVENDAS','FRMCONSHISTVENDAS',7,2)`);
         const hv10 = await hvPost({ nrocupom: 8101, pdv: 7 }, { ...H, 'x-empresa-id': '2' });
         const hv10J = (await hv10.json().catch(() => ({}))) as any;
@@ -26879,7 +26882,7 @@ async function main() {
         // vendas: a do produto, a do FILHO (codproduto outro, idproduto_filho = P), a cancelada, a da loja 2 e a de fora do período
         await pgHm.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 28501 AND 28505 AND nroserie = '285'`);
         await pgHm.query(`INSERT INTO vendas (codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, idproduto_filho, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, codvendedor) VALUES
-            (992851, 1, '2052-04-10 10:00:00-03', '285A', '285', 28501, 1, ${P}, NULL, 2, 5, 'A', 'N', 'S', 2, 22),
+            (992851, 1, '2052-04-10 10:00:00-03', '28510042052100', '285', 28501, 1, ${P}, NULL, 2, 5, 'A', 'N', 'S', 2, 22),
             (992852, 1, '2052-04-11 11:00:00-03', '285B', '285', 28502, 1, ${F}, ${P}, 1, 7, 'A', NULL, 'S', 2, NULL),
             (992853, 1, '2052-04-11 12:00:00-03', '285C', '285', 28503, 1, ${P}, NULL, 9, 9, 'A', 'S', 'S', 2, NULL),
             (992854, 2, '2052-04-12 12:00:00-03', '285D', '285', 28504, 1, ${P}, NULL, 4, 1, 'A', 'N', 'S', 2, NULL),
@@ -26916,11 +26919,15 @@ async function main() {
         // kardex: a baixa do PDV carregada (delta negativo, origem VENDAS + o CODVENDAS do legado), a entrada processada pelo Apollo
         // (origem NF, CODNF, qtde positiva), a REVERSÃO dela (tipo E com o saldo caindo), um ajuste sem documento e a loja 2
         await pgHm.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, codnf, historico, data, id_origem_documento) VALUES
-            (${P}, 1, 'S', -2, 10, 8, 'VENDAS', NULL, 'BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO: 285A', '2052-04-20 09:00:00-03', 992851),
+            (${P}, 1, 'S', -2, 10, 8, 'VENDAS', NULL, 'BAIXA DE ESTOQUE DERIVADO DO PDV PEDIDO: 28510042052100', '2052-04-20 09:00:00-03', 992851),
             (${P}, 1, 'E', 12, 8, 20, 'NF', ${e1}, 'ENTRADA DE ESTOQUE; REF. NOTA COD: ${e1}', '2052-04-20 10:00:00-03', NULL),
             (${P}, 1, 'E', 12, 20, 8, 'NF-REV', ${e1}, 'ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA COD. ${e1}', '2052-04-21 10:00:00-03', NULL),
             (${P}, 1, 'E', 1, 8, 9, 'AJUSTE', NULL, 'AJUSTE 285', '2052-04-21 11:00:00-03', NULL),
             (${P}, 2, 'E', 5, 0, 5, 'AJUSTE', NULL, 'AJUSTE LOJA 2', '2052-04-21 12:00:00-03', NULL)`);
+        // ajuste de estoque do produto no dia 21 (a aba Histórico do ajuste) e a finalizadora do pedido de balcão (CX_PEDIDOS)
+        await pgHm.query(`INSERT INTO ajuste_estoque (idproduto, idempresa, operacao, destino, qtde, qtdeanterior, qtdeatual, codmotivo, codoperador, obs, data)
+            VALUES ($1, 1, 'AUMENTAR', 'E', 1, 8, 9, (SELECT min(codmotivo) FROM motivos), 7, 'AJUSTE 285', '2052-04-21 11:00:00-03')`, [P]);
+        await pgHm.query(`INSERT INTO cx_pedidos (nropedido, operacao, valor, idempresa) VALUES ('285P', 'DINHEIRO', 15, 1)`);
         // promoção: a agenda dentro do período e a que termina depois
         for (const [ini, fim, vlr] of [['2052-04-02 00:00:00-03', '2052-04-09 23:59:59-03', 4.5], ['2052-04-25 00:00:00-03', '2052-05-05 23:59:59-03', 4]] as const) {
           const ag = Number((await pgHm.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao) VALUES (1, 'AGENDA 285', $1, $2) RETURNING codagenda`, [ini, fim])).rows[0].codagenda);
@@ -26948,7 +26955,7 @@ async function main() {
         const semPer = await hist('vendas', '');
         const foraEsc = await hist('vendas', `${per}&empresas=999`);
         const semAcesso = await hist('vendas', per, H_SEM_ACESSO);
-        const v1 = vend.linhas.find((l) => l.nropedido === '285A');
+        const v1 = vend.linhas.find((l) => l.nropedido === '28510042052100');
         const vf = vend.linhas.find((l) => l.nropedido === '285B');
         const pcLinhas = pcL.linhas.filter((l) => pedidosC.includes(Number(l.codpedcomp)));
         const k = kdx.linhas;
@@ -26977,9 +26984,29 @@ async function main() {
           && inv.status === 200 && inv.linhas.length === 1 && Number(inv.linhas[0].diferenca_qtd) === -3 && Number(inv.linhas[0].lote) === 992850,
           { kdx: [kdx.status, kdx.j.code, k.map((l) => [l.data, l.entrada, l.saida, l.qtde_atual, l.historico, l.codnf, l.nronf])], forn: forn.linhas, promo: promo.linhas, inv: [inv.status, inv.j.code, inv.linhas] });
 
+        // o "Detalhar" do kardex (ProcessaHistorico) e as telas que ele abre
+        const det = async (codmov: unknown) => { const r = await fetch(`${base}/cadastro/produtos/${P}/historico/estoque/${codmov}/detalhe`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const [dtV, dtN, dtR, dtA] = [await det(kVenda?.codmov), await det(kNf?.codmov), await det(kRev?.codmov), await det(kAj?.codmov)];
+        const venda = (await (await fetch(`${base}/relatorios/hist-vendas/consultar`, { method: 'POST', headers: H, body: JSON.stringify({ nropedido: dtV.j.nropedido, idempresa: dtV.j.idempresa }) })).json().catch(() => ({}))) as any;
+        const balcao = await fetch(`${base}/relatorios/hist-vendas/consultar-pedido`, { method: 'POST', headers: H, body: JSON.stringify({ nropedido: '285P' }) });
+        const balcaoJ = (await balcao.json().catch(() => ({}))) as any;
+        const ajC = await fetch(`${base}/cadastro/ajuste-estoque/consulta?idproduto=${P}&dtini=2052-04-21&dtfim=2052-04-21`, { headers: H });
+        const ajCJ = (await ajC.json().catch(() => [])) as any[];
+        const ajInv = await fetch(`${base}/cadastro/ajuste-estoque/consulta?dtini=2052-04-22&dtfim=2052-04-21`, { headers: H });
+        const ajInvJ = (await ajInv.json().catch(() => ({}))) as any;
+        check('PRODUTO §285 [o "Detalhar" do kardex e as telas que ele abre]: a baixa do PDV abre a consulta de histórico de vendas pelo pedido (os 14 caracteres depois do texto) na loja do movimento — e a consulta acha a venda; a entrada da nota abre a NF de entrada pelo CODNF; a REVERSÃO abre pelo tipo da nota (E); um texto sem regra → "Não foi possível detalhar esta movimentação."; o pedido de BALCÃO lê a PEDIDOS (3 × (4 + 1) = 15) e a finalizadora da CX_PEDIDOS; a aba Histórico do ajuste filtra o dia e o produto, e a data inicial maior que a final é recusada',
+          dtV.status === 200 && dtV.j.destino === 'venda' && dtV.j.nropedido === '28510042052100' && dtV.j.idempresa === 1 && venda.encontrado === true
+          && dtN.j.destino === 'nf' && dtN.j.codnf === e1 && dtN.j.tipo === 'E' && dtR.j.destino === 'nf' && dtR.j.codnf === e1 && dtR.j.tipo === 'E'
+          && dtA.status === 422 && dtA.j.message === 'Não foi possível detalhar esta movimentação.'
+          && balcao.status === 200 && balcaoJ.encontrado === true && balcaoJ.itens?.length === 1 && balcaoJ.itens[0].total_item === 15
+          && balcaoJ.finalizadores?.[0]?.operacao === 'DINHEIRO' && balcaoJ.total_finalizadores === 15 && balcaoJ.cabecalho?.titulo === 'PEDIDO'
+          && ajC.status === 200 && ajCJ.length === 1 && ajCJ[0].obs === 'AJUSTE 285' && String(ajCJ[0].data).startsWith('2052-04-21')
+          && ajInv.status === 422 && ajInvJ.message === 'A data inicial não pode ser maior que a final.',
+          { dtV: dtV.j, dtN: dtN.j, dtR: dtR.j, dtA: [dtA.status, dtA.j.message], venda: [venda.encontrado, venda.code], balcao: [balcao.status, balcaoJ], ajC: [ajC.status, ajCJ], ajInv: [ajInv.status, ajInvJ.message] });
+
         // as impressões no layout do cliente (os .fr3 da RELATORIOS)
         const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
-        const modelos = ['Rel_HistoricoVendasPedidos.fr3', 'Rel_HistoricoEntradas.fr3', 'Rel_HistoricoSaidas.fr3', 'Rel_FichaKardex.fr3', 'Rel_Cad_Prod_Hist_InvRotResumido.fr3', 'Rel_ComposicaoProduto.fr3'];
+        const modelos = ['Rel_HistoricoVendasPedidos.fr3', 'Rel_HistoricoEntradas.fr3', 'Rel_HistoricoSaidas.fr3', 'Rel_FichaKardex.fr3', 'Rel_Cad_Prod_Hist_InvRotResumido.fr3', 'Rel_ComposicaoProduto.fr3', 'AjusteEstoque.fr3'];
         for (const [i, nome] of modelos.entries()) {
           await pgHm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992850 + i, nome, fr3(nome)]);
         }
@@ -26990,9 +27017,10 @@ async function main() {
         const iVazio = await imp('historico/saidas/impressao?dtini=2052-01-01&dtfim=2052-01-02');
         const iPromo = await imp(`historico/promocao/impressao?${per}`);
         const iC = await imp('composicao/impressao');
-        const dV = (iV.j.datasets?.frxDBDtsVendas ?? []).find((l: any) => l.NROPEDIDO === '285A');
+        const iAj = (await (await fetch(`${base}/cadastro/ajuste-estoque/consulta/impressao?idproduto=${P}&dtini=2052-04-21&dtfim=2052-04-21`, { headers: H })).json().catch(() => ({}))) as any;
+        const dV = (iV.j.datasets?.frxDBDtsVendas ?? []).find((l: any) => l.NROPEDIDO === '28510042052100');
         const empK = iK.j.datasets?.frxDBDtsEmpresa?.[0] ?? {};
-        check('PRODUTO §285 [as impressões no layout do cliente]: Vendas no Rel_HistoricoVendasPedidos com o frxDBDtsVendas (RAZAO e RAZAO_1, TOTAL numérico) e as variáveis do botão (período entre aspas, Empresa = a do login sem aspas); Entradas com o qtdEmbal; a ficha kardex com o frxDBDtsHistoricoProd, a empresa do login (sem senha) e sem a variável Empresa; o inventário rotativo no frxDBPadrao; sem linha → "Não existe informações para serem impressas. Verifique !!!"; a Promoção não imprime (o Imprimir dela chama o do inventário rotativo no legado); a composição com o frxDBDComposicao e o código de barras e a descrição nos memos',
+        check('PRODUTO §285 [as impressões no layout do cliente]: Vendas no Rel_HistoricoVendasPedidos com o frxDBDtsVendas (RAZAO e RAZAO_1, TOTAL numérico) e as variáveis do botão (período entre aspas, Empresa = a do login sem aspas); Entradas com o qtdEmbal; a ficha kardex com o frxDBDtsHistoricoProd, a empresa do login (sem senha) e sem a variável Empresa; o inventário rotativo no frxDBPadrao; sem linha → "Não existe informações para serem impressas. Verifique !!!"; a Promoção não imprime (o Imprimir dela chama o do inventário rotativo no legado); a composição com o frxDBDComposicao e o código de barras e a descrição nos memos; a aba Histórico do ajuste de estoque no AjusteEstoque.fr3 (PERIODO "<inicial> à <final>", EMPRESA entre aspas)',
           iV.status === 200 && String(iV.j.modelo).includes('Rel_HistoricoVendasPedidos') && dV?.TOTAL === 10 && dV?.RAZAO === r2 && dV?.RAZAO_1 === r22
           && iV.j.variaveis?.DtInicial === "'01/04/2052'" && iV.j.variaveis?.DtFinal === "'30/04/2052'" && iV.j.variaveis?.Empresa === '1'
           && iE.status === 200 && (iE.j.datasets?.frxDBDtsEntradas ?? []).some((l: any) => l.QTDEMBAL === 12)
@@ -27002,10 +27030,13 @@ async function main() {
           && iVazio.status === 422 && iVazio.j.message === 'Não existe informações para serem impressas. Verifique !!!'
           && iPromo.status === 422 && iPromo.j.code === 'HISTORICO_SEM_IMPRESSAO'
           && iC.status === 200 && iC.j.textos?.memoCodBarra === '7899000992850' && iC.j.textos?.memoDescricao === 'HIST285 KIT'
-          && iC.j.datasets?.frxDBDComposicao?.length === 1 && iC.j.datasets.frxDBDComposicao[0].QTDE === 2 && iC.j.datasets.frxDBDComposicao[0].CODBARRA === '7899000992849',
-          { iV: [iV.status, iV.j.code, dV, iV.j.variaveis], iE: [iE.status, iE.j.datasets?.frxDBDtsEntradas], iK: [iK.status, iK.j.code, iK.j.datasets?.frxDBDtsHistoricoProd?.[0], Object.keys(empK).length, iK.j.variaveis], iI: [iI.status, iI.j.datasets], iVazio: [iVazio.status, iVazio.j.message], iPromo: [iPromo.status, iPromo.j.code], iC: [iC.status, iC.j.code, iC.j.textos, iC.j.datasets] });
+          && iC.j.datasets?.frxDBDComposicao?.length === 1 && iC.j.datasets.frxDBDComposicao[0].QTDE === 2 && iC.j.datasets.frxDBDComposicao[0].CODBARRA === '7899000992849'
+          && iAj.datasets?.FDBAjusteEstoque?.[0]?.OBS === 'AJUSTE 285' && iAj.variaveis?.PERIODO === "'21/04/2052 à 21/04/2052'" && iAj.variaveis?.EMPRESA === "'1'",
+          { iV: [iV.status, iV.j.code, dV, iV.j.variaveis], iE: [iE.status, iE.j.datasets?.frxDBDtsEntradas], iK: [iK.status, iK.j.code, iK.j.datasets?.frxDBDtsHistoricoProd?.[0], Object.keys(empK).length, iK.j.variaveis], iI: [iI.status, iI.j.datasets], iVazio: [iVazio.status, iVazio.j.message], iPromo: [iPromo.status, iPromo.j.code], iC: [iC.status, iC.j.code, iC.j.textos, iC.j.datasets], iAj: [iAj.code, iAj.datasets, iAj.variaveis] });
       } finally {
-        await pgHm.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992850 AND 992855`).catch(() => undefined);
+        await pgHm.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992850 AND 992856`).catch(() => undefined);
+        await pgHm.query(`DELETE FROM ajuste_estoque WHERE idproduto = $1`, [P]).catch(() => undefined);
+        await pgHm.query(`DELETE FROM cx_pedidos WHERE nropedido = '285P'`).catch(() => undefined);
         await pgHm.query(`DELETE FROM vendas WHERE nrocupom BETWEEN 28501 AND 28505 AND nroserie = '285'`).catch(() => undefined);
         await pgHm.query(`DELETE FROM pedidos WHERE nropedido IN ('285P', '285O')`).catch(() => undefined);
         await pgHm.query(`DELETE FROM historico_prod WHERE idproduto = $1`, [P]).catch(() => undefined);

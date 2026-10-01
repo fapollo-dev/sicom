@@ -9,7 +9,9 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
-import { listarAjustes, ajustarEstoque, estornarAjuste } from './ajusteEstoqueApi';
+import { listarAjustes, ajustarEstoque, estornarAjuste, consultarAjustes, consultaAjusteQuery, type FiltroConsultaAjuste } from './ajusteEstoqueApi';
+import { Field } from '../../shared/ui/Field';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const fmtQtd = (n: unknown) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
 const fmtDataHora = (s?: string) => (s ? new Date(s).toLocaleString('pt-BR') : '');
@@ -144,6 +146,75 @@ export function AjusteEstoquePage() {
         <h2 className="mb-form-gap text-body-sm font-semibold text-fg-default">Ajustes recentes</h2>
         <DataTable columns={colunas} rows={ajustes} loading={carregando} />
       </section>
+
+      <ConsultaAjustes produtoOptions={produtoOptions} />
     </div>
+  );
+}
+
+const fmtNum2 = (v: unknown) => (v == null || v === '' ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const diaHora = (v: unknown) => (v ? `${String(v).slice(0, 10).split('-').reverse().join('/')} ${String(v).slice(11, 19)}` : '');
+
+/**
+ * A aba "Histórico" do legado (`TbsConsulta`: Produto, Data inicial/final, Filtrar e Imprimir no AjusteEstoque.fr3 do cliente). Aberta
+ * pelo "Detalhar" do kardex do produto com `?idproduto=&data=`: as duas datas no dia do movimento e o produto, já filtrada.
+ */
+function ConsultaAjustes({ produtoOptions }: { produtoOptions: Array<{ value: string; label: string }> }) {
+  const mensagem = useMensagem();
+  const [f, setF] = useState<FiltroConsultaAjuste>({});
+  const [linhas, setLinhas] = useState<Array<Record<string, unknown>> | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  const filtrar = async (filtro: FiltroConsultaAjuste = f) => {
+    setOcupado(true);
+    try { setLinhas(await consultarAjustes(filtro)); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const idproduto = Number(q.get('idproduto'));
+    const data = q.get('data') ?? '';
+    if (idproduto > 0 || /^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      const inicial: FiltroConsultaAjuste = { idproduto: idproduto > 0 ? idproduto : undefined, dtini: data || undefined, dtfim: data || undefined };
+      setF(inicial);
+      void filtrar(inicial);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const imprimir = () => imprimirRelatorio(`/cadastro/ajuste-estoque/consulta/impressao?${consultaAjusteQuery(f)}`).catch((e) => mensagem.erro(e));
+
+  const cols: Array<{ t: string; k: string; fmt?: (v: unknown) => string; n?: boolean }> = [
+    { t: 'Data', k: 'data', fmt: diaHora }, { t: 'Produto', k: 'produto' }, { t: 'Operação', k: 'operacao' }, { t: 'Destino', k: 'destino' },
+    { t: 'Quantidade', k: 'qtde', fmt: fmtNum2, n: true }, { t: 'Est. mínimo', k: 'minimo', fmt: fmtNum2, n: true }, { t: 'Est. máximo', k: 'maximo', fmt: fmtNum2, n: true },
+    { t: 'Qtde anterior', k: 'qtdeanterior', fmt: fmtNum2, n: true }, { t: 'Qtde atual', k: 'qtdeatual', fmt: fmtNum2, n: true },
+    { t: 'Motivo', k: 'motivo' }, { t: 'Operador', k: 'operador' }, { t: 'Cód. produto', k: 'idproduto' }, { t: 'Observação', k: 'obs' },
+  ];
+  return (
+    <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+      <h2 className="text-body-sm font-semibold text-fg-default">Histórico</h2>
+      <div className="flex flex-wrap items-end gap-gp-sm">
+        <div className="w-80">
+          <SelectField label="Produto" options={produtoOptions} value={f.idproduto != null ? String(f.idproduto) : undefined}
+            onChange={(v) => setF({ ...f, idproduto: v ? Number(v) : undefined })} placeholder="Todos" />
+        </div>
+        <div className="w-40"><Field label="Data inicial" type="date" value={f.dtini ?? ''} onChange={(e) => setF({ ...f, dtini: e.target.value || undefined })} /></div>
+        <div className="w-40"><Field label="Data final" type="date" value={f.dtfim ?? ''} onChange={(e) => setF({ ...f, dtfim: e.target.value || undefined })} /></div>
+        <Button label={ocupado ? 'Filtrando…' : 'Filtrar'} variant="soft" disabled={ocupado} onClick={() => void filtrar()} />
+        <Button label="&Imprimir" variant="ghost" disabled={ocupado} onClick={imprimir} />
+      </div>
+      {linhas && (linhas.length === 0 ? <small className="text-fg-muted">Nenhum ajuste foi encontrado</small> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border text-left">{cols.map((c) => <th key={c.k} className={`p-pad-xs ${c.n ? 'text-right' : ''}`}>{c.t}</th>)}</tr></thead>
+            <tbody>
+              {linhas.map((l, i) => (
+                <tr key={i} className="border-b border-border/50">
+                  {cols.map((c) => <td key={c.k} className={`p-pad-xs ${c.n ? 'text-right tabular-nums' : ''}`}>{c.fmt ? c.fmt(l[c.k]) : String(l[c.k] ?? '')}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </section>
   );
 }

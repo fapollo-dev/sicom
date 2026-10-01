@@ -22,3 +22,30 @@ export async function getHistorico(idproduto: number, aba: AbaHistorico, f: Filt
   }
   return (await res.json()) as RespostaHistorico;
 }
+
+/** o destino do "Detalhar" de uma linha do kardex (o `ProcessaHistorico` do legado, no servidor) */
+export type DetalheKardex =
+  | { destino: 'venda'; nropedido: string; idempresa: number }
+  | { destino: 'pedido'; nropedido: string }
+  | { destino: 'nf'; codnf: number; tipo: 'E' | 'S' }
+  | { destino: 'ajuste'; data: string; idproduto: number };
+
+export async function getDetalheKardex(idproduto: number, codmov: number): Promise<DetalheKardex> {
+  const res = await fetch(`${BASE}/cadastro/produtos/${idproduto}/historico/estoque/${codmov}/detalhe`, { headers: apiHeaders() });
+  handle401(res);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error((body as { message?: string })?.message ?? `HTTP ${res.status}`), { status: res.status, body, envelope: body });
+  }
+  return (await res.json()) as DetalheKardex;
+}
+
+/** a tela que o "Detalhar" abre (numa aba nova: o cadastro do produto continua aberto, como o modal do legado) */
+export function rotaDoDetalhe(d: DetalheKardex): string {
+  switch (d.destino) {
+    case 'venda': return `/vendas/historico?nropedido=${encodeURIComponent(d.nropedido)}&empresa=${d.idempresa}`;
+    case 'pedido': return `/vendas/historico?balcao=1&nropedido=${encodeURIComponent(d.nropedido)}`;
+    case 'nf': return `/fiscal/notas/${d.tipo === 'E' ? 'entrada' : 'saida'}?codigo=${d.codnf}`;
+    case 'ajuste': return `/estoque/ajuste?idproduto=${d.idproduto}&data=${d.data}`;
+  }
+}

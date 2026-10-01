@@ -41,6 +41,8 @@ export interface ConsultaCupom {
     nropedido: string | null; nrocupom: number | null; idempresa: number; dtvenda: string | null;
     cliente: string | null; vendedor: string | null; operador: string | null;
     desc_acre: number | null; venda_nfc: string | null; permite_ticket: boolean;
+    /** 'PEDIDO' no modo balcão (o TituloRel do legado) */
+    titulo?: string | null;
   } | null;
   itens: ItemCupom[];
   totais: { qtd_itens: number; subtotal: number; cancelados: number; total: number };
@@ -50,6 +52,11 @@ export interface ConsultaCupom {
 
 export function consultarCupom(dto: Record<string, unknown>): Promise<ConsultaCupom> {
   return req('/relatorios/hist-vendas/consultar', { method: 'POST', body: JSON.stringify(dto) });
+}
+
+/** o pedido de BALCÃO (o "Detalhar" do kardex do produto): itens da PEDIDOS, finalizadoras da CX_PEDIDOS */
+export function consultarPedidoBalcao(nropedido: string): Promise<ConsultaCupom> {
+  return req('/relatorios/hist-vendas/consultar-pedido', { method: 'POST', body: JSON.stringify({ nropedido }) });
 }
 
 export interface LinhaVenda {

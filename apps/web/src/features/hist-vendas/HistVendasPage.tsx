@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { NumberField } from '../../shared/ui/NumberField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { DateField } from '../../shared/ui/DateField';
-import { consultarCupom, listarVendas, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
+import { consultarCupom, consultarPedidoBalcao, listarVendas, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
 import { hojeNaLoja } from '../../shared/tempo';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -54,6 +54,27 @@ export function HistVendasPage() {
       }
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+
+  // aberta pelo "Detalhar" do kardex do produto (`ProcessaHistorico`): o pedido do PDV na loja do movimento (`?nropedido=&empresa=`) ou o
+  // pedido de BALCÃO (`?balcao=1&nropedido=`, o modo pedido do legado)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const nro = (q.get('nropedido') ?? '').trim();
+    if (!nro) return;
+    setPedido(nro);
+    setPdv(Number(nro.slice(0, 2)));
+    setBusy(true);
+    const empresa = Number(q.get('empresa'));
+    (q.get('balcao') === '1' ? consultarPedidoBalcao(nro) : consultarCupom({ nropedido: nro, ...(empresa > 0 ? { idempresa: empresa } : {}) }))
+      .then((r) => {
+        setRes(r);
+        if (r.cabecalho?.nrocupom != null) setCupom(Number(r.cabecalho.nrocupom));
+        if (!r.encontrado) window.alert(r.cupom_cancelado ? 'O cupom informado está cancelado.' : 'Nenhuma venda encontrada para o pedido informado.');
+      })
+      .catch((e) => mensagem.erro(e))
+      .finally(() => setBusy(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pesquisar = async () => {
     if (busy) return;

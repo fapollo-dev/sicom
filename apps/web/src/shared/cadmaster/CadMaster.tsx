@@ -134,6 +134,14 @@ export function CadMaster<T extends FieldValues>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cad.registro]);
 
+  // aberta por outra tela com o registro na URL (`?codigo=`): o "Detalhar" do kardex abre a NF, o atalho da precificação abre a nota —
+  // o `edtCodigo.Text := …` + `ExecutarOnExitEdtCodigo` do legado. Lido do location (não do router) para servir a qualquer montagem.
+  useEffect(() => {
+    const cod = Number(new URLSearchParams(window.location.search).get('codigo'));
+    if (Number.isInteger(cod) && cod > 0) cad.carregarPorCodigo(cod).catch((e) => mensagem.erro(e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onGravar = form.handleSubmit(async (values) => {
     // chave natural no insert: o código digitado entra no dto como a PK
     const dto = codigoEditavelInsert ? { ...values, [pk]: Number(codigo) } : values;

@@ -31,3 +31,11 @@ export function ajustarEstoque(dto: AjustarEstoqueDto): Promise<{ codajuste: num
 export function estornarAjuste(codajuste: number): Promise<{ codajuste: number; qtde: number }> {
   return req(`/cadastro/ajuste-estoque/${codajuste}/estornar`, { method: 'POST' });
 }
+
+/** a aba Histórico do legado (QryConsulta): período (as duas datas ou nenhuma) e produto opcionais, a loja do login */
+export interface FiltroConsultaAjuste { dtini?: string; dtfim?: string; idproduto?: number }
+export const consultaAjusteQuery = (f: FiltroConsultaAjuste): string =>
+  new URLSearchParams(Object.entries(f).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)])).toString();
+export function consultarAjustes(f: FiltroConsultaAjuste): Promise<Array<Record<string, unknown>>> {
+  return req(`/cadastro/ajuste-estoque/consulta?${consultaAjusteQuery(f)}`);
+}

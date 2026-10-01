@@ -485,11 +485,28 @@ Vereditos:
    da RELATORIOS (DEFAULT 352, PERSONALIZADO 940; ausente no repositório de mai/2020) é cópia do layout de vendas — dataset
    frxDBDtsVendas, campos da venda, nenhum da agenda —, sem prova de qual botão do binário novo o carrega. Fica a grade; o Imprimir
    mora no inventário rotativo.
-4. **"Detalhar" do kardex** (`ProcessaHistorico`): abre a consulta de histórico de vendas (PDV/balcão) ou a NF conforme o texto do
-   histórico — navegação para outras telas, próximo corte.
+4. **"Detalhar" do kardex** (`ProcessaHistorico`) — entregue no corte seguinte (abaixo).
 5. Índices (mig 405): `vendas (idproduto_filho, dtvenda)` parcial — o OR do filho varreria 18,9 mi de linhas — e `pedido_nf (codpedido, tipo)`.
 6. O motor do .fr3 passou a guardar a HORA dos campos data-hora (era tudo TDateField): o `dd/mm/yyyy hh:mm:ss` da Ficha Kardex e a
    data da venda sem DisplayFormat saem com a hora, como no FastReport.
 
 Smoke §285 (3 checks); web `relatorio-fr3.spec.ts` com os layouts PERSONALIZADOS da produção (ficha kardex, vendas/pedidos, entradas,
 inventário rotativo, composição).
+
+### "Detalhar" do kardex (01/10/2026)
+
+`GET cadastro/produtos/:id/historico/estoque/:codmov/detalhe` porta o `ProcessaHistorico`: pelo TEXTO do histórico da linha (o do SQL do
+binário novo, com o documento no fim) devolve a tela, e a web a abre numa aba nova (o cadastro continua aberto, como o modal do legado):
+
+| Texto (produção, desde 2024) | Abre | Chave |
+|---|---|---|
+| "BAIXA/ESTORNO DE ESTOQUE DERIVADO DO PDV PEDIDO:" (1,86 mi em 2026) | consulta de histórico de vendas | os 14 caracteres depois do texto, na loja do movimento |
+| "BAIXA DE ESTOQUE DERIVADO DO BALCAO PEDIDO:" (7.832, mai/2022–set/2023) | a mesma tela no modo PEDIDO: itens da PEDIDOS e finalizadoras da CX_PEDIDOS (`consultar-pedido`) | o número do pedido, na loja do login |
+| entrada/saída de NOTA, estorno de reversão/denegação | a NF (entrada ou saída) | o CODNF da linha, ou o código recortado do texto; o estorno pelo tipo da nota (`GetTipoNota`; não achada = saída) |
+| "AJUSTE DE ESTOQUE" (4.444 desde 2024) | a aba Histórico do ajuste de estoque | o dia do movimento e o produto |
+| o resto ("POSICIONAMENTO DE SALDO", "ESTOQUE ZERADO", …) | "Não foi possível detalhar esta movimentação." | — |
+
+As telas abertas assim não têm o gate próprio no legado (`TfrmX.Create` de dentro do cadastro): a consulta de histórico de vendas
+(cupom e pedido) e a do ajuste aceitam também o acesso ao FRMCADPRODUTO (`@RequerAcessoDeAlgum`). A NF abre pelo `?codigo=` — o
+CadMaster passou a carregar o registro da URL (o `edtCodigo.Text := …` + `ExecutarOnExitEdtCodigo`); o atalho da Precificação NF para a
+nota usava `?codnf=`, que nada lia, e passou a abrir. Smoke §285 (4º check).
