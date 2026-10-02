@@ -33,6 +33,7 @@ export interface HistResumo {
 }
 export interface HistoricoFinanceiro {
   status: StatusHist;
+  empresas?: number[];
   juros_modo: string;
   linhas: HistLinha[];
   resumo: HistResumo;
@@ -41,9 +42,10 @@ export interface HistoricoFinanceiro {
 export async function getHistoricoFinanceiro(
   cod: number,
   status: StatusHist,
+  empresas = '',
 ): Promise<HistoricoFinanceiro> {
   const res = await fetch(
-    `${BASE}/cadastro/parceiros/${cod}/historico-financeiro?status=${status}`,
+    `${BASE}/cadastro/parceiros/${cod}/historico-financeiro?${new URLSearchParams({ status, empresas: empresas.replace(/\s/g, '') }).toString()}`,
     { headers: apiHeaders() },
   );
   handle401(res);

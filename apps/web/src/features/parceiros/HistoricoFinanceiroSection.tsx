@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
+import { Field } from '../../shared/ui/Field';
+import { Button } from '../../shared/ui/Button';
+import { useMensagem } from '../../shared/mensagem';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   getHistoricoFinanceiro,
   type HistLinha,
@@ -30,7 +34,11 @@ const fmtData = (iso: string | null | undefined) => {
 };
 
 export function HistoricoFinanceiroSection({ codparceiro }: { codparceiro?: number }) {
+  const mensagem = useMensagem();
   const [status, setStatus] = useState<StatusHist>('todos');
+  // as lojas da grade (`GetMultiEmpresa`); os somatórios somam todas, como o legado
+  const [empresas, setEmpresas] = useState('');
+  const [empresasAplicadas, setEmpresasAplicadas] = useState('');
   const [linhas, setLinhas] = useState<HistLinha[]>([]);
   const [resumo, setResumo] = useState<HistResumo | null>(null);
   const [carregando, setCarregando] = useState(false);
@@ -41,7 +49,7 @@ export function HistoricoFinanceiroSection({ codparceiro }: { codparceiro?: numb
     let vivo = true;
     setCarregando(true);
     setErro(null);
-    getHistoricoFinanceiro(codparceiro, status)
+    getHistoricoFinanceiro(codparceiro, status, empresasAplicadas)
       .then((r) => {
         if (!vivo) return;
         setLinhas(r.linhas);
@@ -52,7 +60,7 @@ export function HistoricoFinanceiroSection({ codparceiro }: { codparceiro?: numb
     return () => {
       vivo = false;
     };
-  }, [codparceiro, status]);
+  }, [codparceiro, status, empresasAplicadas]);
 
   const columns = useMemo<DataTableColumnDef<HistLinha & { _id: number }>[]>(
     () => [
@@ -80,13 +88,19 @@ export function HistoricoFinanceiroSection({ codparceiro }: { codparceiro?: numb
 
   return (
     <div className="flex flex-col gap-gp-md">
-      <div className="max-w-[220px]">
-        <SelectField
-          label="&Situação"
-          options={OPCOES_STATUS}
-          value={status}
-          onChange={(v) => setStatus((v as StatusHist) || 'todos')}
-        />
+      <div className="flex flex-wrap items-end gap-gp-sm">
+        <div className="w-56">
+          <SelectField
+            label="&Situação"
+            options={OPCOES_STATUS}
+            value={status}
+            onChange={(v) => setStatus((v as StatusHist) || 'todos')}
+          />
+        </div>
+        <div className="w-40"><Field label="Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
+        <Button label="&Visualizar saldos" variant="soft" onClick={() => setEmpresasAplicadas(empresas)} />
+        {/* btnImprimirExtrato: o HistoricoFinanceiro.fr3 do cliente com a consulta da situação */}
+        <Button label="&Imprimir" variant="ghost" onClick={() => imprimirRelatorio(`/cadastro/parceiros/${codparceiro}/impressao/historico-financeiro?status=${status}`).catch((e) => mensagem.erro(e))} />
       </div>
 
       {/* Somatórios (edtReceber/edtPagar/edtSomaValorComJuro/CREDITO/edtRestante do legado) */}

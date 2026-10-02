@@ -27135,6 +27135,75 @@ async function main() {
         await pgPf.end();
       }
     }
+    // ══ §287 CLIENTES — o histórico financeiro como o legado (todas as lojas, cheque, juro composto pela config) e as impressões ══════
+    {
+      const pgCl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PAR = 992870 + 17; // 992887
+      const tinhaRel2 = Number((await pgCl.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const cfgAntes = (await pgCl.query(`SELECT valor FROM configuracoes WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`)).rows[0]?.valor as string | undefined;
+      try {
+        if (!tinhaRel2) await pgCl.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgCl.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, cli, tolerancia, credito, empresatrabalha) VALUES ($1, 'CLIENTE 287', 'C287', 'S', 0, 0, 'FIRMA X') ON CONFLICT DO NOTHING`, [PAR]);
+        await pgCl.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, cnpj_cpf, endereco_padrao, ativado) VALUES
+            (992871, $1, 'RUA PADRAO', 'CENTRO', 'CIDADE A', 'MG', '111.444.777-35', 'S', 'S'), (992872, $1, 'RUA DOIS', 'BAIRRO B', 'CIDADE B', 'MG', '222.555.888-46', 'N', 'S')`, [PAR]);
+        await pgCl.query(`INSERT INTO parceiros_rel (codparceiro, nome, doc1, tiporel, senha_autpdv) VALUES ($1, 'FULANO AVALISTA', 'DOC-1', 'AVALISTA', '9999')`, [PAR]);
+        // A Receber vencido 40 dias na loja 1 (TX 3%: 100 + 3/30 × 40 = 104 no simples), A Receber a vencer na loja 2, A Pagar na loja 1 e um cheque
+        await pgCl.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado, txjuros) VALUES
+            ($1, 1, '2026-08-01', current_date - 40, 100, 'N', 'S', 3), ($1, 2, '2026-08-02', current_date + 10, 50, 'N', 'S', 0)`, [PAR]);
+        await pgCl.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, dtvenda, valor, quitada, tipodoc) VALUES (1, $1, 'AP287', current_date + 5, '2026-08-03', '2026-09-30', 40, 'N', 'DP')`, [PAR]);
+        await pgCl.query(`INSERT INTO cheque (codchq, idempresa, codparceiro, nrocheque, valor, dtemissao, bompara, baixado, devolvido) VALUES (992873, 1, $1, 'CH287', 30, '2026-08-04', current_date + 5, 'N', 'N')`, [PAR]);
+        const hist = async (q: string) => (await (await fetch(`${base}/cadastro/parceiros/${PAR}/historico-financeiro?${q}`, { headers: H })).json().catch(() => ({}))) as any;
+        // a config como a produção: JURO_COMPOSTO_BX_RECEBER = S com o específico do módulo Retaguarda = N (aqui: N, e depois S)
+        if (cfgAntes === undefined) {
+          await pgCl.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas) VALUES (992880, 'JURO_COMPOSTO_BX_RECEBER', 'N', 'S', 'JURO COMPOSTO BX RECEBER', 'Usuario;Empresa;Modulo')`);
+        }
+        await pgCl.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`);
+        const h1 = await hist('status=todos');
+        const h12 = await hist('status=todos&empresas=1,2');
+        const tipos = (h: any) => (h.linhas ?? []).map((l: any) => `${l.tipo}:${l.saldo}:${l.saldo_com_juro}`).join(',');
+        check('CLIENTES §287 [o histórico financeiro como o legado]: a consulta é de TODAS as lojas — os totais somam o A Receber da loja 2 (Receber 100 + 50 + o cheque 30 = 180; c/ juros 104 + 50 + 30; Restante −40 − 180) — e a grade só mostra as lojas marcadas, com o saldo corrente nelas (loja 1: A Receber 100/104, A Pagar pela data da COMPRA 60/64, cheque 90/94); marcando a loja 2 a linha entra; juros simples com o específico do módulo Retaguarda',
+          (h1.linhas ?? []).length === 3 && tipos(h1) === 'ARECEBER:100:104,APAGAR:60:64,CHEQUE:90:94'
+          && h1.resumo?.receber === 180 && h1.resumo?.pagar === -40 && h1.resumo?.receber_com_juros === 184 && h1.resumo?.restante === -220 && h1.juros_modo === 'simples'
+          && (h12.linhas ?? []).length === 4 && h12.resumo?.receber === 180,
+          { h1: [tipos(h1), h1.resumo, h1.juros_modo, h1.code], h12: [(h12.linhas ?? []).length, h12.resumo] });
+        await pgCl.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`);
+        const hc = await hist('status=todos');
+        check('CLIENTES §287 [juro composto pela config]: com JURO_COMPOSTO_BX_RECEBER = S o A Receber vencido 40 dias rende 1 mês cheio a 3% (103) mais 10 dias a 0,1% ao dia sobre o montante (1,03): 104,03',
+          hc.juros_modo === 'composto' && Number(hc.linhas?.[0]?.valor_com_juro) === 104.03 && hc.resumo?.receber_com_juros === 184.03,
+          { modo: hc.juros_modo, l0: hc.linhas?.[0], resumo: hc.resumo });
+
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['HistoricoFinanceiro.fr3', 'FichaCadatralParceiro.fr3', 'Cliente_Cartao.fr3'].entries()) {
+          await pgCl.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992875 + i, nome, fr3(nome)]);
+        }
+        const imp = async (p: string) => { const r = await fetch(`${base}/cadastro/parceiros/${PAR}/impressao/${p}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const iH = await imp('historico-financeiro?status=todos');
+        const iF = await imp('ficha-cadastral');
+        const iC = await imp('cartao?codend=992872');
+        const iC0 = await imp('cartao');
+        const semAcesso = await fetch(`${base}/cadastro/parceiros/${PAR}/impressao/ficha-cadastral`, { headers: H_SEM_ACESSO });
+        const dH = iH.j.datasets?.frxDBDatasetDados ?? [];
+        check('CLIENTES §287 [as impressões do cadastro]: o histórico imprime a consulta crua do legado (o cdsSaldoParceiros: as 4 linhas de todas as lojas, sem o SALDO/VALOR c/ juro, que o legado só grava na grade) com a empresa do login; a ficha leva o parceiro, os endereços (o padrão primeiro) e as referências SEM a senha do PDV; o cartão, o endereço selecionado (sem ele, o padrão); sem a tela → 403',
+          iH.status === 200 && dH.length === 4 && dH.every((l: any) => l.SALDO == null && l.VALOR_COM_JURO == null) && dH.some((l: any) => l.TIPO === 'CHEQUE') && 'RAZAOSOCIAL' in (iH.j.datasets?.frxDBDataset1?.[0] ?? {})
+          && iF.status === 200 && iF.j.datasets?.frxDBDatasetParceiro?.[0]?.RAZAO === 'CLIENTE 287' && iF.j.datasets.frxDBDatasetParceiro[0].EMPRESATRABALHA === 'FIRMA X'
+          && iF.j.datasets?.frxDBDatasetEnd?.[0]?.ENDERECO === 'RUA PADRAO' && iF.j.datasets.frxDBDatasetEnd.length === 2
+          && iF.j.datasets?.frxDBDatasetRel?.[0]?.NOME === 'FULANO AVALISTA' && !('SENHA_AUTPDV' in (iF.j.datasets?.frxDBDatasetRel?.[0] ?? {}))
+          && iC.status === 200 && iC.j.datasets?.frxDBDatasetEnd?.length === 1 && iC.j.datasets.frxDBDatasetEnd[0].CNPJ_CPF === '222.555.888-46'
+          && iC0.j.datasets?.frxDBDatasetEnd?.[0]?.CODEND === 992871 && semAcesso.status === 403,
+          { iH: [iH.status, iH.j.code, dH.length, dH[0]], iF: [iF.status, iF.j.code, iF.j.datasets?.frxDBDatasetEnd?.map((e: any) => e.ENDERECO), iF.j.datasets?.frxDBDatasetRel], iC: [iC.status, iC.j.datasets?.frxDBDatasetEnd], iC0: iC0.j.datasets?.frxDBDatasetEnd?.[0]?.CODEND, semAcesso: semAcesso.status });
+      } finally {
+        if (cfgAntes !== undefined) await pgCl.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`, [cfgAntes]).catch(() => undefined);
+        else await pgCl.query(`DELETE FROM configuracoes WHERE id = 992880`).catch(() => undefined);
+        await pgCl.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992875 AND 992877`).catch(() => undefined);
+        await pgCl.query(`DELETE FROM cheque WHERE codchq = 992873`).catch(() => undefined);
+        await pgCl.query(`DELETE FROM apagar WHERE codparceiro = $1`, [PAR]).catch(() => undefined);
+        await pgCl.query(`DELETE FROM areceber WHERE codparceiro = $1`, [PAR]).catch(() => undefined);
+        await pgCl.query(`DELETE FROM parceiros_rel WHERE codparceiro = $1`, [PAR]).catch(() => undefined);
+        await pgCl.query(`DELETE FROM parceiros_end WHERE codparceiro = $1`, [PAR]).catch(() => undefined);
+        if (!tinhaRel2) await pgCl.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgCl.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

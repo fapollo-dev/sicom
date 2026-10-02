@@ -84,11 +84,13 @@ function itf(valor: string, larga: number): Desenho | null {
   return { modulos: m, texto: [{ s: d, x: 0, w: m.length }] };
 }
 
-function code128(valor: string): Desenho | null {
-  const chars = [...valor].filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) <= 126);
+/** Code-128 conjunto B (o padrão) — ou o A (bcCode128A: Start A, maiúsculas, dígitos e pontuação têm os mesmos valores do B) */
+function code128(valor: string, inicio: 103 | 104 = 104): Desenho | null {
+  const aceita = (k: number) => (inicio === 103 ? k >= 32 && k <= 95 : k >= 32 && k <= 126);
+  const chars = [...(inicio === 103 ? valor.toUpperCase() : valor)].filter((c) => aceita(c.charCodeAt(0)));
   if (!chars.length) return null;
-  const codes = [104];
-  let soma = 104;
+  const codes: number[] = [inicio];
+  let soma: number = inicio;
   chars.forEach((c, i) => { const v = c.charCodeAt(0) - 32; codes.push(v); soma += v * (i + 1); });
   codes.push(soma % 103, 106);
   let m = '';
@@ -136,5 +138,6 @@ export function desenhar(tipo: string, valor: string, calcCheck: boolean, larga:
   else if (t.startsWith('bccode_2_5') || t === 'bccodeitf14') d = itf(valor, larga);
   else if (t.startsWith('bccode39')) d = code39(valor, larga);
   else if (t === 'bccode128c') d = code128c(valor);
+  else if (t === 'bccode128a') d = code128(valor, 103);
   return d ?? code128(valor);
 }

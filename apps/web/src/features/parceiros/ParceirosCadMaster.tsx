@@ -25,6 +25,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
+import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { EnderecoModal, type TipoFj } from './EnderecoModal';
 import {
@@ -35,6 +36,7 @@ import {
 } from './ParceirosDetalhes';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { HistoricoFinanceiroSection } from './HistoricoFinanceiroSection';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * Papel da tela (parametrização). A MESMA tela serve Cliente/Fornecedor/etc. — só muda
@@ -196,6 +198,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       ]}
       campos={({ form, editavel }) => (
         <div className="flex flex-col gap-form-gap">
+          <ImpressoesCliente form={form} />
           {/* ===== Seção: Cadastro ===== */}
           <fieldset className="rounded-radius-md border border-border p-pad-md">
             <legend className="px-pad-xs text-fg-muted">Cadastro</legend>
@@ -1081,5 +1084,29 @@ function EnderecosSection({
         />
       )}
     </fieldset>
+  );
+}
+
+/**
+ * As impressões do menu do cadastro (`Fichacadastral1Click`, `ImprimirCarto1Click`): a ficha cadastral e o cartão do cliente nos layouts
+ * .fr3 do cliente. O cartão sai com o endereço escolhido (o legado usa o selecionado na grade de endereços; sem escolha, o padrão).
+ */
+function ImpressoesCliente({ form }: { form: UseFormReturn<CriarParceiroDto> }) {
+  const mensagem = useMensagem();
+  const codparceiro = Number(form.watch('codparceiro' as never)) || undefined;
+  const enderecos = ((form.watch('enderecos' as never) as unknown as Array<{ codend?: number; endereco?: string | null; endereco_padrao?: string | null }>) ?? [])
+    .filter((e) => e.codend != null);
+  const [codend, setCodend] = useState('');
+  if (codparceiro == null) return null;
+  const imprimir = (path: string) => imprimirRelatorio(`/cadastro/parceiros/${codparceiro}/impressao/${path}`).catch((e) => mensagem.erro(e));
+  return (
+    <div className="flex flex-wrap items-center gap-gp-sm">
+      <Button label="Ficha cadas&tral" variant="ghost" onClick={() => imprimir('ficha-cadastral')} />
+      <select aria-label="Endereço do cartão" className="rounded border border-border px-1 py-0.5 text-body-sm" value={codend} onChange={(e) => setCodend(e.target.value)}>
+        <option value="">Endereço padrão</option>
+        {enderecos.map((e) => <option key={e.codend} value={String(e.codend)}>{e.endereco ?? e.codend}{e.endereco_padrao === 'S' ? ' (padrão)' : ''}</option>)}
+      </select>
+      <Button label="Imprimir cartã&o" variant="ghost" onClick={() => imprimir(`cartao${codend ? `?codend=${codend}` : ''}`)} />
+    </div>
   );
 }

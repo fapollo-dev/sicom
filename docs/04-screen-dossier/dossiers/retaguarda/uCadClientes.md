@@ -627,3 +627,28 @@ Agora o agregado é da rede (a loja da sessão só carimba o parceiro novo) e sa
 devolução de compras, pedido de compra (fornecedor e prazo máximo), de-para (validação, escopo e listagem), recebimento
 (XML e vínculo), cobrador do lote de cobrança, cotação, adiantamento, promoção, histórico de processamento da NF, apuração
 IBS/CBS e o crédito no histórico do parceiro. Smoke §214 e §78.4 (reescrito).
+
+## Histórico financeiro fiel e as impressões do cadastro (02/10/2026)
+
+O histórico financeiro (aba tsSaldoParceiros) tinha cinco "adiados"; com a fonte e a produção, cada um virou regra ou veredito:
+- **Lojas** — a consulta do legado (`cdsSaldoParceiros`) NÃO filtra empresa: os somatórios (Receber, Pagar, Receber c/ juros, Restante)
+  somam o parceiro em TODAS as lojas; as lojas marcadas (`GetMultiEmpresa`) só recortam a GRADE (`cdsSaldos.Filter`) e o saldo corrente
+  corre nelas. O Apollo filtrava a loja do login na consulta inteira — os totais saíam menores para parceiro de várias lojas.
+- **CHEQUE** entra (a tabela veio na carga: 11 cheques, 7 em aberto, de 2023) — pelo BOMPARA, com o DEVOLVIDO do cheque.
+- **A Pagar pela data da COMPRA** (`C.DTCOMPRA`) — o Apollo usava a DTVENDA.
+- **Juro composto** — o "JURO COMPOSTO BX RECEBER" que o fonte de 2020 lia do ConfigDB.xml está, no binário novo, na CONFIGURACOES
+  (JURO_COMPOSTO_BX_RECEBER = 'S', com o específico do módulo Retaguarda = 'N' na produção ⇒ simples aqui). O registro antigo dizia que
+  a config "é da baixa, não desta tela" — o fonte mostra que é a mesma (`DmConfigura.Configuracoes.JuroComposto`). Agora vem da config
+  (módulo Retaguarda): mês cheio a VALOR × (1 + TX)^meses e os dias que sobram a TX/30 sobre o montante.
+- **ARECEBER AGRUPADO** (AGRUPARECEBER, nos liquidados/todos) 🪦 — 0 linhas na produção (01/10/2026).
+- **CONSILIADO = 'S'** nos abertos quando a loja do login fecha caixa (EMPRESAS.FECHAMENTO_CAIXA).
+
+Impressões (acesso à tela FRMCADCLIENTES; mig 406 = a fixture do operador 7):
+- **Histórico financeiro** (`btnImprimirExtratoClick`): HistoricoFinanceiro.fr3 com o frxDBDatasetDados = o `cdsSaldoParceiros` — a
+  consulta CRUA, de todas as lojas, sem SALDO/SALDO_COM_JURO/VALOR_COM_JURO (no dataset da consulta são fkInternalCalc que o laço nunca
+  grava: o laço escreve no cdsSaldos da grade). Fiel: no legado essas colunas saem vazias e o "Valor c/ Jur" do grupo soma 0.
+- **Ficha cadastral** (`Fichacadastral1Click`): FichaCadatralParceiro.fr3 — o parceiro, os endereços (o padrão primeiro) e as referências
+  (sem a senha do PDV) em dois sub-relatórios; o motor .fr3 ganhou o `TfrxSubreport` (a página do sub-relatório roda dentro da banda).
+- **Cartão** (`ImprimirCarto1Click`): Cliente_Cartao.fr3 — sem banda de dados, sai o registro corrente: o endereço escolhido (o
+  selecionado na grade do legado; sem escolha, o padrão), com o código de barras Code-128A do CODPARCEIRO.
+O logotipo (`images\logorel.jpg` da estação) não está no banco. Smoke §287.

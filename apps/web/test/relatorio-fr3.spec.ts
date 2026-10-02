@@ -285,4 +285,51 @@ describe('relatórios do legado com vários datasets', () => {
     expect(c).toContain('PROD 286');
     expect(c).toContain('4321');
   });
+
+  it('ficha cadastral do parceiro: os sub-relatórios (Page2 endereços, Page3 referências) saem dentro das bandas, não como páginas soltas', () => {
+    const pgs = paginasDoModelo(modelo('ficha-cadastral-parceiro.fr3'), {
+      frxDBDatasetParceiro: [{ RAZAO: 'CLIENTE 287', FANTASIA: 'C287', DTNASCIMENTO: '1980-02-29T00:00:00', CREDITO: 500, OBS: 'BOM PAGADOR', EMPRESATRABALHA: 'FIRMA X', CODREF: 'R1' }],
+      frxDBDatasetEnd: [
+        { ENDERECO: 'RUA PADRAO', BAIRRO: 'CENTRO', CIDADE: 'CIDADE A', UF: 'MG', CEP: '38400000', CNPJ_CPF: '111.444.777-35', RG_INSC: 'MG123', TELEFONE: '3432', FAX: '' },
+        { ENDERECO: 'RUA DOIS', BAIRRO: 'BAIRRO B', CIDADE: 'CIDADE B', UF: 'MG', CEP: '38400001', CNPJ_CPF: '222.555.888-46', RG_INSC: '', TELEFONE: '', FAX: '' },
+      ],
+      frxDBDatasetRel: [{ TIPOREL: 'AVALISTA', NOME: 'FULANO AVALISTA', DOC1: 'DOC-1', DOC2: '', TELEFONE: '', CELULAR: '' }],
+      frxDBDataset1: [empresa],
+    }, agora);
+    const t = texto(pgs);
+    expect(pgs.length).toBe(1);
+    expect(t).toContain('Razao: CLIENTE 287');
+    expect(t).toContain('Empresa em que trabalha: FIRMA X');
+    expect(t).toContain('RUA PADRAO');
+    expect(t).toContain('RUA DOIS');
+    expect(t).toContain('FULANO AVALISTA');
+    expect(t.indexOf('RUA DOIS')).toBeLessThan(t.indexOf('FULANO AVALISTA'));
+  });
+
+  it('histórico financeiro: o grupo por TIPO com o total do grupo, e o SALDO vazio como o dataset da consulta do legado', () => {
+    const t = texto(paginasDoModelo(modelo('historico-financeiro.fr3'), {
+      frxDBDatasetDados: [
+        { TIPO: 'ARECEBER', CODPARCEIRO: 992887, RAZAO: 'CLIENTE 287', DTVENDA_COMPRA: '2026-08-01T00:00:00', DTVENC: '2026-08-23T00:00:00', VALOR: 100, TXJUROS: 3, TOTAL_COM_JUROS: 104, DUPLICATA: 'D1', SALDO: null, SALDO_COM_JURO: null, VALOR_COM_JURO: null, CODNOVORCB: 0 },
+        { TIPO: 'ARECEBER', CODPARCEIRO: 992887, RAZAO: 'CLIENTE 287', DTVENDA_COMPRA: '2026-08-02T00:00:00', DTVENC: '2026-10-12T00:00:00', VALOR: 50, TXJUROS: 0, TOTAL_COM_JUROS: 50, DUPLICATA: 'D2', SALDO: null, SALDO_COM_JURO: null, VALOR_COM_JURO: null, CODNOVORCB: 0 },
+        { TIPO: 'APAGAR', CODPARCEIRO: 992887, RAZAO: 'CLIENTE 287', DTVENDA_COMPRA: '2026-08-03T00:00:00', DTVENC: '2026-10-07T00:00:00', VALOR: -40, TXJUROS: 0, TOTAL_COM_JUROS: 0, DUPLICATA: 'AP287', SALDO: null, SALDO_COM_JURO: null, VALOR_COM_JURO: null, CODNOVORCB: 0 },
+      ],
+      frxDBDataset1: [empresa],
+    }, agora));
+    expect(t).toContain('992887 - CLIENTE 287');
+    expect(t).toContain('Total ARECEBER');
+    expect(t).toContain('150');
+    expect(t).toContain('Total APAGAR');
+    expect(t).toContain('AP287');
+  });
+
+  it('cartão do cliente: a razão, o CPF do endereço e o código de barras Code-128A do CODPARCEIRO', () => {
+    const pgs = paginasDoModelo(modelo('cliente-cartao.fr3'), {
+      frxDBDatasetParceiro: [{ RAZAO: 'CLIENTE 287' }],
+      frxDBDatasetEnd: [{ CODPARCEIRO: 992887, CNPJ_CPF: '111.444.777-35' }],
+    }, agora);
+    const html = pgs.map((p) => p.html.join('')).join('');
+    expect(texto(pgs)).toContain('CLIENTE 287');
+    expect(texto(pgs)).toContain('CPF: 111.444.777-35');
+    expect(html).toContain('<svg');
+  });
 });
