@@ -401,4 +401,27 @@ describe('relatórios do legado com vários datasets', () => {
     expect(f).toContain('Nro. NF: 000290001');
     expect(f).toContain('Total Venda:46');
   });
+
+  it('análise de NF (formas de pagamento, CST e ICMS-ST): as parcelas pelo fornecedor, o CST por nota e o ICMS-ST a recolher com os totais', () => {
+    const fp = texto(paginasDoModelo(modelo('nf-analise-formas-pagamento.fr3'), {
+      frxFormasPagto: [{ CODFORNECEDOR: 2, FORNECEDOR: 'FORN A', NRONF: '291001', DTEMISSAO: '2061-03-10T00:00:00', IDEMPRESA: 1, MODALIDADE: 'A PAGAR', NRO_PARCELA: '1 DE 2', TIPO: 'E', TOTALNF: 130, VALOR_FAT: 65 },
+        { CODFORNECEDOR: 2, FORNECEDOR: 'FORN A', NRONF: '291001', DTEMISSAO: '2061-03-10T00:00:00', IDEMPRESA: 1, MODALIDADE: 'A PAGAR', NRO_PARCELA: '2 DE 2', TIPO: 'E', TOTALNF: 130, VALOR_FAT: 65 }],
+    }, agora, { PERIODO: "'Período de 10/03/2061 até 10/03/2061'" }));
+    expect(fp).toContain('FORN A');
+    expect(fp).toContain('1 DE 2');
+    expect(fp).toContain('2 DE 2');
+    const cst = texto(paginasDoModelo(modelo('nf-analise-por-cst.fr3'), {
+      frxDBConsulta: [{ IDEMPRESA: 1, CODIGO: 2, PARCEIRO: 'FORN A', NRONF: '291001', DTCONTABIL: '2061-03-10T00:00:00', VLRTOTAL: 100, TOTALNF: 130, VRBASECALCULO: 50, VLR_RED_BC: 50, VRICM: 9,
+        ALIQUOTA: '18', CFOP: '1102', CST: 20, TOTALPROD: 130, TOTALACESSORIAS: 0, TOTALIPI: 0, TOTALICM_ST: 0, TOTALDESC: 0 }],
+    }, agora, { PERIODO: "'Período de 10/03/2061 até 10/03/2061'", EMPRESAS: "'Empresa(s):1'" }));
+    expect(cst).toContain('291001');
+    expect(cst).toContain('FORN A');
+    const st = texto(paginasDoModelo(modelo('nf-analise-icms-st.fr3'), {
+      frxDBConsulta: [{ NRONF: '291001', DTCONTABIL: '2061-03-10T00:00:00', CNPJ_DESTINATARIO: '37954975000169', RAZAO_DESTINATARIO: 'HIPER PINHEIRAO', UF_DESTINATARIO: 'MG',
+        CNPJ_REMETENTE: '04892455000110', RAZAO_REMETENTE: 'FORN A', UF_REMETENTE: 'SP', CODBARRA: '7899000992911', DESCRICAO: 'CST 291 ST', NCM: '22021000', QUANTIDADE: 3, VALOR: 30, MVA: 40,
+        ALIQ_CREDITO: 12, ALIQ_INTERNA: 18, ICMS_OPERACAO_BC: 0, ICMS_OPERACAO_VALOR: 0, ICMS_ST_BC: 40, ICMS_ST_VALOR: 7, ICMS_ST_RECOLHER: 5, MVA_AJUSTADO: 0, ICMS_ST_PAGO_FONTE: 0, ICMS_ST_APAGAR: 0 }],
+    }, agora, { PERIODO: "'Período de 10/03/2061 até 10/03/2061'", EMPRESAS: "'Empresa(s):1'" }));
+    expect(st).toContain('CST 291 ST');
+    expect(st).toContain('5,00');
+  });
 });

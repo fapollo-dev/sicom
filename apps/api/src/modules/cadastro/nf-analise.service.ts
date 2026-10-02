@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
+import { ConfigService } from './config.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
@@ -9,7 +10,9 @@ import { colunasNumericas, dataBr, registroFr3, textoVariavel } from '../../shar
 
 type AnyDB = Kysely<any>;
 
-export type ModeloAnalise = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS';
+export type ModeloAnalise = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS'
+  | 'FORMAS_PAGAMENTO' | 'POR_CST' | 'ICMS_ST_RECOLHER';
+const CONSULTAS: ModeloAnalise[] = ['FORMAS_PAGAMENTO', 'POR_CST', 'ICMS_ST_RECOLHER'];
 const PRECOS: ModeloAnalise[] = ['PRECIFICACAO', 'PRECO_FORNECEDOR', 'PRECO_FORNECEDOR_ITENS'];
 
 export interface FiltroAnalise {
@@ -38,6 +41,8 @@ export interface FiltroAnalise {
   cfopPrecificacao?: boolean;
   desconsiderarTransfEntrada?: boolean;
   agrupar?: boolean;
+  modalidade?: string | null;
+  cfopEstado?: 'D' | 'F' | null;
 }
 
 /**
@@ -65,7 +70,10 @@ export interface FiltroAnalise {
  */
 @Injectable()
 export class NfAnaliseService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -80,6 +88,16 @@ export class NfAnaliseService {
   }> {
     const db = this.dbp.forTenantRead() as AnyDB;
     if (!f.dataIni || !f.dataFim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
+    if (CONSULTAS.includes(modelo)) {
+      const linhas = await this.consultas(db, modelo, f, await empresasDoOperador(db, f.empresas));
+      const num = (v: unknown) => (v == null ? 0 : Number(v));
+      const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+      const campo = modelo === 'FORMAS_PAGAMENTO' ? 'valor_fat' : modelo === 'POR_CST' ? 'vlrtotal' : 'icms_st_recolher';
+      return {
+        modelo, linhas, truncado: false,
+        totais: { notas: new Set(linhas.map((l) => String(l.nronf))).size, totalnf: r2(linhas.reduce((a, l) => a + num(l[campo]), 0)), totalprod: 0, totalisento: 0, divergencia: 0 },
+      };
+    }
     if (PRECOS.includes(modelo)) {
       const linhas = await this.precos(db, modelo, f, await empresasDoOperador(db, f.empresas));
       const num = (v: unknown) => (v == null ? 0 : Number(v));
@@ -182,6 +200,20 @@ export class NfAnaliseService {
     const onde = this.filtros(empresas, f);
     const periodo = textoVariavel(`Período de ${dataBr(f.dataIni)} até ${dataBr(f.dataFim)}`);
     if (PRECOS.includes(modelo)) return this.impressaoPrecos(db, modelo, f, empresas);
+    if (CONSULTAS.includes(modelo)) {
+      const linhas = await this.consultas(db, modelo, f, empresas);
+      if (!linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi encontrado registro(s) para essa consulta...tente novamente com um novo filtro!');
+      const numsC = await colunasNumericas(db, ['nf', 'nf_prod', 'faturamento'], ['valor_fat', 'vlrtotal', 'vrbasecalculo', 'vlr_red_bc', 'vricm', 'total_desconto', 'valor',
+        'icms_operacao_bc', 'icms_operacao_valor', 'icms_st_bc', 'icms_st_valor', 'icms_st_recolher', 'mva', 'aliq_credito', 'aliq_interna', 'quantidade']);
+      const ds = linhas.map((l) => registroFr3(l, numsC));
+      const arquivo = modelo === 'FORMAS_PAGAMENTO' ? 'Notas_fiscais_analise_formas_pagamento.fr3' : modelo === 'POR_CST' ? 'Notas_fiscais_analise_por_cst.fr3' : 'Notas_fiscais_analise_conferencia_icms_st_recolher.fr3';
+      return {
+        titulo: modelo === 'FORMAS_PAGAMENTO' ? 'Análise de formas de pagamento' : modelo === 'POR_CST' ? 'Análise situação tributária por CST' : 'Conferência de ICMS ST a recolher',
+        modelo: await modeloFr3(db, arquivo),
+        datasets: modelo === 'FORMAS_PAGAMENTO' ? { frxFormasPagto: ds } : { frxDBConsulta: ds },
+        variaveis: modelo === 'FORMAS_PAGAMENTO' ? { PERIODO: periodo } : { PERIODO: periodo, EMPRESAS: textoVariavel(`Empresa(s):${empresas.join(',')}`) },
+      };
+    }
     const semRegistro = () => new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi encontrado registro(s) para essa consulta...tente novamente com um novo filtro!');
     const nums = await colunasNumericas(db, ['nf', 'nf_prod', 'nf_contabil'], ['valor', 'total', 'quantidade', 'icme']);
 
@@ -387,5 +419,123 @@ export class NfAnaliseService {
       datasets,
       variaveis: { PERIODO: textoVariavel(periodo) },
     };
+  }
+
+  /**
+   * As opções 6, 7 e 9 (`GeraConsulta`): formas de pagamento (`sqqFormasPagto` — o faturamento da nota, com o lote de faturamento, que a
+   * LOTE_FATURAMENTO vazia da produção deixa nulo), situação tributária por CST (`GetSqlAnalisePorCST`) e a conferência de ICMS-ST a
+   * recolher (`GetSqlAnaliseConferenciaIcmsStARecolher`, acima do mínimo de VALOR_MIN_ICMSST_A_RECOLHER — a view GET_VLR_MIN_ICMSARECOLHER).
+   * Os filtros de cada uma são os do legado; o número da nota das 7/8/9 entra como LIKE (o legado monta `LIKE %x%` sem aspas e a consulta
+   * falha — a intenção).
+   */
+  private async consultas(db: AnyDB, modelo: ModeloAnalise, f: FiltroAnalise, empresas: number[]): Promise<Array<Record<string, unknown>>> {
+    const DT = `'YYYY-MM-DD"T"00:00:00'`;
+    if (modelo === 'FORMAS_PAGAMENTO') {
+      const onde = [sql`nf.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date`, sql`nf.idempresa = ANY(${empresas}::int[])`];
+      if (f.tipo === 'E' || f.tipo === 'S') onde.push(sql`nf.tipo = ${f.tipo}`);
+      if (f.nronf) onde.push(sql`nf.nronf = ${f.nronf}`);
+      if (f.razao) onde.push(sql`p.razao ILIKE ${`%${f.razao}%`}`);
+      else if (f.codparceiro) onde.push(sql`nf.codparceiro = ${f.codparceiro}`);
+      if (f.cfop) onde.push(sql`nf.cfop = ${String(f.cfop)}`);
+      if (f.processadas === 'S') onde.push(sql`nf.proc = 'S'`);
+      if (f.processadas === 'N') onde.push(sql`(nf.proc = 'N' OR nf.proc IS NULL)`);
+      if (f.modalidade) onde.push(sql`f.modalidade = ${f.modalidade}`);
+      return (await sql<Record<string, unknown>>`
+        SELECT nf.tipo, nf.codparceiro AS codfornecedor, p.razao AS fornecedor, to_char(nf.dtemissao, ${sql.raw(DT)}) AS dtemissao, nf.idempresa,
+               f.modalidade, f.valor AS valor_fat, f.codfaturamento, to_char(f.data, ${sql.raw(DT)}) AS data_fat, f.idnf, f.liberado, f.codoperador,
+               f.nrofatura, f.totalparcelasfatura, concat(f.nrofatura, ' DE ', f.totalparcelasfatura) AS nro_parcela, nf.nronf,
+               to_char(nf.dtchegada, ${sql.raw(DT)}) AS dtchegada, nf.totalnf, nf.modelo, nf.serie,
+               NULL::integer AS codfat, NULL::date AS data, NULL::numeric AS valor, NULL::varchar AS destino, NULL::integer AS idlotefat, NULL::varchar AS destino_ext
+          FROM faturamento f
+          LEFT JOIN nf nf      ON f.idnf = nf.codnf
+          LEFT JOIN parceiros p ON nf.codparceiro = p.codparceiro
+         WHERE ${sql.join(onde, sql` AND `)}
+         ORDER BY nf.codparceiro, nf.nronf, f.nrofatura`.execute(db)).rows;
+    }
+    // os filtros das 7/8/9 (o CFOP da 7 é o do ITEM)
+    const cfopCol = modelo === 'POR_CST' ? sql`np.cfop` : sql`n.cfop`;
+    const onde = [sql`n.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date`, sql`n.idempresa = ANY(${empresas}::int[])`];
+    if (f.tipo === 'E' || f.tipo === 'S') onde.push(sql`n.tipo = ${f.tipo}`);
+    if (f.cfopEstado) {
+      const ini = f.cfopEstado === 'D' ? (f.tipo === 'E' ? ['1'] : f.tipo === 'S' ? ['5'] : ['1', '5']) : (f.tipo === 'E' ? ['2'] : f.tipo === 'S' ? ['6'] : ['2', '6']);
+      onde.push(sql`substr(${cfopCol}::text, 1, 1) = ANY(${ini}::text[])`);
+    }
+    if (f.nronf) onde.push(sql`n.nronf LIKE ${`%${f.nronf}%`}`);
+    if (f.razao) onde.push(sql`p.razao ILIKE ${`%${f.razao}%`}`);
+    else if (f.codparceiro) onde.push(sql`n.codparceiro = ${f.codparceiro}`);
+    if (f.cfop) onde.push(sql`${cfopCol}::text = ${String(f.cfop)}`);
+    if (modelo === 'POR_CST') {
+      if (f.coddpto) onde.push(sql`pr.coddpto = ${f.coddpto}`);
+      if (f.codbarra) onde.push(sql`pr.codbarra = ${f.codbarra}`);
+      if (f.codgrupo) onde.push(sql`pr.codgrupo = ${f.codgrupo}`);
+      if (f.codsubgrupo) onde.push(sql`pr.codsubgrupo = ${f.codsubgrupo}`);
+    }
+    if (f.processadas === 'S') onde.push(sql`n.proc = 'S'`);
+    if (f.processadas === 'N') onde.push(sql`(n.proc = 'N' OR n.proc IS NULL)`);
+    if (!f.incluirDevolucao) onde.push(sql`(coalesce(c.devolucao, 'N') <> 'S')`);
+    if (f.movimentaEstoque) onde.push(sql`c.proc_qtde = 'S'`);
+    if (f.somenteDiferencas) onde.push(sql`n.totalnf <> (SELECT coalesce(sum(e.valor), 0.01)::numeric(15,2) FROM nf_contabil e WHERE e.codnf = n.codnf)`);
+    const filtro = sql.join(onde, sql` AND `);
+    if (modelo === 'POR_CST') {
+      return (await sql<Record<string, unknown>>`
+        SELECT idempresa, codigo, parceiro, nronf, to_char(dtcontabil, ${sql.raw(DT)}) AS dtcontabil, sum(vlrtotal) AS vlrtotal, totalnf,
+               sum(vrbasecalculo) AS vrbasecalculo, sum(vlr_red_bc) AS vlr_red_bc, sum(vricm) AS vricm, aliq_icme AS aliquota, cfop, cst, totalprod,
+               totalfrete, totalseguro, totalacessorias, totalipi, totalicm_st, total_fcp_valor_st, valorservico, totalvroutros, totaldescfinal,
+               totaldesc, (totaldescfinal + (totaldesc * -1)) AS total_desconto, total_icmsdeson
+          FROM (SELECT CASE WHEN substr(np.aliquota, 1, 1) = 'T' THEN replace(rtrim(rtrim(np.icme::text, '0'), '.'), '.', ',') ELSE np.aliquota END AS aliq_icme,
+                       sum(np.vrcusto * np.quantidade) AS vlrtotal, sum(np.vrbasecalculo) AS vrbasecalculo, sum(np.vricm) AS vricm,
+                       np.cfop, np.icme, np.cst,
+                       CASE WHEN np.bcr BETWEEN 0.001 AND 100.000 THEN trunc(((sum(np.vrbasecalculo) * 100) / np.bcr) - sum(np.vrbasecalculo), 2) ELSE 0.00 END AS vlr_red_bc,
+                       n.codparceiro AS codigo, p.razao AS parceiro, n.nronf, n.dtcontabil, n.idempresa, coalesce(n.totalnf, 0) AS totalnf,
+                       coalesce(n.totalprod, 0) AS totalprod, coalesce(n.totalfrete, 0) AS totalfrete, coalesce(n.totalseguro, 0) AS totalseguro,
+                       coalesce(n.totalacessorias, 0) AS totalacessorias, coalesce(n.totalipi, 0) AS totalipi, coalesce(n.totalicm_st, 0) AS totalicm_st,
+                       coalesce(n.total_fcp_valor_st, 0) AS total_fcp_valor_st, coalesce(n.valorservico, 0) AS valorservico,
+                       coalesce(n.totalvroutros, 0) AS totalvroutros, coalesce(n.totaldescfinal, 0) AS totaldescfinal,
+                       (coalesce(n.totaldesc, 0) * -1) AS totaldesc, coalesce(n.total_icmsdeson, 0) AS total_icmsdeson
+                  FROM nf_prod np
+                  LEFT JOIN nf n        ON n.codnf = np.codnf
+                  LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+                  LEFT JOIN cfop c      ON c.codcfop = n.cfop
+                  LEFT JOIN produtos pr ON pr.idproduto = np.codproduto
+                 WHERE ${filtro}
+                 GROUP BY np.cfop, np.aliquota, np.cst, np.icme, np.bcr, n.codparceiro, p.razao, n.nronf, n.dtcontabil, n.idempresa, n.totalnf, n.totalprod,
+                          n.totalfrete, n.totalseguro, n.totalacessorias, n.totalipi, n.totalicm_st, n.total_fcp_valor_st, n.valorservico, n.totalvroutros,
+                          n.totaldescfinal, n.totaldesc, n.total_icmsdeson) t
+         GROUP BY cfop, cst, aliq_icme, codigo, parceiro, nronf, dtcontabil, idempresa, totalnf, totalprod, totalfrete, totalseguro, totalacessorias,
+                  totalipi, totalicm_st, total_fcp_valor_st, valorservico, totalvroutros, totaldescfinal, totaldesc, total_icmsdeson
+         ORDER BY idempresa, dtcontabil, parceiro, nronf, aliq_icme, cfop, cst`.execute(db)).rows;
+    }
+    // ICMS-ST a recolher (o mínimo da VALOR_MIN_ICMSST_A_RECOLHER, a view GET_VLR_MIN_ICMSARECOLHER — 0 na produção)
+    const minimo = Number((await this.config.resolver('VALOR_MIN_ICMSST_A_RECOLHER', { empresaId: this.emp() })) ?? 0) || 0;
+    return (await sql<Record<string, unknown>>`
+      SELECT nronf, to_char(dtcontabil, ${sql.raw(DT)}) AS dtcontabil, cnpj_destinatario, razao_destinatario, uf_destinatario, cnpj_remetente,
+             razao_remetente, uf_remetente, codbarra, descricao, ncm, quantidade, valor, mva, aliq_credito, aliq_interna, icms_operacao_bc,
+             icms_operacao_valor, icms_st_bc, icms_st_valor, icms_st_recolher, mva_ajustado, icms_st_pago_fonte, icms_st_apagar
+        FROM (SELECT n.nronf, n.dtcontabil::date AS dtcontabil, ep.cnpj AS cnpj_destinatario, ep.razao_social AS razao_destinatario, ep.uf AS uf_destinatario,
+                     e.cnpj_cpf AS cnpj_remetente, p.razao AS razao_remetente, e.uf AS uf_remetente, pr.codbarra, np.descricao, np.ncm, np.quantidade,
+                     np.quantidade * np.vrcusto AS valor, i.mva, i.icm_fonte AS aliq_credito, i.aliquota_dest AS aliq_interna,
+                     np.vrbasecalculo AS icms_operacao_bc, np.vricm AS icms_operacao_valor, np.vrbase_stexterno AS icms_st_bc, np.streal AS icms_st_valor,
+                     np.vricms_stexterno AS icms_st_recolher, coalesce(np.mva_ajustado, 0) AS mva_ajustado,
+                     coalesce(n.icms_st_pago_fonte, 0) AS icms_st_pago_fonte, coalesce(n.icms_st_apagar, 0) AS icms_st_apagar
+                FROM nf_prod np
+                JOIN nf n ON n.codnf = np.codnf
+                LEFT JOIN parceiros p      ON p.codparceiro = n.codparceiro
+                LEFT JOIN parceiros_end e  ON e.codend = n.codparceiro_end
+                LEFT JOIN empresas ep      ON ep.idempresa = n.idempresa
+                LEFT JOIN produtos pr      ON pr.idproduto = np.codproduto
+                LEFT JOIN indexador_tributario i ON i.codindexadortributario = np.indexadortrib
+                LEFT JOIN cfop c           ON c.codcfop = n.cfop
+               WHERE ${filtro}) t
+       WHERE icms_st_recolher > ${minimo}
+       GROUP BY cnpj_destinatario, razao_destinatario, cnpj_remetente, razao_remetente, nronf, valor, codbarra, descricao, ncm, quantidade, dtcontabil,
+                uf_destinatario, uf_remetente, mva, aliq_credito, aliq_interna, icms_operacao_bc, icms_operacao_valor, icms_st_bc, icms_st_valor,
+                icms_st_recolher, mva_ajustado, icms_st_pago_fonte, icms_st_apagar
+       ORDER BY cnpj_destinatario, razao_remetente, nronf, descricao`.execute(db)).rows;
+  }
+
+  /** as modalidades do faturamento para o combo da opção 6 (`SELECT DISTINCT MODALIDADE FROM FATURAMENTO`) */
+  async modalidades(): Promise<string[]> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    return (await sql<{ m: string | null }>`SELECT DISTINCT modalidade AS m FROM faturamento WHERE modalidade IS NOT NULL ORDER BY 1`.execute(db)).rows.map((r) => String(r.m));
   }
 }

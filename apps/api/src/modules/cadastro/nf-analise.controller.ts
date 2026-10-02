@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { analiseNfSchema, type AnaliseNfDto } from '@apollo/shared';
 import { NfAnaliseService } from './nf-analise.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -20,6 +20,13 @@ export class NfAnaliseController {
   analisar(@Body(new ZodValidationPipe(analiseNfSchema)) body: AnaliseNfDto) {
     const { modelo, ...f } = body;
     return this.svc.analisar(modelo, f as never);
+  }
+
+  /** as modalidades do faturamento (o combo da opção 6) */
+  @Get('modalidades')
+  @RequerAcesso('FRMNFANALISE', 'FRMNFANALISE')
+  modalidades() {
+    return this.svc.modalidades();
   }
 
   /** o "[F11] Imprimir" da opção: o layout .fr3 do cliente (1, 3 e 8 neste corte) */

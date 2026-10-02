@@ -125,7 +125,7 @@ export type ExecutarRelatorioDto = z.infer<typeof executarRelatorioSchema>;
  */
 export const analiseNfSchema = z
   .object({
-    modelo: z.enum(['TRIBUTARIA', 'TRIBUTARIA_PRODUTOS', 'CONFERENCIA', 'PRECIFICACAO', 'PRECO_FORNECEDOR', 'PRECO_FORNECEDOR_ITENS']),
+    modelo: z.enum(['TRIBUTARIA', 'TRIBUTARIA_PRODUTOS', 'CONFERENCIA', 'PRECIFICACAO', 'PRECO_FORNECEDOR', 'PRECO_FORNECEDOR_ITENS', 'FORMAS_PAGAMENTO', 'POR_CST', 'ICMS_ST_RECOLHER']),
     dataIni: dataISO,
     dataFim: dataISO,
     tipo: z.enum(['T', 'E', 'S']).optional(),
@@ -151,6 +151,10 @@ export const analiseNfSchema = z
     desconsiderarTransfEntrada: z.boolean().optional(),
     /** "Agrupar análise de precificação" */
     agrupar: z.boolean().optional(),
+    /** formas de pagamento (6): a modalidade do faturamento (vazio = todas) */
+    modalidade: z.string().max(40).nullish(),
+    /** CST, conferência e ICMS-ST (7, 8, 9): o CFOP de dentro ('D': 1/5) ou de fora do estado ('F': 2/6) */
+    cfopEstado: z.enum(['D', 'F']).nullish(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type AnaliseNfDto = z.infer<typeof analiseNfSchema>;

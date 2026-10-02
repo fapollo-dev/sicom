@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import type { AnaliseNfDto } from '@apollo/shared';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
@@ -36,9 +36,9 @@ const MODELOS = [
   { id: 'TRIBUTARIA_PRODUTOS', n: 3, label: 'Situação tributária por produtos', ok: true },
   { id: 'PRECO_FORNECEDOR', n: 4, label: 'Precificação agrupada por fornecedor', ok: true },
   { id: 'PRECO_FORNECEDOR_ITENS', n: 5, label: 'Precificação agrupada por fornecedor — itens', ok: true },
-  { id: 'x6', n: 6, label: 'Análise de formas de pagamento', nota: 'próximo corte' },
-  { id: 'x7', n: 7, label: 'Situação tributária por CST', nota: 'próximo corte' },
-  { id: 'x9', n: 9, label: 'Conferência de ICMS-ST a recolher', nota: 'demonstrativo de 24 colunas sobre notas não cadastradas' },
+  { id: 'FORMAS_PAGAMENTO', n: 6, label: 'Análise de formas de pagamento', ok: true },
+  { id: 'POR_CST', n: 7, label: 'Situação tributária por CST', ok: true },
+  { id: 'ICMS_ST_RECOLHER', n: 9, label: 'Conferência de ICMS-ST a recolher', ok: true },
 ];
 
 const moeda = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
@@ -48,15 +48,23 @@ const inicioMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 export function NfAnalisePage() {
   const mensagem = useMensagem();
-  type Modelo = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS';
+  type Modelo = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS'
+    | 'FORMAS_PAGAMENTO' | 'POR_CST' | 'ICMS_ST_RECOLHER';
   const [modelo, setModelo] = useState<Modelo>('TRIBUTARIA');
+  const consulta = modelo === 'FORMAS_PAGAMENTO' || modelo === 'POR_CST' || modelo === 'ICMS_ST_RECOLHER';
   const preco = modelo === 'PRECIFICACAO' || modelo === 'PRECO_FORNECEDOR' || modelo === 'PRECO_FORNECEDOR_ITENS';
   const [f, setF] = useState({
     dataIni: inicioMes(), dataFim: hoje(), tipo: 'T' as 'T' | 'E' | 'S',
     nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T',
     incluirDevolucao: false, somenteDiferencas: false, movimentaEstoque: false, empresas: '',
     coddpto: '', codbarra: '', codgrupo: '', codsubgrupo: '', cfopPrecificacao: false, desconsiderarTransfEntrada: true, agrupar: false,
+    modalidade: '', cfopEstado: '' as '' | 'D' | 'F',
   });
+  const [modalidades, setModalidades] = useState<string[]>([]);
+  useEffect(() => {
+    if (modelo !== 'FORMAS_PAGAMENTO' || modalidades.length) return;
+    fetch(`${BASE}/fiscal/nf-analise/modalidades`, { headers: apiHeaders() }).then((r) => (r.ok ? r.json() : [])).then((m) => setModalidades(m as string[])).catch(() => undefined);
+  }, [modelo, modalidades.length]);
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -69,6 +77,7 @@ export function NfAnalisePage() {
     coddpto: f.coddpto ? Number(f.coddpto) : null, codbarra: f.codbarra || null,
     codgrupo: f.codgrupo ? Number(f.codgrupo) : null, codsubgrupo: f.codsubgrupo ? Number(f.codsubgrupo) : null,
     cfopPrecificacao: f.cfopPrecificacao, desconsiderarTransfEntrada: f.desconsiderarTransfEntrada, agrupar: f.agrupar,
+    modalidade: f.modalidade || null, cfopEstado: f.cfopEstado || null,
   });
   const gerar = async () => {
     setOcupado(true);
@@ -93,6 +102,14 @@ export function NfAnalisePage() {
   };
 
   const cols = useMemo<DataTableColumnDef<Record<string, unknown>>[]>(() => {
+    if (consulta) {
+      const n2 = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      const c = (field: string, headerName: string, num = false, width = 110): DataTableColumnDef<Record<string, unknown>> =>
+        ({ field, headerName, type: 'text', width, ...(num ? { valueGetter: (l: Record<string, unknown>) => n2(l[field]) } : {}) });
+      if (modelo === 'FORMAS_PAGAMENTO') return [c('nronf', 'Nº NF', false, 100), c('fornecedor', 'Parceiro', false, 220), c('modalidade', 'Modalidade'), c('nro_parcela', 'Parcela'), c('valor_fat', 'Valor', true), c('totalnf', 'Total NF', true)];
+      if (modelo === 'POR_CST') return [c('nronf', 'Nº NF', false, 100), c('parceiro', 'Parceiro', false, 220), c('cfop', 'CFOP', false, 80), c('cst', 'CST', false, 70), c('aliquota', 'Alíq.', false, 70), c('vlrtotal', 'Valor', true), c('vrbasecalculo', 'Base ICMS', true), c('vlr_red_bc', 'Redução BC', true), c('vricm', 'ICMS', true)];
+      return [c('nronf', 'Nº NF', false, 100), c('razao_remetente', 'Remetente', false, 200), c('descricao', 'Produto', false, 220), c('valor', 'Valor', true), c('icms_st_bc', 'BC ST', true), c('icms_st_valor', 'ST nota', true), c('icms_st_recolher', 'ST a recolher', true)];
+    }
     if (preco) {
       const n2 = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       return [
@@ -130,7 +147,7 @@ export function NfAnalisePage() {
       );
     }
     return base;
-  }, [modelo, preco]);
+  }, [modelo, preco, consulta]);
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -144,7 +161,6 @@ export function NfAnalisePage() {
                 onChange={() => m.ok && setModelo(m.id as Modelo)} />
               <span>
                 <span className="block text-body-md">{m.n} — {m.label}</span>
-                {m.nota && <span className="block text-body-sm text-fg-muted">{m.nota}</span>}
               </span>
             </label>
           ))}
@@ -168,7 +184,7 @@ export function NfAnalisePage() {
             <input type="checkbox" checked={f.incluirDevolucao} onChange={(e) => setF({ ...f, incluirDevolucao: e.target.checked })} />
             Incluir notas de devolução
           </label>
-          {!preco && modelo !== 'CONFERENCIA' && (
+          {!preco && modelo !== 'FORMAS_PAGAMENTO' && (
             <label className="flex items-center gap-gp-sm text-body-sm">
               <input type="checkbox" checked={f.somenteDiferencas} onChange={(e) => setF({ ...f, somenteDiferencas: e.target.checked })} />
               Somente diferenças <span className="text-fg-muted">(o rateio contábil não fecha com o total)</span>
@@ -178,6 +194,20 @@ export function NfAnalisePage() {
             <input type="checkbox" checked={f.movimentaEstoque} onChange={(e) => setF({ ...f, movimentaEstoque: e.target.checked })} />
             NF que movimenta estoque
           </label>
+          {modelo === 'FORMAS_PAGAMENTO' && (
+            <div className="w-44"><SelectField label="Forma de pagamento" options={[{ value: '', label: 'Todos' }, ...modalidades.map((m) => ({ value: m, label: m }))]}
+              value={f.modalidade} onChange={(v) => setF({ ...f, modalidade: (v as string) ?? '' })} /></div>
+          )}
+          {(modelo === 'POR_CST' || modelo === 'CONFERENCIA' || modelo === 'ICMS_ST_RECOLHER') && (
+            <div className="w-44"><SelectField label="CFOP" options={[{ value: '', label: 'Todos' }, { value: 'D', label: 'Dentro do estado' }, { value: 'F', label: 'Fora do estado' }]}
+              value={f.cfopEstado} onChange={(v) => setF({ ...f, cfopEstado: ((v as string) ?? '') as '' | 'D' | 'F' })} /></div>
+          )}
+          {modelo === 'POR_CST' && (
+            <>
+              <div className="w-24"><Field label="Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value.replace(/\D/g, '') })} /></div>
+              <div className="w-36"><Field label="Produto (barras)" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value.trim() })} /></div>
+            </>
+          )}
           {preco && (
             <>
               <div className="w-24"><Field label="Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value.replace(/\D/g, '') })} /></div>
@@ -186,9 +216,11 @@ export function NfAnalisePage() {
                   <div className="w-36"><Field label="Produto (barras)" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value.trim() })} /></div>
                   <div className="w-24"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value.replace(/\D/g, '') })} /></div>
                   <div className="w-24"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value.replace(/\D/g, '') })} /></div>
-                  <label className="flex items-center gap-gp-sm text-body-sm">
-                    <input type="checkbox" checked={f.cfopPrecificacao} onChange={(e) => setF({ ...f, cfopPrecificacao: e.target.checked })} /> CFOP precificação
-                  </label>
+                  {modelo === 'PRECIFICACAO' && (
+                    <label className="flex items-center gap-gp-sm text-body-sm">
+                      <input type="checkbox" checked={f.cfopPrecificacao} onChange={(e) => setF({ ...f, cfopPrecificacao: e.target.checked })} /> CFOP precificação
+                    </label>
+                  )}
                 </>
               )}
               {modelo === 'PRECO_FORNECEDOR_ITENS' && (
@@ -196,9 +228,11 @@ export function NfAnalisePage() {
                   <input type="checkbox" checked={f.desconsiderarTransfEntrada} onChange={(e) => setF({ ...f, desconsiderarTransfEntrada: e.target.checked })} /> Desconsiderar CFOPs de transferência de entrada
                 </label>
               )}
-              <label className="flex items-center gap-gp-sm text-body-sm">
-                <input type="checkbox" checked={f.agrupar} onChange={(e) => setF({ ...f, agrupar: e.target.checked })} /> Agrupar análise de precificação
-              </label>
+              {modelo === 'PRECIFICACAO' && (
+                <label className="flex items-center gap-gp-sm text-body-sm">
+                  <input type="checkbox" checked={f.agrupar} onChange={(e) => setF({ ...f, agrupar: e.target.checked })} /> Agrupar análise de precificação
+                </label>
+              )}
             </>
           )}
           <div className="w-36"><Field label="Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>

@@ -15,10 +15,10 @@ comum e um `.fr3` por análise:
 | 3 | Situação tributária por produtos | ✅ corte 2 |
 | 4 | Precificação agrupada por fornecedor | ✅ corte 3 |
 | 5 | Precificação agrupada por fornecedor — itens | ✅ corte 3 |
-| 6 | Análise de formas de pagamento | — |
-| 7 | Situação tributária por CST | — |
+| 6 | Análise de formas de pagamento | ✅ corte 4 |
+| 7 | Situação tributária por CST | ✅ corte 4 |
 | 8 | Análise de conferência de notas | ✅ |
-| 9 | Conferência de ICMS-ST a recolher | — |
+| 9 | Conferência de ICMS-ST a recolher | ✅ corte 4 |
 
 Prova por tabela (a regra: o nome é chute, a tabela que o data module consulta é prova): `NF` (11 ocorrências),
 `NF_PROD` (14), `PARCEIROS` (10), `CFOP` (10), `PRODUTOS` (8), `ESTOQUE` (5), `CODCONTABILNF` (4),
@@ -109,3 +109,20 @@ seu próprio parâmetro (`GET_VLR_MIN_ICMSARECOLHER`).
   nesse layout é o do registro corrente do frxDBnfPreco (o primeiro — quirk do layout). PERIODO leva "DEPTO: <nome>". O total geral das
   notas é acumulado pelo script do layout no cabeçalho do grupo (`<TotalNF>` — o motor passou a ler a variável do script).
 - Restam 6 (formas de pagamento), 7 (CST) e 9 (ICMS-ST a recolher). Smoke §290.
+
+## 8. Corte 4 (02/10/2026) — formas de pagamento (6), CST (7) e ICMS-ST a recolher (9): a tela completa
+
+- **6 — formas de pagamento** (`sqqFormasPagto`): cada parcela do FATURAMENTO da nota ("N DE M"), com o filtro da modalidade (o combo é o
+  `SELECT DISTINCT MODALIDADE FROM FATURAMENTO` — na produção, A PAGAR e A RECEBER) e o número da nota EXATO; sem os filtros de devolução
+  e estoque (o legado não os aplica aqui). O lote de faturamento (LOTE_FATURAMENTO/_DETALHE) sai nulo: **0 linhas na produção** e fora do
+  destino. Layout `Notas_fiscais_analise_formas_pagamento.fr3` (frxFormasPagto, grupo pelo fornecedor).
+- **7 — por CST** (`GetSqlAnalisePorCST`): por nota × CFOP do ITEM × CST × alíquota (a "T…" mostra o ICMS do item), com o valor, a base, a
+  redução de base (`TRUNC(BC × 100 / BCR − BC, 2)` com BCR entre 0,001 e 100) e os totais da nota; filtros de departamento e produto.
+- **9 — ICMS-ST a recolher** (`GetSqlAnaliseConferenciaIcmsStARecolher`): os itens com ICMS-ST a recolher (VRICMS_STEXTERNO) acima do mínimo
+  da config VALOR_MIN_ICMSST_A_RECOLHER (a view GET_VLR_MIN_ICMSARECOLHER — 0 na produção), com o destinatário (a empresa), o remetente (o
+  endereço da nota), o indexador tributário (MVA, alíquota de crédito e a interna = `aliquota_dest`, o ALIQUOTA do legado) e os totais
+  da nota. A grade agrupada (rdgTipoRelGrid) não muda a impressão.
+- **CFOP dentro/fora do estado** (`cbCFOP`, nas 7/8/9): CFOP iniciado em 1/5 ou 2/6 conforme o tipo.
+- **Veredito**: nas 7/8/9 o legado monta o número da nota como `N.NRONF LIKE %x%` sem aspas — a consulta falha quando o campo é
+  preenchido; aqui o filtro é a intenção (LIKE).
+- **A tela está completa: as 9 análises e as 9 impressões.** Smoke §291.

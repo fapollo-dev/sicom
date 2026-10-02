@@ -27352,6 +27352,59 @@ async function main() {
         await pgPz.end();
       }
     }
+    // ══ §291 ANÁLISE DE NF — formas de pagamento (6), situação tributária por CST (7) e ICMS-ST a recolher (9) ══════
+    {
+      const pgFp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const notas: number[] = [];
+      try {
+        await pgFp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (992911, '7899000992911', 'CST 291', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        const n = Number((await pgFp.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, totalnf, totalprod)
+            VALUES (1, 2, '291001', 55, '1', 'E', 'S', 'N', '2061-03-10', '2061-03-10', '1102', 130, 130) RETURNING codnf`)).rows[0].codnf);
+        notas.push(n);
+        await pgFp.query(`INSERT INTO nf_prod (codnf, codproduto, descricao, quantidade, fatorembal, vrcusto, aliquota, icme, cst, bcr, vrbasecalculo, vricm, vricms_stexterno, vrbase_stexterno, streal, cfop, nroitem) VALUES
+            ($1, 992911, 'CST 291', 10, 1, 10, 'T18', 18, 20, 50, 50, 9, 0, 0, 0, '1102', 1),
+            ($1, 992911, 'CST 291 ST', 3, 1, 10, 'F', 0, 60, 0, 0, 0, 5, 40, 7, '1403', 2)`, [n]);
+        await pgFp.query(`INSERT INTO faturamento (data, idnf, modalidade, valor, nrofatura, totalparcelasfatura) VALUES ('2061-04-10', $1, 'A PAGAR', 65, 1, 2), ('2061-05-10', $1, 'A PAGAR', 65, 2, 2)`, [n]);
+        const corpo = (modelo: string, extra: Record<string, unknown> = {}) => JSON.stringify({ modelo, dataIni: '2061-03-10', dataFim: '2061-03-10', incluirDevolucao: true, ...extra });
+        const an = async (modelo: string, extra: Record<string, unknown> = {}) => (await (await fetch(`${base}/fiscal/nf-analise`, { method: 'POST', headers: H, body: corpo(modelo, extra) })).json().catch(() => ({}))) as any;
+        const fp = await an('FORMAS_PAGAMENTO', { nronf: '291001' });
+        const fpRec = await an('FORMAS_PAGAMENTO', { nronf: '291001', modalidade: 'A RECEBER' });
+        const cst = await an('POR_CST', { nronf: '291001' });
+        const cstFora = await an('POR_CST', { nronf: '291001', cfopEstado: 'F' });
+        const st = await an('ICMS_ST_RECOLHER', { nronf: '291001' });
+        const mods = (await (await fetch(`${base}/fiscal/nf-analise/modalidades`, { headers: H })).json().catch(() => [])) as string[];
+        const c18 = (cst.linhas ?? []).find((l: any) => String(l.cst) === '20');
+        check('ANÁLISE DE NF §291 [formas de pagamento, CST e ICMS-ST]: a 6 traz cada parcela do faturamento da nota ("1 DE 2"), filtra pela modalidade e lista as modalidades do faturamento; a 7 agrupa por CFOP × CST × alíquota (a "T18" mostra o ICMS 18) com o valor da redução de base (50 × 100 / 50 − 50 = 50); dentro do estado = CFOP 1/5; a 9 traz só o item com ICMS-ST a recolher acima do mínimo (0)',
+          (fp.linhas ?? []).length === 2 && fp.linhas[0].nro_parcela === '1 DE 2' && Number(fp.linhas[0].valor_fat) === 65 && (fpRec.linhas ?? []).length === 0
+          && mods.includes('A PAGAR')
+          && (cst.linhas ?? []).length === 2 && c18?.aliquota === '18' && Number(c18?.vlr_red_bc) === 50 && Number(c18?.vlrtotal) === 100
+          && (cstFora.linhas ?? []).length === 0
+          && (st.linhas ?? []).length === 1 && Number(st.linhas[0].icms_st_recolher) === 5 && st.linhas[0].descricao === 'CST 291 ST',
+          { fp: fp.linhas?.map((l: any) => [l.nro_parcela, l.valor_fat]), fpRec: (fpRec.linhas ?? []).length, mods, cst: cst.linhas?.map((l: any) => [l.cfop, l.cst, l.aliquota, l.vlr_red_bc, l.vlrtotal]), cstFora: (cstFora.linhas ?? []).length, st: st.linhas, code: cst.code });
+
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['Notas_fiscais_analise_formas_pagamento.fr3', 'Notas_fiscais_analise_por_cst.fr3', 'Notas_fiscais_analise_conferencia_icms_st_recolher.fr3'].entries()) {
+          await pgFp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992912 + i, nome, fr3(nome)]);
+        }
+        const imp = async (modelo: string) => { const r = await fetch(`${base}/fiscal/nf-analise/impressao`, { method: 'POST', headers: H, body: corpo(modelo, { nronf: '291001' }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const i6 = await imp('FORMAS_PAGAMENTO');
+        const i7 = await imp('POR_CST');
+        const i9 = await imp('ICMS_ST_RECOLHER');
+        check('ANÁLISE DE NF §291 [as impressões]: a 6 no frxFormasPagto com o PERIODO; a 7 e a 9 no frxDBConsulta com EMPRESAS e PERIODO',
+          i6.status === 200 && (i6.j.datasets?.frxFormasPagto ?? []).length === 2 && i6.j.datasets.frxFormasPagto[0].NRO_PARCELA === '1 DE 2'
+          && i7.status === 200 && (i7.j.datasets?.frxDBConsulta ?? []).length === 2 && i7.j.variaveis?.EMPRESAS === "'Empresa(s):1'"
+          && i9.status === 200 && i9.j.datasets?.frxDBConsulta?.[0]?.ICMS_ST_RECOLHER === 5,
+          { i6: [i6.status, i6.j.code], i7: [i7.status, i7.j.code, i7.j.variaveis], i9: [i9.status, i9.j.code, i9.j.datasets?.frxDBConsulta?.[0]] });
+      } finally {
+        await pgFp.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992912 AND 992914`).catch(() => undefined);
+        if (notas.length) {
+          await pgFp.query(`DELETE FROM faturamento WHERE idnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgFp.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgFp.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+        }
+        await pgFp.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
