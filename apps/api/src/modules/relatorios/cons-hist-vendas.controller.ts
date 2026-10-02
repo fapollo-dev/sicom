@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { consHistVendasSchema, histVendasListarSchema, type ConsHistVendasDto, type HistVendasListarDto } from '@apollo/shared';
 import { ConsHistVendasService } from './cons-hist-vendas.service';
@@ -32,6 +32,22 @@ export class ConsHistVendasController {
     const nro = String(body?.nropedido ?? '').trim();
     if (!nro) throw new BusinessRuleError('PEDIDO_NAO_INFORMADO');
     return this.svc.consultarPedido(nro);
+  }
+
+  /** o "Imprimir" (cupom ou pedido de balcão) e o "V.Troca" (os itens marcados) — os layouts .fr3 do cliente */
+  @Post('impressao/:modo')
+  @HttpCode(200)
+  @RequerAcessoDeAlgum(['FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS'], ['FRMCADPRODUTO', 'FRMCADPRODUTO'])
+  impressao(@Param('modo') modo: string, @Body() body: Record<string, unknown>) {
+    if (modo !== 'cupom' && modo !== 'pedido' && modo !== 'vale-troca') throw new BusinessRuleError('RELATORIO_DESCONHECIDO', { modo });
+    const itens = Array.isArray(body?.itens)
+      ? (body.itens as Array<{ nroitem?: unknown; qtd_troca?: unknown }>)
+          .map((m) => ({ nroitem: Number(m?.nroitem), qtd_troca: m?.qtd_troca == null ? null : Number(m.qtd_troca) }))
+          .filter((m) => Number.isInteger(m.nroitem))
+      : undefined;
+    if (modo === 'pedido') return this.svc.impressao(modo, { nropedido: String(body?.nropedido ?? '').trim() } as never);
+    const dto = consHistVendasSchema.parse(body);
+    return this.svc.impressao(modo, { ...dto, itens });
   }
 
   /** a LISTA de vendas do período (o botão de pesquisa do legado, sobre GET_HIST_VENDAS). */

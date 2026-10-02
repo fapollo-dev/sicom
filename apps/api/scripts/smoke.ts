@@ -27405,6 +27405,60 @@ async function main() {
         await pgFp.end();
       }
     }
+    // ══ §292 CONSULTA DE HISTÓRICO DE VENDAS — as impressões: o cupom, o pedido de balcão e o vale-troca ══════════
+    {
+      const pgHi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ped = '29150362100000';
+      try {
+        await pgHi.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (992920, '7899000992920', 'VT 292', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgHi.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, aliquota, cancelado, tipocanc, venda_nfc,
+                                             desc_promocao, desc_departamento, desc_acre_medio, desc_acre_item, desc_acre, codparceiro, codvendedor, operador) VALUES
+          (1,'2062-03-15 10:00:00-03',$1,'001',29201,1,992920,2,10.00,'A','T','N',NULL,'S',1.00,0,0.00,0,0,20,21,7),
+          (1,'2062-03-15 10:00:00-03',$1,'001',29201,2,992920,3, 5.00,'A','T','N',NULL,'S',0.00,0,0.50,0,0,20,21,7),
+          (1,'2062-03-15 10:00:00-03',$1,'001',29201,3,992920,1, 7.00,'A','T','S',NULL,'S',0.00,0,0.00,0,0,20,21,7)`, [ped]);
+        await pgHi.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, nropedido, operacao, valor, troco) VALUES (1,'2062-03-15 10:00:00-03',29,$1,'DINHEIRO',34.50,0)`, [ped]);
+        await pgHi.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro) VALUES
+            ('292P', 1, 1, 992920, 'VT 292', 'UN', 2, 4, 0, 1, '2062-03-15 09:00', 'N', 'P', 2),
+            ('292P', 1, 2, 992920, 'VT 292', 'UN', 1, 6, 0, 1, '2062-03-15 09:00', 'N', 'P', 2)`);
+        await pgHi.query(`INSERT INTO cx_pedidos (nropedido, operacao, valor, idempresa) VALUES ('292P', 'DINHEIRO', 14, 1)`);
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['Rel_Consulta_vendas_cupom.fr3', 'Rel_Consulta_historico_vendas.fr3', 'Rel_Consulta_vendas_cupom_vale_troca.fr3'].entries()) {
+          await pgHi.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992920 + i, nome, fr3(nome)]);
+        }
+        const imp = async (modo: string, b: Record<string, unknown>, h = H) => { const r = await fetch(`${base}/relatorios/hist-vendas/impressao/${modo}`, { method: 'POST', headers: h, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const cup = await imp('cupom', { nrocupom: 29201, pdv: 29 });
+        const bal = await imp('pedido', { nropedido: '292P' });
+        const vt = await imp('vale-troca', { nrocupom: 29201, pdv: 29, itens: [{ nroitem: 1, qtd_troca: 5 }, { nroitem: 3 }] });
+        const vtCanc = await imp('vale-troca', { nrocupom: 29201, pdv: 29, itens: [{ nroitem: 3 }] });
+        const vtNada = await imp('vale-troca', { nrocupom: 29201, pdv: 29 });
+        const desconhecido = await imp('danfe', { nrocupom: 29201, pdv: 29 });
+        const naoAchou = await imp('cupom', { nrocupom: 29299, pdv: 29 });
+        const semAcesso = await imp('cupom', { nrocupom: 29201, pdv: 29 }, H_SEM_ACESSO);
+        const cv = cup.j.datasets?.frxDBDtsConsVendasCupom ?? [];
+        const c1 = cv.find((l: any) => l.NROITEM === 1);
+        const c2 = cv.find((l: any) => l.NROITEM === 2);
+        const hv = bal.j.datasets?.frxDBDtsConsHistVendas ?? [];
+        const tk = vt.j.datasets?.frxDBDtsConsVendasCupomTkt ?? [];
+        check('HIST-VENDAS §292 [as impressões]: o cupom no frxDBDtsConsVendasCupom com os 3 itens (o cancelado vai, como no cds), o DESC_PROMOCAO do item (1), o ACRESCIMO (0,50) e o DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO) = −0,50 em toda linha, o operador no NOME, as finalizadoras no frxDBDatasetCaixa, a empresa do login e TITULO \'VENDA\'; o pedido de balcão no frxDBDtsConsHistVendas (2 itens, TITULO \'PEDIDO\'); o vale-troca só com o item marcado não cancelado, a Qtd Troca limitada à do cupom (5 → 2) e TITULO \'VALE TROCA\'; só cancelado ou nada marcado → a mensagem do legado; modo desconhecido e cupom inexistente → 422; sem a tela → 403',
+          cup.status === 200 && cv.length === 3 && c1?.DESC_PROMOCAO === 1 && c2?.ACRESCIMO === 0.5 && cv.every((l: any) => l.DESCONTO === -0.5)
+          && c1?.NOME != null && c1?.TOTAL === 20 && c1?.CLIENTE != null && cup.j.datasets?.frxDBDatasetCaixa?.[0]?.OPERACAO === 'DINHEIRO'
+          && cup.j.datasets?.frxDBDatasetCaixa?.[0]?.VALOR === 34.5 && 'FANTASIA' in (cup.j.datasets?.frxDBDatasetEmpresa?.[0] ?? {}) && cup.j.variaveis?.TITULO === "'VENDA'"
+          && bal.status === 200 && hv.length === 2 && bal.j.variaveis?.TITULO === "'PEDIDO'" && hv[0]?.NROPEDIDO === '292P'
+          && vt.status === 200 && tk.length === 1 && tk[0].NROITEM === 1 && tk[0].QTD_TROCA === 2 && tk[0].QTDE === 2 && vt.j.variaveis?.TITULO === "'VALE TROCA'"
+          && vtCanc.status === 422 && vtCanc.j.message === 'Selecione, no grid, os itens que sairão na impressão do Vale Troca (V.Troca).' && vtNada.status === 422
+          && desconhecido.status === 422 && naoAchou.status === 422 && semAcesso.status === 403,
+          { cup: [cup.status, cup.j.code, cv.map((l: any) => [l.NROITEM, l.DESC_PROMOCAO, l.ACRESCIMO, l.DESCONTO, l.TOTAL, l.NOME]), cup.j.datasets?.frxDBDatasetCaixa, cup.j.variaveis],
+            bal: [bal.status, bal.j.code, hv.length, bal.j.variaveis], vt: [vt.status, vt.j.code, tk], vtCanc: [vtCanc.status, vtCanc.j.message], vtNada: vtNada.status,
+            desconhecido: desconhecido.status, naoAchou: [naoAchou.status, naoAchou.j.message], semAcesso: semAcesso.status });
+      } finally {
+        await pgHi.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992920 AND 992922`).catch(() => undefined);
+        await pgHi.query(`DELETE FROM cx_vendas WHERE nropedido = $1`, [ped]).catch(() => undefined);
+        await pgHi.query(`DELETE FROM vendas WHERE nropedido = $1`, [ped]).catch(() => undefined);
+        await pgHi.query(`DELETE FROM cx_pedidos WHERE nropedido = '292P'`).catch(() => undefined);
+        await pgHi.query(`DELETE FROM pedidos WHERE nropedido = '292P'`).catch(() => undefined);
+        await pgHi.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

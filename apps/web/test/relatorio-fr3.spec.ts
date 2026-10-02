@@ -424,4 +424,41 @@ describe('relatórios do legado com vários datasets', () => {
     expect(st).toContain('CST 291 ST');
     expect(st).toContain('5,00');
   });
+
+  it('consulta de histórico de vendas: o cupom com as finalizadoras no sub-relatório e o desconto/acréscimo no total, o pedido de balcão e o vale-troca', () => {
+    const emp = [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', CNPJ: '37954975000169', FANTASIA: 'HIPER PINHEIRAO', CIDADE: 'BELO HORIZONTE', UF: 'MG' }];
+    const item = (n: number, desc: string, qtde: number, vr: number, promo: number, canc = '') => ({
+      NROPEDIDO: '29150362100000', NROCUPOM: 29201, NROITEM: n, CLIENTE: 'CLIENTE 292', VENDEDOR: 'VENDEDOR 292', NOME: 'OPERADOR 7', DTVENDA: '2062-03-15T10:00:00',
+      CODBARRA: '7899000992920', DESCRICAO: desc, UNIDADE: 'UN', QTDE: qtde, VRVENDA: vr, TOTAL: qtde * vr, TOTAL_ITEM: qtde * vr - promo, ALIQUOTA: 'T',
+      DESC_PROMOCAO: promo, CANCITEM: canc, CANC: '', DESCONTO: -0.5,
+    });
+    const c = texto(paginasDoModelo(modelo('rel-consulta-vendas-cupom.fr3'), {
+      frxDBDtsConsVendasCupom: [item(1, 'ARROZ 292', 2, 10, 1), item(2, 'FEIJAO 292', 3, 5, 0), item(3, 'CAFE 292', 1, 7, 0, 'CANCELADO')],
+      frxDBDatasetCaixa: [{ OPERACAO: 'DINHEIRO', VALOR: 34.5 }],
+      frxDBDatasetEmpresa: emp,
+    }, agora, { TITULO: "'VENDA'" }));
+    expect(c).toContain('VENDA');
+    expect(c).toContain('ARROZ 292');
+    expect(c).toContain('CANCELADO');
+    expect(c).toContain('OPERADOR 7');
+    expect(c).toContain('DINHEIRO'); // o sub-relatório das finalizadoras, dentro da banda
+    expect(c).toContain('Sub-Total Pedido: 42,00'); // SUM(TOTAL) = 20 + 15 + 7 (o cancelado entra, como no cds do legado)
+    expect(c).toContain('Desconto/Acrescimo: -0,50 Total Pedido: 41,50');
+    expect(c).toContain('DINHEIRO 34,50');
+    const h = texto(paginasDoModelo(modelo('rel-consulta-historico-vendas.fr3'), {
+      frxDBDtsConsHistVendas: [{ NROPEDIDO: '292P', NROCUPOM: 0, CLIENTE: 'CLIENTE 292', VENDEDOR: null, NOME: 'OPERADOR 7', DTVENDA: '2062-03-15T09:00:00', CODBARRA: '7899000992920',
+        DESCRICAO: 'BALCAO 292', UNIDADE: 'UN', QTDE: 2, VRVENDA: 4, TOTAL: 8, TOTAL_ITEM: 8, ALIQUOTA: 'T01' }],
+      frxDBDatasetEmpresa: emp,
+    }, agora, { TITULO: "'PEDIDO'" }));
+    expect(h).toContain('PEDIDO');
+    expect(h).toContain('Nro.Pedido: 292P');
+    expect(h).toContain('BALCAO 292');
+    const v = texto(paginasDoModelo(modelo('rel-consulta-vendas-cupom-vale-troca.fr3'), {
+      frxDBDtsConsVendasCupomTkt: [{ ...item(1, 'ARROZ 292', 2, 10, 1), QTD_TROCA: 2 }],
+      frxDBDatasetEmpresa: emp,
+    }, agora, { TITULO: "'VALE TROCA'" }));
+    expect(v).toContain('VALE TROCA');
+    expect(v).toContain('ARROZ 292');
+    expect(v).not.toContain('FEIJAO 292');
+  });
 });

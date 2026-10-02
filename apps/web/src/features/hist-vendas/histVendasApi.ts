@@ -31,6 +31,7 @@ export interface ItemCupom {
   total_canc: number;
   acrescimo: number;
   desconto: number;
+  cancelado?: string | null;
   cancitem: string;
   canc: string;
 }
@@ -77,3 +78,6 @@ export interface LinhaVenda {
 export function listarVendas(dto: Record<string, unknown>): Promise<{ linhas: LinhaVenda[]; truncado: boolean; limite: number }> {
   return req('/relatorios/hist-vendas/listar', { method: 'POST', body: JSON.stringify(dto) });
 }
+
+/** os corpos das impressões: o cupom consultado (o mesmo da consulta), o pedido de balcão e o vale-troca (os itens marcados na grade) */
+export const rotaImpressao = (modo: 'cupom' | 'pedido' | 'vale-troca') => `/relatorios/hist-vendas/impressao/${modo}`;

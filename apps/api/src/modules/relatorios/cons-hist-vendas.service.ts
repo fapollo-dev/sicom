@@ -4,6 +4,8 @@ import type { ConsHistVendasDto, HistVendasListarDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -127,7 +129,7 @@ export class ConsHistVendasService {
         nropedido: primeira.nropedido ?? null, nrocupom: 0, idempresa: Number(primeira.idempresa), dtvenda: primeira.dtvenda ?? null,
         cliente: primeira.cliente ?? null, vendedor: primeira.vendedor ?? null, operador: primeira.nome ?? null,
         desc_acre: primeira.desc_acre == null ? null : r2(num(primeira.desc_acre)), venda_nfc: null,
-        // o modo pedido esconde a impressão (FlagImpressao := False)
+        // o modo pedido (FlagImpressao := False) imprime o Rel_Consulta_historico_vendas; o vale troca fica desabilitado (Enabled = False no dfm)
         permite_ticket: false, titulo: 'PEDIDO',
       },
       itens,
@@ -360,6 +362,62 @@ export class ConsHistVendasService {
       linhas: rows.slice(0, limite).map((r) => ({ ...r, total: r2(num(r.total)), desconto: r2(num(r.desconto)), acrescimo: r2(num(r.acrescimo)) })),
       truncado,
       limite,
+    };
+  }
+
+  /**
+   * O "Imprimir" da consulta (`btnImprimirClick`) e o "V.Troca" (`btnImprimirTicketClick`): o cupom no Rel_Consulta_vendas_cupom.fr3
+   * (frxDBDtsConsVendasCupom com o DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO) do cds, as finalizadoras no frxDBDatasetCaixa; TITULO
+   * 'VENDA'), o pedido de balcão no Rel_Consulta_historico_vendas.fr3 (TITULO 'PEDIDO') e o vale-troca no
+   * Rel_Consulta_vendas_cupom_vale_troca.fr3 com os itens marcados não cancelados (TITULO 'VALE TROCA'). frxDBDatasetEmpresa = a do login.
+   */
+  async impressao(modo: 'cupom' | 'pedido' | 'vale-troca', dto: ConsHistVendasDto & { itens?: Array<{ nroitem: number; qtd_troca?: number | null }> }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const empresa = [await empresaParaRelatorio(db, this.emp())];
+    const nums = new Set(['nrocupom', 'nroitem', 'qtde', 'vrvenda', 'total', 'total_item', 'total_canc', 'acrescimo', 'desc_promocao', 'desconto', 'desc_acre', 'valor', 'idempresa']);
+    if (modo === 'pedido') {
+      const r = await this.consultarPedido(String(dto.nropedido ?? ''));
+      if (!r.encontrado) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Nenhuma venda encontrada para o pedido informado.');
+      const c = r.cabecalho as Record<string, unknown>;
+      const linhas = r.itens.map((i) => registroFr3({ nropedido: i.nropedido, nrocupom: 0, cliente: c.cliente, vendedor: c.vendedor, dtvenda: c.dtvenda, total: i.total,
+        total_item: i.total_item, codbarra: i.codbarra, descricao: i.descricao, unidade: i.unidade, qtde: i.qtde, vrvenda: i.vrvenda, aliquota: i.aliquota,
+        nroitem: i.nroitem, nome: c.operador, cancelado: i.cancelado, cancitem: i.cancitem, canc: i.canc, total_canc: i.total_canc }, nums));
+      return { titulo: 'Pedido', modelo: await modeloFr3(db, 'Rel_Consulta_historico_vendas.fr3'), datasets: { frxDBDtsConsHistVendas: linhas, frxDBDatasetEmpresa: empresa }, variaveis: { TITULO: textoVariavel('PEDIDO') } };
+    }
+    const r = await this.consultar(dto);
+    if (!r.encontrado) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, r.cupom_cancelado ? 'O cupom informado está cancelado.' : 'Nenhuma venda encontrada para o cupom e PDV informados.');
+    const c = r.cabecalho as Record<string, unknown>;
+    const desconto = Math.round(r.itens.reduce((a, i) => a + i.acrescimo - i.desconto, 0) * 100) / 100;
+    const linha = (i: (typeof r.itens)[number]) => ({
+      nropedido: i.nropedido, nrocupom: i.nrocupom, cliente: c.cliente, vendedor: c.vendedor, dtvenda: c.dtvenda, total: i.total, desc_acre: c.desc_acre,
+      codbarra: i.codbarra, descricao: i.descricao, unidade: i.unidade, qtde: i.qtde, vrvenda: i.vrvenda, total_item: i.total_item, aliquota: i.aliquota,
+      nroitem: i.nroitem, nome: c.operador, idempresa: c.idempresa, acrescimo: i.acrescimo, desc_promocao: i.desconto, cancelado: i.cancelado, canc: i.canc,
+      cancitem: i.cancitem, total_canc: i.total_canc, venda_nfc: c.venda_nfc, desconto,
+    });
+    if (modo === 'vale-troca') {
+      // o filtro `CANCELADO <> 'S' AND TROCA = TRUE`; a "Qtd Troca" da grade (padrão = QTDE, limitada à do cupom no `dbugItensCanEditCell`)
+      // vai como QTD_TROCA — o layout do cliente imprime a QTDE
+      const marcados = new Map((dto.itens ?? []).map((m) => [m.nroitem, m.qtd_troca]));
+      const itens = r.itens.filter((i) => String(i.cancelado ?? 'N') !== 'S' && i.nroitem != null && marcados.has(i.nroitem));
+      if (!itens.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Selecione, no grid, os itens que sairão na impressão do Vale Troca (V.Troca).');
+      const qtdTroca = (i: (typeof r.itens)[number]) => {
+        const q = Number(marcados.get(i.nroitem as number));
+        return Number.isFinite(q) && q > 0 ? Math.min(q, i.qtde) : i.qtde;
+      };
+      return {
+        titulo: 'Vale troca', modelo: await modeloFr3(db, 'Rel_Consulta_vendas_cupom_vale_troca.fr3'),
+        datasets: { frxDBDtsConsVendasCupomTkt: itens.map((i) => registroFr3({ ...linha(i), qtd_troca: qtdTroca(i) }, new Set([...nums, 'qtd_troca']))), frxDBDatasetEmpresa: empresa },
+        variaveis: { TITULO: textoVariavel('VALE TROCA') },
+      };
+    }
+    return {
+      titulo: 'Venda', modelo: await modeloFr3(db, 'Rel_Consulta_vendas_cupom.fr3'),
+      datasets: {
+        frxDBDtsConsVendasCupom: r.itens.map((i) => registroFr3(linha(i), nums)),
+        frxDBDatasetCaixa: r.finalizadores.map((f) => registroFr3({ operacao: f.operacao, valor: f.valor }, nums)),
+        frxDBDatasetEmpresa: empresa,
+      },
+      variaveis: { TITULO: textoVariavel('VENDA') },
     };
   }
 }

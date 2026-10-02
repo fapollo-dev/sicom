@@ -5,7 +5,8 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { DateField } from '../../shared/ui/DateField';
-import { consultarCupom, consultarPedidoBalcao, listarVendas, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
+import { consultarCupom, consultarPedidoBalcao, listarVendas, rotaImpressao, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -30,6 +31,13 @@ export function HistVendasPage() {
   const [pedido, setPedido] = useState('');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ConsultaCupom | null>(null);
+  // a consulta que abriu a venda (o `FlagImpressao` do legado: cupom → Rel_Consulta_vendas_cupom; pedido de balcão → Rel_Consulta_historico_vendas)
+  const [origem, setOrigem] = useState<{ modo: 'cupom' | 'pedido'; corpo: Record<string, unknown> } | null>(null);
+  // a coluna "V.Troca" e a "Qtd Troca" da grade (padrão = a QTDE do item)
+  const [troca, setTroca] = useState<Record<number, { marcado: boolean; qtd?: number }>>({});
+  const abrir = (r: ConsultaCupom, modo: 'cupom' | 'pedido', corpo: Record<string, unknown>) => {
+    setRes(r); setTroca({}); setOrigem(r.encontrado ? { modo, corpo } : null);
+  };
   // a LISTA (o botão de pesquisa do legado): recorte de datas obrigatório + filtros opcionais.
   const hojeIso = hojeNaLoja();
   const [dtini, setDtini] = useState<string | undefined>(hojeIso);
@@ -46,8 +54,9 @@ export function HistVendasPage() {
     if (pdv == null) { window.alert('Informe o número do PDV'); return; }
     setBusy(true);
     try {
-      const r = await consultarCupom({ nrocupom: cupom, pdv, nropedido: pedido || undefined });
-      setRes(r);
+      const corpo = { nrocupom: cupom, pdv, nropedido: pedido || undefined };
+      const r = await consultarCupom(corpo);
+      abrir(r, 'cupom', corpo);
       if (!r.encontrado) {
         // a diferença que o legado faz questão de mostrar: "não existe" × "existe e foi cancelado".
         window.alert(r.cupom_cancelado ? 'O cupom informado está cancelado.' : 'Nenhuma venda encontrada para o cupom e PDV informados.');
@@ -65,9 +74,11 @@ export function HistVendasPage() {
     setPdv(Number(nro.slice(0, 2)));
     setBusy(true);
     const empresa = Number(q.get('empresa'));
-    (q.get('balcao') === '1' ? consultarPedidoBalcao(nro) : consultarCupom({ nropedido: nro, ...(empresa > 0 ? { idempresa: empresa } : {}) }))
+    const balcao = q.get('balcao') === '1';
+    const corpo = balcao ? { nropedido: nro } : { nropedido: nro, ...(empresa > 0 ? { idempresa: empresa } : {}) };
+    (balcao ? consultarPedidoBalcao(nro) : consultarCupom(corpo))
       .then((r) => {
-        setRes(r);
+        abrir(r, balcao ? 'pedido' : 'cupom', corpo);
         if (r.cabecalho?.nrocupom != null) setCupom(Number(r.cabecalho.nrocupom));
         if (!r.encontrado) window.alert(r.cupom_cancelado ? 'O cupom informado está cancelado.' : 'Nenhuma venda encontrada para o pedido informado.');
       })
@@ -94,7 +105,7 @@ export function HistVendasPage() {
     setBusy(true);
     try {
       const r = await consultarCupom({ nropedido: l.nropedido });
-      setRes(r);
+      abrir(r, 'cupom', { nropedido: l.nropedido });
       // o picker do legado preenche cupom, PEDIDO, PDV e empresa — faltava o pedido, e o filtro velho fazia a
       // próxima consulta falhar (fold auditoria [MÉDIA]).
       setCupom(l.nro_cupom ?? undefined);
@@ -105,6 +116,40 @@ export function HistVendasPage() {
   };
 
   const cab = res?.cabecalho ?? null;
+  // o btnImprimirTicket só no cupom não cancelado (`CANC = ''`); a coluna de seleção acompanha o botão
+  const valeTroca = origem?.modo === 'cupom' && !!cab?.permite_ticket;
+  const imprimir = () => {
+    if (!origem) return;
+    imprimirRelatorio(rotaImpressao(origem.modo), origem.corpo).catch((e) => mensagem.erro(e));
+  };
+  const imprimirValeTroca = () => {
+    if (!origem || !res) return;
+    const itens = res.itens
+      .filter((i) => i.nroitem != null && String(i.cancelado ?? 'N') !== 'S' && troca[i.nroitem]?.marcado)
+      .map((i) => ({ nroitem: i.nroitem, qtd_troca: troca[i.nroitem as number]?.qtd ?? i.qtde }));
+    if (!itens.length) { window.alert('Selecione, no grid, os itens que sairão na impressão do Vale Troca (V.Troca).'); return; }
+    imprimirRelatorio(rotaImpressao('vale-troca'), { ...origem.corpo, itens }).catch((e) => mensagem.erro(e));
+  };
+  /** o clique na "V.Troca" (`dbugItensMouseUp`): item cancelado não marca */
+  const marcar = (i: ConsultaCupom['itens'][number]) => {
+    if (i.nroitem == null || String(i.cancelado ?? 'N') === 'S') return;
+    const n = i.nroitem;
+    setTroca((t) => ({ ...t, [n]: { ...t[n], marcado: !t[n]?.marcado } }));
+  };
+  /** a tecla T da grade (`dbugItensKeyDown`) marca todos */
+  const marcarTodos = () => {
+    if (!res) return;
+    setTroca((t) => Object.fromEntries(res.itens.filter((i) => i.nroitem != null && String(i.cancelado ?? 'N') !== 'S')
+      .map((i) => [i.nroitem as number, { ...t[i.nroitem as number], marcado: true }])));
+  };
+  /** a "Qtd Troca" (`dbugItensCanEditCell`): acima da do cupom volta para ela, com o aviso */
+  const qtdTroca = (i: ConsultaCupom['itens'][number], v: number | undefined) => {
+    if (i.nroitem == null) return;
+    const n = i.nroitem;
+    let q = v;
+    if (q != null && q > i.qtde) { q = i.qtde; window.alert('Quantidade Superior ao cupom'); }
+    setTroca((t) => ({ ...t, [n]: { marcado: !!t[n]?.marcado, qtd: q } }));
+  };
 
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
@@ -171,6 +216,13 @@ export function HistVendasPage() {
             <div><div className="text-fg-muted">Operador</div><div className="font-semibold">{cab.operador ?? '—'}</div></div>
             {res?.cupom_cancelado && <div className="text-danger font-semibold">CUPOM CANCELADO</div>}
           </div>
+          {res?.encontrado && (
+            <div className="flex flex-wrap gap-gp-sm">
+              <Button label="&Imprimir" variant="soft" onClick={imprimir} />
+              {valeTroca && <Button label="Imprimir &vale troca" variant="ghost" onClick={imprimirValeTroca} />}
+              {valeTroca && <Button label="Marcar &todos (V.Troca)" variant="ghost" onClick={marcarTodos} />}
+            </div>
+          )}
         </div>
       )}
 
@@ -180,6 +232,7 @@ export function HistVendasPage() {
           <table className="w-full text-body-sm">
             <thead>
               <tr className="text-left text-fg-muted">
+                {valeTroca && <><th className="p-pad-xs">V.Troca</th><th className="p-pad-xs text-right">Qtd Troca</th></>}
                 <th className="p-pad-xs">Item</th><th className="p-pad-xs">Código de barras</th><th className="p-pad-xs">Descrição</th>
                 <th className="p-pad-xs">Un.</th><th className="p-pad-xs text-right">Qtde</th><th className="p-pad-xs text-right">Unitário</th>
                 <th className="p-pad-xs text-right">Vlr. Desconto</th><th className="p-pad-xs text-right">Vlr. Acréscimo</th>
@@ -189,6 +242,18 @@ export function HistVendasPage() {
             <tbody>
               {res.itens.map((i) => (
                 <tr key={`${i.nroitem}-${i.codbarra}`} className={`border-t border-border ${i.cancitem ? 'text-fg-muted line-through' : ''}`}>
+                  {valeTroca && (
+                    <>
+                      <td className="p-pad-xs">
+                        <input type="checkbox" aria-label={`V.Troca do item ${i.nroitem ?? ''}`} disabled={String(i.cancelado ?? 'N') === 'S'}
+                          checked={i.nroitem != null && !!troca[i.nroitem]?.marcado} onChange={() => marcar(i)} />
+                      </td>
+                      <td className="w-28 p-pad-xs">
+                        <NumberField label="" value={i.nroitem != null ? (troca[i.nroitem]?.qtd ?? i.qtde) : undefined} decimais={3} min={0}
+                          onChange={(v) => qtdTroca(i, v)} />
+                      </td>
+                    </>
+                  )}
                   <td className="p-pad-xs tabular-nums">{i.nroitem ?? '—'}</td>
                   <td className="p-pad-xs tabular-nums">{i.codbarra ?? '—'}</td>
                   <td className="p-pad-xs">{i.descricao ?? '—'}</td>

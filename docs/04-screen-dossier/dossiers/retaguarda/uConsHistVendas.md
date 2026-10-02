@@ -146,9 +146,9 @@ não existe sem elas. E a tabela **`pedidos`** (a metade "venda sem cupom") não
   grade de finalizadores de `cx_vendas` e a mensagem "cupom cancelado". Tela + smoke.
 - **corte-2 — a LISTA/PESQUISA de vendas** (mig 161): a view `get_hist_vendas`, cópia da do Oracle, + o endpoint
   `listar`. **Não** foi a consulta de `PEDIDOS` que o corte-1 tinha proposto — ver a nota abaixo.
-- **fora, registrado**: impressão da DANFE (depende do PDF da NFC-e) e do ticket; o "vale troca" que a tela
-  seleciona por coluna (não exercitado no golden); e o agregado morto `DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO)`
-  do dataset, que não tem label na tela.
+- **fora, registrado**: impressão da DANFE (depende do PDF da NFC-e). O vale troca (a coluna de seleção) e o agregado
+  `DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO)` — sem label na tela, mas impresso no rodapé do Rel_Consulta_vendas_cupom.fr3 —
+  entraram em 02/10/2026 (ver "As impressões").
 
 ### ⚠️ A consulta de `PEDIDOS` é resíduo MORTO no fonte (o corte-2 mudou por causa disso)
 
@@ -210,9 +210,29 @@ entrar **pelo pedido**, o ramo agora vem da própria venda.
 O "Detalhar" do kardex do produto (`ProcessaHistorico`, UCadProduto.pas) abre esta tela de dois jeitos:
 - baixa/estorno do PDV: com o pedido (os 14 caracteres do histórico), o PDV (os 2 primeiros) e a loja do movimento — a consulta
   normal (`?nropedido=&empresa=`);
-- baixa do BALCÃO: o modo pedido (`?balcao=1&nropedido=`; TituloRel 'PEDIDO', sem pesquisa nem impressão) — o `sqqConsHistVendas` sobre a
+- baixa do BALCÃO: o modo pedido (`?balcao=1&nropedido=`; TituloRel 'PEDIDO', sem pesquisa; o Imprimir sai no Rel_Consulta_historico_vendas — ver abaixo) — o `sqqConsHistVendas` sobre a
   **PEDIDOS** da loja do login (total do item com DESC_ACRE_ITEM, e o DESC_ACRE no TOTAL) e as finalizadoras da **CX_PEDIDOS**
   (`SELECT OPERACAO, VALOR … WHERE NROPEDIDO`, sem loja e sem troco). `POST relatorios/hist-vendas/consultar-pedido`. Na produção:
   7.832 movimentos de balcão, mai/2022–set/2023.
 Aberta assim a tela não tem o gate próprio (`TfrmConsHistVendas` criado de dentro do cadastro): a consulta aceita também o acesso ao
 FRMCADPRODUTO. Smoke §285.
+
+## As impressões (02/10/2026)
+
+`POST relatorios/hist-vendas/impressao/:modo` (gate FRMCONSHISTVENDAS ou FRMCADPRODUTO, como a consulta), os layouts PERSONALIZADOS da
+produção (948/949/950):
+- **`cupom`** (`btnImprimirClick` com `FlagImpressao = True`, i.e. depois de uma pesquisa): `Rel_Consulta_vendas_cupom.fr3` com o
+  frxDBDtsConsVendasCupom = os itens do cds **com os cancelados** (o layout soma `SUM(TOTAL)` no "Sub-Total Pedido" e imprime o CANCITEM),
+  `DESC_PROMOCAO`/`ACRESCIMO` do item, `DESCONTO` = SUM(ACRESCIMO − DESC_PROMOCAO) repetido em toda linha (o "Desconto/Acrescimo" e o
+  "Total Pedido" = SUM(TOTAL) + DESCONTO do rodapé), `NOME` = operador; as finalizadoras no frxDBDatasetCaixa (o sub-relatório); TITULO 'VENDA'.
+- **`pedido`** (o modo balcão aberto pelo kardex: `FlagImpressao := False` no UCadProduto.pas:4645, o botão continua visível):
+  `Rel_Consulta_historico_vendas.fr3` com o frxDBDtsConsHistVendas (PEDIDOS) e TITULO 'PEDIDO'.
+- **`vale-troca`** (`btnImprimirTicketClick`, "Imprimir vale troca", habilitado só no cupom com `CANC` vazio — `Enabled = False` no dfm, logo
+  desabilitado no modo pedido): o filtro `CANCELADO <> 'S' AND TROCA = TRUE` sobre a coluna "V.Troca" da grade (item cancelado não marca;
+  a tecla **T** marca todos → botão "Marcar todos"); vazio → "Selecione, no grid, os itens que sairão na impressão do Vale Troca (V.Troca).".
+  A "Qtd Troca" da grade (padrão = QTDE; acima da do cupom volta para ela com "Quantidade Superior ao cupom") vai como `QTD_TROCA` no
+  frxDBDtsConsVendasCupomTkt — o layout do cliente imprime a `QTDE`. TITULO 'VALE TROCA'.
+- **fora, registrado**: a DANFE da NFC-e (`BtnImprimirDANFEClick` → `TFrmNFCe.ImprimirNFCe`, fiscal/SEFAZ). O logo (`logorel.jpg` do
+  diretório da aplicação) não existe no servidor — o Picture1 sai vazio, como numa instalação sem o arquivo.
+Smoke §292; renderização dos 3 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
+
