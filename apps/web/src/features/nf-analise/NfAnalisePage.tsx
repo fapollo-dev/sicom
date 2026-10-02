@@ -7,7 +7,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -33,7 +33,7 @@ const MODELOS = [
   { id: 'TRIBUTARIA', n: 1, label: 'Análise de situação tributária', ok: true },
   { id: 'CONFERENCIA', n: 8, label: 'Análise de conferência de notas', ok: true },
   { id: 'x2', n: 2, label: 'Análise de precificação', nota: 'depende do departamento e do agrupamento por fornecedor' },
-  { id: 'x3', n: 3, label: 'Situação tributária por produtos', nota: 'próximo corte' },
+  { id: 'TRIBUTARIA_PRODUTOS', n: 3, label: 'Situação tributária por produtos', ok: true },
   { id: 'x4', n: 4, label: 'Precificação agrupada por fornecedor', nota: 'depende da análise de precificação' },
   { id: 'x5', n: 5, label: 'Precificação agrupada por fornecedor — itens', nota: 'depende da análise de precificação' },
   { id: 'x6', n: 6, label: 'Análise de formas de pagamento', nota: 'próximo corte' },
@@ -48,23 +48,26 @@ const inicioMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 export function NfAnalisePage() {
   const mensagem = useMensagem();
-  const [modelo, setModelo] = useState<'TRIBUTARIA' | 'CONFERENCIA'>('TRIBUTARIA');
+  const [modelo, setModelo] = useState<'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA'>('TRIBUTARIA');
   const [f, setF] = useState({
     dataIni: inicioMes(), dataFim: hoje(), tipo: 'T' as 'T' | 'E' | 'S',
     nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T',
-    incluirDevolucao: false, somenteDiferencas: false,
+    incluirDevolucao: false, somenteDiferencas: false, movimentaEstoque: false, empresas: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const corpo = (): AnaliseNfDto => ({
+    modelo, dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo,
+    nronf: f.nronf || null, razao: f.razao || null, cfop: f.cfop ? Number(f.cfop) : null,
+    processadas: f.processadas, incluirDevolucao: f.incluirDevolucao, somenteDiferencas: f.somenteDiferencas,
+    movimentaEstoque: f.movimentaEstoque,
+    empresas: f.empresas.split(',').map((e) => Number(e.trim())).filter((e) => Number.isInteger(e) && e > 0),
+  });
   const gerar = async () => {
     setOcupado(true);
     try {
-      const body: AnaliseNfDto = {
-        modelo, dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo,
-        nronf: f.nronf || null, razao: f.razao || null, cfop: f.cfop ? Number(f.cfop) : null,
-        processadas: f.processadas, incluirDevolucao: f.incluirDevolucao, somenteDiferencas: f.somenteDiferencas,
-      };
+      const body = corpo();
       const r = await fetch(`${BASE}/fiscal/nf-analise`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
       handle401(r);
       if (!r.ok) {
@@ -78,14 +81,9 @@ export function NfAnalisePage() {
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
+  // o "[F11] Imprimir": o layout .fr3 do cliente da opção, com os datasets do UdmNFAnalise
   const imprimir = () => {
-    if (!res) return;
-    const win = window.open('', '_blank', 'width=1024,height=768');
-    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-    const raiz = document.getElementById('nfa-impressao');
-    if (!raiz) { win.close(); return; }
-    const titulo = MODELOS.find((m) => m.id === modelo)?.label ?? 'Análise de notas';
-    imprimirPagina(win, raiz, `${titulo} — ${data(f.dataIni)} a ${data(f.dataFim)}`, undefined, true);
+    imprimirRelatorio('/fiscal/nf-analise/impressao', corpo()).catch((e) => mensagem.erro(e));
   };
 
   const cols = useMemo<DataTableColumnDef<Record<string, unknown>>[]>(() => {
@@ -97,7 +95,7 @@ export function NfAnalisePage() {
       { field: 'cfop', headerName: 'CFOP', type: 'text', width: 90 },
       { field: 'totalnf', headerName: 'Total da nota', type: 'text', width: 130, valueGetter: (l) => moeda(l.totalnf) },
     ];
-    if (modelo === 'TRIBUTARIA') {
+    if (modelo !== 'CONFERENCIA') {
       base.push(
         { field: 'totalisento', headerName: 'Isento', type: 'text', width: 120, valueGetter: (l) => moeda(l.totalisento) },
         { field: 'rateio_contabil', headerName: 'Rateio contábil', type: 'text', width: 140, valueGetter: (l) => moeda(l.rateio_contabil) },
@@ -122,7 +120,7 @@ export function NfAnalisePage() {
           {MODELOS.map((m) => (
             <label key={m.id} className={`flex cursor-pointer items-start gap-gp-sm rounded-radius-md border p-pad-sm ${modelo === m.id ? 'border-fg-accent bg-bg-subtle' : 'border-border'} ${m.ok ? '' : 'opacity-60'}`}>
               <input type="radio" name="modelo" className="mt-1" checked={modelo === m.id} disabled={!m.ok}
-                onChange={() => m.ok && setModelo(m.id as 'TRIBUTARIA' | 'CONFERENCIA')} />
+                onChange={() => m.ok && setModelo(m.id as 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA')} />
               <span>
                 <span className="block text-body-md">{m.n} — {m.label}</span>
                 {m.nota && <span className="block text-body-sm text-fg-muted">{m.nota}</span>}
@@ -149,12 +147,17 @@ export function NfAnalisePage() {
             <input type="checkbox" checked={f.incluirDevolucao} onChange={(e) => setF({ ...f, incluirDevolucao: e.target.checked })} />
             Incluir notas de devolução
           </label>
-          {modelo === 'TRIBUTARIA' && (
+          {modelo !== 'CONFERENCIA' && (
             <label className="flex items-center gap-gp-sm text-body-sm">
               <input type="checkbox" checked={f.somenteDiferencas} onChange={(e) => setF({ ...f, somenteDiferencas: e.target.checked })} />
               Somente diferenças <span className="text-fg-muted">(o rateio contábil não fecha com o total)</span>
             </label>
           )}
+          <label className="flex items-center gap-gp-sm text-body-sm">
+            <input type="checkbox" checked={f.movimentaEstoque} onChange={(e) => setF({ ...f, movimentaEstoque: e.target.checked })} />
+            NF que movimenta estoque
+          </label>
+          <div className="w-36"><Field label="Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={imprimir} />
         </div>
@@ -167,7 +170,7 @@ export function NfAnalisePage() {
               <div><div className="text-body-sm text-fg-muted">Notas</div><div className="text-body-lg tabular-nums">{res.totais.notas.toLocaleString('pt-BR')}{res.truncado && ' +'}</div></div>
               <div><div className="text-body-sm text-fg-muted">Total das notas</div><div className="text-body-lg tabular-nums">{moeda(res.totais.totalnf)}</div></div>
               <div><div className="text-body-sm text-fg-muted">Isento</div><div className="text-body-lg tabular-nums">{moeda(res.totais.totalisento)}</div></div>
-              {modelo === 'TRIBUTARIA' && (
+              {modelo !== 'CONFERENCIA' && (
                 <div><div className="text-body-sm text-fg-muted">Divergência do rateio</div><div className="text-body-lg tabular-nums">{moeda(res.totais.divergencia)}</div></div>
               )}
             </div>

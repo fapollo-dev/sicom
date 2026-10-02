@@ -21,4 +21,13 @@ export class NfAnaliseController {
     const { modelo, ...f } = body;
     return this.svc.analisar(modelo, f as never);
   }
+
+  /** o "[F11] Imprimir" da opção: o layout .fr3 do cliente (1, 3 e 8 neste corte) */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMNFANALISE', 'FRMNFANALISE')
+  impressao(@Body(new ZodValidationPipe(analiseNfSchema)) body: AnaliseNfDto) {
+    const { modelo, ...f } = body;
+    return this.svc.impressao(modelo, f as never);
+  }
 }

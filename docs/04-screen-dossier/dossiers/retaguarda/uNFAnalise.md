@@ -12,7 +12,7 @@ comum e um `.fr3` por análise:
 |---|---|---|
 | 1 | Análise de situação tributária | ✅ |
 | 2 | Análise de precificação | — |
-| 3 | Situação tributária por produtos | — |
+| 3 | Situação tributária por produtos | ✅ corte 2 |
 | 4 | Precificação agrupada por fornecedor | — |
 | 5 | Precificação agrupada por fornecedor — itens | — |
 | 6 | Análise de formas de pagamento | — |
@@ -76,3 +76,21 @@ As sete análises restantes. As de precificação (2, 4, 5) dependem do departam
 fornecedor e formam um bloco só; a 3 e a 7 são a tributária descendo ao item e ao CST; a 6 sai de
 `FATURAMENTO.MODALIDADE`; a 9 monta um demonstrativo de ST com 24 colunas sobre `nfe_nao_cadastradas` e tem o
 seu próprio parâmetro (`GET_VLR_MIN_ICMSARECOLHER`).
+
+## 6. Corte 2 (02/10/2026) — a opção 3 e as impressões de 1, 3 e 8
+
+- **Opção 3** (situação tributária por produtos): a mesma consulta da 1 (`cdsNF`) na tela; na impressão desce ao item.
+- **Filtros que faltavam**: as lojas (`GetMultiEmpresa` — a consulta usa `IDEMPRESA IN (...)`; o Apollo fixava a do login) e "NF que
+  movimenta estoque" (`ckbNFmovimentastk`: CFOP.PROC_QTDE = 'S').
+- **Impressões** (`btnImprimirClick` — o legado mostra a grade e imprime em seguida; aqui o "Imprimir" vai direto ao layout):
+  - 1 e 3: `Notas_fiscais_analise.fr3` / `_produtos.fr3` — as notas e, por nota, os detalhes aninhados do UdmNFAnalise: CFOP
+    (`sqqCFOP`: o custo líquido do item — VRCUSTO menos DESCONTO/FATOREMBAL % arredondado a 2 casas, × QUANTIDADE — e o total da nota),
+    rateio contábil (`sqqCodContabil`, sem descrição: a CODCONTABIL tem 0 linhas na produção e o rateio de 2026 não tem conta),
+    alíquota (`sqqICME`) e, na 3, os itens (`sqqProdutos`). Os totalizadores do `GeraConsulta`: por CFOP e por conta somam o TOTAL DA
+    NOTA de cada linha (quirk fiel — não o valor da linha), por alíquota o VALOR. O script do layout pinta de vermelho a nota cujo total
+    difere do CFOP ou do rateio.
+  - 8: `Notas_fiscais_analise_conferencia.fr3` com o `GetSqlAnaliseConferencia` (as notas alteradas, com quem alterou), EMPRESAS e PERIODO.
+- **Motor .fr3**: o detalhe ligado ao mestre acompanha o registro do mestre (o nested dataset do Delphi, para o script da banda do
+  mestre); o sub-relatório dentro de uma banda de dados vê só os detalhes daquela linha e, quando percorre o MESMO dataset da banda,
+  encerra o laço de fora (o Eof do FastReport); `Font.Color` pelo script e as constantes de cor (clRed…).
+- Próximos: precificação (2, 4, 5), formas de pagamento (6), CST (7), ICMS-ST a recolher (9). Smoke §289.

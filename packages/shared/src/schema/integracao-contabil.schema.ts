@@ -125,7 +125,7 @@ export type ExecutarRelatorioDto = z.infer<typeof executarRelatorioSchema>;
  */
 export const analiseNfSchema = z
   .object({
-    modelo: z.enum(['TRIBUTARIA', 'CONFERENCIA']),
+    modelo: z.enum(['TRIBUTARIA', 'TRIBUTARIA_PRODUTOS', 'CONFERENCIA']),
     dataIni: dataISO,
     dataFim: dataISO,
     tipo: z.enum(['T', 'E', 'S']).optional(),
@@ -136,6 +136,10 @@ export const analiseNfSchema = z
     processadas: z.enum(['S', 'N', 'T']).optional(),
     incluirDevolucao: z.boolean().optional(),
     somenteDiferencas: z.boolean().optional(),
+    /** "NF que movimenta estoque" (`ckbNFmovimentastk`: CFOP.PROC_QTDE = 'S') */
+    movimentaEstoque: z.boolean().optional(),
+    /** as lojas (`GetMultiEmpresa`); vazio = a do login */
+    empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type AnaliseNfDto = z.infer<typeof analiseNfSchema>;

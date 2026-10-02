@@ -180,6 +180,9 @@ class Relatorio {
       frac: ([v]) => (Number(v) || 0) % 1, int: ([v]) => Math.trunc(Number(v) || 0),
       datetostr: ([v]) => (v instanceof Date ? formatDateTime('dd/mm/yyyy', v) : texto(v)), timetostr: ([v]) => (v instanceof Date ? formatDateTime('hh:nn:ss', v) : texto(v)),
       vartostr: ([v]) => texto(v), inttostrdef: ([v]) => String(Math.trunc(Number(v) || 0)),
+      // as cores do Delphi que os scripts usam (TColor = $00BBGGRR)
+      clred: () => 0x0000ff, clblack: () => 0, clblue: () => 0xff0000, clgreen: () => 0x008000, clwhite: () => 0xffffff, clgray: () => 0x808080,
+      clnavy: () => 0x800000, clmaroon: () => 0x000080, clsilver: () => 0xc0c0c0,
     };
     this.amb = {
       agora,
@@ -212,7 +215,18 @@ class Relatorio {
   }
 
   private posicionar(ds: string, i: number): void {
-    this.cursor.set(this.unico ? '' : nomeDs(ds), i);
+    const chave = this.unico ? '' : nomeDs(ds);
+    this.cursor.set(chave, i);
+    // o detalhe aninhado (o dataset com `__MESTRE`, como o nested dataset do Delphi) acompanha o mestre: o registro corrente dele é o
+    // primeiro da linha do mestre — o script da banda do mestre lê `<detalhe."CAMPO">` dele
+    if (this.unico) return;
+    const linhas = this.conjuntos.get(chave);
+    if (!linhas?.length || '__MESTRE' in linhas[0]) return;
+    for (const [nome, det] of this.conjuntos) {
+      if (nome === chave || !det.length || !('__MESTRE' in det[0])) continue;
+      const k = det.findIndex((r) => Number(r.__MESTRE) === i);
+      this.cursor.set(nome, k < 0 ? det.length : k);
+    }
   }
 
   private campo(ds: string, nome: string): Valor {
@@ -416,7 +430,9 @@ class Relatorio {
     const box = `left:${e.Left.toFixed(2)}px;top:${e.Top.toFixed(2)}px;width:${e.Width.toFixed(2)}px;height:${e.Height.toFixed(2)}px;`;
     const tag = no.tag;
     if (tag === 'TfrxMemoView' || tag === 'TfrxSysMemoView' || tag === 'TfrxDMPMemoView' || tag === 'TfrxRichView') {
-      const f = tag === 'TfrxDMPMemoView' ? { nome: 'Courier New', px: 14, estilo: 0, cor: '#000000' } : fonte(no);
+      const f0 = tag === 'TfrxDMPMemoView' ? { nome: 'Courier New', px: 14, estilo: 0, cor: '#000000' } : fonte(no);
+      // `TfrxMemoView(Sender).Font.Color := clRed` no script
+      const f = e.extras['font.color'] != null ? { ...f0, cor: cor(e.extras['font.color'] as number, f0.cor) ?? f0.cor } : f0;
       const fundo = cor(no.a['Fill.BackColor'] ?? no.a.Color);
       const ft = n(no.a['Frame.Typ']);
       const fw = n(no.a['Frame.Width'], 1);
@@ -593,7 +609,7 @@ class Relatorio {
       const c = { atual: null as PaginaSaida | null, y: 0, fechando: false };
       const emitir = (html: string) => c.atual!.html.push(html);
       // definido mais abaixo (precisa do processador das bandas); o título da primeira página sai antes
-      let subrelatorios: (b: No, y0: number, altura: number) => void = () => undefined;
+      let subrelatorios: (b: No, y0: number, altura: number, mestre?: number) => Set<string> = () => new Set();
       const mostrar = (b: No) => { const y0 = c.y; const r = this.banda(b, n(b.a.Left)); if (r) { emitir(r.html); c.y += r.altura; subrelatorios(b, y0, r.altura); } };
       const fechar = () => {
         if (!c.atual || c.fechando) return;
@@ -713,7 +729,13 @@ class Relatorio {
             alturaLinha = Math.max(alturaLinha, r.altura);
             col++;
             if (col >= cols) { col = 0; c.y += alturaLinha; alturaLinha = 0; }
-            if (cols === 1) { subrelatorios(b, y0, r.altura); if (ds) this.posicionar(ds, i); }
+            if (cols === 1) {
+            // o mestre do sub-relatório: a linha desta banda (na DetailData, a linha do mestre dela)
+            const usados = subrelatorios(b, y0, r.altura, b.tag === 'TfrxDetailData' ? mestre : i);
+            if (ds) this.posicionar(ds, i);
+            // o sub-relatório percorreu o MESMO dataset desta banda: no FastReport ele termina no fim (Eof) e o laço de fora acaba
+            if (ds && usados.has(nomeDs(ds))) break;
+          }
             if (b.tag === 'TfrxMasterData') {
               const detalhes = detalhesDe(b);
               if (detalhes.length) {
@@ -738,9 +760,10 @@ class Relatorio {
       };
       const principal = criarProcessador(bandas);
       // `TfrxSubreport` numa banda: as bandas da página dele correm a partir da posição do objeto; a banda cresce até o fim delas
-      subrelatorios = (b: No, y0: number, altura: number) => {
+      subrelatorios = (b: No, y0: number, altura: number, mestre?: number) => {
+        const usados = new Set<string>();
         const subs = b.filhos.filter((o) => o.tag === 'TfrxSubreport' && o.a.Page).sort((a, z) => n(a.a.Top) - n(z.a.Top));
-        if (!subs.length) return;
+        if (!subs.length) return usados;
         // o estado da banda de fora (Eof, [Line#], RecNo) não muda por causa do sub-relatório
         const [eof, linha, recno] = [this.eof, this.linhaBanda, this.recno];
         let fim = y0;
@@ -751,11 +774,13 @@ class Relatorio {
           if (!pagina) continue;
           c.y = Math.max(y0 + n(sr.a.Top), fim);
           const sub = criarProcessador(pagina.filhos.filter((x) => BANDAS.has(x.tag)).sort((a, z) => n(a.a.Top) - n(z.a.Top)));
-          for (const d of sub.dados) sub.processar(d);
+          // dentro de uma linha de dados, o sub-relatório vê só os detalhes daquela linha do mestre (o nested dataset do Delphi)
+          for (const d of sub.dados) { sub.processar(d, mestre); usados.add(nomeDs(d.a.DataSetName || d.a.DataSet || '')); }
           fim = c.y;
         }
         c.y = Math.max(fim, y0 + altura);
         [this.eof, this.linhaBanda, this.recno] = [eof, linha, recno];
+        return usados;
       };
       for (const b of principal.dados) principal.processar(b);
       this.eof = true;

@@ -351,4 +351,34 @@ describe('relatórios do legado com vários datasets', () => {
     expect(r).toContain('9,00');
     expect(r).not.toContain('RUA A,');
   });
+
+  it('análise de NF (situação tributária): o detalhe de cada nota no sub-relatório (ligado ao mestre), os totalizadores e a nota em vermelho quando o total diverge do rateio', () => {
+    const pgs = paginasDoModelo(modelo('nf-analise-tributaria.fr3'), {
+      frxDBDatasetNF: [{ NRONF: '289001', CODNF: 1, DTEMISSAO: '2061-01-10T00:00:00', TOTALPROD: 38, TOTALNF: 38, RAZAO: 'FORN A', CODPARCEIRO: 2 }, { NRONF: '289002', CODNF: 2, DTEMISSAO: '2061-01-10T00:00:00', TOTALPROD: 30, TOTALNF: 30, RAZAO: 'FORN B', CODPARCEIRO: 2 }],
+      frxDBDatasetCFOP: [{ CFOP: '1102', DESCRICAO: 'COMPRA', VALOR: 20, TOTAL: 38, __MESTRE: 0 }, { CFOP: '1403', DESCRICAO: 'COMPRA ST', VALOR: 18, TOTAL: 38, __MESTRE: 0 }, { CFOP: '1102', DESCRICAO: 'COMPRA', VALOR: 30, TOTAL: 30, __MESTRE: 1 }],
+      frxDBDatasetCodCOntabil: [{ CODCONTABIL: 0, DESCRICAO: null, VALOR: 38, TOTAL: 38, __MESTRE: 0 }, { CODCONTABIL: 0, DESCRICAO: null, VALOR: 25, TOTAL: 25, __MESTRE: 1 }],
+      frxDBDatasetICME: [{ ICME: 7, VALOR: 18, TOTAL: 38, __MESTRE: 0 }, { ICME: 18, VALOR: 20, TOTAL: 38, __MESTRE: 0 }, { ICME: 18, VALOR: 30, TOTAL: 30, __MESTRE: 1 }],
+      frxDBDatasetCFOP_T: [{ CFOP: '1102', DESCRICAO: 'COMPRA', TOTAL: 68 }, { CFOP: '1403', DESCRICAO: 'COMPRA ST', TOTAL: 38 }],
+      frxDBDatasetCodCOntabil_T: [{ CONTABIL: 0, DESCRICAO: null, TOTAL: 63 }],
+      frxDBDatasetICME_T: [{ ICME: 7, TOTAL: 18 }, { ICME: 18, TOTAL: 50 }],
+      frxDBDataset1: [{ CODEMPRESA: 1, RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA' }],
+    }, agora, { PERIODO: "'Período de 10/01/2061 até 10/01/2061'" });
+    const html = pgs.map((p) => p.html.join(' ')).join(' ');
+    const t = texto(pgs);
+    // a nota 1 com os 2 CFOPs dela (uma vez só — o sub-relatório percorre o detalhe e o laço de fora acaba), a nota 2 com o dela
+    expect(t).toContain('289001 10/01/2061 2 - FORN A CFOP: 1102 - COMPRA 20,00 CFOP: 1403 - COMPRA ST 18,00 Cod. Contábil: 0 - 38,00');
+    expect(t).toContain('289002 10/01/2061 2 - FORN B CFOP: 1102 - COMPRA 30,00 Cod. Contábil: 0 - 25,00');
+    expect(t).toContain('1102 - COMPRA 68,00');
+    expect(t).toContain('Total: 63,00');
+    expect((html.match(/color:#ff0000/g) ?? []).length).toBe(3);
+  });
+
+  it('análise de NF (conferência): as notas alteradas com quem alterou e as empresas', () => {
+    const t = texto(paginasDoModelo(modelo('nf-analise-conferencia.fr3'), {
+      frxDBConsulta: [{ CODNF: 2, DTCONTABIL: '2061-01-10T00:00:00', NRONF: '289002', RAZAO: 'FORN B', TOTALNF: 30, NOME: 'OPERADOR SMOKE' }],
+    }, agora, { PERIODO: "'Período de 10/01/2061 até 10/01/2061'", EMPRESAS: "'Empresa(s):1'" }));
+    expect(t).toContain('289002');
+    expect(t).toContain('OPERADOR SMOKE');
+    expect(t).toContain('Empresa(s):1');
+  });
 });

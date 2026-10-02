@@ -27255,6 +27255,52 @@ async function main() {
         await pgDr.end();
       }
     }
+    // ══ §289 ANÁLISE DE NF — as impressões das opções 1, 3 e 8 (os detalhes aninhados e os totalizadores do GeraConsulta) ══════
+    {
+      const pgAn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const notas: number[] = [];
+      try {
+        await pgAn.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (992895, '7899000992895', 'ANALISE 289', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        const nf = async (nro: string, totalnf: number, alterou: number | null) => {
+          const id = Number((await pgAn.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, totalnf, totalprod, usultalteracao)
+              VALUES (1, 2, $1, 55, '1', 'E', 'S', 'N', '2061-01-10', '2061-01-10', '1102', $2, $2, $3) RETURNING codnf`, [nro, totalnf, alterou])).rows[0].codnf);
+          notas.push(id); return id;
+        };
+        const n1 = await nf('289001', 38, null);
+        const n2 = await nf('289002', 30, 7);
+        await pgAn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrcusto, desconto, cfop, icme, nroitem) VALUES
+            ($1, 992895, 2, 1, 10, 0, '1102', 18, 1), ($1, 992895, 4, 1, 5, 10, '1403', 7, 2), ($2, 992895, 10, 1, 3, 0, '1102', 18, 1)`, [n1, n2]);
+        await pgAn.query(`INSERT INTO nf_contabil (codnf, valor) VALUES ($1, 38), ($2, 25)`, [n1, n2]);
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['Notas_fiscais_analise.fr3', 'Notas_fiscais_analise_produtos.fr3', 'Notas_fiscais_analise_conferencia.fr3'].entries()) {
+          await pgAn.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992896 + i, nome, fr3(nome)]);
+        }
+        const imp = async (modelo: string) => { const r = await fetch(`${base}/fiscal/nf-analise/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ modelo, dataIni: '2061-01-10', dataFim: '2061-01-10', nronf: '2890', incluirDevolucao: true }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const t1 = await imp('TRIBUTARIA');
+        const t3 = await imp('TRIBUTARIA_PRODUTOS');
+        const c8 = await imp('CONFERENCIA');
+        const d = t1.j.datasets ?? {};
+        const cfop = (d.frxDBDatasetCFOP ?? []).map((r: any) => `${r.__MESTRE}:${r.CFOP}:${r.VALOR}:${r.TOTAL}`).join(',');
+        const cfopT = (d.frxDBDatasetCFOP_T ?? []).map((r: any) => `${r.CFOP}:${r.TOTAL}`).join(',');
+        const icmeT = (d.frxDBDatasetICME_T ?? []).map((r: any) => `${r.ICME}:${r.TOTAL}`).join(',');
+        check('ANÁLISE DE NF §289 [as impressões no layout do cliente]: a situação tributária leva as notas e, por nota (ligadas ao mestre), o CFOP com o custo líquido do item (o desconto de 10% sobre 5 → 4,50 × 4 = 18) e o total da nota; os totalizadores do GeraConsulta: por CFOP soma o TOTAL da nota de cada linha (1102: 38 + 30 = 68 — quirk fiel), por alíquota o VALOR (18%: 20 + 30), por conta o total do rateio (38 + 25 = 63); a opção 3 acrescenta os itens; a 8 (conferência) só a nota alterada, com quem alterou, EMPRESAS e PERIODO',
+          t1.status === 200 && (d.frxDBDatasetNF ?? []).length === 2 && cfop === '0:1102:20:38,0:1403:18:38,1:1102:30:30'
+          && cfopT === '1102:68,1403:38' && icmeT === '7:18,18:50' && d.frxDBDatasetCodCOntabil_T?.[0]?.TOTAL === 63
+          && t1.j.variaveis?.PERIODO === "'Período de 10/01/2061 até 10/01/2061'" && !('frxDBDatasetProd' in d)
+          && t3.status === 200 && (t3.j.datasets?.frxDBDatasetProd ?? []).length === 3 && t3.j.datasets.frxDBDatasetProd[0].__MESTRE === 0
+          && c8.status === 200 && (c8.j.datasets?.frxDBConsulta ?? []).length === 1 && c8.j.datasets.frxDBConsulta[0].NRONF === '289002' && String(c8.j.datasets.frxDBConsulta[0].NOME ?? '').length > 0
+          && c8.j.variaveis?.EMPRESAS === "'Empresa(s):1'",
+          { t1: [t1.status, t1.j.code, cfop, cfopT, icmeT, d.frxDBDatasetCodCOntabil_T, t1.j.variaveis], t3: [t3.status, (t3.j.datasets?.frxDBDatasetProd ?? []).length], c8: [c8.status, c8.j.code, c8.j.datasets?.frxDBConsulta, c8.j.variaveis] });
+      } finally {
+        await pgAn.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992896 AND 992898`).catch(() => undefined);
+        if (notas.length) {
+          await pgAn.query(`DELETE FROM nf_contabil WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgAn.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgAn.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+        }
+        await pgAn.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
