@@ -67,3 +67,21 @@ Tenant-scoped em toda perna (item de venda de outra loja é 422); venda **cancel
 devolver mais do que foi vendido (`QTDE_DEVOLVIDA_EXCEDE`) e devolver duas vezes o mesmo item
 (`ITEM_JA_DEVOLVIDO`); grava o **código** do operador além do nome (o legado só guarda o nome); tudo numa
 transação com `FOR UPDATE` no item; grants separados para registrar e reverter.
+
+## O valor rateado, o motivo obrigatório e as impressões (02/10/2026)
+
+Duas regras vivas que o Apollo não seguia:
+- **O total devolvido é o líquido rateado** (`CalculaDevolucao`): `RoundTo(QTDE_DEVOLVIDO × (((QTDE × VRVENDA) − (DESC_PROMOCAO +
+  DESC_DEPARTAMENTO)) + DESC_ACRE_MEDIO + DESC_ACRE_ITEM) / QTDE, −2)`. A produção grava assim em **920 de 920** devoluções desde 2025;
+  o qtde × preço que o Apollo usava erraria as 12 com desconto. O total do item na busca também passou a ser o líquido (TOTAL_ITEM).
+- **EXIGE_MOTIVO_DEVOLUCAO = 'S'** (produção): sem motivo, "Informe o motivo da devolução."; o motivo é da lista TIPO_OPERACAO =
+  'DEVOLUCAO'. (13 de 949 devoluções desde 2025 estão sem motivo na produção — não pela tela da retaguarda, que pede.)
+
+Impressões (o legado imprime em seguida ao registrar):
+- **Extrato** (`ven_DevolucaoVendas.fr3`): ao registrar (TITULO_AUXILIAR "Extrato de devolução de vendas") e na "Pré-visualização"
+  (os itens marcados antes de registrar); o item com a quantidade a devolver, o devolvido e o desconto/acréscimo rateados, o endereço de
+  menor código do cliente e USUARIO = o operador. `POST relatorios/devolucao-vendas/extrato[?previa=1]`.
+- **Reimpressão** (`ven_ItensDevolvidos.fr3`, "Modo normal" / "Modo preenchimento" = OCULTARCAMPOS 'S'): os itens DEVOLVIDOS do cupom
+  com a quantidade devolvida e o total gravado. `GET relatorios/devolucao-vendas/reimpressao`.
+- O `ven_DevolucaoVendas_Reimpressao.fr3` da RELATORIOS (ausente no fonte de 2020) não tem botão que o carregue no fonte — fica sem uso.
+O GeraSaldoCliente segue fora (GERA_SALDO_CLIENTE_DEVOLUCAO_VENDA = 'N' na produção). Smoke §288.

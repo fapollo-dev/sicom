@@ -27204,6 +27204,57 @@ async function main() {
         await pgCl.end();
       }
     }
+    // ══ §288 DEVOLUÇÃO DE VENDAS — o valor rateado, o motivo obrigatório e as impressões (extrato e reimpressão) ══════
+    {
+      const pgDr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const DV = 'relatorios/devolucao-vendas';
+      const j = { ...H, 'content-type': 'application/json' };
+      const cfgAntes = (await pgDr.query(`SELECT valor FROM configuracoes WHERE codigo = 'EXIGE_MOTIVO_DEVOLUCAO'`)).rows[0]?.valor as string | undefined;
+      try {
+        await pgDr.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (992890, '7899000992890', 'DEV 288', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgDr.query(`INSERT INTO vendas (codvendas, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, desc_promocao, cancelado) VALUES
+            (99289001, 1, '2060-04-10 09:00:00-03', 'P992890', '3', 992890, 1, 992890, 4, 10, 4, 'N'),
+            (99289002, 1, '2060-04-10 09:00:00-03', 'P992890', '3', 992890, 2, 992890, 2, 5, 0, 'N')`);
+        if (cfgAntes === undefined) await pgDr.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas) VALUES (992891, 'EXIGE_MOTIVO_DEVOLUCAO', 'S', 'S', 'EXIGE MOTIVO', 'Usuario;Empresa;Modulo')`);
+        else await pgDr.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'EXIGE_MOTIVO_DEVOLUCAO'`);
+        const busca = (await (await fetch(`${base}/${DV}/venda?nrocupom=992890`, { headers: H })).json().catch(() => ({}))) as any;
+        const itemA = { codvendas: 99289001, nroitem: 1, codproduto: 992890, qtdeDevolvido: 1 };
+        const semMotivo = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [itemA] }) });
+        const semMotivoJ = (await semMotivo.json().catch(() => ({}))) as any;
+        const reg = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ codmotivoop: 301, itens: [itemA] }) });
+        const vA = (await pgDr.query(`SELECT total_item_devolvido FROM vendas WHERE codvendas = 99289001`)).rows[0] as any;
+        check('DEVOLUÇÃO DE VENDAS §288 [o valor rateado e o motivo obrigatório]: o total do item é o LÍQUIDO (4 × 10 − 4 de promoção = 36); devolver 1 grava 36 / 4 = 9,00 (o CalculaDevolucao — o que a produção grava em 920 de 920 devoluções; qtde × preço daria 10); com EXIGE_MOTIVO_DEVOLUCAO = S, sem motivo é "Informe o motivo da devolução."',
+          Number((busca.itens ?? []).find((i: any) => i.nroitem === 1)?.totalItem) === 36
+          && semMotivo.status === 422 && semMotivoJ.message === 'Informe o motivo da devolução.'
+          && reg.status === 201 && Number(vA?.total_item_devolvido) === 9,
+          { busca: busca.itens?.map((i: any) => [i.nroitem, i.totalItem]), semMotivo: [semMotivo.status, semMotivoJ.message], reg: reg.status, vA });
+
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['ven_DevolucaoVendas.fr3', 'ven_ItensDevolvidos.fr3'].entries()) {
+          await pgDr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992892 + i, nome, fr3(nome)]);
+        }
+        const ext = await fetch(`${base}/${DV}/extrato?previa=1`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99289001, nroitem: 1, codproduto: 992890, qtdeDevolvido: 2 }] }) });
+        const extJ = (await ext.json().catch(() => ({}))) as any;
+        const reimp = (await (await fetch(`${base}/${DV}/reimpressao?nrocupom=992890&ocultar=1`, { headers: H })).json().catch(() => ({}))) as any;
+        const semDev = await fetch(`${base}/${DV}/reimpressao?nrocupom=994200`, { headers: H });
+        const semDevJ = (await semDev.json().catch(() => ({}))) as any;
+        const e0 = extJ.datasets?.frxDBDtsDevolucaoVendas?.[0] ?? {};
+        const r = reimp.datasets?.frxDBDtsItensReimpressao ?? [];
+        check('DEVOLUÇÃO DE VENDAS §288 [as impressões no layout do cliente]: a pré-visualização do extrato (ven_DevolucaoVendas) leva o item marcado com a quantidade a devolver e o devolvido rateado (2 → 18,00; desconto −2,00), o USUARIO e o título de pré-visualização; a reimpressão (ven_ItensDevolvidos) traz só os itens DEVOLVIDOS do cupom, com a quantidade devolvida e o total gravado, e OCULTARCAMPOS = S no modo preenchimento; cupom sem devolução → a mensagem do legado',
+          ext.status === 200 && e0.QTDE_DEVOLVIDO === 2 && e0.TOTAL_ITEM_DEVOLVIDO === 18 && e0.DESC_ACRE_DEVOLVIDO === -2 && e0.CODBARRA === '7899000992890'
+          && String(extJ.variaveis?.TITULO_AUXILIAR).includes('Pré visualização') && String(extJ.variaveis?.USUARIO ?? '').length > 2
+          && r.length === 1 && r[0].QTDE === 1 && r[0].TOTAL_ITEM_DEVOLVIDO === 9 && reimp.variaveis?.OCULTARCAMPOS === "'S'"
+          && semDev.status === 422 && semDevJ.message === 'Não foi possível encontrar dados para a pesquisa especificada. Verifique!',
+          { ext: [ext.status, extJ.code, e0, extJ.variaveis], reimp: [reimp.code, r, reimp.variaveis], semDev: [semDev.status, semDevJ.message] });
+      } finally {
+        if (cfgAntes === undefined) await pgDr.query(`DELETE FROM configuracoes WHERE id = 992891`).catch(() => undefined);
+        else await pgDr.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'EXIGE_MOTIVO_DEVOLUCAO'`, [cfgAntes]).catch(() => undefined);
+        await pgDr.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992892 AND 992893`).catch(() => undefined);
+        await pgDr.query(`DELETE FROM devolucao_vendas WHERE codproduto = 992890`).catch(() => undefined);
+        await pgDr.query(`DELETE FROM vendas WHERE codvendas BETWEEN 99289001 AND 99289002`).catch(() => undefined);
+        await pgDr.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

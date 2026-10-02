@@ -652,3 +652,9 @@ Impressões (acesso à tela FRMCADCLIENTES; mig 406 = a fixture do operador 7):
 - **Cartão** (`ImprimirCarto1Click`): Cliente_Cartao.fr3 — sem banda de dados, sai o registro corrente: o endereço escolhido (o
   selecionado na grade do legado; sem escolha, o padrão), com o código de barras Code-128A do CODPARCEIRO.
 O logotipo (`images\logorel.jpg` da estação) não está no banco. Smoke §287.
+
+## Movimento do vendedor 🪦 (02/10/2026)
+
+A aba "Movimento do vendedor" (`BtnConsultarMovVendedorClick` → `qryVendedorMovimento` sobre NF_PROD.CODVENDEDOR, mais o saldo flexível
+da HISTORICO_FLEX) e a impressão Movimento_Vendedor.fr3: **28 itens de nota com vendedor em toda a produção, o último de 15/12/2023;
+HISTORICO_FLEX vazia** (01/10/2026). Morta — não convertida.

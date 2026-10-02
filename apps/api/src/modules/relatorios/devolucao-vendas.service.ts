@@ -4,9 +4,24 @@ import type { DevolucaoVendasBuscaDto, DevolucaoVendasConsultaDto, DevolucaoVend
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { ConfigService } from '../cadastro/config.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+/** o total LÍQUIDO do item (o TOTAL_ITEM do sqqDevolucaoVendas): qtde × preço, menos os descontos de promoção/departamento, mais os acréscimos */
+const LIQUIDO = sql`((coalesce(v.qtde, 0) * v.vrvenda) + ((coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0)) * -1) + coalesce(v.desc_acre_medio, 0) + coalesce(v.desc_acre_item, 0))`;
+/** o devolvido do `CalculaDevolucao` (uDevolucaoVendas.pas): o total líquido do item rateado pela quantidade — e o desconto/acréscimo dela */
+export function calculaDevolucao(it: Record<string, unknown>, qtdeDevolvido: number) {
+  const qtde = num(it.qtde);
+  if (!qtde) return { total: 0, descAcre: 0 };
+  const desc = num(it.desc_promocao) + num(it.desc_departamento);
+  const acre = num(it.desc_acre_medio) + num(it.desc_acre_item);
+  const total = Math.round((qtdeDevolvido * (((qtde * num(it.vrvenda)) - desc) + acre) / qtde + Number.EPSILON) * 100) / 100;
+  const descAcre = Math.round((qtdeDevolvido * ((desc * -1) + acre) / qtde + Number.EPSILON) * 100) / 100;
+  return { total, descAcre };
+}
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
@@ -35,7 +50,10 @@ const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
  */
 @Injectable()
 export class DevolucaoVendasService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -55,7 +73,7 @@ export class DevolucaoVendasService {
 
     const rows = (await sql<Record<string, unknown>>`
       SELECT v.codvendas, v.nroitem, v.nropedido, v.nrocupom, v.nroserie, v.dtvenda, v.codproduto,
-             p.descricao, p.codbarra, v.qtde, v.vrvenda, round((v.qtde * v.vrvenda)::numeric, 2) AS total_item,
+             p.descricao, p.codbarra, v.qtde, v.vrvenda, round((${LIQUIDO})::numeric, 2) AS total_item,
              coalesce(v.devolucao, '') AS devolucao, coalesce(v.qtde_devolvido, 0) AS qtde_devolvido,
              coalesce(v.total_item_devolvido, 0) AS total_item_devolvido,
              d.coddevolucaovenda, d.datadevolucao, d.operador AS operador_devolucao,
@@ -114,15 +132,22 @@ export class DevolucaoVendasService {
 
     return db.transaction().execute(async (trx: AnyDB) => {
       const nome = (await sql<{ nome: unknown }>`SELECT nome FROM operadores WHERE codoperador = ${op}`.execute(trx)).rows[0]?.nome ?? null;
+      // EXIGE_MOTIVO_DEVOLUCAO ('S' na produção): sem motivo, "Informe o motivo da devolução."
+      if (dto.codmotivoop == null && (await this.config.resolver('EXIGE_MOTIVO_DEVOLUCAO', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) === 'S') {
+        throw new BusinessRuleError('MOTIVO_DEVOLUCAO_OBRIGATORIO', {}, 'Informe o motivo da devolução.');
+      }
       if (dto.codmotivoop != null) {
-        const m = (await sql<{ c: unknown }>`SELECT codmotivoop AS c FROM motivos_operacao WHERE codmotivoop = ${dto.codmotivoop}`.execute(trx)).rows[0];
+        // o motivo sai da lista de `TIPO_OPERACAO = 'DEVOLUCAO'` (a seleção do legado só mostra esses)
+        const m = (await sql<{ c: unknown }>`SELECT codmotivoop AS c FROM motivos_operacao WHERE codmotivoop = ${dto.codmotivoop}
+                                               AND upper(coalesce(tipo_operacao, '')) = 'DEVOLUCAO'`.execute(trx)).rows[0];
         if (!m) throw new BusinessRuleError('MOTIVO_NAO_ENCONTRADO', { codmotivoop: dto.codmotivoop });
       }
 
       const registrados: Array<Record<string, unknown>> = [];
       for (const it of dto.itens) {
         const v = (await sql<Record<string, unknown>>`
-          SELECT codvendas, coalesce(codvendas_legado, codvendas) AS cupom, nroitem, nropedido, nrocupom, qtde, vrvenda, coalesce(devolucao, '') AS devolucao
+          SELECT codvendas, coalesce(codvendas_legado, codvendas) AS cupom, nroitem, nropedido, nrocupom, qtde, vrvenda, coalesce(devolucao, '') AS devolucao,
+                 desc_promocao, desc_departamento, desc_acre_medio, desc_acre_item
             FROM vendas
            WHERE codvendas = ${it.codvendas} AND nroitem = ${it.nroitem} AND codproduto = ${it.codproduto} AND idempresa = ${emp}
              AND coalesce(cancelado, 'N') = 'N'
@@ -133,7 +158,9 @@ export class DevolucaoVendasService {
         if (r3(it.qtdeDevolvido) > r3(qtdeVendida)) {
           throw new BusinessRuleError('QTDE_DEVOLVIDA_EXCEDE', { codvendas: it.codvendas, nroitem: it.nroitem, qtde: qtdeVendida, devolvido: it.qtdeDevolvido });
         }
-        const total = r2(it.qtdeDevolvido * num(v.vrvenda));
+        // o TOTAL_ITEM_DEVOLVIDO do CalculaDevolucao: o líquido do item (com os descontos e acréscimos) rateado pela quantidade — o que a
+        // produção grava (920 de 920 devoluções desde 2025; o qtde × preço erraria as 12 com desconto)
+        const total = calculaDevolucao(v, it.qtdeDevolvido).total;
 
         const d = (await sql<{ coddevolucaovenda: unknown }>`
           INSERT INTO devolucao_vendas (datadevolucao, operador, codvendas, codproduto, idempresa, nroitem, codmotivoop, codoperador)
@@ -204,6 +231,83 @@ export class DevolucaoVendasService {
         valor: r2(itens.reduce((s, i) => s + i.total, 0)),
         semMotivo: itens.filter((i) => i.codmotivoop == null).length,
       },
+    };
+  }
+
+  /** as linhas do `sqqDevolucaoVendas` / `sqqItensDevolvidos` (o endereço é o de MENOR código do cliente) */
+  private async linhasDaVenda(db: AnyDB, filtro: ReturnType<typeof sql>): Promise<Array<Record<string, unknown>>> {
+    return (await sql<Record<string, unknown>>`
+      SELECT v.codvendas, v.nropedido, v.nrocupom, p.razao AS cliente, ve.razao AS vendedor, to_char(v.dtvenda, 'YYYY-MM-DD"T"HH24:MI:SS') AS dtvenda,
+             pr.codbarra, CASE WHEN v.idproduto_filho IS NOT NULL THEN v.descricao ELSE pr.descricao END AS descricao, pr.unidade, v.qtde, v.vrvenda,
+             ${LIQUIDO} AS total_item, v.aliquota, v.nroitem, v.codproduto, v.devolucao, v.desc_promocao, v.desc_departamento, v.desc_acre_medio,
+             v.desc_acre_item, coalesce(v.qtde_devolvido, 0) AS qtde_devolvido_gravado, v.total_item_devolvido AS total_item_devolvido_gravado,
+             e.endereco, e.bairro, e.cidade, e.uf, e.telefone, e.celular, e.fax, e.cnpj_cpf, e.rg_insc, e.cep, e.numero, e.complemento,
+             op.nome AS nome_vendedor, mo.descricao AS motivo, to_char(d.datadevolucao, 'YYYY-MM-DD"T"HH24:MI:SS') AS datadevolucao, d.operador
+        FROM vendas v
+        LEFT JOIN parceiros p   ON p.codparceiro = v.codparceiro
+        LEFT JOIN parceiros ve  ON ve.codparceiro = v.codvendedor
+        LEFT JOIN produtos pr   ON pr.idproduto = v.codproduto
+        LEFT JOIN operadores op ON op.codoperador = v.operador
+        LEFT JOIN parceiros_end e ON e.codend = (SELECT min(e2.codend) FROM parceiros_end e2 WHERE e2.codparceiro = v.codparceiro)
+        LEFT JOIN devolucao_vendas d ON d.codvendas = coalesce(v.codvendas_legado, v.codvendas) AND d.codproduto = v.codproduto AND d.nroitem = v.nroitem
+                                    AND d.idempresa = v.idempresa
+        LEFT JOIN motivos_operacao mo ON mo.codmotivoop = d.codmotivoop AND upper(coalesce(mo.tipo_operacao, '')) = 'DEVOLUCAO'
+       WHERE v.idempresa = ${this.emp()} AND ${filtro}
+       ORDER BY v.nroitem, v.codvendas`.execute(db)).rows;
+  }
+
+  /**
+   * O EXTRATO da devolução (`ven_DevolucaoVendas.fr3`): impresso ao registrar (TITULO_AUXILIAR "Extrato de devolução de vendas") e na
+   * "Pré-visualização" (os itens marcados, antes de registrar). O frxDBDtsDevolucaoVendas são os itens marcados com a quantidade a
+   * devolver e o devolvido do `CalculaDevolucao`; USUARIO = o operador; frxDBDtsEmpresa = a empresa do login.
+   */
+  async extrato(dto: DevolucaoVendasRegistrarDto & { previa?: boolean }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nums = await colunasNumericas(db, ['vendas'], ['total_item', 'qtde_devolvido', 'total_item_devolvido', 'desc_acre_devolvido', 'desc_acre']);
+    const linhas: Array<Record<string, unknown>> = [];
+    for (const it of dto.itens) {
+      const [v] = await this.linhasDaVenda(db, sql`v.codvendas = ${it.codvendas} AND v.nroitem = ${it.nroitem} AND v.codproduto = ${it.codproduto}`);
+      if (!v) throw new BusinessRuleError('ITEM_VENDA_NAO_ENCONTRADO', { codvendas: it.codvendas, nroitem: it.nroitem, codproduto: it.codproduto });
+      const { total, descAcre } = calculaDevolucao(v, it.qtdeDevolvido);
+      linhas.push(registroFr3({ ...v, qtde_devolvido: it.qtdeDevolvido, total_item_devolvido: total, desc_acre_devolvido: descAcre }, nums));
+    }
+    const op = currentTenant().operadorId ?? null;
+    const usuario = (await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${op}`.execute(db)).rows[0]?.nome ?? '';
+    return {
+      titulo: 'Extrato de devolução de vendas',
+      modelo: await modeloFr3(db, 'ven_DevolucaoVendas.fr3'),
+      datasets: { frxDBDtsDevolucaoVendas: linhas, frxDBDtsEmpresa: [await empresaParaRelatorio(db, this.emp())] },
+      variaveis: {
+        USUARIO: textoVariavel(usuario),
+        TITULO_AUXILIAR: textoVariavel(dto.previa ? 'Pré visualização de Extrato de Devolução de vendas.' : 'Extrato de devolução de vendas'),
+      },
+    };
+  }
+
+  /**
+   * A REIMPRESSÃO (`AbreDatasetVendas(False, True)`, "Modo normal" / "Modo preenchimento"): o `ven_ItensDevolvidos.fr3` com os itens
+   * DEVOLVIDOS do cupom (`sqqItensDevolvidos`: DEVOLUCAO = 'D'; o TOTAL_ITEM_DEVOLVIDO gravado na venda), USUARIO e OCULTARCAMPOS ('S' no
+   * modo preenchimento). Sem item devolvido: a mensagem do legado.
+   */
+  async reimpressao(q: { nrocupom?: number; nropedido?: string; ocultar?: boolean }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (q.nrocupom == null && !q.nropedido) throw new BusinessRuleError('CUPOM_PDV_OBRIGATORIO');
+    const rows = await this.linhasDaVenda(db, sql`v.devolucao = 'D'
+      ${q.nrocupom != null ? sql`AND v.nrocupom = ${q.nrocupom}` : sql``} ${q.nropedido ? sql`AND v.nropedido = ${q.nropedido}` : sql``}`);
+    if (!rows.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi possível encontrar dados para a pesquisa especificada. Verifique!');
+    const nums = await colunasNumericas(db, ['vendas'], ['total_item', 'qtde_devolvido', 'total_item_devolvido', 'desc_acre_devolvido', 'qtde']);
+    const linhas = rows.map((v) => {
+      const qd = num(v.qtde_devolvido_gravado);
+      // o QTDE do sqqItensDevolvidos é a quantidade DEVOLVIDA; o DESC_ACRE_DEVOLVIDO, o desconto/acréscimo rateado
+      return registroFr3({ ...v, qtde: qd, qtde_devolvido: qd, total_item_devolvido: v.total_item_devolvido_gravado, desc_acre_devolvido: calculaDevolucao(v, qd).descAcre }, nums);
+    });
+    const op = currentTenant().operadorId ?? null;
+    const usuario = (await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${op}`.execute(db)).rows[0]?.nome ?? '';
+    return {
+      titulo: 'Itens devolvidos',
+      modelo: await modeloFr3(db, 'ven_ItensDevolvidos.fr3'),
+      datasets: { frxDBDtsItensReimpressao: linhas, frxDBDtsEmpresa: [await empresaParaRelatorio(db, this.emp())] },
+      variaveis: { USUARIO: textoVariavel(usuario), OCULTARCAMPOS: textoVariavel(q.ocultar ? 'S' : 'N') },
     };
   }
 }

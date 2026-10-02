@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * DEVOLUÇÃO DE VENDAS (`FRMDEVOLUCAOVENDAS`). Dossiê: `uDevolucaoVendas.md`.
@@ -73,14 +74,31 @@ export function DevolucaoVendasPage() {
       : `Reverter ${alvo.length} registro(s) de devolução?`;
     if (!window.confirm(pergunta)) return;
     setOcupado(true);
+    const corpo = tipo === 'registrar'
+      ? { codmotivoop: motivo ? Number(motivo) : undefined, itens: corpoItens(alvo) }
+      : { itens: alvo.map((i) => ({ codvendas: i.codvendas, nroitem: i.nroitem, codproduto: i.codproduto })) };
+    const gravar = () => pedir(`${BASE}/relatorios/devolucao-vendas/${tipo}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
     try {
-      const corpo = tipo === 'registrar'
-        ? { codmotivoop: motivo ? Number(motivo) : undefined, itens: alvo.map((i) => ({ codvendas: i.codvendas, nroitem: i.nroitem, codproduto: i.codproduto, qtdeDevolvido: Number((qtdes[chave(i)] ?? String(i.qtde)).replace(',', '.')) })) }
-        : { itens: alvo.map((i) => ({ codvendas: i.codvendas, nroitem: i.nroitem, codproduto: i.codproduto })) };
-      await pedir(`${BASE}/relatorios/devolucao-vendas/${tipo}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+      // o legado imprime o extrato logo depois de registrar (a janela abre no clique; o registro roda antes de buscar o relatório)
+      if (tipo === 'registrar') await imprimirRelatorio('/relatorios/devolucao-vendas/extrato', corpo, gravar);
+      else await gravar();
       mensagem.sucesso(tipo === 'registrar' ? 'Devolução registrada.' : 'Devolução revertida.');
       await buscar();
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  const corpoItens = (alvo: Item[]) => alvo.map((i) => ({ codvendas: i.codvendas, nroitem: i.nroitem, codproduto: i.codproduto, qtdeDevolvido: Number((qtdes[chave(i)] ?? String(i.qtde)).replace(',', '.')) }));
+  // "Pré-visualizar extrato" (PrVisualizarExtrato1Click): os itens marcados, antes de registrar
+  const previa = () => {
+    const alvo = (res?.itens ?? []).filter((i) => sel.has(chave(i)) && !i.devolvido);
+    if (!alvo.length) return mensagem.erro(new Error('Não foi selecionado nenhum item para ser revertido!. Verifique!'));
+    imprimirRelatorio('/relatorios/devolucao-vendas/extrato?previa=1', { itens: corpoItens(alvo) }).catch((e) => mensagem.erro(e));
+  };
+  // "Reimpressão" (modo normal / modo preenchimento): os itens devolvidos do cupom achado
+  const reimprimir = (ocultar: boolean) => {
+    const it = res?.itens?.[0];
+    if (!it) return mensagem.erro(new Error('Busque o cupom primeiro.'));
+    const q = new URLSearchParams({ ...(it.nrocupom != null ? { nrocupom: String(it.nrocupom) } : {}), ...(it.nropedido ? { nropedido: it.nropedido } : {}), ocultar: ocultar ? '1' : '0' });
+    imprimirRelatorio(`/relatorios/devolucao-vendas/reimpressao?${q}`).catch((e) => mensagem.erro(e));
   };
   const verHistorico = async () => {
     try { setHist(await pedir<Consulta>(`${BASE}/relatorios/devolucao-vendas?${new URLSearchParams(periodo)}`)); } catch (e) { mensagem.erro(e); }
@@ -100,12 +118,15 @@ export function DevolucaoVendasPage() {
           <div className="w-64">
             <label className="mb-1 block text-body-sm text-fg-muted">Motivo</label>
             <select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
-              <option value="">— sem motivo —</option>
+              <option value="">— motivo —</option>
               {motivos.map((m) => <option key={m.codmotivoop} value={m.codmotivoop}>{m.descricao}</option>)}
             </select>
           </div>
           <Button label="&Registrar devolução" disabled={ocupado || sel.size === 0} onClick={() => void acao('registrar')} />
           <Button label="Re&verter" variant="outline" disabled={ocupado || sel.size === 0} onClick={() => void acao('reverter')} />
+          <Button label="Pré-visualizar e&xtrato" variant="ghost" disabled={ocupado || sel.size === 0} onClick={previa} />
+          <Button label="Reimpressão" variant="ghost" disabled={ocupado || !res?.itens?.length} onClick={() => reimprimir(false)} />
+          <Button label="Reimpressão (preenchimento)" variant="ghost" disabled={ocupado || !res?.itens?.length} onClick={() => reimprimir(true)} />
         </div>
       </section>
 

@@ -332,4 +332,23 @@ describe('relatórios do legado com vários datasets', () => {
     expect(texto(pgs)).toContain('CPF: 111.444.777-35');
     expect(html).toContain('<svg');
   });
+
+  it('extrato e reimpressão da devolução de vendas: o endereço montado pelo script (try/iif), o item com o devolvido e o título auxiliar', () => {
+    const item = { NROPEDIDO: 'P992890', NROCUPOM: 992890, CLIENTE: 'CONSUMIDOR', DTVENDA: '2026-09-10T09:00:00', CODBARRA: '7899000992890', DESCRICAO: 'DEV 288', UNIDADE: 'UN',
+      QTDE_DEVOLVIDO: 2, VRVENDA: 10, TOTAL_ITEM_DEVOLVIDO: 18, DESC_ACRE_DEVOLVIDO: -2, ALIQUOTA: 'T01', ENDERECO: 'RUA A', NUMERO: 12, COMPLEMENTO: 'AP 3',
+      BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', CEP: '38400000', TELEFONE: '3432', CELULAR: '' };
+    const e = texto(paginasDoModelo(modelo('ven-devolucao-vendas.fr3'), { frxDBDtsDevolucaoVendas: [item], frxDBDtsEmpresa: [empresa] }, agora,
+      { USUARIO: "'OPERADOR SMOKE'", TITULO_AUXILIAR: "'Extrato de devolução de vendas'" }));
+    expect(e).toContain('RUA A, 12');
+    expect(e).toContain('Complemento: AP 3');
+    expect(e).toContain('DEV 288');
+    expect(e).toContain('18,00');
+    const r = texto(paginasDoModelo(modelo('ven-itens-devolvidos.fr3'), {
+      frxDBDtsItensReimpressao: [{ ...item, QTDE: 1, TOTAL_ITEM_DEVOLVIDO: 9, DATADEVOLUCAO: '2026-10-01T19:06:29', OPERADOR: 'ANGELA', NOME_VENDEDOR: 'CAIXA 1', NUMERO: 0, COMPLEMENTO: '' }],
+      frxDBDtsEmpresa: [empresa],
+    }, agora, { USUARIO: "'OPERADOR SMOKE'", OCULTARCAMPOS: "'N'" }));
+    expect(r).toContain('DEV 288');
+    expect(r).toContain('9,00');
+    expect(r).not.toContain('RUA A,');
+  });
 });
