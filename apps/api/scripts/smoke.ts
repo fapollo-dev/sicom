@@ -27459,6 +27459,59 @@ async function main() {
         await pgHi.end();
       }
     }
+    // ══ §293 FECHAMENTO DE CAIXA — as impressões no layout do cliente: análise (totalizado/descritivo), quebra e histórico ══════
+    {
+      const pgFi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2063-04-10';
+      const CHA = '81100463080000';
+      const qsT = (extra: Record<string, string> = {}, dia = DIA) => new URLSearchParams({ data: dia, chave: CHA, nropdv: '81', codoperadora: '7', situacao: '2', ...extra }).toString();
+      try {
+        await pgFi.query(`INSERT INTO cx_vendas (data, nropdv, codoperadora, nropedido, operacao, debito_credito, valor, troco, idempresa, chave, status) VALUES
+            ('2063-04-10 09:00:00-03', 81, 7, '81100463090000', 'PIX', 'C', 30, 0, 1, $1, 'F'),
+            ('2063-04-10 08:00:00-03', 81, 7, '81100463080000', 'DINHEIRO', 'C', 50, 5, 1, $1, 'F'),
+            ('2063-04-10 10:00:00-03', 81, 7, '81100463100000', 'DINHEIRO', 'C', 20, 0, 1, $1, 'F'),
+            ('2063-04-10 10:30:00-03', 81, 7, '81100463103000', 'SANGRIA', 'D', 40, 0, 1, $1, 'F'),
+            ('2063-04-10 11:00:00-03', 81, 7, '81100463110000', 'CARTAO', 'C', 15, 0, 1, '81100463990000', 'F')`, [CHA]);
+        await pgFi.query(`INSERT INTO saldo_operador (idempresa, codgrupo, codoperador, codpdv, datafechamento, saldo, gera_saldo, excluido, chave) VALUES (1, 9929301, 7, 81, $1, -7.25, 'S', 'N', $2)`, [DIA, CHA]);
+        await pgFi.query(`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar) VALUES ('CAIXA', 'SMOKE 293 ALTEROU', '1', 7, 1, '2063-04-10 12:00:00', $1)`, [CHA]);
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        const nomes = ['fec_Fechamento_Caixa_Totalizado_Vendas.fr3', 'fec_Fechamento_Caixa_Descritivo_Vendas.fr3', 'Comprovante de quebra de caixa.fr3', 'Rel_Historico_Finalizadoras.fr3'];
+        for (const [i, nome] of nomes.entries()) {
+          await pgFi.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992930 + i, nome, fr3(nome)]);
+        }
+        const get = async (rec: string, q: string, h = H) => { const r = await fetch(`${base}/${FC}/turno/${rec}/impressao?${q}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const tot = await get('analise', qsT());
+        const des = await get('analise', qsT({ modo: 'descritivo' }));
+        const anVazia = await get('analise', qsT({}, '2063-04-11'));
+        const qb = await get('quebra', qsT());
+        const qbVazia = await get('quebra', qsT({}, '2063-04-11'));
+        const hi = await get('historico', qsT());
+        const hiVazio = await get('historico', new URLSearchParams({ data: '2063-04-11', chave: '81110463990000', nropdv: '81', codoperadora: '7', situacao: '2' }).toString());
+        const semAcesso = await get('analise', qsT(), H_SEM_ACESSO);
+        const d = tot.j.datasets?.frxDBDatasetDados ?? [];
+        const emp = tot.j.datasets?.FRXempresas?.[0] ?? {};
+        check('FECHAMENTO §293 [as impressões no layout do cliente]: a análise totalizada no fec_Fechamento_Caixa_Totalizado_Vendas com a grade do turno na ordem OPERACAO;DATA;CODOPERADORA;NROPDV (DINHEIRO 08h, DINHEIRO 10h, PIX), sem a SANGRIA e sem a outra chave, VALOR = valor − troco (45), DATA com a hora e DATA_MOV no dia, e o FRXempresas com RAZAOSOCIAL e INSC; a descritiva no ..._Descritivo_Vendas; o comprovante de quebra no FDBComprovanteQuebra (SALDO −7,25, DATAFECHAMENTO no dia) e o histórico no frxDBHistorico; vazios → as mensagens do legado; sem acesso → 403',
+          tot.status === 200 && d.length === 3 && d.map((l: any) => l.OPERACAO).join(',') === 'DINHEIRO,DINHEIRO,PIX' && d[0].VALOR === 45 && d[0].VALORB === 50
+          && d[0].DATA === '2063-04-10T08:00:00' && d[0].DATA_MOV === '2063-04-10T00:00:00' && d[0].NROPDV === 81 && 'RAZAOSOCIAL' in emp && 'INSC' in emp
+          && !Object.keys(emp).some((k) => /SENHA/.test(k)) && String(tot.j.modelo ?? '').length > 0
+          && des.status === 200 && (des.j.datasets?.frxDBDatasetDados ?? []).length === 3 && des.j.titulo === 'Fechamento de caixa'
+          && anVazia.status === 422 && anVazia.j.message === 'Não foi possivel encontrar Vendas com os Filtros informados, Verifique'
+          && qb.status === 200 && qb.j.datasets?.FDBComprovanteQuebra?.[0]?.SALDO === -7.25 && qb.j.datasets.FDBComprovanteQuebra[0].DATAFECHAMENTO === '2063-04-10T00:00:00'
+          && qb.j.datasets.FDBComprovanteQuebra[0].CODPDV === 81
+          && qbVazia.status === 422 && qbVazia.j.message === 'Não foram encontradas quebras de caixa no dia 11/04/2063.'
+          && hi.status === 200 && hi.j.datasets?.frxDBHistorico?.[0]?.HISTORICO === 'SMOKE 293 ALTEROU' && hi.j.datasets.frxDBHistorico[0].DATA === '2063-04-10T12:00:00'
+          && hiVazio.status === 422 && hiVazio.j.message === 'Não foram encontrados dados.' && semAcesso.status === 403,
+          { tot: [tot.status, tot.j.code, d.map((l: any) => [l.OPERACAO, l.DATA, l.VALOR, l.DATA_MOV]), Object.keys(emp).slice(0, 8)], des: [des.status, des.j.code], anVazia: [anVazia.status, anVazia.j.message],
+            qb: [qb.status, qb.j.code, qb.j.datasets], qbVazia: [qbVazia.status, qbVazia.j.message], hi: [hi.status, hi.j.code, hi.j.datasets], hiVazio: [hiVazio.status, hiVazio.j.message], semAcesso: semAcesso.status });
+      } finally {
+        await pgFi.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992930 AND 992933`).catch(() => undefined);
+        await pgFi.query(`DELETE FROM cx_vendas WHERE chave IN ($1, '81100463990000')`, [CHA]).catch(() => undefined);
+        await pgFi.query(`DELETE FROM saldo_operador WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgFi.query(`DELETE FROM historico WHERE historico LIKE 'SMOKE 293 %'`).catch(() => undefined);
+        await pgFi.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

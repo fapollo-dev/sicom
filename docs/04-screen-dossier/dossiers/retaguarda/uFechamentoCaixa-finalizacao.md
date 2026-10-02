@@ -513,3 +513,21 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **Smoke §187:** 1524/0.
 
 **Corte 4 fechado**, com os itens 1-9 da spec. Continua fora, com prova (spec §10): cheque, devolução e recarga manuais, correspondente e voucher, colunas de tesouraria, sangria/suprimento do lançamento provisório, Abrir Caixa manual, Balcão/OS; o troco solidário fica só como lista. Também ficam fora a tela básica de cartão (com desdobramento em parcelas; a empresa 1 usa a completa) e o duplo clique na grade de CX_VENDAS por venda (o Apollo não mostra essa grade).
+
+### 4.11 (02/10/2026) — as impressões no layout do cliente, corte A: análise, comprovante de quebra e histórico
+
+As impressões do corte 4 saíam em HTML próprio (`imprimirPagina`); agora saem nos layouts da RELATORIOS da produção, pelo motor .fr3:
+- **Relatório de análise** (`GET turno/analise/impressao?modo=totalizado|descritivo`, BTNCXABERTO como os outros itens do menu): a grade do
+  `ProcessaSQL` com o `IndexFieldNames = 'OPERACAO;DATA;CODOPERADORA;NROPDV'` no `frxDBDatasetDados` (todas as colunas do cdsCX_Vendas:
+  VALORB, VALOR = valor − troco, DATA com a hora, DATA_MOV = o dia, CODGRUPO_1) e a empresa do login no `FRXempresas` (sem senhas) —
+  `fec_Fechamento_Caixa_Totalizado_Vendas.fr3` (o rádio padrão) / `..._Descritivo_Vendas.fr3`. O "Fechamento do dia" e o "Nº do PDV" têm
+  FormatStr sem Kind no layout (fkText): saem como o valor cru — a data com a hora do primeiro lançamento, o PDV sem os zeros. A variante
+  Balcão (`..._Pedidos.fr3`) segue morta (CX_PEDIDOS: 1 linha em 2026).
+- **Comprovante de quebra** (`GET turno/quebra/impressao`): `Comprovante de quebra de caixa.fr3` (só DEFAULT na produção) com o
+  `FDBComprovanteQuebra` (NOME, CODPDV, DATAFECHAMENTO, SALDO; o layout faz o `FormatFloat('0.00', SALDO * (-1))`).
+- **Histórico** (`GET turno/historico/impressao`): `Rel_Historico_Finalizadoras.fr3` com o `frxDBHistorico` (CODHIST, HISTORICO, NOME, DATA).
+- Vazios: as mesmas mensagens do legado (422). Os GETs JSON `turno/quebra` e `turno/historico` continuam (smoke §182).
+- **Restam** (cortes B e C): a lista do diálogo de documentos (`fec_fechamento_de_caixa_doc_fin_*.fr3`, 10 layouts, UConsDocs.pas:455-500)
+  e o relatório "Fechamento de caixa" (`MontaRel`, FechamentoCaixa.fr3).
+Smoke §293; renderização dos 4 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
+

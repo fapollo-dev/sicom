@@ -461,4 +461,22 @@ describe('relatórios do legado com vários datasets', () => {
     expect(v).toContain('ARROZ 292');
     expect(v).not.toContain('FEIJAO 292');
   });
+
+  it('fechamento de caixa: a análise totalizada (Σ por operação, os totais com Suprimentos/Sangrias) e a descritiva, o comprovante de quebra e o histórico', () => {
+    const l = (op: string, h: string, v: number) => ({ OPERACAO: op, DATA: `2063-04-10T${h}:00`, DATA_MOV: '2063-04-10T00:00:00', CODOPERADORA: 7, NOME: 'MARIA', NROPDV: 81, VALOR: v, SANGRIAS: null, SUPRIMENTOS: null });
+    const dados = [l('DINHEIRO', '08:00', 45), l('DINHEIRO', '10:00', 20), l('PIX', '09:00', 30)];
+    const emp = [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', FANTASIA: 'HIPER', CNPJ: '37954975000169', INSC: '001', ENDERECO: 'RUA A', FONE1: '3433' }];
+    const tot = texto(paginasDoModelo(modelo('fec-totalizado-vendas.fr3'), { frxDBDatasetDados: dados, FRXempresas: emp }, agora));
+    expect(tot).toContain('RELATÓRIO DE FECHAMENTO DE CAIXA');
+    expect(tot).toContain('INSC: 001');
+    expect(tot).toContain('Nº do PDV : 81'); // o "000" é de um memo sem Kind: sai como texto
+    expect(tot).toContain('DINHEIRO R$ 65,00 PIX R$ 30,00');
+    expect(tot).toContain('Total Geral: R$ 95,00 Suprimentos: R$ 0,00 Sangrias: R$ 0,00');
+    const des = texto(paginasDoModelo(modelo('fec-descritivo-vendas.fr3'), { frxDBDatasetDados: dados }, agora));
+    expect(des).toContain('Operador: 7 - MARIA Caixa: 81 DINHEIRO 45,00 10/04/2063 20,00 10/04/2063 PIX 30,00 10/04/2063 Total: 95,00');
+    const qb = texto(paginasDoModelo(modelo('comprovante-quebra-caixa.fr3'), { FDBComprovanteQuebra: [{ NOME: 'MARIA', CODPDV: 81, DATAFECHAMENTO: '2063-04-10T00:00:00', SALDO: -7.25 }] }, agora));
+    expect(qb).toContain('Eu, MARIA, reconheço a quebra de caixa do PDV 81, no dia 10/04/2063, no valor de 7,25 reais.');
+    const hi = texto(paginasDoModelo(modelo('rel-historico-finalizadoras.fr3'), { frxDBHistorico: [{ CODHIST: 1, HISTORICO: 'ALTEROU O CARTAO', NOME: 'MARIA', DATA: '2063-04-10T12:00:00' }] }, agora));
+    expect(hi).toContain('10/04/2063 12:00:00 ALTEROU O CARTAO MARIA');
+  });
 });

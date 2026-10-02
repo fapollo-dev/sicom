@@ -9,11 +9,12 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
-import { imprimirAnalise, imprimirComprovanteQuebra, imprimirHistorico, imprimirRelatorioFechamento } from './imprimirFechamento';
+import { imprimirRelatorioFechamento } from './imprimirFechamento';
+import { imprimirRelatorio as imprimirFr3 } from '../../shared/fr3/imprimirRelatorio';
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, relatorioFechamento, salvarRascunho,
+  abrirTurno, cancelamentosTurno, descontosTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, relatorioFechamento, rotaImpressaoTurno, salvarRascunho,
   type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -273,20 +274,9 @@ export function FechamentoCaixaPage() {
     if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
     try { if (!(await carregarDado(win))) win.close(); } catch (e) { win.close(); mensagem.erro(e); }
   };
-  const imprimirQuebra = () => void imprimirComDado(async (win) => {
-    if (!ref) return false;
-    const d = await comprovanteQuebra(ref);
-    if (!d.quebras.length) { mensagem.erro(new Error(`Não foram encontradas quebras de caixa no dia ${d.data}.`)); return false; }
-    imprimirComprovanteQuebra(win, d);
-    return true;
-  });
-  const imprimirHist = () => void imprimirComDado(async (win) => {
-    if (!ref || !det) return false;
-    const linhas = await historicoTurno(ref);
-    if (!linhas.length) { mensagem.erro(new Error('Não foram encontrados dados.')); return false; }
-    imprimirHistorico(win, linhas, `PDV ${det.turno.nropdv} · operador(a) ${det.turno.codoperadora} — ${det.turno.nome ?? ''} · ${det.turno.data.split('-').reverse().join('/')}`);
-    return true;
-  });
+  // comprovante de quebra e histórico no layout .fr3 do cliente (a API devolve a mensagem do legado quando não há linha)
+  const imprimirQuebra = () => { if (ref) imprimirFr3(rotaImpressaoTurno('quebra', ref)).catch((e) => mensagem.erro(e)); };
+  const imprimirHist = () => { if (ref) imprimirFr3(rotaImpressaoTurno('historico', ref)).catch((e) => mensagem.erro(e)); };
   const abrirObs = (t: TurnoResumo) => executar(async () => {
     const r: TurnoRef = { data, chave: t.chave, nropdv: t.nropdv, codoperadora: t.codoperadora, situacao: t.situacao };
     setObsTurno({ t: r, texto: (await observacaoTurno(r)).obs ?? '' });
@@ -306,13 +296,9 @@ export function FechamentoCaixaPage() {
     return true;
   });
   const imprimirMarcados = () => imprimirRelatorio((turnos ?? []).filter((t) => marcadosRel.has(chaveTurno(t))).map((t) => ({ nropdv: t.nropdv, codoperadora: t.codoperadora, chave: t.chave })));
-  // o "Relatório de análise" (Totalizado/Descritivo): a grade do turno reordenada
+  // o "Relatório de análise" (Totalizado/Descritivo) no layout do cliente: a grade do turno reordenada por operação
   const imprimirRelAnalise = (modo: 'totalizado' | 'descritivo') => {
-    const linhas = det?.grade ?? [];
-    if (!linhas.length) { mensagem.erro(new Error('Não foi possivel encontrar Vendas com os Filtros informados, Verifique')); return; }
-    const win = window.open('', '_blank');
-    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
-    imprimirAnalise(win, linhas.map((l) => ({ ...l, nome: l.nome ?? det?.turno.nome ?? null })), modo);
+    if (ref) imprimirFr3(rotaImpressaoTurno('analise', ref, { modo })).catch((e) => mensagem.erro(e));
   };
 
   // a lista do diálogo de documentos (fec_fechamento_de_caixa_doc_fin_*.fr3): imprime a grade como está

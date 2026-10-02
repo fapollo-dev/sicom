@@ -110,6 +110,27 @@ export class FechamentoCaixaController {
     return this.svc.historicoTurno(q);
   }
 
+  /** o "Relatório de análise" (Totalizado — o padrão do legado — ou Descritivo) no layout do cliente; o menu não tem RBAC próprio */
+  @Get('turno/analise/impressao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  impressaoAnalise(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto, @Query('modo') modo?: string) {
+    return this.svc.impressaoAnalise(q, modo === 'descritivo' ? 'descritivo' : 'totalizado');
+  }
+
+  /** o comprovante de quebra no "Comprovante de quebra de caixa.fr3" */
+  @Get('turno/quebra/impressao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  impressaoQuebra(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.impressaoQuebra(q);
+  }
+
+  /** o histórico no Rel_Historico_Finalizadoras.fr3 */
+  @Get('turno/historico/impressao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  impressaoHistorico(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.impressaoHistorico(q);
+  }
+
   @Get('turno/documentos')
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   documentos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto, @Query('operacao') operacao?: string) {

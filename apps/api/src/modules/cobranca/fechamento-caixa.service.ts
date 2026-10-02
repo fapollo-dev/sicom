@@ -12,6 +12,8 @@ import { configNaTrx } from '../compras/pedido-heranca';
 import { FechamentoContabilService, avisoDoErro, emSavepoint, type AvisoContabil } from './fechamento-contabil.service';
 import { gravarLog, historicoDeGravacao } from '../../shared/log/registro-log';
 import { LiberacaoService } from '../auth/liberacao.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -1331,6 +1333,63 @@ export class FechamentoCaixaService {
          AND ${c.chave ? sql`s.auxiliar = ${c.chave}` : sql`s.auxiliar IS NULL AND s.data::date = ${c.data}::date`}
        ORDER BY s.codhist`.execute(db)).rows;
     return rows.map((r) => ({ codhist: Number(r.codhist), data: dataHoraAsString(r.data), historico: r.historico ?? '', usuario: r.nome ?? '' }));
+  }
+
+  // ── as impressões no layout do cliente (.fr3 da RELATORIOS) ─────────────────────────────────────────────────────
+  /**
+   * O "RELATÓRIO DE ANÁLISE" (`Relatriodeanalise1Click`, uFechamentoCaixa.pas:2024): a grade do `ProcessaSQL` (o cdsCX_Vendas) com o
+   * `IndexFieldNames = 'OPERACAO;DATA;CODOPERADORA;NROPDV'` (solicitação 2933) no fec_Fechamento_Caixa_Totalizado_Vendas.fr3 (o rádio
+   * padrão) ou no ..._Descritivo_Vendas.fr3; FRXempresas = a empresa do login. Vazio: a mensagem do legado. A variante Balcão
+   * (cdsCX_PEDIDOS, ..._Pedidos.fr3) é morta: 1 linha de CX_PEDIDOS em 2026.
+   */
+  async impressaoAnalise(t: TurnoFechamentoDto, modo: 'totalizado' | 'descritivo') {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const grade = await this.grade(db, c, await this.situacaoDo(db, c));
+    if (!grade.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi possivel encontrar Vendas com os Filtros informados, Verifique');
+    const txt = (v: unknown) => String(v ?? '');
+    const ord = [...grade].sort((a, b) => txt(a.operacao).localeCompare(txt(b.operacao)) || txt(a.data).localeCompare(txt(b.data))
+      || num(a.codoperadora) - num(b.codoperadora) || num(a.nropdv) - num(b.nropdv));
+    const nums = await colunasNumericas(db, ['cx_vendas'], ['valorb']);
+    const dados = ord.map((g) => registroFr3({
+      ...g, data: g.data ? txt(g.data).replace(' ', 'T') : null, data_mov: g.data ? `${txt(g.data).slice(0, 10)}T00:00:00` : null, codgrupo_1: g.codgrupo,
+    }, nums));
+    return {
+      titulo: modo === 'totalizado' ? 'Relatório de fechamento de caixa' : 'Fechamento de caixa',
+      modelo: await modeloFr3(db, modo === 'totalizado' ? 'fec_Fechamento_Caixa_Totalizado_Vendas.fr3' : 'fec_Fechamento_Caixa_Descritivo_Vendas.fr3'),
+      datasets: { frxDBDatasetDados: dados, FRXempresas: [await empresaParaRelatorio(db, c.emp)] },
+    };
+  }
+
+  /** o COMPROVANTE DE QUEBRA no "Comprovante de quebra de caixa.fr3" (FDBComprovanteQuebra = o FDQSaldoOperador) */
+  async impressaoQuebra(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.comprovanteQuebra(t);
+    if (!r.quebras.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, `Não foram encontradas quebras de caixa no dia ${r.data}.`);
+    const dia = (br: string) => `${br.split('/').reverse().join('-')}T00:00:00`;
+    return {
+      titulo: 'Comprovante de quebra de caixa',
+      modelo: await modeloFr3(db, 'Comprovante de quebra de caixa.fr3'),
+      datasets: { FDBComprovanteQuebra: r.quebras.map((q) => registroFr3({ idsaldoop: q.idsaldoop, nome: q.nome, codpdv: q.codpdv, datafechamento: dia(q.dia), saldo: q.saldo })) },
+    };
+  }
+
+  /** o HISTÓRICO no Rel_Historico_Finalizadoras.fr3 (frxDBHistorico = o sqqHistorico: CODHIST, HISTORICO, NOME, DATA) */
+  async impressaoHistorico(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const rows = (await sql<{ codhist: number; historico: string | null; data: string | null; nome: string | null }>`
+      SELECT s.codhist, s.historico, to_char(s.data, 'YYYY-MM-DD"T"HH24:MI:SS') AS data, op.nome
+        FROM historico s JOIN operadores op ON op.codoperador = s.codoperador
+       WHERE s.codempresa = ${c.emp}
+         AND ${c.chave ? sql`s.auxiliar = ${c.chave}` : sql`s.auxiliar IS NULL AND s.data::date = ${c.data}::date`}
+       ORDER BY s.codhist`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados dados.');
+    return {
+      titulo: 'Histórico de alterações do fechamento de caixa',
+      modelo: await modeloFr3(db, 'Rel_Historico_Finalizadoras.fr3'),
+      datasets: { frxDBHistorico: rows.map((r) => registroFr3({ codhist: Number(r.codhist), historico: r.historico, nome: r.nome, data: r.data })) },
+    };
   }
 
   // ── o rascunho ─────────────────────────────────────────────────────────────────────────────────────────────────
