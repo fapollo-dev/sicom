@@ -11,10 +11,10 @@ comum e um `.fr3` por análise:
 | # | análise | corte-1 |
 |---|---|---|
 | 1 | Análise de situação tributária | ✅ |
-| 2 | Análise de precificação | — |
+| 2 | Análise de precificação | ✅ corte 3 |
 | 3 | Situação tributária por produtos | ✅ corte 2 |
-| 4 | Precificação agrupada por fornecedor | — |
-| 5 | Precificação agrupada por fornecedor — itens | — |
+| 4 | Precificação agrupada por fornecedor | ✅ corte 3 |
+| 5 | Precificação agrupada por fornecedor — itens | ✅ corte 3 |
 | 6 | Análise de formas de pagamento | — |
 | 7 | Situação tributária por CST | — |
 | 8 | Análise de conferência de notas | ✅ |
@@ -94,3 +94,18 @@ seu próprio parâmetro (`GET_VLR_MIN_ICMSARECOLHER`).
   mestre); o sub-relatório dentro de uma banda de dados vê só os detalhes daquela linha e, quando percorre o MESMO dataset da banda,
   encerra o laço de fora (o Eof do FastReport); `Font.Color` pelo script e as constantes de cor (clRed…).
 - Próximos: precificação (2, 4, 5), formas de pagamento (6), CST (7), ICMS-ST a recolher (9). Smoke §289.
+
+## 7. Corte 3 (02/10/2026) — a precificação (2, 4 e 5)
+
+- **Consulta** (`sqqNFpreco`; com "Agrupar", `sqqAgrupado` — soma quantidade, estoque e total por nota × produto): os itens das notas com o
+  custo de reposição (NP.VRCUSTOREP), a venda, o markup e a margem (MARKUPL2) do item, o estoque da loja, o markup fixo do preço e o total de
+  venda (qtde × fator × venda); ordem fornecedor + nota (2 e 5) ou nota (4).
+- **Filtros** próprios: departamento; produto (código de barras), grupo, subgrupo e "CFOP Precificação" (5102/6102/5402/6402/5403/6403/
+  5405/6405) só na 2 e na 5; na 5, "Desconsiderar CFOPs de Transferência de Entrada" (marcado de início) tira os CFOPs das situações de
+  TRANSFERENCIA_MERCADORIAS quando a empresa tem indexador tributário O/S. Não há "somente diferenças" nestas opções.
+- **Impressões**: Notas_fiscais_analise_preco.fr3 (2) e _preco_fornecedor_itens.fr3 (5) com o frxDBnfPreco; _preco_fornecedor.fr3 (4)
+  com o frxDBFornecedor = o `sqqFornecedor` (as notas distintas, por fornecedor — **sem o tipo e o número da nota**, que essa consulta do
+  legado não tem; fiel) + o total de venda da nota (`sqqValor`) e o markup médio dos itens (`sqqMarkup2`). O CFOP do cabeçalho de cada nota
+  nesse layout é o do registro corrente do frxDBnfPreco (o primeiro — quirk do layout). PERIODO leva "DEPTO: <nome>". O total geral das
+  notas é acumulado pelo script do layout no cabeçalho do grupo (`<TotalNF>` — o motor passou a ler a variável do script).
+- Restam 6 (formas de pagamento), 7 (CST) e 9 (ICMS-ST a recolher). Smoke §290.

@@ -32,10 +32,10 @@ interface Resultado {
 const MODELOS = [
   { id: 'TRIBUTARIA', n: 1, label: 'Análise de situação tributária', ok: true },
   { id: 'CONFERENCIA', n: 8, label: 'Análise de conferência de notas', ok: true },
-  { id: 'x2', n: 2, label: 'Análise de precificação', nota: 'depende do departamento e do agrupamento por fornecedor' },
+  { id: 'PRECIFICACAO', n: 2, label: 'Análise de precificação', ok: true },
   { id: 'TRIBUTARIA_PRODUTOS', n: 3, label: 'Situação tributária por produtos', ok: true },
-  { id: 'x4', n: 4, label: 'Precificação agrupada por fornecedor', nota: 'depende da análise de precificação' },
-  { id: 'x5', n: 5, label: 'Precificação agrupada por fornecedor — itens', nota: 'depende da análise de precificação' },
+  { id: 'PRECO_FORNECEDOR', n: 4, label: 'Precificação agrupada por fornecedor', ok: true },
+  { id: 'PRECO_FORNECEDOR_ITENS', n: 5, label: 'Precificação agrupada por fornecedor — itens', ok: true },
   { id: 'x6', n: 6, label: 'Análise de formas de pagamento', nota: 'próximo corte' },
   { id: 'x7', n: 7, label: 'Situação tributária por CST', nota: 'próximo corte' },
   { id: 'x9', n: 9, label: 'Conferência de ICMS-ST a recolher', nota: 'demonstrativo de 24 colunas sobre notas não cadastradas' },
@@ -48,11 +48,14 @@ const inicioMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 export function NfAnalisePage() {
   const mensagem = useMensagem();
-  const [modelo, setModelo] = useState<'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA'>('TRIBUTARIA');
+  type Modelo = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS';
+  const [modelo, setModelo] = useState<Modelo>('TRIBUTARIA');
+  const preco = modelo === 'PRECIFICACAO' || modelo === 'PRECO_FORNECEDOR' || modelo === 'PRECO_FORNECEDOR_ITENS';
   const [f, setF] = useState({
     dataIni: inicioMes(), dataFim: hoje(), tipo: 'T' as 'T' | 'E' | 'S',
     nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T',
     incluirDevolucao: false, somenteDiferencas: false, movimentaEstoque: false, empresas: '',
+    coddpto: '', codbarra: '', codgrupo: '', codsubgrupo: '', cfopPrecificacao: false, desconsiderarTransfEntrada: true, agrupar: false,
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -63,6 +66,9 @@ export function NfAnalisePage() {
     processadas: f.processadas, incluirDevolucao: f.incluirDevolucao, somenteDiferencas: f.somenteDiferencas,
     movimentaEstoque: f.movimentaEstoque,
     empresas: f.empresas.split(',').map((e) => Number(e.trim())).filter((e) => Number.isInteger(e) && e > 0),
+    coddpto: f.coddpto ? Number(f.coddpto) : null, codbarra: f.codbarra || null,
+    codgrupo: f.codgrupo ? Number(f.codgrupo) : null, codsubgrupo: f.codsubgrupo ? Number(f.codsubgrupo) : null,
+    cfopPrecificacao: f.cfopPrecificacao, desconsiderarTransfEntrada: f.desconsiderarTransfEntrada, agrupar: f.agrupar,
   });
   const gerar = async () => {
     setOcupado(true);
@@ -87,6 +93,21 @@ export function NfAnalisePage() {
   };
 
   const cols = useMemo<DataTableColumnDef<Record<string, unknown>>[]>(() => {
+    if (preco) {
+      const n2 = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      return [
+        { field: 'nronf', headerName: 'Nº NF', type: 'text', width: 100, isPrimary: true },
+        { field: 'razao', headerName: 'Fornecedor', type: 'text' },
+        { field: 'codbarra', headerName: 'Cód. barras', type: 'text', width: 130 },
+        { field: 'descricao', headerName: 'Produto', type: 'text' },
+        { field: 'vrcusto', headerName: 'Custo rep.', type: 'text', width: 100, valueGetter: (l) => n2(l.vrcusto) },
+        { field: 'vrvenda', headerName: 'Venda', type: 'text', width: 100, valueGetter: (l) => n2(l.vrvenda) },
+        { field: 'markup', headerName: 'Markup %', type: 'text', width: 90, valueGetter: (l) => n2(l.markup) },
+        { field: 'markupl2', headerName: 'Margem %', type: 'text', width: 90, valueGetter: (l) => n2(l.markupl2) },
+        { field: 'qtde', headerName: 'Estoque', type: 'text', width: 90, valueGetter: (l) => n2(l.qtde) },
+        { field: 'totalnf_venda', headerName: 'Total venda', type: 'text', width: 110, valueGetter: (l) => n2(l.totalnf_venda) },
+      ];
+    }
     const base: DataTableColumnDef<Record<string, unknown>>[] = [
       { field: 'nronf', headerName: 'Nº NF', type: 'text', width: 110, isPrimary: true },
       { field: 'dtcontabil', headerName: 'Contábil', type: 'text', width: 110, valueGetter: (l) => data(l.dtcontabil) },
@@ -109,7 +130,7 @@ export function NfAnalisePage() {
       );
     }
     return base;
-  }, [modelo]);
+  }, [modelo, preco]);
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -120,7 +141,7 @@ export function NfAnalisePage() {
           {MODELOS.map((m) => (
             <label key={m.id} className={`flex cursor-pointer items-start gap-gp-sm rounded-radius-md border p-pad-sm ${modelo === m.id ? 'border-fg-accent bg-bg-subtle' : 'border-border'} ${m.ok ? '' : 'opacity-60'}`}>
               <input type="radio" name="modelo" className="mt-1" checked={modelo === m.id} disabled={!m.ok}
-                onChange={() => m.ok && setModelo(m.id as 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA')} />
+                onChange={() => m.ok && setModelo(m.id as Modelo)} />
               <span>
                 <span className="block text-body-md">{m.n} — {m.label}</span>
                 {m.nota && <span className="block text-body-sm text-fg-muted">{m.nota}</span>}
@@ -147,7 +168,7 @@ export function NfAnalisePage() {
             <input type="checkbox" checked={f.incluirDevolucao} onChange={(e) => setF({ ...f, incluirDevolucao: e.target.checked })} />
             Incluir notas de devolução
           </label>
-          {modelo !== 'CONFERENCIA' && (
+          {!preco && modelo !== 'CONFERENCIA' && (
             <label className="flex items-center gap-gp-sm text-body-sm">
               <input type="checkbox" checked={f.somenteDiferencas} onChange={(e) => setF({ ...f, somenteDiferencas: e.target.checked })} />
               Somente diferenças <span className="text-fg-muted">(o rateio contábil não fecha com o total)</span>
@@ -157,6 +178,29 @@ export function NfAnalisePage() {
             <input type="checkbox" checked={f.movimentaEstoque} onChange={(e) => setF({ ...f, movimentaEstoque: e.target.checked })} />
             NF que movimenta estoque
           </label>
+          {preco && (
+            <>
+              <div className="w-24"><Field label="Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value.replace(/\D/g, '') })} /></div>
+              {modelo !== 'PRECO_FORNECEDOR' && (
+                <>
+                  <div className="w-36"><Field label="Produto (barras)" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value.trim() })} /></div>
+                  <div className="w-24"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value.replace(/\D/g, '') })} /></div>
+                  <div className="w-24"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value.replace(/\D/g, '') })} /></div>
+                  <label className="flex items-center gap-gp-sm text-body-sm">
+                    <input type="checkbox" checked={f.cfopPrecificacao} onChange={(e) => setF({ ...f, cfopPrecificacao: e.target.checked })} /> CFOP precificação
+                  </label>
+                </>
+              )}
+              {modelo === 'PRECO_FORNECEDOR_ITENS' && (
+                <label className="flex items-center gap-gp-sm text-body-sm">
+                  <input type="checkbox" checked={f.desconsiderarTransfEntrada} onChange={(e) => setF({ ...f, desconsiderarTransfEntrada: e.target.checked })} /> Desconsiderar CFOPs de transferência de entrada
+                </label>
+              )}
+              <label className="flex items-center gap-gp-sm text-body-sm">
+                <input type="checkbox" checked={f.agrupar} onChange={(e) => setF({ ...f, agrupar: e.target.checked })} /> Agrupar análise de precificação
+              </label>
+            </>
+          )}
           <div className="w-36"><Field label="Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={imprimir} />
@@ -170,12 +214,12 @@ export function NfAnalisePage() {
               <div><div className="text-body-sm text-fg-muted">Notas</div><div className="text-body-lg tabular-nums">{res.totais.notas.toLocaleString('pt-BR')}{res.truncado && ' +'}</div></div>
               <div><div className="text-body-sm text-fg-muted">Total das notas</div><div className="text-body-lg tabular-nums">{moeda(res.totais.totalnf)}</div></div>
               <div><div className="text-body-sm text-fg-muted">Isento</div><div className="text-body-lg tabular-nums">{moeda(res.totais.totalisento)}</div></div>
-              {modelo !== 'CONFERENCIA' && (
+              {!preco && modelo !== 'CONFERENCIA' && (
                 <div><div className="text-body-sm text-fg-muted">Divergência do rateio</div><div className="text-body-lg tabular-nums">{moeda(res.totais.divergencia)}</div></div>
               )}
             </div>
           </section>
-          <DataTable rows={res.linhas} columns={cols} getRowId={(l: Record<string, unknown>) => String(l.codnf)} />
+          <DataTable rows={res.linhas.map((l, i) => ({ ...l, __id: `${String(l.codnf)}-${i}` }))} columns={cols} getRowId={(l: Record<string, unknown>) => String(l.__id)} />
         </div>
       )}
     </div>

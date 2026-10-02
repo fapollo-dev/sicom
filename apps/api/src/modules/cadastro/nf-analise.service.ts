@@ -9,7 +9,8 @@ import { colunasNumericas, dataBr, registroFr3, textoVariavel } from '../../shar
 
 type AnyDB = Kysely<any>;
 
-export type ModeloAnalise = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA';
+export type ModeloAnalise = 'TRIBUTARIA' | 'TRIBUTARIA_PRODUTOS' | 'CONFERENCIA' | 'PRECIFICACAO' | 'PRECO_FORNECEDOR' | 'PRECO_FORNECEDOR_ITENS';
+const PRECOS: ModeloAnalise[] = ['PRECIFICACAO', 'PRECO_FORNECEDOR', 'PRECO_FORNECEDOR_ITENS'];
 
 export interface FiltroAnalise {
   dataIni: string;
@@ -30,6 +31,13 @@ export interface FiltroAnalise {
   movimentaEstoque?: boolean;
   /** as lojas (`GetMultiEmpresa`); vazio = a do login. */
   empresas?: number[];
+  coddpto?: number | null;
+  codbarra?: string | null;
+  codgrupo?: number | null;
+  codsubgrupo?: number | null;
+  cfopPrecificacao?: boolean;
+  desconsiderarTransfEntrada?: boolean;
+  agrupar?: boolean;
 }
 
 /**
@@ -72,6 +80,16 @@ export class NfAnaliseService {
   }> {
     const db = this.dbp.forTenantRead() as AnyDB;
     if (!f.dataIni || !f.dataFim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
+    if (PRECOS.includes(modelo)) {
+      const linhas = await this.precos(db, modelo, f, await empresasDoOperador(db, f.empresas));
+      const num = (v: unknown) => (v == null ? 0 : Number(v));
+      const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+      const porNota = new Map(linhas.map((l) => [Number(l.codnf), num(l.totalnf)]));
+      return {
+        modelo, linhas, truncado: false,
+        totais: { notas: porNota.size, totalnf: r2([...porNota.values()].reduce((a, b) => a + b, 0)), totalprod: r2(linhas.reduce((a, l) => a + num(l.totalnf_venda), 0)), totalisento: 0, divergencia: 0 },
+      };
+    }
 
     const onde = this.filtros(await empresasDoOperador(db, f.empresas), f);
     const LIMITE = 5000;
@@ -163,6 +181,7 @@ export class NfAnaliseService {
     const empresas = await empresasDoOperador(db, f.empresas);
     const onde = this.filtros(empresas, f);
     const periodo = textoVariavel(`Período de ${dataBr(f.dataIni)} até ${dataBr(f.dataFim)}`);
+    if (PRECOS.includes(modelo)) return this.impressaoPrecos(db, modelo, f, empresas);
     const semRegistro = () => new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi encontrado registro(s) para essa consulta...tente novamente com um novo filtro!');
     const nums = await colunasNumericas(db, ['nf', 'nf_prod', 'nf_contabil'], ['valor', 'total', 'quantidade', 'icme']);
 
@@ -256,6 +275,117 @@ export class NfAnaliseService {
       modelo: await modeloFr3(db, modelo === 'TRIBUTARIA_PRODUTOS' ? 'Notas_fiscais_analise_produtos.fr3' : 'Notas_fiscais_analise.fr3'),
       datasets,
       variaveis: { PERIODO: periodo },
+    };
+  }
+
+  /** os filtros das análises de precificação (`GeraConsulta`, opções 2, 4 e 5 — alias NF/NP/PR) */
+  private async filtrosPreco(db: AnyDB, modelo: ModeloAnalise, f: FiltroAnalise, empresas: number[], comTipoENumero = true) {
+    const onde = [sql`nf.idempresa = ANY(${empresas}::int[])`, sql`nf.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date`];
+    if (comTipoENumero) {
+      if (f.tipo === 'E' || f.tipo === 'S') onde.push(sql`nf.tipo = ${f.tipo}`);
+      if (f.nronf) onde.push(sql`nf.nronf LIKE ${`%${f.nronf}%`}`);
+    }
+    if (f.razao) onde.push(sql`p.razao ILIKE ${`%${f.razao}%`}`);
+    else if (f.codparceiro) onde.push(sql`nf.codparceiro = ${f.codparceiro}`);
+    if (f.cfop) onde.push(sql`nf.cfop = ${String(f.cfop)}`);
+    if (f.processadas === 'S') onde.push(sql`nf.proc = 'S'`);
+    if (f.processadas === 'N') onde.push(sql`(nf.proc = 'N' OR nf.proc IS NULL)`);
+    if (f.coddpto) onde.push(sql`pr.coddpto = ${f.coddpto}`);
+    if (modelo !== 'PRECO_FORNECEDOR') {
+      // produto, grupo, subgrupo e o "CFOP Precificação" só nas opções 2 e 5
+      if (f.codbarra) onde.push(sql`pr.codbarra = ${f.codbarra}`);
+      if (f.codgrupo) onde.push(sql`pr.codgrupo = ${f.codgrupo}`);
+      if (f.codsubgrupo) onde.push(sql`pr.codsubgrupo = ${f.codsubgrupo}`);
+      if (f.cfopPrecificacao) onde.push(sql`nf.cfop IN ('5405', '6405', '5402', '6402', '5102', '6102', '5403', '6403')`);
+    }
+    if (!f.incluirDevolucao) onde.push(sql`(coalesce(c.devolucao, 'N') <> 'S')`);
+    if (f.movimentaEstoque) onde.push(sql`c.proc_qtde = 'S'`);
+    // a 5 tira os CFOPs de transferência de entrada (as situações com TRANSFERENCIA_MERCADORIAS) na empresa com indexador tributário
+    if (modelo === 'PRECO_FORNECEDOR_ITENS' && f.desconsiderarTransfEntrada !== false) {
+      const fig = (await sql<{ f: string | null }>`SELECT figurafiscal AS f FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0]?.f ?? '';
+      if (['O', 'S'].includes(String(fig).toUpperCase())) {
+        onde.push(sql`nf.cfop::text NOT IN (SELECT DISTINCT i.codcfop::text FROM isituacao_nf i JOIN situacao_nf s ON s.idsituacao_nf = i.idsituacao_nf
+                                             WHERE s.transferencia_mercadorias = 'S' AND i.codcfop IS NOT NULL)`);
+      }
+    }
+    return onde;
+  }
+
+  /**
+   * O `cdsNFpreco` (`sqqNFpreco`, ou o `sqqAgrupado` com "Agrupar"): os itens das notas com o custo de reposição, o preço de venda, os
+   * markups, o estoque da loja e o markup fixo do preço; ordenados pelo fornecedor e a nota (opções 2 e 5) ou pela nota (opção 4).
+   */
+  private async precos(db: AnyDB, modelo: ModeloAnalise, f: FiltroAnalise, empresas: number[]): Promise<Array<Record<string, unknown>>> {
+    const onde = sql.join(await this.filtrosPreco(db, modelo, f, empresas), sql` AND `);
+    const base = sql`
+      SELECT nf.nronf, nf.codnf, nf.dtemissao, nf.dtcontabil, p.razao, np.codproduto, np.descricao, np.ultcusto, pr.codbarra, np.ultvenda,
+             np.vrcustorep AS vrcusto, np.quantidade, np.fatorembal, np.vrvenda, np.markup, np.markupl2, e.qtde, nf.totalnf,
+             nf.codparceiro AS fornecedor, nf.cfop, nf.idempresa, ((np.quantidade * np.fatorembal) * np.vrvenda) AS totalnf_venda, mp.markupfixo
+        FROM nf
+        LEFT JOIN nf_prod np     ON np.codnf = nf.codnf
+        LEFT JOIN produtos pr    ON pr.idproduto = np.codproduto
+        LEFT JOIN parceiros p    ON p.codparceiro = nf.codparceiro
+        LEFT JOIN estoque e      ON e.idproduto = np.codproduto AND e.idempresa = nf.idempresa
+        LEFT JOIN cfop c         ON c.codcfop = nf.cfop
+        LEFT JOIN multi_preco mp ON mp.idproduto = np.codproduto AND mp.idempresa = nf.idempresa
+       WHERE ${onde}`;
+    const fmt = (col: string) => sql.raw(`to_char(${col}, 'YYYY-MM-DD"T"00:00:00')`);
+    const rows = f.agrupar
+      ? (await sql<Record<string, unknown>>`
+          SELECT nronf, ${fmt('max(dtemissao)')} AS dtemissao, ${fmt('max(dtcontabil)')} AS dtcontabil, razao, codproduto, descricao, ultcusto, codbarra,
+                 ultvenda, vrcusto, sum(quantidade) AS quantidade, fatorembal, vrvenda, markup, markupl2, sum(qtde) AS qtde, sum(totalnf) AS totalnf,
+                 fornecedor, cfop, idempresa, totalnf_venda, codnf, markupfixo
+            FROM (${base}) t
+           GROUP BY nronf, razao, codproduto, descricao, ultcusto, ultvenda, vrcusto, fatorembal, vrvenda, markup, markupl2, fornecedor, cfop,
+                    idempresa, totalnf_venda, codbarra, codnf, markupfixo
+           ORDER BY nronf`.execute(db)).rows
+      : (await sql<Record<string, unknown>>`
+          SELECT b.*, ${fmt('b.dtemissao')} AS dtemissao, ${fmt('b.dtcontabil')} AS dtcontabil FROM (${base}) b
+           ORDER BY ${modelo === 'PRECO_FORNECEDOR' ? sql`b.nronf` : sql`b.fornecedor, b.nronf`}, b.codnf`.execute(db)).rows;
+    return rows;
+  }
+
+  /**
+   * A impressão da precificação: Notas_fiscais_analise_preco.fr3 (2), _preco_fornecedor_itens.fr3 (5) — o frxDBnfPreco — e
+   * _preco_fornecedor.fr3 (4): o frxDBFornecedor do `sqqFornecedor` (as notas DISTINTAS do período, pelo fornecedor; sem o tipo e o
+   * número da nota, que essa consulta não tem — fiel) com o total de venda (`sqqValor`) e o markup médio dos itens (`sqqMarkup2`); o CFOP
+   * do cabeçalho de cada nota é o do registro corrente do frxDBnfPreco (o primeiro — quirk do layout). PERIODO leva o departamento.
+   */
+  private async impressaoPrecos(db: AnyDB, modelo: ModeloAnalise, f: FiltroAnalise, empresas: number[]) {
+    const linhas = await this.precos(db, modelo, f, empresas);
+    if (!linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi encontrado registro(s) para essa consulta...tente novamente com um novo filtro!');
+    const nums = await colunasNumericas(db, ['nf', 'nf_prod', 'estoque', 'multi_preco'], ['vrcusto', 'fornecedor', 'totalnf_venda', 'quantidade', 'qtde']);
+    const depto = f.coddpto
+      ? (await sql<{ d: string | null }>`SELECT descricao AS d FROM familias_prod WHERE codfamilia = ${f.coddpto} AND tipo = 'D'`.execute(db)).rows[0]?.d ?? ''
+      : '';
+    const periodo = `Período de ${dataBr(f.dataIni)} até ${dataBr(f.dataFim)}${modelo === 'PRECIFICACAO' || modelo === 'PRECO_FORNECEDOR' || modelo === 'PRECO_FORNECEDOR_ITENS' ? `   DEPTO: ${depto}` : ''}`;
+    const emp = (await sql<Record<string, unknown>>`SELECT idempresa AS codempresa, razao_social AS razaosocial FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0] ?? {};
+    const datasets: Record<string, Array<Record<string, unknown>>> = {
+      frxDBnfPreco: linhas.map((l) => registroFr3(l, nums)),
+      frxDBDataset1: [registroFr3(emp, new Set(['codempresa']))],
+    };
+    if (modelo === 'PRECO_FORNECEDOR') {
+      const onde = sql.join(await this.filtrosPreco(db, modelo, f, empresas, false), sql` AND `);
+      const forn = (await sql<Record<string, unknown>>`
+        SELECT t.*, to_char(t.dtemissao, 'YYYY-MM-DD"T"00:00:00') AS dtemissao, to_char(t.dtcontabil, 'YYYY-MM-DD"T"00:00:00') AS dtcontabil,
+               (SELECT sum((i.quantidade * i.fatorembal) * i.vrvenda) FROM nf_prod i WHERE i.codnf = t.codnf) AS totalnf_venda,
+               (SELECT avg(i.markupl2)::numeric(18,2) FROM nf_prod i WHERE i.codnf = t.codnf) AS markup_teste
+          FROM (SELECT DISTINCT nf.nronf, nf.dtemissao, nf.dtcontabil, p.razao, nf.totalnf, nf.codnf, nf.codparceiro AS fornecedor, nf.cfop, nf.idempresa
+                  FROM nf
+                  LEFT JOIN nf_prod np  ON np.codnf = nf.codnf
+                  LEFT JOIN produtos pr ON pr.idproduto = np.codproduto
+                  LEFT JOIN parceiros p ON p.codparceiro = nf.codparceiro
+                  LEFT JOIN cfop c      ON c.codcfop = nf.cfop
+                 WHERE ${onde}) t
+         ORDER BY t.fornecedor, t.nronf`.execute(db)).rows;
+      datasets.frxDBFornecedor = forn.map((r) => registroFr3(r, new Set([...nums, 'markup_teste'])));
+    }
+    const arquivo = modelo === 'PRECIFICACAO' ? 'Notas_fiscais_analise_preco.fr3' : modelo === 'PRECO_FORNECEDOR' ? 'Notas_fiscais_analise_preco_fornecedor.fr3' : 'Notas_fiscais_analise_preco_fornecedor_itens.fr3';
+    return {
+      titulo: modelo === 'PRECIFICACAO' ? 'Análise de precificação' : modelo === 'PRECO_FORNECEDOR' ? 'Precificação agrupada por fornecedor' : 'Precificação agrupada por fornecedor — itens',
+      modelo: await modeloFr3(db, arquivo),
+      datasets,
+      variaveis: { PERIODO: textoVariavel(periodo) },
     };
   }
 }

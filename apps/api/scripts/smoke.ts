@@ -27301,6 +27301,57 @@ async function main() {
         await pgAn.end();
       }
     }
+    // ══ §290 ANÁLISE DE NF — precificação (2), agrupada por fornecedor (4) e por fornecedor com itens (5) ══════
+    {
+      const pgPz = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const notas: number[] = [];
+      try {
+        await pgPz.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+            (992901, '7899000992901', 'PRECO X', 'UN', 2, 'T01', 'S'), (992902, '7899000992902', 'PRECO Y', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        const nf = async (nro: string, tipo: string, cfop: string, parc: number, totalnf: number) => {
+          const id = Number((await pgPz.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, totalnf, totalprod)
+              VALUES (1, $1, $2, 55, '1', $3, 'S', 'N', '2061-02-10', '2061-02-10', $4, $5, $5) RETURNING codnf`, [parc, nro, tipo, cfop, totalnf])).rows[0].codnf);
+          notas.push(id); return id;
+        };
+        const a = await nf('290001', 'E', '1102', 2, 50);
+        const b = await nf('290002', 'S', '5102', 22, 12);
+        await pgPz.query(`INSERT INTO nf_prod (codnf, codproduto, descricao, quantidade, fatorembal, vrcusto, vrcustorep, vrvenda, markup, markupl2, cfop, nroitem) VALUES
+            ($1, 992901, 'PRECO X', 2, 6, 2, 2.1, 3, 30, 20, '1102', 1), ($1, 992902, 'PRECO Y', 1, 1, 7, 7.5, 10, 35, 40, '1102', 2),
+            ($2, 992901, 'PRECO X', 3, 1, 2, 2.1, 4, 25, 10, '5102', 1)`, [a, b]);
+        const corpo = (modelo: string, extra: Record<string, unknown> = {}) => JSON.stringify({ modelo, dataIni: '2061-02-10', dataFim: '2061-02-10', incluirDevolucao: true, nronf: '2900', ...extra });
+        const an = async (modelo: string, extra: Record<string, unknown> = {}) => (await (await fetch(`${base}/fiscal/nf-analise`, { method: 'POST', headers: H, body: corpo(modelo, extra) })).json().catch(() => ({}))) as any;
+        const p2 = await an('PRECIFICACAO');
+        const pCfop = await an('PRECIFICACAO', { cfopPrecificacao: true });
+        const pAgr = await an('PRECIFICACAO', { agrupar: true });
+        const ord = (p2.linhas ?? []).map((l: any) => `${l.fornecedor}:${l.nronf}:${l.codproduto}:${Number(l.totalnf_venda)}`).join(',');
+        check('ANÁLISE DE NF §290 [precificação]: os itens das notas com o total de venda do item (qtde × fator × venda: 2 × 6 × 3 = 36) na ordem do fornecedor e da nota; o "CFOP Precificação" deixa só a nota de venda (5102); o "Agrupar" agrupa pela nota e pelo produto',
+          ord === '2:290001:992901:36,2:290001:992902:10,22:290002:992901:12' && p2.totais?.notas === 2
+          && (pCfop.linhas ?? []).length === 1 && pCfop.linhas[0].nronf === '290002' && (pAgr.linhas ?? []).length === 3,
+          { ord, totais: p2.totais, cfop: pCfop.linhas?.map((l: any) => l.nronf), agr: (pAgr.linhas ?? []).length, code: p2.code });
+
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome] of ['Notas_fiscais_analise_preco.fr3', 'Notas_fiscais_analise_preco_fornecedor.fr3', 'Notas_fiscais_analise_preco_fornecedor_itens.fr3'].entries()) {
+          await pgPz.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992903 + i, nome, fr3(nome)]);
+        }
+        const imp = async (modelo: string, extra: Record<string, unknown> = {}) => { const r = await fetch(`${base}/fiscal/nf-analise/impressao`, { method: 'POST', headers: H, body: corpo(modelo, extra) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const i2 = await imp('PRECIFICACAO');
+        const i4 = await imp('PRECO_FORNECEDOR', { nronf: '290001' });
+        const i5 = await imp('PRECO_FORNECEDOR_ITENS');
+        const forn = (i4.j.datasets?.frxDBFornecedor ?? []).map((r: any) => `${r.NRONF}:${r.TOTALNF_VENDA}:${r.MARKUP_TESTE}`).join(',');
+        check('ANÁLISE DE NF §290 [as impressões da precificação]: a 2 e a 5 levam o frxDBnfPreco e o PERIODO com o departamento; a 4 leva o frxDBFornecedor com o total de venda da nota (36 + 10 = 46) e o markup médio dos itens ((20 + 40) / 2 = 30) — e lista as duas notas mesmo com o número de uma no filtro (o sqqFornecedor do legado não tem o número nem o tipo)',
+          i2.status === 200 && (i2.j.datasets?.frxDBnfPreco ?? []).length === 3 && String(i2.j.variaveis?.PERIODO).includes('DEPTO:') && String(i2.j.modelo).includes('analise_preco.fr3')
+          && i4.status === 200 && (i4.j.datasets?.frxDBnfPreco ?? []).length === 2 && forn === '290001:46:30,290002:12:10'
+          && i5.status === 200 && String(i5.j.modelo).includes('fornecedor_itens'),
+          { i2: [i2.status, i2.j.code, (i2.j.datasets?.frxDBnfPreco ?? []).length, i2.j.variaveis], i4: [i4.status, i4.j.code, forn], i5: [i5.status, i5.j.code] });
+      } finally {
+        await pgPz.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992903 AND 992905`).catch(() => undefined);
+        if (notas.length) {
+          await pgPz.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+          await pgPz.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]).catch(() => undefined);
+        }
+        await pgPz.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

@@ -381,4 +381,24 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('OPERADOR SMOKE');
     expect(t).toContain('Empresa(s):1');
   });
+
+  it('análise de precificação: o grupo por nota, o total geral das notas acumulado pelo script (<TotalNF>) e o agrupado por fornecedor', () => {
+    const item = (nro: string, cod: number, tot: number, totv: number, ml2: number) => ({ NRONF: nro, CODPRODUTO: cod, DESCRICAO: `PRECO ${cod}`, VRCUSTO: 2.1, VRVENDA: 3, MARKUP: 30,
+      MARKUPL2: ml2, QTDE: 5, QUANTIDADE: 2, FATOREMBAL: 6, ULTCUSTO: 2, ULTVENDA: 3, MARKUPFIXO: 0, DTEMISSAO: '2061-02-10T00:00:00', DTCONTABIL: '2061-02-10T00:00:00',
+      TOTALNF: tot, CFOP: '1102', IDEMPRESA: 1, FORNECEDOR: 2, RAZAO: 'FORN A', TOTALNF_VENDA: totv });
+    const t = texto(paginasDoModelo(modelo('nf-analise-preco.fr3'), {
+      frxDBnfPreco: [item('290001', 992901, 50, 36, 20), item('290001', 992902, 50, 10, 40), item('290002', 992901, 12, 12, 10)],
+      frxDBDataset1: [{ CODEMPRESA: 1, RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA' }],
+    }, agora, { PERIODO: "'Período de 10/02/2061 até 10/02/2061   DEPTO: '", DEPARTAMENTO: "''" }));
+    expect(t).toContain('Nro. NF: 000290001');
+    expect(t).toContain('PRECO 992902');
+    expect(t).toContain('Total geral nf: 62'); // 50 (nota 1) + 12 (nota 2), no GroupHeader
+    const f = texto(paginasDoModelo(modelo('nf-analise-preco-fornecedor.fr3'), {
+      frxDBFornecedor: [{ NRONF: '290001', DTEMISSAO: '2061-02-10T00:00:00', DTCONTABIL: '2061-02-10T00:00:00', RAZAO: 'FORN A', TOTALNF: 50, CODNF: 1, FORNECEDOR: 2, CFOP: '1102', IDEMPRESA: 1, TOTALNF_VENDA: 46, MARKUP_TESTE: 30 }],
+      frxDBnfPreco: [{ CFOP: '1102' }],
+      frxDBDataset1: [{ CODEMPRESA: 1, RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA' }],
+    }, agora, { PERIODO: "'Período de 10/02/2061 até 10/02/2061'" }));
+    expect(f).toContain('Nro. NF: 000290001');
+    expect(f).toContain('Total Venda:46');
+  });
 });

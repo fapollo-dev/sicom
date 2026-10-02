@@ -251,6 +251,8 @@ class Relatorio {
     if (k === 'date') return this.funcoes.date([], this.amb);
     if (k === 'time') return this.funcoes.time([], this.amb);
     if (this.variaveis.has(k)) return this.variaveis.get(k)!;
+    // `[<TotalNF>]`: a variável do script (o `var TotalNF: Real;` acumulado nos eventos)
+    if (this.locais.has(k)) return this.locais.get(k)!;
     return null;
   }
 

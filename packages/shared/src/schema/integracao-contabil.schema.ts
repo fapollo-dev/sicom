@@ -125,7 +125,7 @@ export type ExecutarRelatorioDto = z.infer<typeof executarRelatorioSchema>;
  */
 export const analiseNfSchema = z
   .object({
-    modelo: z.enum(['TRIBUTARIA', 'TRIBUTARIA_PRODUTOS', 'CONFERENCIA']),
+    modelo: z.enum(['TRIBUTARIA', 'TRIBUTARIA_PRODUTOS', 'CONFERENCIA', 'PRECIFICACAO', 'PRECO_FORNECEDOR', 'PRECO_FORNECEDOR_ITENS']),
     dataIni: dataISO,
     dataFim: dataISO,
     tipo: z.enum(['T', 'E', 'S']).optional(),
@@ -140,6 +140,17 @@ export const analiseNfSchema = z
     movimentaEstoque: z.boolean().optional(),
     /** as lojas (`GetMultiEmpresa`); vazio = a do login */
     empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
+    /** precificação (2, 4, 5): departamento, produto (código de barras), grupo e subgrupo */
+    coddpto: z.coerce.number().int().positive().nullish(),
+    codbarra: z.string().max(20).nullish(),
+    codgrupo: z.coerce.number().int().positive().nullish(),
+    codsubgrupo: z.coerce.number().int().positive().nullish(),
+    /** "CFOP Precificação" (os CFOPs de venda 5102/6102/5402/6402/5403/6403/5405/6405) */
+    cfopPrecificacao: z.boolean().optional(),
+    /** "Desconsiderar CFOPs de Transferência de Entrada" (na 5, empresa com indexador tributário O/S; marcado de início) */
+    desconsiderarTransfEntrada: z.boolean().optional(),
+    /** "Agrupar análise de precificação" */
+    agrupar: z.boolean().optional(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type AnaliseNfDto = z.infer<typeof analiseNfSchema>;
