@@ -836,3 +836,28 @@ describe('total por cartão (Rel_Total_Cartao.fr3, uRelCartoes.pas)', () => {
     expect(t).toContain('79,20');
   });
 });
+
+describe('rentabilidade por categorias (at&m_rentabilidade_da_familia*.fr3)', () => {
+  const linha = (sg: string, id: number, desc: string, venda: number, lucrofinal: number, indice: number) => ({
+    SUBGRUPO: sg, IDPRODUTO: id, CODBARRA: `789${id}`, DESCRICAO: desc, TOTCUSTO: venda * 0.6, TOTVENDA: venda, VRUNIT: 5, TOTQTDE: 10, VRCUSTO: 3, DCTOR: 0, PROMOCAO: 'N',
+    VRCUSTOREAL: venda * 0.55, CREDITOICMS: 3.6, DEBITOICMS: 9, CREDITOPISCOFINS: 0, DEBITOPISCOFINS: 0, VENDALIQUIDA: venda * 0.82, LUCROBRUTO: 14.6, LUCRO: 14.6,
+    MARGEMBRUTA: 35.61, ICME: 12, ICMS: 18, ICM: 5.4, ST: 0, VRFCPST: 0, FRETE: 0, FRETE2: 0, DESPACESS: 0, IPI: 0, PISCOFINS: 0, DESPOPERACIONAL: 5, BONIFICACAO: 0,
+    SEGURO: 0, ACRESCIMO: 0, DESC_PROMOCAO: 0, VRPERDA: 0, ADICIONAISCUSTO: 0, LUCROLIQ: 9.6, IMPRENDA: 1.44, CONTSOCIAL: 0.86, LUCROFINAL: lucrofinal, MARGEMFINAL: 14.59,
+    DPTO: 'MERCEARIA', GRUPO: 'GRAOS', QTDE_PERDA: 0, PERC_IMPRENDA: 15, PERC_CONTSOCIAL: 9, INDICE: indice, PARTICIPACAO: 50, ACUMULADO: 50 });
+  const emp = [{ CNPJ: '37954975000169', INSC: '123', RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA' }];
+  const vars = { DATAI: "'01/04/2049'", DATAF: "'30/04/2049'" };
+
+  it('completo e simplificado: o subgrupo no cabeçalho do grupo, os produtos com o lucro final; os totais numa linha', () => {
+    const rows = [linha('GRAOS A', 11, 'ARROZ 5KG', 50, 7.3, 2), linha('GRAOS A', 12, 'FEIJAO 1KG', 50, 1.5, 2)];
+    const c = texto(paginasDoModelo(modelo('rentabilidade-familia.fr3'), { frxDBDataset1: rows, frxDBDataset2: emp }, agora, vars));
+    expect(c).toContain('GRAOS A');
+    expect(c).toContain('ARROZ 5KG');
+    expect(c).toContain('HIPER PINHEIRAO LTDA');
+    const s = texto(paginasDoModelo(modelo('rentabilidade-familia-simp.fr3'), { frxDBDataset1: rows, frxDBDataset2: emp }, agora, vars));
+    expect(s).toContain('FEIJAO 1KG');
+    const t = texto(paginasDoModelo(modelo('rentabilidade-familia-totais.fr3'), { frxDBDataset1: rows, frxDBDataset2: emp, frxDBDataset3: [{ TOTCUSTO: 60, DESPACESS: 0, FRETE: 0, FRETE2: 0, ST: 0, VRFCPST: 0,
+      IPI: 0, SEGURO: 0, BONIFICACAO: 0, CREDITOICMS: 7.2, CREDITOPISCOFINS: 0, TOTVENDA: 100, DEBITOICMS: 18, DEBITOPISCOFINS: 0, VRPERDA: 0, LUCRO: 29.2, DESPOPERACIONAL: 10,
+      LUCROLIQ: 19.2, PERC_IMPRENDA: 15, PERC_CONTSOCIAL: 9 }] }, agora, vars));
+    expect(t).toContain('100,00');
+  });
+});

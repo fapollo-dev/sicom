@@ -243,6 +243,31 @@ export const rentabilidadeSchema = z
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type RentabilidadeDto = z.infer<typeof rentabilidadeSchema>;
 
+const modoTexto = z.enum(['igual', 'comeca', 'termina', 'contem', 'diferente']).nullish();
+/**
+ * RENTABILIDADE POR CATEGORIAS — o relatório do LEGADO (`btnConsultaClick`): o `sqqRel` por subgrupo × produto com os filtros da tela
+ * (departamento, grupo e subgrupo pela descrição no `SetaFiltro`; o fornecedor), a despesa operacional, o "só scrap importado", o
+ * "considerar notas" (`rdgPesquisa`) e o tipo da impressão (`RgTipo`).
+ */
+export const rentabilidadeLegadoSchema = z
+  .object({
+    dataIni: dataISO,
+    dataFim: dataISO,
+    empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+      .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter(Boolean) : v))
+      .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
+    dpto: z.string().max(60).nullish(), modoDpto: modoTexto,
+    grupo: z.string().max(60).nullish(), modoGrupo: modoTexto,
+    subgrupo: z.string().max(60).nullish(), modoSubgrupo: modoTexto,
+    codfor: z.coerce.number().int().positive().nullish(),
+    despesaOperacional: z.coerce.number().min(0).max(100).nullish(),
+    somenteScrapImportado: boolQuery.optional(),
+    considerarNf: boolQuery.optional(),
+    tipo: z.enum(['COMPLETO', 'SIMPLIFICADO', 'TOTAIS']).nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type RentabilidadeLegadoDto = z.infer<typeof rentabilidadeLegadoSchema>;
+
 /** PRECIFICAÇÃO DE NF (`FRMPRECIFICACAONF`) — os filtros da listagem dos itens a precificar. */
 export const precificacaoNfFiltroSchema = z.object({
   codnf: z.coerce.number().int().positive().nullish(),

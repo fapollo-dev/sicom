@@ -3,6 +3,10 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
+import { sqlAuxiliar, sqlRanking, sqlRelatorio, type ParametrosRentabilidade } from './rentabilidade-legado';
 
 type AnyDB = Kysely<any>;
 export type NivelRent = 'DEPARTAMENTO' | 'GRUPO' | 'SUBGRUPO';
@@ -46,6 +50,16 @@ export interface LinhaRentabilidade {
  * alíquota de uma categoria é a MÉDIA das alíquotas dos produtos vendidos nela, não a ponderada pelo valor.
  * Copiado como está: mudar isso mudaria o número que o cliente confere há anos.
  */
+/** o filtro por descrição do legado (o texto e o modo do `SetaFiltro`) */
+export interface FiltroTexto { texto: string; modo?: 'igual' | 'comeca' | 'termina' | 'contem' | 'diferente' | null }
+export interface FiltroRentabilidadeLegado {
+  dataIni: string; dataFim: string; empresas?: number[] | null;
+  dpto?: FiltroTexto | null; grupo?: FiltroTexto | null; subgrupo?: FiltroTexto | null; codfor?: number | null;
+  despesaOperacional?: number | null; somenteScrapImportado?: boolean; considerarNf?: boolean;
+  /** o `RgTipo`: 0 completo (at&m_rentabilidade_da_familia), 1 simplificado (_simp), 2 totais (_totais) */
+  tipo?: 'COMPLETO' | 'SIMPLIFICADO' | 'TOTAIS' | null;
+}
+
 @Injectable()
 export class RentabilidadeCategoriasService {
   constructor(private readonly dbp: DatabaseProvider) {}
@@ -172,6 +186,116 @@ export class RentabilidadeCategoriasService {
         lucro_bruto: soma((l) => l.lucro_bruto), lucro_liquido: liquidoTot,
         margem: vendaLiqTot === 0 ? 0 : r2((liquidoTot / vendaLiqTot) * 100),
       },
+    };
+  }
+
+  /** o `/*WHERE*\/` do legado: departamento, grupo e subgrupo pela DESCRIÇÃO (SetaFiltro); o fornecedor SUBSTITUI os outros (`AndWhere :=`) */
+  private filtroLegado(f: FiltroRentabilidadeLegado) {
+    if (f.codfor) return sql`AND p.codsubgrupo IN (SELECT DISTINCT codsubgrupo FROM produtos WHERE codfor = ${f.codfor} AND codsubgrupo IS NOT NULL)`;
+    const um = (col: ReturnType<typeof sql.ref>, ft?: FiltroTexto | null) => {
+      const t = (ft?.texto ?? '').replace(/[%=]|<>/g, '');
+      if (!t) return sql``;
+      if (ft?.modo === 'diferente') return sql`AND ${col} <> ${t}`;
+      if (ft?.modo === 'comeca') return sql`AND ${col} LIKE ${`${t}%`}`;
+      if (ft?.modo === 'termina') return sql`AND ${col} LIKE ${`%${t}`}`;
+      if (ft?.modo === 'contem') return sql`AND ${col} LIKE ${`%${t}%`}`;
+      return sql`AND ${col} = ${t}`;
+    };
+    return sql`${um(sql.ref('d.descricao'), f.dpto)} ${um(sql.ref('g.descricao'), f.grupo)} ${um(sql.ref('s.descricao'), f.subgrupo)}`;
+  }
+
+  /**
+   * O RELATÓRIO DO LEGADO (`btnConsultaClick`): o `sqqRel` por SUBGRUPO × produto (uRentabilidadeCategorias.dfm), o `sqqAux` (o lucro
+   * líquido de cada subgrupo) e o `RankingFamilias` (o LUCROFIN de cada família, que dá o INDICE: a posição no ranking decrescente),
+   * e o laço que preenche INDICE, PARTICIPACAO (o lucro líquido do produto sobre o do subgrupo) e ACUMULADO (a soma dentro do subgrupo).
+   * Os `Locate` sem achado deixam o cursor onde estava — a linha "SEM GRUPO" (subgrupo nulo) herda o INDICE e o denominador da anterior,
+   * como no legado.
+   */
+  async relatorio(f: FiltroRentabilidadeLegado) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const empresas = await empresasDoOperador(db, f.empresas ?? null);
+    const uf = String((await sql<{ uf: string | null }>`SELECT uf FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0]?.uf ?? '');
+    const p: ParametrosRentabilidade = {
+      dataIni: f.dataIni, dataFim: f.dataFim, uf, empresas, despesaOperacional: f.despesaOperacional ?? null,
+      somenteScrapImportado: !!f.somenteScrapImportado, considerarNf: !!f.considerarNf, where: this.filtroLegado(f),
+    };
+    const n = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+    const NUM = ['totcusto', 'totvenda', 'vrunit', 'totqtde', 'vrcusto', 'dctor', 'vrcustoreal', 'creditoicms', 'debitoicms', 'creditopiscofins', 'debitopiscofins',
+      'vendaliquida', 'lucrobruto', 'lucro', 'margembruta', 'icme', 'icms', 'icm', 'st', 'vrfcpst', 'frete', 'frete2', 'despacess', 'ipi', 'piscofins',
+      'despoperacional', 'bonificacao', 'seguro', 'acrescimo', 'desc_promocao', 'vrperda', 'adicionaiscusto', 'lucroliq', 'imprenda', 'contsocial', 'lucrofinal',
+      'margemfinal', 'qtde_perda', 'perc_imprenda', 'perc_contsocial'];
+    const linhas = (await sqlRelatorio(p).execute(db)).rows.map((r) => {
+      const o: Record<string, unknown> = { ...r };
+      for (const k of NUM) if (k in o && o[k] != null) o[k] = Number(o[k]);
+      return o;
+    });
+    if (!linhas.length) {
+      throw new BusinessRuleError('RENTABILIDADE_SEM_DADOS', {}, 'Não foram encontradas informações suficientes para construir um relatório. Refaça a pesquisa.');
+    }
+    const aux = (await sqlAuxiliar(p).execute(db)).rows.map((r) => ({ subgrupo: r.subgrupo as string | null, lucroliq: n(r.lucroliq) }));
+    // o RankingFamilias: LUCROFIN = (venda − (custo + frete + acessórias + IPI + ST)) − ((ICMS saída − ICMS entrada) + PIS/COFINS)
+    const ranking = (await sqlRanking(p).execute(db)).rows.map((r) => {
+      const vre = n(r.custo), vrs = n(r.venda);
+      const icmet = n(r.icme) > 0 ? (vre * n(r.icme)) / 100 : 0;
+      const icmst = n(r.icms) > 0 ? (vrs * n(r.icms)) / 100 : 0;
+      const imposto = (icmst - icmet) + n(r.piscofins);
+      const vrcusto = vre + n(r.frete) + n(r.despacess) + n(r.ipi) + n(r.st);
+      return { familia: r.descricao as string | null, lucrofin: (vrs - vrcusto) - imposto };
+    }).sort((a, b) => b.lucrofin - a.lucrofin);
+    const posicao = new Map<string, number>();
+    ranking.forEach((r, i) => { if (r.familia != null && !posicao.has(r.familia)) posicao.set(r.familia, i + 1); });
+    const auxDe = new Map<string, number>();
+    aux.forEach((a, i) => { if (a.subgrupo != null && !auxDe.has(a.subgrupo)) auxDe.set(a.subgrupo, i); });
+    let indice = ranking.length ? 1 : 0;
+    let iAux = 0;
+    let ultimo = '';
+    let acumulado = 0;
+    for (const l of linhas) {
+      const sg = String(l.subgrupo ?? '');
+      if (posicao.has(sg)) indice = posicao.get(sg)!;
+      if (auxDe.has(sg)) iAux = auxDe.get(sg)!;
+      const den = aux[iAux]?.lucroliq ?? 0;
+      const part = n(l.lucroliq) !== 0 && den !== 0 ? (n(l.lucroliq) / den) * 100 : 0;
+      if (ultimo !== sg) { ultimo = sg; acumulado = part; } else acumulado += part;
+      l.indice = indice;
+      l.participacao = part;
+      l.acumulado = acumulado;
+    }
+    return { empresas, linhas };
+  }
+
+  /**
+   * A impressão (`RgTipo`): COMPLETO em `at&m_rentabilidade_da_familia.fr3` (a ordem da consulta), SIMPLIFICADO em `…_simp.fr3`
+   * (`IndexFieldNames := 'INDICE;LUCROLIQ'`) e TOTAIS em `…_totais.fr3` (o `CriarCDSDeTotalizacao`: a soma de cada valor, o maior
+   * percentual de IR e de CSLL). `frxDBDataset2` = a loja; as variáveis DATAI/DATAF.
+   */
+  async impressao(f: FiltroRentabilidadeLegado) {
+    const tipo = f.tipo ?? 'COMPLETO';
+    const { linhas } = await this.relatorio(f);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = (await sql<Record<string, unknown>>`SELECT cnpj, insc, razao_social FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0] ?? {};
+    const br = (d: string) => d.split('-').reverse().join('/');
+    let rel = linhas;
+    if (tipo === 'SIMPLIFICADO') rel = [...linhas].sort((a, b) => Number(a.indice) - Number(b.indice) || Number(a.lucroliq ?? 0) - Number(b.lucroliq ?? 0));
+    const datasets: Record<string, Array<Record<string, unknown>>> = {
+      frxDBDataset1: rel.map((l) => registroFr3(l)),
+      frxDBDataset2: [registroFr3({ cnpj: emp.cnpj ?? null, insc: emp.insc ?? null, razaosocial: emp.razao_social ?? null })],
+    };
+    if (tipo === 'TOTAIS') {
+      const soma = (k: string) => Math.round(linhas.reduce((s2, l) => s2 + Number(l[k] ?? 0), 0) * 10000) / 10000;
+      const max = (k: string) => linhas.reduce((m2, l) => Math.max(m2, Number(l[k] ?? 0)), 0);
+      datasets.frxDBDataset3 = [registroFr3({
+        totcusto: soma('totcusto'), despacess: soma('despacess'), frete: soma('frete'), frete2: soma('frete2'), st: soma('st'), vrfcpst: soma('vrfcpst'),
+        ipi: soma('ipi'), seguro: soma('seguro'), bonificacao: soma('bonificacao'), creditoicms: soma('creditoicms'), creditopiscofins: soma('creditopiscofins'),
+        totvenda: soma('totvenda'), debitoicms: soma('debitoicms'), debitopiscofins: soma('debitopiscofins'), vrperda: soma('vrperda'), lucro: soma('lucro'),
+        despoperacional: soma('despoperacional'), lucroliq: soma('lucroliq'), perc_imprenda: max('perc_imprenda'), perc_contsocial: max('perc_contsocial'),
+      })];
+    }
+    const arquivo = tipo === 'SIMPLIFICADO' ? 'at&m_rentabilidade_da_familia_simp.fr3' : tipo === 'TOTAIS' ? 'at&m_rentabilidade_da_familia_totais.fr3' : 'at&m_rentabilidade_da_familia.fr3';
+    return {
+      titulo: 'Rentabilidade por categorias', modelo: await modeloFr3(db, arquivo), datasets,
+      variaveis: { DATAI: textoVariavel(br(f.dataIni)), DATAF: textoVariavel(br(f.dataFim)) },
     };
   }
 }

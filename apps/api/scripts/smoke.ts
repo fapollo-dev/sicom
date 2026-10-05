@@ -28006,6 +28006,83 @@ async function main() {
         await pgTm.end();
       }
     }
+    // ══ §297 RENTABILIDADE POR CATEGORIAS — o relatório do legado (sqqRel/sqqAux/RankingFamilias) e as 3 impressões ═════════════════
+    {
+      const pgRt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const RTB = 'relatorios/rentabilidade';
+      const [SG1, SG2] = [992971, 992972];
+      const [PA, PB, PC] = [992973, 992974, 992975];
+      const empAntes = (await pgRt.query(`SELECT uf, imprenda, contsocial FROM empresas WHERE idempresa = 1`)).rows[0];
+      try {
+        const uf = String(empAntes?.uf ?? 'MG');
+        await pgRt.query(`UPDATE empresas SET imprenda = 15, contsocial = 9 WHERE idempresa = 1`);
+        await pgRt.query(`INSERT INTO aliquota (codigo, descricao) VALUES ('T96', 'TRIB 297') ON CONFLICT (codigo) DO NOTHING`);
+        await pgRt.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo, base, cst) VALUES ('T96', $1, 18, 18, 100, 0) ON CONFLICT (aliquota, uf) DO UPDATE SET icm_efetivo = 18`, [uf]);
+        await pgRt.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES ($1, 'S', 'SG RENT 297 A'), ($2, 'S', 'SG RENT 297 B') ON CONFLICT (codfamilia) DO NOTHING`, [SG1, SG2]);
+        await pgRt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, codsubgrupo) VALUES
+          ($1, '7899000992973', 'RENT297 ARROZ', 'UN', 2, 'T96', $4), ($2, '7899000992974', 'RENT297 FEIJAO', 'UN', 2, 'T96', $4), ($3, '7899000992975', 'RENT297 OLEO', 'UN', 22, 'T96', $5)
+          ON CONFLICT (idproduto) DO NOTHING`, [PA, PB, PC, SG1, SG2]);
+        await pgRt.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, icme) VALUES ($1, 1, 3, 5, 12), ($2, 1, 4, 5, 12), ($3, 1, 2, 10, 12)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET icme = 12`, [PA, PB, PC]);
+        await pgRt.query(`DELETE FROM vendas WHERE codproduto = ANY($1)`, [[PA, PB, PC]]);
+        await pgRt.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, iat, cancelado, codsubgrupo) VALUES
+          (1, '2049-04-10 10:00', 'R297-1', $1, 10, 5, 3, 'A', 'N', $4),
+          (1, '2049-04-10 11:00', 'R297-2', $2, 10, 5, 4, 'A', 'N', $4),
+          (1, '2049-04-11 10:00', 'R297-3', $3, 10, 10, 2, 'A', 'N', $5)`, [PA, PB, PC, SG1, SG2]);
+        const q = async (qs: string, rota = '/legado') => { const r = await fetch(`${base}/${RTB}${rota}?dataIni=2049-04-01&dataFim=2049-04-30&despesaOperacional=10&${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const r1 = await q('');
+        const L = (r1.j.linhas ?? []) as any[];
+        const a = L.find((l) => Number(l.idproduto) === PA);
+        const c = L.find((l) => Number(l.idproduto) === PC);
+        // ARROZ: venda 50, custo 30, crédito ICMS 30×12% = 3,60, débito 50×18% = 9 → custo real 26,40, venda líquida 41, lucro 14,60;
+        // despesa 10% = 5 → lucro líquido 9,60; IR 15% = 1,44, CSLL 9% = 0,86 → final 7,30; margem bruta 14,6/41 = 35,61; final 7,296/50 = 14,59
+        check('RENTABILIDADE §297.1 [o sqqRel do legado, expressão a expressão]: por subgrupo × produto — venda 50, custo 30; crédito de ICMS 3,60 (12% do custo, produto tributado), débito 9,00 (o ICM_EFETIVO da UF da loja), custo real 26,40, venda líquida 41,00, lucro 14,60; despesa operacional 10% = 5,00 → lucro líquido 9,60; IR 1,44 e CSLL 0,86 (piso zero) → lucro final 7,30; margem bruta 35,61% (sobre a venda líquida) e final 14,59% (sobre a venda)',
+          r1.status === 200 && !!a && Number(a.totvenda) === 50 && Number(a.totcusto) === 30 && Number(a.creditoicms) === 3.6 && Number(a.debitoicms) === 9
+            && Number(a.vrcustoreal) === 26.4 && Number(a.vendaliquida) === 41 && Number(a.lucro) === 14.6 && Number(a.despoperacional) === 5
+            && Number(a.lucroliq) === 9.6 && Number(a.imprenda) === 1.44 && Number(a.contsocial) === 0.86 && Number(a.lucrofinal) === 7.3
+            && Number(a.margembruta) === 35.61 && Number(a.margemfinal) === 14.59 && Number(a.icm) === 5.4 && a.subgrupo === 'SG RENT 297 A',
+          { status: r1.status, code: r1.j.code, msg: r1.j.message, a });
+        // o INDICE: o ranking por LUCROFIN da família (OLEO: venda 100 − custo 20 lucra mais) — SG B é 1º, SG A 2º; PARTICIPACAO = o lucro
+        // líquido do produto sobre o do subgrupo (depois de IR/CSLL, o sqqAux), ACUMULADO a soma dentro do subgrupo
+        const b = L.find((l) => Number(l.idproduto) === PB);
+        check('RENTABILIDADE §297.2 [INDICE, PARTICIPACAO e ACUMULADO do laço do btnConsultaClick]: o INDICE é a posição da família no ranking decrescente de LUCROFIN (o subgrupo do óleo, que lucra mais, é o 1; o do arroz e feijão, o 2); a PARTICIPACAO é o lucro líquido do produto sobre o lucro líquido do subgrupo depois de IR/CSLL (o sqqAux) e o ACUMULADO soma dentro do subgrupo',
+          Number(c?.indice) === 1 && Number(a?.indice) === 2 && Number(b?.indice) === 2
+            && Math.abs(Number(a?.participacao) + Number(b?.participacao) - Number(L.filter((l) => l.subgrupo === 'SG RENT 297 A').slice(-1)[0]?.acumulado)) < 0.0001
+            && Number(a?.participacao) > 0,
+          { a: a && [a.indice, a.participacao, a.acumulado], b: b && [b.indice, b.participacao, b.acumulado], c: c && [c.indice, c.participacao] });
+        const soSg2 = await q('subgrupo=SG%20RENT%20297%20B&modoSubgrupo=igual');
+        const porForn = await q('codfor=22&subgrupo=SG%20RENT%20297%20A&modoSubgrupo=igual');
+        const vazio = await fetch(`${base}/${RTB}/legado?dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const vazioJ = (await vazio.json().catch(() => ({}))) as any;
+        check('RENTABILIDADE §297.3 [os filtros]: subgrupo pela descrição ("igual a") traz só o óleo; o fornecedor SUBSTITUI os outros filtros (o `AndWhere :=` do legado) — fornecedor 22 traz o subgrupo do óleo mesmo pedindo o outro; sem dados, a mensagem do legado',
+          (soSg2.j.linhas ?? []).map((l: any) => Number(l.idproduto)).join() === String(PC)
+            && (porForn.j.linhas ?? []).map((l: any) => Number(l.idproduto)).join() === String(PC)
+            && vazio.status === 422 && vazioJ.message === 'Não foram encontradas informações suficientes para construir um relatório. Refaça a pesquisa.',
+          { sg2: (soSg2.j.linhas ?? []).map((l: any) => l.idproduto), forn: (porForn.j.linhas ?? []).map((l: any) => l.idproduto), vazio: [vazio.status, vazioJ.message] });
+        const stubRt = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        for (const [k, n] of ['at&m_rentabilidade_da_familia.fr3', 'at&m_rentabilidade_da_familia_simp.fr3', 'at&m_rentabilidade_da_familia_totais.fr3'].entries()) {
+          await pgRt.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992976 + k, n, stubRt(n)]);
+        }
+        const i0 = await q('tipo=COMPLETO', '/impressao');
+        const i1 = await q('tipo=SIMPLIFICADO', '/impressao');
+        const i2 = await q('tipo=TOTAIS', '/impressao');
+        const tot = i2.j.datasets?.frxDBDataset3?.[0];
+        check('RENTABILIDADE §297.4 [as três impressões]: o completo em at&m_rentabilidade_da_familia.fr3 com os campos do cdsREL (e INDICE/PARTICIPACAO/ACUMULADO), o simplificado no _simp ordenado por INDICE e LUCROLIQ (o óleo, índice 1, primeiro), os totais no _totais com a soma de cada valor (venda 200) e o maior IR/CSLL; a loja no frxDBDataset2 e as variáveis DATAI/DATAF',
+          i0.status === 200 && String(i0.j.modelo ?? '').includes('at&m_rentabilidade_da_familia.fr3') && (i0.j.datasets?.frxDBDataset1 ?? []).some((r: any) => r.LUCROFINAL === 7.3 && r.INDICE === 2)
+          && i1.status === 200 && Number(i1.j.datasets?.frxDBDataset1?.[0]?.IDPRODUTO) === PC
+          && i2.status === 200 && Math.abs(Number(tot?.TOTVENDA) - 200) < 0.001 && Number(tot?.PERC_IMPRENDA) === 15
+          && i0.j.variaveis?.DATAI === "'01/04/2049'" && !!i0.j.datasets?.frxDBDataset2?.[0],
+          { i0: [i0.status, i0.j.code], i1: [i1.status, i1.j.datasets?.frxDBDataset1?.[0]?.IDPRODUTO], tot, vars: i0.j.variaveis });
+        await pgRt.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992976 AND 992978`);
+      } finally {
+        await pgRt.query(`DELETE FROM vendas WHERE codproduto = ANY($1)`, [[PA, PB, PC]]).catch(() => undefined);
+        await pgRt.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[PA, PB, PC]]).catch(() => undefined);
+        await pgRt.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[PA, PB, PC]]).catch(() => undefined);
+        await pgRt.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1)`, [[SG1, SG2]]).catch(() => undefined);
+        if (empAntes) await pgRt.query(`UPDATE empresas SET imprenda = $1, contsocial = $2 WHERE idempresa = 1`, [empAntes.imprenda, empAntes.contsocial]).catch(() => undefined);
+        await pgRt.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

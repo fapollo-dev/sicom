@@ -46,3 +46,31 @@ completo (cada desconto em coluna). Nenhuma migration de schema — todas as col
 
 **Fica**: o filtro por subgrupo do fornecedor, o "considerar apenas SCRAP" (que troca a fonte de `VENDAS` para
 `SCRAP`/`SCRAP_ITEM`) e o modo de consulta que soma as notas fiscais junto com as vendas.
+
+## O relatório do legado e as três impressões (05/10/2026)
+
+A versão anterior do Apollo agregava por "nível" (departamento/grupo/subgrupo) — um resumo que o legado não tem. O legado
+(`btnConsultaClick`) é um relatório **por SUBGRUPO × produto** (`sqqRel` do DFM, 18 KB de SQL), e é ele que os três layouts
+imprimem. Agora portado expressão a expressão (`rentabilidade-legado.ts`):
+
+- **`sqqRel`**: a venda do PDV agrupada por loja × dia × produto × promoção × IAT (e, com "considerar notas", as NF de saída com os
+  CFOPs de venda — o `GetSQLNf`); por produto: TOTVENDA, TOTCUSTO, VRUNIT, crédito/débito de ICMS (crédito só para tributado, o
+  ICM_EFETIVO da UF da loja), crédito/débito de PIS/COFINS (SN não debita; SN/ME/LP não creditam), ST, FCP-ST, frete, frete2,
+  acessórias, IPI, bonificação, seguro, ADICIONAISCUSTO, VRCUSTOREAL, VENDALIQUIDA, LUCRO, a despesa operacional (a informada ou
+  `AVG(EMPRESAS.DESPOPERACIONAL)`), a PERDA (scrap "LIXO/PERDA"/"ROUBO" no período × VRCUSTO; "só importados" filtra), LUCROLIQ,
+  IR/CSLL com piso zero, LUCROFINAL, MARGEMBRUTA (sobre a venda líquida) e MARGEMFINAL (sobre a venda). `ORDER BY 1, 24 DESC` =
+  SUBGRUPO, **FRETE** desc (a 24ª coluna — fiel). As divisões por zero do Oracle (que derrubariam o relatório) viram nulo.
+- **`sqqAux`**: o lucro líquido de cada subgrupo depois de IR/CSLL — o denominador da PARTICIPACAO.
+- **`RankingFamilias`** (só o que a rentabilidade usa: o LUCROFIN por família = (venda − (custo + frete + acessórias + IPI + ST))
+  − ((ICMS saída − ICMS entrada) + PIS/COFINS), sobre as colunas desnormalizadas da VENDAS), ordenado decrescente: a posição é o
+  **INDICE** do subgrupo.
+- **o laço**: INDICE, PARTICIPACAO (lucro líquido do produto ÷ o do subgrupo × 100) e ACUMULADO (soma dentro do subgrupo); o
+  `Locate` sem achado mantém o cursor — a linha "SEM GRUPO" herda o índice e o denominador da anterior, como no legado.
+- **filtros**: departamento, grupo e subgrupo pela DESCRIÇÃO (o `SetaFiltro`: igual, começa, termina, contém, diferente); o
+  fornecedor **substitui** os outros (`AndWhere :=` — os subgrupos dos produtos dele); as lojas do `GetMultiEmpresa`.
+- **impressões** (`RgTipo`): COMPLETO em `at&m_rentabilidade_da_familia.fr3`; SIMPLIFICADO em `…_simp.fr3` ordenado por
+  `INDICE;LUCROLIQ`; TOTAIS em `…_totais.fr3` com o `CriarCDSDeTotalizacao` (a soma de cada valor, o maior % de IR e CSLL);
+  `frxDBDataset2` = a loja; `DATAI`/`DATAF`. Sem dados: "Não foram encontradas informações suficientes para construir um
+  relatório. Refaça a pesquisa.".
+- a tela passou a mostrar a grade do legado (por produto). O endpoint antigo por nível segue (o smoke dele também).
+- smoke §297 (4 checks, a conta feita à mão); teste de renderização dos três layouts.
