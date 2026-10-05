@@ -600,4 +600,26 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('Parceiro: 04892455000110 - FORN A');
     expect(t).toContain('ARROZ 5KG');
   });
+
+  it('relatórios de caixa (Caixa1 - Divergências, esquema do TFrmRelMaster): os níveis expandidos abrem os grupos recolhíveis pelo script (case … of), os totais de cada grupo saem no cabeçalho (DoublePass) e o resumo por recurso soma a banda da própria página', () => {
+    const l = (dia: string, rec: string, cx: number, pdv: number) => ({ IDEMPRESA: 1, FANTASIA: 'HIPER', OPERADOR: 7, NOME: 'MARIA', DATA: `2039-05-${dia}T00:00:00`, TIPORECURSO: rec, CODPDV: 7, VALOR_CAIXA: cx, VALOR_CX_VENDAS: pdv, DIVERGENCIA: cx - pdv });
+    const dados = (n: number) => ({ DBDRelatorio: [l('10', 'CARTAO', 250, 300), l('10', 'PIX', 10, 0), l('11', 'DINHEIRO', 0, 100)],
+      DbdAuxiliar: [{ TIPORECURSO: 'CARTAO', VALOR_CAIXA: 250, VALOR_CX_VENDAS: 300, DIVERGENCIA: -50 }, { TIPORECURSO: 'DINHEIRO', VALOR_CAIXA: 0, VALOR_CX_VENDAS: 100, DIVERGENCIA: -100 }],
+      DBDVariaveisAdicionais: [{ IDEmpresas: '1', DataInicial: '2039-05-01T00:00:00', DataFinal: '2039-05-31T00:00:00', NiveisExpandidos: n, Tabela: 0 }] });
+    const n0 = texto(paginasDoModelo(modelo('caixa1-divergencias.fr3'), dados(0), agora));
+    expect(n0).toContain('Período: 01/05/2039 à 31/05/2039 Empresas: 1');
+    expect(n0).toContain('HIPER -140,00 400,00 260,00');
+    expect(n0).not.toContain('Operador: MARIA'); // nível em branco: só a loja
+    const n2 = texto(paginasDoModelo(modelo('caixa1-divergencias.fr3'), dados(2), agora));
+    expect(n2).toContain('Operador: MARIA -140,00 260,00 400,00 Data: 10/05/2039 -40,00 260,00 300,00 Data: 11/05/2039 -100,00 0,00 100,00');
+    expect(n2).not.toContain('PIX'); // o dia fica recolhido no padrão (2 níveis)
+    const n3 = texto(paginasDoModelo(modelo('caixa1-divergencias.fr3'), dados(3), agora));
+    expect(n3).toContain('CARTAO -50,00 250,00 300,00 PIX 10,00 10,00 0,00');
+    expect(n3).toContain('Total -150,00 400,00 250,00'); // o resumo soma o DbdAuxiliar (a banda da página 2)
+    const ab = texto(paginasDoModelo(modelo('caixa4-abertos.fr3'), {
+      DBDRelatorio: [{ IDEMPRESA: 1, NROPDV: 7, NOME: 'MARIA', CODOPERADORA: 7, DATA: '2039-05-10T00:00:00', HORAENTRADA: '2039-05-10T08:00:00', HORASAIDA: null }],
+      DBDVariaveisAdicionais: [{ IDEmpresas: '1', DataInicial: '2039-05-01T00:00:00', DataFinal: '2039-05-31T00:00:00', NiveisExpandidos: 1, Tabela: 0 }],
+    }, agora));
+    expect(ab).toContain('MARIA');
+  });
 });

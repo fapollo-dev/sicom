@@ -169,16 +169,24 @@ export const saldoEmpresaSchema = z
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type SaldoEmpresaDto = z.infer<typeof saldoEmpresaSchema>;
 
-/** RELATÓRIOS DE CAIXA (`FRMRELCAIXA`) — os dois modelos do corte-1 e os filtros da tela. */
+/** RELATÓRIOS DE CAIXA (`FRMRELCAIXA`) — os cinco modelos do combo e os filtros da tela (URelCaixa.pas `MontaFiltroSQL`). */
+const simNao = z.preprocess((v) => v === true || v === 'true' || v === '1' || v === 'S', z.boolean());
 export const relCaixaSchema = z
   .object({
-    modelo: z.enum(['DIVERGENCIAS', 'ABERTOS']),
+    modelo: z.enum(['DIVERGENCIAS', 'VOUCHER', 'APURACAO', 'ABERTOS', 'PEDIDOS']),
     dataIni: dataISO,
     dataFim: dataISO,
     codoperador: z.coerce.number().int().positive().nullish(),
+    codpdv: z.coerce.number().int().positive().nullish(),
     recurso: z.string().max(30).nullish(),
+    /** as lojas do `GetMultiEmpresa` ("1,2"); vazio = a do login */
+    empresas: z.preprocess((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0) : v), z.array(z.number().int().positive()).nullish()),
+    /** o `CmbNiveisExpandidos` (0 = em branco) */
+    niveis: z.coerce.number().int().min(0).max(9).nullish(),
+    resumoCC: simNao.optional(),
+    somenteCCMovimentadas: simNao.optional(),
   })
-  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data inicial não pode ser maior que a final.', path: ['dataFim'] });
 export type RelCaixaDto = z.infer<typeof relCaixaSchema>;
 
 /** CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) — participação e rentabilidade por nível da árvore de famílias. */

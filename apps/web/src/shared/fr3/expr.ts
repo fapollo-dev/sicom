@@ -29,6 +29,7 @@ export type Stmt =
   | { k: 'enquanto'; c: Expr; corpo: Stmt }
   | { k: 'para'; v: string[]; de: Expr; ate: Expr; desce: boolean; corpo: Stmt }
   | { k: 'tente'; corpo: Stmt[]; fim: Stmt[]; excecao: Stmt[] | null }
+  | { k: 'caso'; e: Expr; ramos: Array<{ vals: Expr[]; corpo: Stmt }>; senao?: Stmt }
   | { k: 'nada' };
 
 export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt }
@@ -53,7 +54,7 @@ const AGREGADAS = new Set(['sum', 'avg', 'min', 'max', 'count']);
 type Tok = { t: 'num' | 'str' | 'dq' | 'id' | 'ref' | 'op' | 'fim'; v: string };
 
 const PALAVRAS = new Set(['and', 'or', 'not', 'div', 'mod', 'xor', 'if', 'then', 'else', 'begin', 'end', 'procedure', 'function', 'var', 'const', 'in', 'while', 'do',
-  'for', 'to', 'downto', 'try', 'finally', 'except']);
+  'for', 'to', 'downto', 'try', 'finally', 'except', 'case', 'of']);
 
 function tokenizar(src: string): Tok[] {
   const out: Tok[] = [];
@@ -189,6 +190,28 @@ class Parser {
       const ate = this.expr();
       this.espera('do');
       return { k: 'para', v, de, ate, desce, corpo: this.comando() };
+    }
+    // `case <expr> of 1: …; 2, 3: …; else … end` (os "níveis expandidos" dos layouts do TFrmRelMaster abrem os grupos assim)
+    if (this.aceita('case')) {
+      const e = this.expr();
+      this.espera('of');
+      const ramos: Array<{ vals: Expr[]; corpo: Stmt }> = [];
+      let senao: Stmt | undefined;
+      while (!this.eh('end') && !this.fim()) {
+        if (this.aceita('else')) {
+          const corpo: Stmt[] = [];
+          while (!this.eh('end') && !this.fim()) { corpo.push(this.comando()); if (!this.aceita(';')) break; }
+          senao = { k: 'bloco', corpo };
+          break;
+        }
+        const vals = [this.expr()];
+        while (this.aceita(',')) vals.push(this.expr());
+        this.espera(':');
+        ramos.push({ vals, corpo: this.comando() });
+        this.aceita(';');
+      }
+      this.espera('end');
+      return { k: 'caso', e, ramos, senao };
     }
     // `try … finally … end` / `try … except … end`
     if (this.aceita('try')) {
@@ -409,6 +432,14 @@ export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: 
         amb.gravar(s.v, i);
         executar(s.corpo, amb, funcoes, prog, prof + 1);
       }
+      return;
+    }
+    case 'caso': {
+      const v = avaliar(s.e, amb, funcoes);
+      const igual = (x: Valor) => (typeof v === 'number' || typeof x === 'number' ? numero(v) === numero(x) : texto(v) === texto(x));
+      const r = s.ramos.find((ramo) => ramo.vals.some((x) => igual(avaliar(x, amb, funcoes))));
+      if (r) executar(r.corpo, amb, funcoes, prog, prof + 1);
+      else if (s.senao) executar(s.senao, amb, funcoes, prog, prof + 1);
       return;
     }
     case 'tente': {

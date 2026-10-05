@@ -67,3 +67,32 @@ Estava acima desta na fila por acessos, e foi **pulada com procedência**: não 
 clonado — nenhum arquivo, nenhuma referência a "BoaVista" em lugar nenhum do fonte. Sem fonte não há cópia
 fiel. A tela também parou: último acesso em **20/05/2026**, contra 08/09 desta. Se o cliente ainda precisar
 dela, é pedir o fonte.
+
+## Corte 2 — os cinco modelos e a impressão no layout do cliente (05/10/2026)
+
+A tela fica completa: os cinco modelos do `CmbTipoRelatorio`, cada um com o `GetSQL` da sua classe de `UCaixa.pas` traduzido linha a linha,
+e o "Imprimir" no layout da classe pelo esquema do `TFrmRelMaster` (helper `shared/relatorios/relatorio-mestre.ts`: `DBDRelatorio`,
+`DbdAuxiliar`, `DBDVariaveisAdicionais` com IDEmpresas "1,2", DataInicial, DataFinal, NiveisExpandidos, Tabela + os campos da subclasse).
+
+| modelo | classe | layout | conjuntos |
+|---|---|---|---|
+| Divergências | `TDivergenciasCaixa` | Caixa1 - Divergências de caixa.fr3 | relatório + auxiliar (total por recurso) |
+| Voucher | `TVoucher` | Caixa2 - Voucher.fr3 | HIST_VOUCHER (vazia na produção) |
+| Apuração | `TApuracaoCaixa` | Caixa3 - Apuração do caixa.fr3 | relatório + contas internas + `DBResumoApuracao` + `DBDResumoCC` |
+| Caixas abertos | `TCaixasAbertos` | Caixa4 - Caixas abertos.fr3 | relatório |
+| Pedidos | `TCaixaPedidos` | Relatorio_Pedidos.fr3 | relatório (CX_VENDAS → VENDAS.PEDIDONRO → PEDIDOS; 953 vendas com pedido desde 2025) |
+
+- **Correções do corte 1, fiéis ao legado:** as divergências só listam o que NÃO fecha (`WHERE VALOR_CAIXA − VALOR_CX_VENDAS <> 0`), na
+  ordem loja, operador, dia, recurso; entram os ramos RECARGA/CORRESPONDENTE/VOUCHER da CAIXA_PDV (vazios na produção) e a devolução em
+  dinheiro (HIST_DEVOLUCAO tipo D) somada ao caixa do DINHEIRO; o dia é o da loja (`FUSO_HORARIO_ACESSO`); multiempresa; filtro de PDV.
+- **Filtro de recurso nas divergências:** o legado o injeta também na subconsulta de CX_VENDAS, que não tem TIPORECURSO (ORA-00904 — a tela
+  respondia "Ocorreu um erro durante a impressão do relatório."). Vale a intenção: filtra a operação do PDV.
+- **Apuração:** `ProcessaResumoApuracao` (Total PDV, Total contas internas, Total PDV + Contas internas, Outras informações = descontos do
+  PDV negativos e cancelamentos da CAIXA_PDV — o `QryDescCanc` —, Adiantamentos a Receber = ADIANTAMENTO_FORN tipo D, 573 na produção) e o
+  resumo das contas correntes (`GetResumoCC`) com "Somente contas movimentadas". As contas internas (`EXIBE_REL_APURACAO_CAIXA = 'S'`) estão
+  em 0 de 36 contas na produção. Vazio só quando relatório, contas internas e resumo das contas estão todos vazios (`AntesImprimir`).
+- **Pedidos:** PEDIDO_ECOMMERCE está vazia na produção e não existe no destino — o NROECOMERCE sai nulo, como o LEFT JOIN vazio.
+- **Motor .fr3:** grupos recolhíveis (`DrillDown` / `ExpandDrillDown` pelo script dos "níveis expandidos": fechado mostra só o cabeçalho com
+  os totais que a passada dupla escreveu), `case … of` no PascalScript, e a agregada sem banda soma a banda de dados da própria página (o
+  resumo por recurso do Page2).
+Smoke §99 (6 verificações).

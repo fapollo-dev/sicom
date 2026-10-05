@@ -324,7 +324,21 @@ class Relatorio {
    */
   private agregado(f: string, args: Expr[]): Valor {
     const nomeBanda = (e: Expr | undefined) => (e?.k === 'id' ? e.caminho.join('.') : e?.k === 'ref' && e.campo == null ? e.nome : '').toLowerCase();
-    const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || [...this.dsDaBanda.keys()][0] || '';
+    // sem a banda no argumento: a banda de dados da página do memo (o resumo do Page2 soma o MasterData2 dele), senão a primeira do relatório
+    const daPagina = () => {
+      let pg = this.bandaAtual as No | undefined;
+      while (pg && !PAGINAS.has(pg.tag)) pg = pg.pai;
+      if (!pg) return '';
+      const achar = (no: No): string => {
+        for (const c of no.filhos) {
+          if ((c.tag === 'TfrxMasterData' || c.tag === 'TfrxDetailData') && c.a.Name && this.dsDaBanda.has(c.a.Name.toLowerCase())) return c.a.Name.toLowerCase();
+          const r = achar(c); if (r) return r;
+        }
+        return '';
+      };
+      return achar(pg);
+    };
+    const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || daPagina() || [...this.dsDaBanda.keys()][0] || '';
     const todas = this.impressas.get(banda) ?? [];
     // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo)
     const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' ? this.inicioGrupo.get(this.bandaAtual)?.get(banda) : undefined;
@@ -735,12 +749,19 @@ class Relatorio {
           const rodGrupo = bandasP.filter((x) => x.tag === 'TfrxGroupFooter' && n(x.a.Top) > n(b.a.Top) && entre(n(b.a.Top), n(x.a.Top)));
           const grupos = cabGrupo.map((h, k) => ({ h, f: rodGrupo[cabGrupo.length - 1 - k] as No | undefined, valor: undefined as string | undefined }));
           const condicao = (h: No): string => { try { return texto(avaliar(compilarExpr(h.a.Condition ?? ''), this.amb, this.funcoes)); } catch { return ''; } };
+          // o grupo recolhível (DrillDown): fechado, mostra só o próprio cabeçalho — o de dentro (grupos, linhas e o rodapé, sem
+          // ShowFooterIfDrillDown) roda os eventos e as agregadas mas não sai na folha; `GroupHeaderN.ExpandDrillDown := True` (o script dos
+          // "níveis expandidos") ou o atributo abrem
+          const aberto = (h: No) => h.a.DrillDown !== 'True' || h.a.ExpandDrillDown === 'True' || !!this.estado(h)?.extras.expanddrilldown;
+          const oculto = (nivel: number) => grupos.slice(0, nivel).some((g) => !aberto(g.h));
+          const rodar = (bd: No) => { this.banda(bd, n(bd.a.Left)); };
           // fecha os grupos do mais interno até `ate`, com o cursor na última linha do grupo (o FastReport volta um registro)
           const fecharGrupos = (ate: number, ultima: number) => {
             if (ds) this.posicionar(ds, ultima);
             for (let k = grupos.length - 1; k >= ate; k--) {
               const f = grupos[k].f;
               if (!f) continue;
+              if (oculto(k) || (!aberto(grupos[k].h) && grupos[k].h.a.ShowFooterIfDrillDown !== 'True')) { rodar(f); continue; }
               if (!cabe(n(f.a.Height))) novaPagina();
               mostrar(f);
             }
@@ -768,6 +789,7 @@ class Relatorio {
                     const doGrupo = new Set([nomeBanda, ...detalhesDe(b).map((d) => (d.a.Name ?? '').toLowerCase())]);
                     this.inicioGrupo.set(g.f, new Map([...this.impressas].filter(([nome]) => doGrupo.has(nome)).map(([nome, l]) => [nome, l.length])));
                   }
+                  if (oculto(j)) { rodar(g.h); continue; }
                   if (g.h.a.StartNewPage === 'True' && k > 0) novaPagina();
                   if (!cabe(n(g.h.a.Height) + n(b.a.Height))) novaPagina();
                   mostrar(g.h);
@@ -776,6 +798,12 @@ class Relatorio {
               }
             }
             this.linhaBanda++;
+            if (grupos.length && oculto(grupos.length)) {
+              // a linha dentro de um grupo recolhido: os eventos e as agregadas contam, a folha não recebe
+              impressas.push(i);
+              if (this.banda(b, n(b.a.Left))) anterior = i; else impressas.pop();
+              continue;
+            }
             if (col === 0 && !cabe(n(b.a.Height))) {
               novaPagina();
               if (header?.a.ReprintOnNewPage === 'True') mostrarHeader();

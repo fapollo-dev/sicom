@@ -11745,7 +11745,7 @@ async function main() {
       }
     }
 
-    // ===== §99) RELATÓRIOS DE CAIXA (FRMRELCAIXA) corte-1 — divergências e caixas abertos. 505 acessos, 11
+    // ===== §99) RELATÓRIOS DE CAIXA (FRMRELCAIXA) — os cinco modelos e a impressão (corte-2). 505 acessos, 11
     // operadores, o último em 08/09. A conferência clássica: o que o PDV registrou × o que entrou no caixa. ====
     {
       const RCX = 'cobranca/rel-caixa';
@@ -11758,49 +11758,75 @@ async function main() {
           ON CONFLICT (codplc) DO UPDATE SET tpconta=EXCLUDED.tpconta`);
         // o PDV registrou: 500 em DINHEIRO (com 20 de troco → 480) e 300 em CARTAO. Desconto e sangria ficam fora.
         await pgRx.query(`INSERT INTO cx_vendas (idempresa, nropdv, data, operacao, codoperadora, valor, troco, status, chave, tesouraria) VALUES
-          (1,7,'2039-05-10','DINHEIRO',1,500.00,20.00,'F','CHV-A','N'),
-          (1,7,'2039-05-10','CARTAO',  1,300.00, 0.00,'F','CHV-A','N'),
-          (1,7,'2039-05-10','DESCONTO',1, 99.00, 0.00,'F','CHV-A','N'),
-          (1,7,'2039-05-10','SANGRIA', 1, 50.00, 0.00,'F','CHV-A','N'),
-          (1,8,'2039-05-11','DINHEIRO',1,100.00, 0.00,'F','CHV-B','S')`);
+          (1,7,'2039-05-10 12:00:00-03','DINHEIRO',1,500.00,20.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10 12:00:00-03','CARTAO',  1,300.00, 0.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10 12:00:00-03','DESCONTO',1, 99.00, 0.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10 12:00:00-03','SANGRIA', 1, 50.00, 0.00,'F','CHV-A','N'),
+          (1,8,'2039-05-11 12:00:00-03','DINHEIRO',1,100.00, 0.00,'F','CHV-B','S')`);
         // o caixa recebeu: 480 em DINHEIRO (bate) e 250 em CARTAO (falta 50). Mais um lançamento em conta que
         // NÃO é de caixa, que não pode entrar na conta.
-        await pgRx.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, operador, obs, origem) VALUES
-          (990601,'2039-05-10 10:00:00-03',480.00,9801,1,'DINHEIRO',7,1,'CX DINHEIRO','PDV'),
-          (990602,'2039-05-10 10:05:00-03',250.00,9801,1,'CARTAO',  7,1,'CX CARTAO','PDV'),
-          (990603,'2039-05-10 10:10:00-03',777.00,9802,1,'CARTAO',  7,1,'NAO E CAIXA','PDV')`);
+        await pgRx.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, operador, obs, origem, chave) VALUES
+          (990601,'2039-05-10 10:00:00-03',480.00,9801,1,'DINHEIRO',7,1,'CX DINHEIRO','PDV','CHV-A'),
+          (990602,'2039-05-10 10:05:00-03',250.00,9801,1,'CARTAO',  7,1,'CX CARTAO','PDV','CHV-A'),
+          (990603,'2039-05-10 10:10:00-03',777.00,9802,1,'CARTAO',  7,1,'NAO E CAIXA','PDV','CHV-A')`);
         await pgRx.query(`INSERT INTO caixa_pdv (codcaixa, idempresa, codpdv, codoperadora, data, chave, horaentrada, horasaida)
-          VALUES (990604,1,7,1,'2039-05-10','CHV-A','2039-05-10 08:00:00-03','2039-05-10 18:00:00-03') ON CONFLICT (codcaixa) DO NOTHING`);
+          VALUES (990604,1,7,1,'2039-05-10 08:00:00-03','CHV-A','2039-05-10 08:00:00-03','2039-05-10 18:00:00-03') ON CONFLICT (codcaixa) DO NOTHING`);
 
-        const div = await fetch(`${base}/${RCX}?modelo=DIVERGENCIAS&dataIni=2039-05-01&dataFim=2039-05-31`, { headers: H });
-        const dj = (await div.json().catch(() => ({}))) as any;
-        // há DUAS linhas de DINHEIRO (PDV 7 e 8) — a chave tem de levar o PDV junto
-        const porRec = Object.fromEntries((dj.linhas ?? []).map((l: any) => [`${l.tiporecurso}-${l.codpdv}`, l]));
-        check('REL. CAIXA §99.1 (TDivergenciasCaixa, UCaixa.pas:96): compara o que o PDV REGISTROU (cx_vendas fechado, `VALOR − TROCO`) com o que ENTROU NO CAIXA, por PDV/operador/dia/recurso. O dinheiro fecha (500−20 = 480 dos dois lados) e o cartão acusa **−50**. Desconto e sangria ficam de FORA das duas somas — não são recebimento (`:165`). O PDV 8 também aparece, e com −100: as divergências NÃO filtram por tesouraria (isso é só do relatório de caixas abertos) — o caixa já recolhido continua tendo de fechar',
-          div.status === 200 && (dj.linhas ?? []).length === 3
-          && Math.abs(Number(porRec['DINHEIRO-7']?.divergencia)) < 0.005
-          && Math.abs(Number(porRec['DINHEIRO-7']?.valor_cx_vendas) - 480) < 0.005
-          && Math.abs(Number(porRec['CARTAO-7']?.divergencia) + 50) < 0.005
-          && Number(dj.totais?.comDivergencia) === 2,
-          { linhas: dj.linhas, totais: dj.totais });
+        // o voucher (HIST_VOUCHER vazia na produção): o cancelamento sem valor sai −52,90, a venda sem valor 52,90 — o CASE do legado
+        await pgRx.query(`INSERT INTO hist_voucher (codhistvoucher, idempresa, dtvenda, valor, codpdv, codoperador, tipomodalidade, operadora, nomeprodutositef)
+            VALUES (990611, 1, '2039-05-10 15:00:00-03', NULL, 7, 1, 99, 'OPER VOUCHER', 'RECARGA X') ON CONFLICT DO NOTHING`).catch(() => undefined);
+        const rq = async (q: string) => { const r = await fetch(`${base}/${RCX}?${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const per = 'dataIni=2039-05-01&dataFim=2039-05-31';
+        const div = await rq(`modelo=DIVERGENCIAS&${per}`);
+        const dl = div.j.relatorio ?? [];
+        check('REL. CAIXA §99.1 (TDivergenciasCaixa, UCaixa.pas:96): PDV × caixa por loja/operador/dia/recurso/PDV, e só o que NÃO fecha (`WHERE VALOR_CAIXA − VALOR_CX_VENDAS <> 0`): o dinheiro do PDV 7 fecha (480 × 480) e sai; o cartão acusa −50 (300 no PDV, 250 no caixa de conta de caixa — o 777 da conta de despesa, TPCONTA 1, não soma); o dinheiro do PDV 8 sem caixa, −100; na ordem loja, operador, dia, recurso; o DbdAuxiliar soma por recurso',
+          div.status === 200 && dl.length === 2 && dl[0].tiporecurso === 'CARTAO' && dl[0].divergencia === -50 && dl[0].valor_caixa === 250 && dl[0].valor_cx_vendas === 300
+          && dl[1].tiporecurso === 'DINHEIRO' && dl[1].codpdv === 8 && dl[1].divergencia === -100
+          && (div.j.auxiliar ?? []).find((a: any) => a.tiporecurso === 'CARTAO')?.divergencia === -50,
+          { div: [div.status, div.j.code, dl, div.j.auxiliar] });
+        const filtro = await rq(`modelo=DIVERGENCIAS&${per}&recurso=CARTAO`);
+        const filtroPdv = await rq(`modelo=DIVERGENCIAS&${per}&codpdv=8`);
+        check('REL. CAIXA §99.2 [os filtros do MontaFiltroSQL]: o recurso (o legado quebrava aqui — CX_VENDAS não tem TIPORECURSO; vale a intenção: filtra a operação) deixa só o cartão; o PDV 8 só a linha dele',
+          (filtro.j.relatorio ?? []).length === 1 && filtro.j.relatorio[0].tiporecurso === 'CARTAO' && (filtroPdv.j.relatorio ?? []).length === 1 && filtroPdv.j.relatorio[0].codpdv === 8,
+          { filtro: filtro.j.relatorio, filtroPdv: filtroPdv.j.relatorio });
+        const ab = await rq(`modelo=ABERTOS&${per}`);
+        const pdvs = (ab.j.relatorio ?? []).map((l: any) => Number(l.nropdv));
+        check('REL. CAIXA §99.3 (TCaixasAbertos :634): as sessões ainda NÃO recolhidas (`TESOURARIA <> S`) com a hora de entrada e saída — o PDV 7 aparece, o 8 (já na tesouraria) não',
+          ab.status === 200 && pdvs.includes(7) && !pdvs.includes(8) && (ab.j.relatorio ?? []).some((l: any) => String(l.horaentrada).startsWith('2039-05-10T08:00')),
+          { linhas: ab.j.relatorio });
+        const ap = await rq(`modelo=APURACAO&${per}&resumoCC=1`);
+        const al = ap.j.relatorio ?? [];
+        const ra = (tipo: string, mod: string) => (ap.j.resumoApuracao ?? []).find((r: any) => r.tipo === tipo && r.modalidade === mod);
+        check('REL. CAIXA §99.4 (TApuracaoCaixa :433 + ProcessaResumoApuracao): o caixa de conta de caixa por operador, PDV, CHAVE, dia e recurso com o PDV da mesma chave (DINHEIRO 480 × 480, CARTAO 250 × 300) e o OPERADORCODPDV; o resumo por modalidade — Total PDV (o caixa), Total PDV + Contas internas, os descontos e cancelamentos do PDV em "Outras informações"; com o resumo das contas pedido, o DBDResumoCC vem',
+          ap.status === 200 && al.length === 2 && al.find((l: any) => l.tiporecurso === 'CARTAO')?.valor_cx_vendas === 300 && al.every((l: any) => l.chave === 'CHV-A' && l.operadorcodpdv === '17')
+          && ra('Total PDV', 'DINHEIRO')?.valor === 480 && ra('Total PDV + Contas internas', 'CARTAO')?.valor === 250 && ra('Outras informações', 'Descontos PDV') != null
+          && Array.isArray(ap.j.resumoCC),
+          { ap: [ap.status, ap.j.code, al, ap.j.resumoApuracao] });
+        const vo = await rq(`modelo=VOUCHER&${per}`);
+        check('REL. CAIXA §99.5 (TVoucher :306): o histórico de voucher do período — o cancelamento (modalidade 99) sem valor sai −52,90, como o CASE do legado',
+          vo.status === 200 && (vo.j.relatorio ?? []).length === 1 && vo.j.relatorio[0].operacao === 'CANCELAMENTO' && vo.j.relatorio[0].valor === -52.9,
+          { vo: [vo.status, vo.j.code, vo.j.relatorio] });
+        // a impressão no esquema do TFrmRelMaster
+        const stub = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+        for (const [i, nome] of ['Caixa1 - Divergências de caixa.fr3', 'Caixa3 - Apuração do caixa.fr3', 'Caixa4 - Caixas abertos.fr3'].entries()) {
+          await pgRx.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [990990 + i, nome, stub]);
+        }
+        const imp = async (q: string) => { const r = await fetch(`${base}/${RCX}/impressao?${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const pDiv = await imp(`modelo=DIVERGENCIAS&${per}`);
+        const pAp = await imp(`modelo=APURACAO&${per}&resumoCC=1&somenteCCMovimentadas=1&niveis=3`);
+        const pVazio = await imp(`modelo=ABERTOS&dataIni=2040-01-01&dataFim=2040-01-31`);
+        const semAcesso = await fetch(`${base}/${RCX}/impressao?modelo=DIVERGENCIAS&${per}`, { headers: H_SEM_ACESSO });
+        await pgRx.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 990990 AND 990992`);
+        const vv = pDiv.j.datasets?.DBDVariaveisAdicionais?.[0] ?? {};
+        check('REL. CAIXA §99.6 [a impressão no layout do cliente — o esquema do TFrmRelMaster]: o Caixa1 com o DBDRelatorio (as 2 linhas), o DbdAuxiliar (o total por recurso) e o DBDVariaveisAdicionais (IDEmpresas "1", DataInicial/DataFinal, NiveisExpandidos no padrão do modelo: 2); a apuração com o DBResumoApuracao, o DBDResumoCC, os níveis pedidos (3) e ImprimirResumoCC/SomenteCCMovimentadas "S"; sem registro → a mensagem do legado; sem a tela → 403',
+          pDiv.status === 200 && pDiv.j.datasets?.DBDRelatorio?.length === 2 && pDiv.j.datasets.DBDRelatorio[0].DIVERGENCIA === -50 && pDiv.j.datasets?.DbdAuxiliar?.length === 2
+          && vv.IDEmpresas === '1' && vv.DataInicial === '2039-05-01T00:00:00' && vv.NiveisExpandidos === 2
+          && pAp.status === 200 && (pAp.j.datasets?.DBResumoApuracao ?? []).length > 0 && Array.isArray(pAp.j.datasets?.DBDResumoCC)
+          && pAp.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 3 && pAp.j.datasets.DBDVariaveisAdicionais[0].ImprimirResumoCC === 'S' && pAp.j.datasets.DBDVariaveisAdicionais[0].SomenteCCMovimentadas === 'S'
+          && pVazio.status === 422 && pVazio.j.message === 'Não foram encontrados registros para imprimir o relatório.' && semAcesso.status === 403,
+          { pDiv: [pDiv.status, pDiv.j.code, pDiv.j.datasets?.DBDRelatorio?.length, vv], pAp: [pAp.status, pAp.j.code, pAp.j.datasets?.DBDVariaveisAdicionais], pVazio: [pVazio.status, pVazio.j.message], semAcesso: semAcesso.status });
 
-        check('REL. CAIXA §99.2 [o filtro que quase ninguém vê]: só entram os lançamentos de caixa cujo centro de custo é CONTA DE CAIXA (`PLC.TPCONTA = 0`, `:177`) — o lançamento de 777,00 na conta de despesa não soma. Sem essa coluna (que a carga não trazia) a apuração inteira ficaria errada, e para mais',
-          Math.abs(Number(porRec['CARTAO-7']?.valor_caixa) - 250) < 0.005,
-          { cartao: porRec['CARTAO-7'] });
-
-        const ab = await fetch(`${base}/${RCX}?modelo=ABERTOS&dataIni=2039-05-01&dataFim=2039-05-31`, { headers: H });
-        const aj = (await ab.json().catch(() => ({}))) as any;
-        const pdvs = (aj.linhas ?? []).map((l: any) => Number(l.nropdv));
-        check('REL. CAIXA §99.3 (TCaixasAbertos :634): lista as sessões que ainda NÃO foram recolhidas (`TESOURARIA <> S`) com a hora de entrada e saída — o PDV 7 aparece, o 8 não, porque já foi para a tesouraria. É a lista do caixa que ficou em aberto',
-          ab.status === 200 && pdvs.includes(7) && !pdvs.includes(8)
-          && (aj.linhas ?? []).some((l: any) => !!l.horaentrada),
-          { linhas: aj.linhas });
-
-        const filtro = (await (await fetch(`${base}/${RCX}?modelo=DIVERGENCIAS&dataIni=2039-05-01&dataFim=2039-05-31&recurso=CARTAO`, { headers: H })).json().catch(() => ({}))) as any;
-        check('REL. CAIXA §99.4: o filtro por recurso recorta a conferência — pedindo CARTAO sobra só a linha que diverge',
-          (filtro.linhas ?? []).length === 1 && filtro.linhas[0].tiporecurso === 'CARTAO',
-          { linhas: filtro.linhas });
-
+        await pgRx.query(`DELETE FROM hist_voucher WHERE codhistvoucher = 990611`).catch(() => undefined);
         await pgRx.query(`DELETE FROM caixa WHERE codcx IN (990601,990602,990603)`);
         await pgRx.query(`DELETE FROM caixa_pdv WHERE codcaixa=990604`);
         await pgRx.query(`DELETE FROM cx_vendas WHERE chave IN ('CHV-A','CHV-B')`);

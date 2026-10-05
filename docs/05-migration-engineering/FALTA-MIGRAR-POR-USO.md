@@ -63,7 +63,7 @@ O ranking original desta página cobria as telas mais usadas. Refeito contra `ME
 | ANALISE DE NOTAS FISCAIS (`FRMNFANALISE`) | 704 | 19 | 2026-09-04 | ✅ **corte-1** (mig 204): tributária + conferência; faltam 7 das 9 análises |
 | SALDO DA EMPRESA (`FRMSALDOEMPRESA`) | 611 | 19 | — | ✅ **corte-1** (mig 205): os 5 ramos do fluxo projetado; faltam contas bancárias e pedidos colocados |
 | FRMMANCADCARTAOBOAVISTA (`FRMMANCADCARTAOBOAVISTA`) | 560 | 6 | 2026-05-20 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhuma referência. Sem fonte não há cópia fiel; a tela também parou em maio |
-| RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 505 | 11 | 2026-09-08 | ✅ **corte-1** (mig 206): divergências + caixas abertos; faltam voucher, apuração e pedidos |
+| RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 505 | 11 | 2026-09-08 | ✅ **completa** (corte-2, 05/10/2026): os 5 modelos fiéis ao UCaixa.pas e a impressão nos layouts do cliente (Caixa1–Caixa4, Relatorio_Pedidos) |
 | CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) | 440 | 19 | 2026-09-04 | ✅ **corte-1** (mig 207): participação e rentabilidade nos 3 níveis da árvore; faltam o modo com NF, os gráficos e a previsão |
 | INTEGRACAO FISCAL - BORBA FISCAL (`FRMVERIFICACAOTRIBUTARIABORBAFISCAL`) | 388 | 9 | 2026-06-15 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhum `.dfm`, nenhuma referência ao nome do form; do mecanismo só resta `EMPRESAS.IDSUPORTEBORBA` (`UCadEmpresa.dfm:703`), trazida na mig 213 para a carga não perder o valor. Sem fonte não há cópia fiel — mesmo caso do Boa Vista |
 | TOTAL POR CARTAO (`FRMRELCARTOES`) | 382 | 7 | 2026-09-02 | ✅ **completa** (mig 208) — nada ficou de fora |
