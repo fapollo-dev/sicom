@@ -207,6 +207,12 @@ export const relCartoesSchema = z
     dataIni: dataISO,
     dataFim: dataISO,
     codoperadora: z.coerce.number().int().positive().nullish(),
+    /** o `edtOperadora` do legado: o texto e o modo do `SetaFiltro` (igual, começa, termina, contém, diferente) contra UPPER(O.OPERADORA) */
+    operadora: z.string().max(60).nullish(),
+    modoOperadora: z.enum(['igual', 'comeca', 'termina', 'contem', 'diferente']).nullish(),
+    empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+      .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter(Boolean) : v))
+      .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type RelCartoesDto = z.infer<typeof relCartoesSchema>;

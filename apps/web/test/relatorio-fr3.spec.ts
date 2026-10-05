@@ -819,3 +819,20 @@ describe('construtor de relatórios (o MontaRelatorio sobre o RelatorioGeral_Com
     expect(t).toContain('Total de Registros: 2');
   });
 });
+
+describe('total por cartão (Rel_Total_Cartao.fr3, uRelCartoes.pas)', () => {
+  it('agrupado por loja, com bruto/líquido por tipo, a participação no líquido (o script) e as variáveis do período', () => {
+    const l = (emp: number, op: string, tipo: 'C' | 'D' | 'A', valor: number, tx: number) => {
+      const liq = valor - (valor * tx) / 100;
+      return { OPERADORA: op, FANTASIA: 'REDE', CODADM: 2, DIASCOMP: 30, IDEMPRESA: emp, TXADM: tx, VALOR: valor, VALOR_LIQUIDO: liq,
+        VALOR_CREDITO: tipo === 'C' ? liq : 0, VALOR_DEBITO: tipo === 'D' ? liq : 0, VALOR_ALIMENTACAO: tipo === 'A' ? liq : 0,
+        VALOR_CREDITO_BRUTO: tipo === 'C' ? valor : 0, VALOR_DEBITO_BRUTO: tipo === 'D' ? valor : 0, VALOR_ALIMENTACAO_BRUTO: tipo === 'A' ? valor : 0 };
+    };
+    const t = texto(paginasDoModelo(modelo('rel-total-cartao.fr3'), { frxDBDataset1: [l(1, 'CRED DEMO', 'C', 1300, 3), l(1, 'DEB DEMO', 'D', 500, 1), l(2, 'DEB DEMO', 'D', 80, 1)] }, agora,
+      { DtInicial: "'01/07/2041'", DtFinal: "'31/07/2041'", Empresa: "'1,2'" }));
+    expect(t).toContain('CRED DEMO');
+    expect(t).toContain('1.261,00');
+    expect(t).toContain('01/07/2041');
+    expect(t).toContain('79,20');
+  });
+});

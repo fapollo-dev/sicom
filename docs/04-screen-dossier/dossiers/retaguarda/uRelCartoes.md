@@ -36,3 +36,16 @@ números diferentes de propósito.
 
 Corte único, **completo** — nada ficou de fora. Nenhuma migration de schema foi precisa: `cartao`,
 `operadoras` e `parceiros` já tinham tudo.
+
+## As lojas, o filtro da operadora e a impressão (05/10/2026)
+
+- **Por loja**: o `GeraConsulta` agrupa por `IDEMPRESA` (e por operadora, administradora, CODADM, DIASCOMP, TXADM) e ordena por
+  `IDEMPRESA, CODADM`, nas lojas do `GetMultiEmpresa`. O Apollo media só a loja do login e somava sem a loja — agora `empresas`
+  (recortadas às do operador) e a linha por loja. O TXADM vem como está (nulo sem taxa; o líquido usa `COALESCE(TXADM, 0)`).
+- **O filtro da operadora** é por NOME (`edtOperadora` + o `SetaFiltro`: igual, começa, termina, contém, diferente) contra
+  `UPPER(O.OPERADORA)`, com o texto como digitado. O Apollo filtrava por código; os dois valem agora.
+- **A impressão**: `Rel_Total_Cartao.fr3` (PERSONALIZADO 1025 — os campos batem com o GetSQL de 2020; o DEFAULT 437 pede um TIPO
+  que o SQL não traz) com o `cdsConsulta` (OPERADORA, FANTASIA, CODADM, DIASCOMP, IDEMPRESA, TXADM, VALOR, VALOR_LIQUIDO,
+  VALOR_CREDITO/DEBITO/ALIMENTACAO e os _BRUTO) agrupado por loja, e as variáveis `DtInicial`, `DtFinal`, `Empresa`. Sem dados:
+  "Não há dados no filtro informado. Verifique!". A impressão HTML da grade saiu.
+- smoke §101.5; teste de renderização.

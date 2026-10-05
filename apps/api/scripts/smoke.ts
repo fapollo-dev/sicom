@@ -11987,6 +11987,33 @@ async function main() {
           (filtro.linhas ?? []).length === 1 && filtro.linhas[0].operadora === 'DEB DEMO',
           { linhas: filtro.linhas });
 
+        // §101.5 — o edtOperadora do legado (texto + modo do SetaFiltro), as lojas (agrupadas por IDEMPRESA) e a impressão
+        const tinhaRel2Ct = Number((await pgCt.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Ct) await pgCt.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgCt.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado) VALUES (2,8902,'2041-07-12', 80.00,1,'N')`);
+        const qCt = async (qs: string, rota = '') => { const x = await fetch(`${base}/${RCT}${rota}?dataIni=2041-07-01&dataFim=2041-07-31&${qs}`, { headers: H }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const comeca = await qCt('operadora=DEB&modoOperadora=comeca');
+        const difer = await qCt('operadora=DEB%20DEMO&modoOperadora=diferente');
+        const lojas = await qCt('empresas=1,2');
+        const stubCt = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+        await pgCt.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991015, 1, 'Rel_total_cartao.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubCt]);
+        const impCt = await qCt('empresas=1,2', '/impressao');
+        const vazioCt = await fetch(`${base}/${RCT}/impressao?dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const vazioCtJ = (await vazioCt.json().catch(() => ({}))) as any;
+        const regCt = (impCt.j.datasets?.frxDBDataset1 ?? []) as any[];
+        check('CARTÃO §101.5 [o filtro por nome, as lojas e a impressão]: "começa com DEB" acha o débito e "diferente de DEB DEMO" os outros dois (o SetaFiltro contra UPPER(O.OPERADORA)); com as lojas 1,2 o débito da loja 2 sai em linha própria (o legado agrupa por IDEMPRESA, ORDER BY IDEMPRESA, CODADM); a impressão no Rel_Total_Cartao.fr3 com os nomes do GetSQL (VALOR_LIQUIDO, VALOR_ALIMENTACAO_BRUTO…) e as variáveis DtInicial/DtFinal/Empresa; sem dados, a mensagem do legado',
+          (comeca.j.linhas ?? []).map((l: any) => l.operadora).join() === 'DEB DEMO'
+          && (difer.j.linhas ?? []).length === 2 && !(difer.j.linhas ?? []).some((l: any) => l.operadora === 'DEB DEMO')
+          && (lojas.j.linhas ?? []).filter((l: any) => l.operadora === 'DEB DEMO').map((l: any) => `${l.idempresa}:${l.valor}`).join() === '1:500,2:80'
+          && impCt.status === 200 && regCt.length === 4 && regCt.some((r) => r.IDEMPRESA === 2 && Math.abs(Number(r.VALOR_LIQUIDO) - 79.2) < 0.005)
+            && regCt.some((r) => r.OPERADORA === 'VALE DEMO' && Math.abs(Number(r.VALOR_ALIMENTACAO_BRUTO) - 200) < 0.005)
+            && impCt.j.variaveis?.DtInicial === "'01/07/2041'" && impCt.j.variaveis?.Empresa === "'1,2'"
+          && vazioCt.status === 422 && vazioCtJ.message === 'Não há dados no filtro informado. Verifique!',
+          { comeca: (comeca.j.linhas ?? []).map((l: any) => l.operadora), difer: (difer.j.linhas ?? []).length, lojas: (lojas.j.linhas ?? []).map((l: any) => [l.idempresa, l.operadora, l.valor]),
+            imp: [impCt.status, impCt.j.code, regCt.length, impCt.j.variaveis], vazio: [vazioCt.status, vazioCtJ.message] });
+        await pgCt.query(`DELETE FROM relatorios WHERE codrelatorio = 991015`);
+        if (!tinhaRel2Ct) await pgCt.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+
         await pgCt.query(`DELETE FROM cartao WHERE codoperadora IN (8901,8902,8903)`);
       } finally {
         await pgCt.end();
