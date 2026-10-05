@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { clicarNoDialogo, dialogoDoModelo, paginasDoModelo } from '../src/shared/fr3/render';
+import { clicarNoDialogo, dialogoDoModelo, paginasDoModelo, type Registro } from '../src/shared/fr3/render';
 
 /** os modelos PERSONALIZADOS da RELATORIOS da produção (as conferências do menu da NF, uNF.pas:13541-13635) */
 const modelo = (arq: string) => readFileSync(resolve(__dirname, 'fixtures/relatorios', arq), 'utf8');
@@ -721,5 +721,29 @@ describe('troca de mercadorias (esquema do TFrmRelMaster, uRelTrocaMercadoriaFor
     expect(s).toContain('BEBIDA LACTEA 1L');
     expect(s).toContain('6,00'); // qtde total
     expect(s).toContain('35,50');
+  });
+});
+
+describe('análise de comportamento por período (RelAnaliseComportamentoPeriodo.fr3) e o TfrxChartView', () => {
+  it('os blocos dos períodos, a comparação com o percentual do legado e um gráfico de barras por métrica (o CdsGrafico como detalhe do CdsGrupos)', () => {
+    const grupos = ['Faturamento', 'CMV', 'Lucro', 'Rentabilidade', 'Quantidade de tickets', 'Valor ticket médio'];
+    const tit = ['Set/2026', 'Ago/2026'];
+    const vals: Record<string, number[]> = { Faturamento: [1000, 800], CMV: [700, 600], Lucro: [300, 200], Rentabilidade: [30, 25], 'Quantidade de tickets': [50, 40], 'Valor ticket médio': [20, 20] };
+    const rel: Registro[] = [];
+    tit.forEach((t, ti) => { for (const g of grupos) rel.push({ TITULOVISIVEL: g === 'Faturamento' ? t : null, TITULO: t, DESCRICAO: g, VALOR: vals[g][ti], PORCENTAGEM: null }); rel.push({ TITULO: null, DESCRICAO: null, VALOR: null }); });
+    for (const g of grupos) rel.push({ TITULO: 'Comparação entre Set/2026 e Ago/2026', DESCRICAO: g, VALOR: vals[g][0] - vals[g][1], PORCENTAGEM: vals[g][0] ? Math.round(((vals[g][0] - vals[g][1]) / vals[g][0]) * 10000) / 100 : 0 });
+    const graf = grupos.flatMap((g, gi) => tit.map((t, ti) => ({ DESCRICAO: t, VALOR: vals[g][ti], GRUPO: g, __MESTRE: gi })));
+    const pgs = paginasDoModelo(modelo('analise-comportamento-periodo.fr3'), { DBDRelatorio: rel, DbdAuxiliar: grupos.map((g) => ({ GRUPO: g })), DBDGrafico: graf,
+      DBDVariaveisAdicionais: [{ IDEmpresas: '1,2' }] }, agora);
+    const t = texto(pgs);
+    expect(t).toContain('ANÁLISE DO COMPORTAMENTO DA LOJA POR PERÍODOS');
+    expect(t).toContain('Empresas: 1,2');
+    expect(t).toContain('Comparação entre Set/2026 e Ago/2026');
+    expect(t).toContain('20,00'); // o percentual do faturamento: (1000 − 800) ÷ 1000
+    // a página dos gráficos: um SVG por métrica, a legenda com o valor à direita (ltsRightValue) e as barras de cada período
+    const svgs = pgs.flatMap((p) => p.html).join('').match(/<svg xmlns/g) ?? [];
+    expect(svgs.length).toBe(6);
+    expect(t).toContain('Set/2026 1.000 Ago/2026 800');
+    expect(pgs.flatMap((p) => p.html).join('')).toMatch(/<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#ff0000"/);
   });
 });

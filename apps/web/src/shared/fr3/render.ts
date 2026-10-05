@@ -24,6 +24,7 @@
 import { avaliar, compilarExpr, compilarScript, executar, numero, texto, type Ambiente, type Expr, type Programa, type Valor } from './expr';
 import { aplicarDisplayFormat, formatDateTime, formatDelphi, formatFloat, type Separadores } from './formato';
 import { desenhar } from './barras';
+import { definicaoGrafico, svgGrafico, type Ponto } from './grafico';
 
 const PX_MM = 96 / 25.4;
 
@@ -507,6 +508,7 @@ class Relatorio {
       return `<div class="o" style="${box}${fundo ? `background:${fundo};` : ''}${borda}${interno}overflow:hidden">${conteudo}</div>`;
     }
     if (tag === 'TfrxBarCodeView') return this.htmlBarras(no, e);
+    if (tag === 'TfrxChartView') return this.htmlGrafico(no, e, box);
     if (tag === 'TfrxLineView') {
       // `Linha.Frame.Width := 0` no script esconde a linha (o DRE Contábil faz isso nas linhas da fórmula)
       if (e.extras['frame.width'] != null && Number(e.extras['frame.width']) <= 0) return '';
@@ -559,6 +561,53 @@ class Relatorio {
       return `<div class="o" style="${box}background:linear-gradient(${dir},${a},${b})"></div>`;
     }
     return '';
+  }
+
+  /** o TfrxChartView: as séries lidas do PropData, os pontos dos datasets de cada uma (o detalhe com `__MESTRE` só da linha do mestre) */
+  private htmlGrafico(no: No, e: Estado, box: string): string {
+    const def = definicaoGrafico(no.a.PropData);
+    if (!def) return '';
+    const pontos = def.series.map((s) => this.pontosDaSerie(s.fonte));
+    return `<div class="o" style="${box}">${svgGrafico(def, pontos, e.Width, e.Height)}</div>`;
+  }
+
+  private pontosDaSerie(f: Record<string, string>): Ponto[] {
+    let ds = f.DataSetName || f.DataSet || '';
+    if (f.DataType === 'dtBandData' && f.DataBand) {
+      // os valores da banda: o dataset dela
+      const acha = (x: No): No | undefined => (x.a.Name === f.DataBand ? x : x.filhos.map(acha).find(Boolean));
+      const b = acha(this.raiz);
+      ds = b?.a.DataSetName || b?.a.DataSet || ds;
+    }
+    const fx = f.XSource || f.Source1 || '';
+    const fy = f.YSource || f.Source2 || '';
+    if (!ds) {
+      const m = /^\s*([\w.]+)\."/.exec(fy);
+      ds = m?.[1] ?? '';
+    }
+    const linhas = this.linhas(ds);
+    const chave = this.unico ? '' : nomeDs(ds);
+    let idx = linhas.map((_, i) => i);
+    if (linhas.length && '__MESTRE' in linhas[0]) {
+      const atual = linhas[this.cursor.get(chave) ?? 0];
+      idx = atual ? idx.filter((i) => linhas[i].__MESTRE === atual.__MESTRE) : [];
+    }
+    const salvo = this.cursor.get(chave);
+    const val = (src: string) => (src ? this.avaliarTexto(`<${src}>`) : null);
+    let pts: Ponto[] = idx.map((i) => {
+      this.cursor.set(chave, i);
+      const x = val(fx);
+      return { x: x instanceof Date ? formatDateTime('dd/mm/yyyy', x) : texto(x), y: numero(val(fy)) };
+    });
+    if (salvo == null) this.cursor.delete(chave); else this.cursor.set(chave, salvo);
+    if (f.SortOrder === 'soAscending') pts = [...pts].sort((a, b) => a.y - b.y);
+    else if (f.SortOrder === 'soDescending') pts = [...pts].sort((a, b) => b.y - a.y);
+    const topN = Number(f.TopN || 0);
+    if (topN > 0 && pts.length > topN) {
+      const ord = [...pts].sort((a, b) => b.y - a.y);
+      pts = [...ord.slice(0, topN), { x: f.TopNCaption || 'Outros', y: ord.slice(topN).reduce((a, p) => a + p.y, 0) }];
+    }
+    return pts;
   }
 
   private htmlBarras(no: No, e: Estado): string {

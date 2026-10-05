@@ -26,6 +26,8 @@ export const analiseComportamentoPeriodoSchema = z.object({
   coddpto: z.coerce.number().int().positive().optional(),
   codgrupo: z.coerce.number().int().positive().optional(),
   codsubgrupo: z.coerce.number().int().positive().optional(),
+  /** as lojas do `GetMultiEmpresa` (`IDEMPRESA IN (...)`), recortadas às do operador; vazio = a loja do login */
+  empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
 });
 export type AnaliseComportamentoPeriodoDto = z.infer<typeof analiseComportamentoPeriodoSchema>;
 

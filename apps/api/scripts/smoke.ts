@@ -16910,6 +16910,25 @@ async function main() {
           && semGrantAc.status === 403 && invertidoAc.status === 400,
           { zerado: resOutro.periodos?.[0]?.faturamento, criterio: res.criterio?.tickets, rbac: semGrantAc.status, invertido: invertidoAc.status });
 
+        // §127.7 — a impressão (RelAnaliseComportamentoPeriodo.fr3): o Cds do ProcessaAnalise e o CdsGrafico como detalhe dos grupos
+        const stubAc = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+        await pgAc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991277, 1, 'RelAnaliseComportamentoPeriodo.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubAc]);
+        const impAc = await fetch(`${base}/${AC}/impressao`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const iAc = (await impAc.json().catch(() => ({}))) as any;
+        const dsAc = (iAc.datasets?.DBDRelatorio ?? []) as any[];
+        const fatRef = dsAc.find((l) => l.DESCRICAO === 'Faturamento' && !String(l.TITULO ?? '').startsWith('Comparação'));
+        const fatCmp = dsAc.find((l) => l.DESCRICAO === 'Faturamento' && String(l.TITULO ?? '').startsWith('Comparação'));
+        const grafAc = (iAc.datasets?.DBDGrafico ?? []) as any[];
+        check('COMPORTAMENTO §127.7 [a impressão no layout do cliente]: o Cds como o ProcessaAnalise monta — o bloco de cada período (o título visível só no Faturamento), a linha vazia entre os blocos e a "Comparação entre <ref> e <comp>" com a diferença e o percentual do legado sobre a REFERÊNCIA (o relatório do cliente imprime o dele); os grupos (CdsGrupos) e um ponto por período em cada métrica (CdsGrafico, o detalhe com __MESTRE), para os gráficos de barras',
+          impAc.status === 201 || impAc.status === 200
+            ? Math.abs(Number(fatRef?.VALOR) - 245) < 0.005 && fatRef?.TITULOVISIVEL === fatRef?.TITULO && dsAc.some((l) => l.TITULO == null && l.DESCRICAO == null)
+              && !!fatCmp && Math.abs(Number(fatCmp.PORCENTAGEM) - Math.round(((Number(fatCmp.VALOR)) / 245) * 10000) / 100) < 0.005
+              && (iAc.datasets?.DbdAuxiliar ?? []).map((g: any) => g.GRUPO).join('|') === 'Faturamento|CMV|Lucro|Rentabilidade|Quantidade de tickets|Valor ticket médio'
+              && grafAc.length > 0 && grafAc.filter((g) => g.GRUPO === 'Faturamento').every((g) => g.__MESTRE === 0)
+            : false,
+          { status: impAc.status, code: iAc.code, fatRef, fatCmp, grupos: (iAc.datasets?.DbdAuxiliar ?? []).length, graf: grafAc.slice(0, 3) });
+        await pgAc.query(`DELETE FROM relatorios WHERE codrelatorio = 991277`);
+
         for (const id of [nfVenda, nfEspelho, nfDevol]) {
           await pgAc.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]);
           await pgAc.query(`DELETE FROM nf WHERE codnf = $1`, [id]);

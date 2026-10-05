@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * ANÁLISE DE COMPORTAMENTO POR PERÍODO (`FRMRELANALISECOMPORTAMENTOPERIODO`).
@@ -50,23 +51,31 @@ export function AnaliseComportamentoPeriodoPage() {
     c1Nome: '', c1Ini: anoPassado(inicioDoMes()), c1Fim: anoPassado(hoje()),
     c2Nome: '', c2Ini: '', c2Fim: '',
     coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', idproduto: '',
-    custoReposicao: false,
+    custoReposicao: false, empresas: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const montarCorpo = () => {
+    const n = (v: string) => (v.trim() === '' ? undefined : Number(v));
+    const lojas = f.empresas.split(',').map((x) => Number(x.trim())).filter(Boolean);
+    return {
+      referencia: { nome: f.refNome || undefined, ini: f.refIni, fim: f.refFim },
+      comparado1: { nome: f.c1Nome || undefined, ini: f.c1Ini, fim: f.c1Fim },
+      comparado2: f.c2Ini && f.c2Fim ? { nome: f.c2Nome || undefined, ini: f.c2Ini, fim: f.c2Fim } : undefined,
+      custoReposicao: f.custoReposicao,
+      idproduto: n(f.idproduto), codsecao: n(f.codsecao), coddpto: n(f.coddpto),
+      codgrupo: n(f.codgrupo), codsubgrupo: n(f.codsubgrupo),
+      empresas: lojas.length ? lojas : undefined,
+    };
+  };
+  // o "Imprimir" no layout do cliente (RelAnaliseComportamentoPeriodo.fr3, com os gráficos por métrica)
+  const imprimir = () => { imprimirRelatorio('/relatorios/analise-comportamento-periodo/impressao', montarCorpo()).catch((e) => mensagem.erro(e)); };
+
   const buscar = async () => {
     setOcupado(true);
     try {
-      const n = (v: string) => (v.trim() === '' ? undefined : Number(v));
-      const corpo = {
-        referencia: { nome: f.refNome || undefined, ini: f.refIni, fim: f.refFim },
-        comparado1: { nome: f.c1Nome || undefined, ini: f.c1Ini, fim: f.c1Fim },
-        comparado2: f.c2Ini && f.c2Fim ? { nome: f.c2Nome || undefined, ini: f.c2Ini, fim: f.c2Fim } : undefined,
-        custoReposicao: f.custoReposicao,
-        idproduto: n(f.idproduto), codsecao: n(f.codsecao), coddpto: n(f.coddpto),
-        codgrupo: n(f.codgrupo), codsubgrupo: n(f.codsubgrupo),
-      };
+      const corpo = montarCorpo();
       const r = await fetch(`${BASE}/relatorios/analise-comportamento-periodo`, {
         method: 'POST', headers: { ...apiHeaders(), 'content-type': 'application/json' }, body: JSON.stringify(corpo),
       });
@@ -113,7 +122,9 @@ export function AnaliseComportamentoPeriodoPage() {
               <input type="checkbox" checked={f.custoReposicao} onChange={(e) => setF({ ...f, custoReposicao: e.target.checked })} />
               Custo de reposição
             </label>
+            <div className="w-32"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
             <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+            <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
           </div>
         </div>
       </section>

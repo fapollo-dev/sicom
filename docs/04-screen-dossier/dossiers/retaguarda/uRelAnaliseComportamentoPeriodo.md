@@ -121,3 +121,23 @@ A regra é `PROC_FINANCEIRO = 'S'` **e** `DEVOLUCAO = 'N'`: gera financeiro e n�
 - O segundo período comparado é **opcional** aqui; no legado os três são obrigatórios.
 - A grade de detalhe (`UAnaliseComportamentoPeriodoGrid`) e o gráfico do original: o retorno já traz o
   material dos dois (`periodos` + `comparacoes`); o desenho do gráfico é acessório da tela.
+
+## A impressão e as lojas (05/10/2026)
+
+- **As lojas**: o legado filtra `IDEMPRESA IN (GetMultiEmpresa)`; o Apollo media só a loja do login. Agora `empresas` (recortadas às
+  do operador, `empresasDoOperador`) — a venda e a NF das lojas escolhidas.
+- **A impressão** (`GeraRelatorio` → `ProcessaAnalise` → `RelAnaliseComportamentoPeriodo.fr3`, PERSONALIZADO 913):
+  - `DBDRelatorio` = o `Cds` como o legado monta: o bloco de cada período (as seis métricas; o `TituloVisivel` só na linha do
+    Faturamento), uma linha vazia entre os blocos (`Espaco` — o script do layout esconde grupo de título vazio) e, depois de cada
+    comparado, a "Comparação entre <ref> e <comp>" com a diferença e o **`GetPorcentagem` do legado — `Arredonda((Ref − Comp) ÷ Ref ×
+    100)`, sobre a referência**. A tela mostra a variação sobre a base (decisão documentada acima); o relatório do cliente imprime o
+    percentual dele, como sempre imprimiu.
+  - o título do período: o nome, ou `dd/mm/aaaa à dd/mm/aaaa`;
+  - `DbdAuxiliar` = o `CdsGrupos` (as seis métricas) e `DBDGrafico` = o `CdsGrafico` (um ponto por período em cada métrica), detalhe
+    do grupo (`MasterFields = 'Grupo'`) — na página 2, **um gráfico de barras por métrica** (TfrxChartView: barras com cor por ponto,
+    marcas com o rótulo, legenda com o valor à direita).
+  - o `ExistemDados` do legado é sempre verdadeiro (a consulta agregada devolve uma linha) — nunca "sem registros".
+- **O motor ganhou o `TfrxChartView`** (`apps/web/src/shared/fr3/grafico.ts`): lê o `PropData` (o stream binário do Delphi — o TChart
+  `TPF0` e o `SeriesData`) e desenha pizza, barras e linha em SVG, com os padrões do TeeChart que o DFM não grava. 30 modelos da
+  RELATORIOS da produção têm gráfico (Perdas, comportamento da loja, os ven2 de vendas…).
+- Smoke §127.7; teste de renderização (os seis gráficos).

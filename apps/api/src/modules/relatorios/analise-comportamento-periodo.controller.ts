@@ -19,4 +19,11 @@ export class AnaliseComportamentoPeriodoController {
   gerar(@Body(new ZodValidationPipe(analiseComportamentoPeriodoSchema)) f: AnaliseComportamentoPeriodoDto) {
     return this.svc.gerar(f);
   }
+
+  /** a impressão no layout do cliente (`RelAnaliseComportamentoPeriodo.fr3`, com os gráficos por métrica) */
+  @Post('impressao')
+  @RequerAcesso('FRMRELANALISECOMPORTAMENTOPERIODO', 'FRMRELANALISECOMPORTAMENTOPERIODO')
+  impressao(@Body(new ZodValidationPipe(analiseComportamentoPeriodoSchema)) f: AnaliseComportamentoPeriodoDto) {
+    return this.svc.impressao(f);
+  }
 }

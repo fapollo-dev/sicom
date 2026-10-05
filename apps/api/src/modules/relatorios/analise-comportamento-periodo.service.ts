@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
-import type { AnaliseComportamentoPeriodoDto } from '@apollo/shared';
+import { METRICAS_COMPORTAMENTO, type AnaliseComportamentoPeriodoDto, type MetricaComportamento } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { relatorioMestre } from '../../shared/relatorios/relatorio-mestre';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -61,7 +63,7 @@ export class AnaliseComportamentoPeriodoService {
     return f.idproduto != null || f.codsecao != null || f.coddpto != null || f.codgrupo != null || f.codsubgrupo != null;
   }
 
-  private async medir(db: AnyDB, emp: number, j: Janela, f: AnaliseComportamentoPeriodoDto): Promise<Metricas> {
+  private async medir(db: AnyDB, empresas: number[], j: Janela, f: AnaliseComportamentoPeriodoDto): Promise<Metricas> {
     const fam = this.familia(f);
     // custo de reposição é o checkbox do original; o default é o custo gravado na venda
     const custo = f.custoReposicao ? sql`v.vrcustorep` : sql`v.vrcusto`;
@@ -74,7 +76,7 @@ export class AnaliseComportamentoPeriodoService {
              count(DISTINCT (v.dtvenda::date, v.nrocupom)) AS tickets
         FROM vendas v
         JOIN produtos p ON p.idproduto = v.codproduto
-       WHERE v.idempresa = ${emp}
+       WHERE v.idempresa = ANY(${empresas})
          AND v.dtvenda >= ${j.ini}::date AND v.dtvenda < ${j.fim}::date + 1
          AND coalesce(v.cancelado, 'N') <> 'S'
          ${fam}
@@ -87,7 +89,7 @@ export class AnaliseComportamentoPeriodoService {
         JOIN nf_prod np ON np.codnf = n.codnf
         JOIN produtos p ON p.idproduto = np.codproduto
         JOIN cfop c ON c.codcfop = n.cfop
-       WHERE n.idempresa = ${emp} AND n.tipo = 'S'
+       WHERE n.idempresa = ANY(${empresas}) AND n.tipo = 'S'
          AND n.dtcontabil >= ${j.ini}::date AND n.dtcontabil < ${j.fim}::date + 1
          AND coalesce(n.cancelada, 'N') <> 'S'
          AND coalesce(c.proc_financeiro, 'S') = 'S' AND coalesce(c.devolucao, 'N') = 'N'
@@ -133,14 +135,16 @@ export class AnaliseComportamentoPeriodoService {
   }
 
   async gerar(f: AnaliseComportamentoPeriodoDto): Promise<Record<string, unknown>> {
-    const emp = this.emp();
+    this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
+    const empresas = await empresasDoOperador(db, f.empresas ?? null);
 
-    const referencia = await this.medir(db, emp, f.referencia, f);
-    const comparado1 = await this.medir(db, emp, f.comparado1, f);
-    const comparado2 = f.comparado2 ? await this.medir(db, emp, f.comparado2, f) : null;
+    const referencia = await this.medir(db, empresas, f.referencia, f);
+    const comparado1 = await this.medir(db, empresas, f.comparado1, f);
+    const comparado2 = f.comparado2 ? await this.medir(db, empresas, f.comparado2, f) : null;
 
     return {
+      empresas,
       periodos: comparado2 ? [referencia, comparado1, comparado2] : [referencia, comparado1],
       comparacoes: comparado2
         ? [this.comparar(referencia, comparado1), this.comparar(referencia, comparado2)]
@@ -152,5 +156,55 @@ export class AnaliseComportamentoPeriodoService {
         familiaFiltrada: this.temFiltroFamilia(f),
       },
     };
+  }
+
+  /**
+   * A impressão (`GeraRelatorio` → `ProcessaAnalise`, `RelAnaliseComportamentoPeriodo.fr3`): o `Cds` como o legado o monta — o bloco de
+   * cada período (as seis métricas, o título visível só na linha do Faturamento), uma linha vazia entre os blocos (o script do layout
+   * esconde a de título vazio) e, depois do comparado, a "Comparação entre <ref> e <comp>" com a diferença e o `GetPorcentagem` do
+   * legado — `Arredonda((Ref − Comp) ÷ Ref × 100)`, sobre a REFERÊNCIA (a tela mostra a variação sobre a base; o relatório do cliente
+   * imprime a dele). O `CdsGrafico` (um ponto por período em cada métrica) vai como detalhe do `CdsGrupos` (`MasterFields = 'Grupo'`):
+   * um gráfico de barras por métrica na página 2.
+   */
+  async impressao(f: AnaliseComportamentoPeriodoDto) {
+    const r = await this.gerar(f) as { empresas: number[]; periodos: Metricas[] };
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const br = (d: string) => d.split('-').reverse().join('/');
+    const janelas = [f.referencia, f.comparado1, ...(f.comparado2 ? [f.comparado2] : [])];
+    const titulos = janelas.map((j) => (j.nome?.trim() ? j.nome.trim() : `${br(j.ini)} à ${br(j.fim)}`));
+    const valores = (m: Metricas): Array<[string, number]> => [
+      ['Faturamento', m.faturamento], ['CMV', m.cmv], ['Lucro', r2(m.faturamento - m.cmv)], ['Rentabilidade', m.rentabilidade],
+      ['Quantidade de tickets', m.tickets], ['Valor ticket médio', m.ticketMedio],
+    ];
+    const cds: Array<Record<string, unknown>> = [];
+    const grafico: Array<Record<string, unknown>> = [];
+    const espaco = () => cds.push({ TituloVisivel: null, Titulo: null, Descricao: null, Valor: null, Porcentagem: null, DataI: null, DataF: null });
+    const periodo = (k: number) => {
+      const j = janelas[k];
+      for (const [d, v] of valores(r.periodos[k])) {
+        cds.push({ TituloVisivel: d === 'Faturamento' ? titulos[k] : null, Titulo: titulos[k], Descricao: d, Valor: v, Porcentagem: null, DataI: `${j.ini}T00:00:00`, DataF: `${j.fim}T00:00:00` });
+        grafico.push({ Descricao: titulos[k], Valor: v, Grupo: d, __MESTRE: METRICAS_COMPORTAMENTO.indexOf(d as MetricaComportamento) });
+      }
+    };
+    const diferenca = (k: number) => {
+      const a = valores(r.periodos[0]); const b = valores(r.periodos[k]);
+      a.forEach(([d, va], i) => {
+        const dif = r2(va - b[i][1]);
+        cds.push({ TituloVisivel: d === 'Faturamento' ? `Comparação entre ${titulos[0]} e ${titulos[k]}` : null, Titulo: `Comparação entre ${titulos[0]} e ${titulos[k]}`, Descricao: d,
+          Valor: dif, Porcentagem: va !== 0 ? r2((dif / va) * 100) : 0, DataI: null, DataF: null });
+      });
+    };
+    periodo(0); espaco();
+    periodo(1); espaco();
+    diferenca(1); espaco();
+    if (r.periodos[2]) { periodo(2); espaco(); diferenca(2); }
+    // o CdsGrafico tem IndexFieldNames = 'Grupo': cada métrica com os pontos na ordem dos períodos
+    grafico.sort((x, y) => Number(x.__MESTRE) - Number(y.__MESTRE));
+    return relatorioMestre(db, {
+      arquivo: 'RelAnaliseComportamentoPeriodo.fr3', titulo: 'Análise do comportamento da loja por períodos', vazio: false,
+      relatorio: cds, auxiliar: METRICAS_COMPORTAMENTO.map((g) => ({ Grupo: g })),
+      variaveis: { empresas: r.empresas, dataIni: f.referencia.ini, dataFim: f.referencia.fim },
+      extras: { DBDGrafico: grafico },
+    });
   }
 }
