@@ -694,3 +694,32 @@ describe('dias de estoque (esquema do TFrmRelMaster, uDDE.pas)', () => {
     expect(n0).not.toContain('DISTRIBUIDORA A');
   });
 });
+
+describe('troca de mercadorias (esquema do TFrmRelMaster, uRelTrocaMercadoriaFor.pas)', () => {
+  const v = [{ IDEmpresas: '1', DataInicial: '2025-11-01T00:00:00', DataFinal: '2025-11-30T00:00:00', NiveisExpandidos: 0, Tabela: 0 }];
+  const r = (troca: number, forn: number, razao: string, desc: string, qtde: number, custo: number) => ({ CODTROCA: troca, CODPARCEIRO: forn, DATA: '2025-11-24T00:00:00', RAZAO: razao,
+    CODEMPRESA: 1, DESCRICAO_TROCA: 'AVARIA', EMPRESA: 'HIPER', CODITENSTROCA: troca * 10, IDPRODUTO: 5, QTDE: qtde, VRCUSTO: custo, CODBARRA: '7891', DESCRICAO: desc,
+    QTDE_EDICAO: qtde, STATUS: 'F', CODNF: null, NRONF: null, TOTAL: qtde * custo, VRVENDA: custo * 2 });
+  const linhas = [r(101, 7, 'LATICINIOS TREVO', 'IOGURTE 170G', 3, 2.5), r(101, 7, 'LATICINIOS TREVO', 'BEBIDA LACTEA 1L', 2, 4), r(102, 8, 'CAMIL', 'ARROZ 5KG', 1, 20)];
+
+  it('analítico agrupado: o fornecedor no cabeçalho do grupo, os itens e os totais do grupo e gerais', () => {
+    const t = texto(paginasDoModelo(modelo('troca-mercadoria-analitico-agrup.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v }, agora));
+    expect(t).toContain('RELATÓRIO TROCA DE MERCADORIA');
+    expect(t).toContain('Fornecedor: 7 - LATICINIOS TREVO');
+    expect(t).toContain('Troca: 101');
+    expect(t).toContain('IOGURTE 170G');
+    expect(t).toContain('15,50'); // 7,50 + 8,00 no grupo do fornecedor 7
+    expect(t).toContain('35,50'); // total geral
+  });
+
+  it('analítico e sintético: a linha do item com troca, fornecedor e empresa; os totais gerais', () => {
+    const a = texto(paginasDoModelo(modelo('troca-mercadoria-analitico.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v }, agora));
+    expect(a).toContain('LATICINIOS TREVO');
+    expect(a).toContain('ARROZ 5KG');
+    expect(a).toContain('35,50');
+    const s = texto(paginasDoModelo(modelo('troca-mercadoria-sintetico.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v }, agora));
+    expect(s).toContain('BEBIDA LACTEA 1L');
+    expect(s).toContain('6,00'); // qtde total
+    expect(s).toContain('35,50');
+  });
+});

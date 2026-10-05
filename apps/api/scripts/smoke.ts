@@ -27817,6 +27817,96 @@ async function main() {
         await pgRb.end();
       }
     }
+    // ══ §296 RELATÓRIO DE TROCA DE MERCADORIAS (FRMRELTROCAMERCADORIAFOR, uRelTrocaMercadoriaFor.pas) ═══════════════════════════
+    {
+      const pgTm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const RT = 'relatorios/troca-mercadoria';
+      const [FORN, PA, PB] = [992960, 992961, 992962];
+      const trocas: number[] = [];
+      const tinhaRel2 = Number((await pgTm.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      try {
+        if (!tinhaRel2) await pgTm.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgTm.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, tipofj, frn) VALUES ($1, 'FORN TROCA 296', 'FT296', 'J', 'S') ON CONFLICT (codparceiro) DO NOTHING`, [FORN]);
+        await pgTm.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, coddpto) VALUES
+          ($1, '7899000992961', 'TROCA296 IOGURTE', 'UN', $3, 'T01', NULL), ($2, '7899000992962', 'TROCA296 BEBIDA', 'UN', $3, 'T01', NULL) ON CONFLICT (idproduto) DO NOTHING`, [PA, PB, FORN]);
+        for (const e of [1, 2]) await pgTm.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1, $3, 2.5, 5), ($2, $3, 4, 9) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = EXCLUDED.vrvenda`, [PA, PB, e]);
+        const mkT = async (emp: number, data: string, desc: string) => {
+          const id = Number((await pgTm.query(`INSERT INTO troca (idempresa, codparceiro, data, descricao) VALUES ($1, $2, $3, $4) RETURNING codtroca`, [emp, FORN, data, desc])).rows[0].codtroca);
+          trocas.push(id);
+          return id;
+        };
+        const t1 = await mkT(1, '2045-05-10', 'AVARIA 296');
+        const t2 = await mkT(1, '2045-05-12', 'VENCIDO 296');
+        const t3 = await mkT(2, '2045-05-11', 'OUTRA LOJA 296');
+        const t4 = await mkT(1, '2045-05-13', 'SEM ITEM 296');
+        await pgTm.query(`ALTER TABLE itens_troca DISABLE TRIGGER USER`).catch(() => undefined);
+        // a T1: o primeiro item FECHADO (o status da troca é o do primeiro item) e o segundo aberto
+        await pgTm.query(`INSERT INTO itens_troca (codtroca, idempresa, idproduto, qtde, vrcusto, estoqueretirada, fechado) VALUES
+          ($1, 1, $4, 3, 2.5, 'LOJA', 'S'), ($1, 1, $5, 2, 4, 'LOJA', 'N'), ($2, 1, $4, 1, 2.5, 'LOJA', 'N'), ($3, 2, $4, 4, 2.5, 'LOJA', 'N')`, [t1, t2, t3, PA, PB]);
+        await pgTm.query(`ALTER TABLE itens_troca ENABLE TRIGGER USER`).catch(() => undefined);
+        const rt = async (q: string, rota = '') => { const r = await fetch(`${base}/${RT}${rota}?${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const P = 'dataIni=2045-05-01&dataFim=2045-05-31';
+
+        const ag = await rt(`${P}&tipo=AGRUPADO`);
+        const l1 = (ag.j.linhas ?? []).find((l: any) => Number(l.codtroca) === t1);
+        const it1 = (ag.j.itens ?? []).filter((i: any) => Number(i.codtroca) === t1);
+        check('TROCA DE MERCADORIAS §296.1 [o analítico agrupado: a troca e os itens]: uma linha por troca da loja no período (ORDER BY CODTROCA) com o fornecedor e Σ(QTDE × VRCUSTO) — a T1 soma 3 × 2,50 + 2 × 4,00 = 15,50 —, a da outra loja fora; os itens com o status de cada um ("Fechada"/"Aberta", o ITENS_TROCA_QTDE do legado é o próprio item) e o VRVENDA da MULTI_PRECO da loja da troca; a troca sem item entra com total 0',
+          ag.status === 200 && (ag.j.linhas ?? []).map((l: any) => Number(l.codtroca)).join() === [t1, t2, t4].join()
+          && Math.abs(Number(l1?.total) - 15.5) < 0.001 && l1?.fornecedor === 'FORN TROCA 296' && Number(l1?.codigo) === FORN
+          && it1.length === 2 && it1.some((i: any) => i.status === 'Fechada' && Number(i.vrvenda) === 5) && it1.some((i: any) => i.status === 'Aberta' && Number(i.vrvenda) === 9),
+          { linhas: (ag.j.linhas ?? []).map((l: any) => [l.codtroca, l.total]), it1 });
+
+        const ab = await rt(`${P}&status=ABERTO`);
+        const fe = await rt(`${P}&status=FECHADO`);
+        check('TROCA DE MERCADORIAS §296.2 [o status da troca é o do PRIMEIRO item (ROWNUM = 1)]: a T1 tem o primeiro item fechado e o segundo aberto — é "Fechado"; a T2 é "Aberto"; a troca sem item não entra em nenhum dos dois (o subselect nulo), só em "Todos"',
+          (ab.j.linhas ?? []).map((l: any) => Number(l.codtroca)).join() === String(t2) && (fe.j.linhas ?? []).map((l: any) => Number(l.codtroca)).join() === String(t1),
+          { aberto: (ab.j.linhas ?? []).map((l: any) => l.codtroca), fechado: (fe.j.linhas ?? []).map((l: any) => l.codtroca) });
+
+        const si = await rt(`${P}&tipo=SINTETICO`);
+        const sA = (si.j.linhas ?? []).filter((l: any) => l.descricao === 'TROCA296 IOGURTE');
+        const an = await rt(`${P}&tipo=ANALITICO&idproduto=${PB}`);
+        const ml = await rt(`${P}&tipo=ANALITICO&empresas=1,2`);
+        check('TROCA DE MERCADORIAS §296.3 [o sintético e os filtros]: o sintético agrupa por código de barras, descrição, venda e STATUS (o iogurte sai em duas linhas: a fechada da T1, 3, e a aberta da T2, 1) somando quantidade, custo e total; o filtro por produto corta os itens; com as lojas 1,2 entra a troca da loja 2',
+          si.status === 200 && sA.length === 2 && sA.some((l: any) => l.status === 'Fechada' && Number(l.qtde) === 3) && sA.some((l: any) => l.status === 'Aberta' && Number(l.qtde) === 1)
+          && (an.j.linhas ?? []).length === 1 && Number(an.j.linhas?.[0]?.codtroca) === t1 && an.j.linhas?.[0]?.descricao === 'TROCA296 BEBIDA'
+          && (ml.j.linhas ?? []).some((l: any) => Number(l.codtroca) === t3),
+          { sint: sA, produto: (an.j.linhas ?? []).length, lojas: (ml.j.linhas ?? []).map((l: any) => l.codtroca) });
+
+        const dt = await rt(`codtroca=${t1}&daTroca=true&tipo=ANALITICO`);
+        const semData = await rt('tipo=AGRUPADO');
+        check('TROCA DE MERCADORIAS §296.4 [aberto pela tela da troca]: o "Imprimir" da troca (Create(Self, CODTROCA, DATA)) traz só aquela troca, sem data, lojas e fornecedor; pelo menu sem data → "Favor informar a data."',
+          dt.status === 200 && (dt.j.linhas ?? []).length === 2 && (dt.j.linhas ?? []).every((l: any) => Number(l.codtroca) === t1)
+          && semData.status === 422 && semData.j.message === 'Favor informar a data.',
+          { daTroca: [dt.status, (dt.j.linhas ?? []).length], semData: [semData.status, semData.j.message] });
+
+        const stubTm = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"/></TfrxReport>`).toString('base64');
+        for (const [k, nome] of ['TrocaMercadoria_analitico_agrup.fr3', 'TrocaMercadoria_analitico.fr3', 'TrocaMercadoria_sintetico.fr3'].entries()) {
+          await pgTm.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992960 + k, nome, stubTm(nome)]);
+        }
+        const iAg = await rt(`${P}&tipo=AGRUPADO`, '/impressao');
+        const iAn = await rt(`${P}&tipo=ANALITICO`, '/impressao');
+        const iDt = await rt(`codtroca=${t1}&daTroca=true&tipo=SINTETICO`, '/impressao');
+        const iVz = await rt('dataIni=2001-01-01&dataFim=2001-01-02', '/impressao');
+        const regs = (iAg.j.datasets?.DBDRelatorio ?? []) as any[];
+        check('TROCA DE MERCADORIAS §296.5 [a impressão nos layouts do cliente]: o agrupado no TrocaMercadoria_Analitico_Agrup.fr3 (o nome do fonte casa sem caixa com o da RELATORIOS) com um registro por item em ORDER BY DATA, RAZAO, CODTROCA, QTDE_EDICAO/TOTAL/VRVENDA; o analítico no seu layout; o da tela da troca com a data da troca no período; sem registro, a mensagem do TFrmRelMaster',
+          iAg.status === 200 && String(iAg.j.modelo ?? '').includes('TrocaMercadoria_analitico_agrup.fr3') && regs.map((r) => Number(r.CODTROCA)).join() === [t1, t1, t2, t4].join()
+          && regs.some((r) => r.DESCRICAO === 'TROCA296 BEBIDA' && Number(r.QTDE_EDICAO) === 2 && Number(r.TOTAL) === 8 && Number(r.VRVENDA) === 9)
+          && iAn.status === 200 && String(iAn.j.modelo ?? '').includes('TrocaMercadoria_analitico.fr3')
+          && iDt.status === 200 && String(iDt.j.modelo ?? '').includes('TrocaMercadoria_sintetico.fr3') && iDt.j.datasets?.DBDVariaveisAdicionais?.[0]?.DataInicial === '2045-05-10T00:00:00' && iDt.j.datasets?.DBDVariaveisAdicionais?.[0]?.IDEmpresas === '1'
+          && iVz.status === 422 && iVz.j.message === 'Não foram encontrados registros para imprimir o relatório.',
+          { iAg: [iAg.status, iAg.j.code, regs.map((r) => r.CODTROCA)], iAn: [iAn.status, iAn.j.code], iDt: [iDt.status, iDt.j.code, iDt.j.datasets?.DBDVariaveisAdicionais], vazio: [iVz.status, iVz.j.message] });
+        await pgTm.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992960 AND 992962`);
+      } finally {
+        await pgTm.query(`ALTER TABLE itens_troca DISABLE TRIGGER USER`).catch(() => undefined);
+        if (trocas.length) await pgTm.query(`DELETE FROM troca WHERE codtroca = ANY($1)`, [trocas]).catch(() => undefined);
+        await pgTm.query(`ALTER TABLE itens_troca ENABLE TRIGGER USER`).catch(() => undefined);
+        await pgTm.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[PA, PB]]).catch(() => undefined);
+        await pgTm.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[PA, PB]]).catch(() => undefined);
+        await pgTm.query(`DELETE FROM parceiros WHERE codparceiro = $1`, [FORN]).catch(() => undefined);
+        if (!tinhaRel2) await pgTm.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgTm.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

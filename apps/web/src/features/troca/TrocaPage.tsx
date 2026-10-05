@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -20,6 +21,7 @@ const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().joi
  */
 export function TrocaPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [lista, setLista] = useState<TrocaHeader[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [sel, setSel] = useState<TrocaDetalhe | null>(null);
@@ -113,6 +115,8 @@ export function TrocaPage() {
           {!fechada && <Button label="&Fechar" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void fechar()} />}
           {fechada && <Button label="&Reabrir" variant="soft" disabled={busy} onClick={() => void reabrir()} />}
           <Button label="E&xcluir" variant="ghost" disabled={busy || fechada} onClick={() => void excluir()} />
+          {/* o "Imprimir" da troca abre o relatório de trocas preso nela (TfrmTrocaMercadoriaFor.btnImprimirClick) */}
+          <Button label="&Imprimir" variant="ghost" onClick={() => navigate(`/relatorios/troca-mercadoria?codtroca=${sel.codtroca}&daTroca=1`)} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregar(); }} />
           <small className="w-full text-fg-muted">Valor = quantidade × custo (MULTI_PRECO). {dirty && !fechada ? 'Salve antes de fechar. ' : ''}O estoque sai ao gravar os itens (alterar a quantidade estorna e retira de novo; excluir devolve). Para editar itens de uma troca fechada, reabra antes.</small>
         </div>

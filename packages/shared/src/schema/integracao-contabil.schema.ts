@@ -483,6 +483,26 @@ export const relDdeSchema = z.object({
 });
 export type RelDdeDto = z.infer<typeof relDdeSchema>;
 
+/** RELATÓRIO DE TROCA DE MERCADORIAS (`FRMRELTROCAMERCADORIAFOR`): os três tipos do `RgpTipoRelatorio` e os filtros do `MontaFiltroSQL`. */
+export const relTrocaMercadoriaSchema = z.object({
+  tipo: z.enum(['AGRUPADO', 'ANALITICO', 'SINTETICO']).nullish(),
+  dataIni: dataISO.nullish(),
+  dataFim: dataISO.nullish(),
+  codtroca: z.coerce.number().int().positive().nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  status: z.enum(['ABERTO', 'FECHADO', 'TODOS']).nullish(),
+  idproduto: z.coerce.number().int().positive().nullish(),
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+    .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter(Boolean) : v))
+    .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
+  /** aberto pela tela da troca: só a troca, na loja do login */
+  daTroca: boolQuery.optional(),
+});
+export type RelTrocaMercadoriaDto = z.infer<typeof relTrocaMercadoriaSchema>;
+
 /** INTERSECÇÃO DE PRODUTOS (`FRMRELINTERSECCAOPRODUTOS`): o que mais o cliente leva junto. */
 export const relInterseccaoSchema = z.object({
   idproduto: z.coerce.number().int().positive(),

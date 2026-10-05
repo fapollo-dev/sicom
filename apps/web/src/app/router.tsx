@@ -113,6 +113,7 @@ import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
 import { CotacaoFornPage } from '../features/cotacao-forn/CotacaoFornPage';
 import { RelDdePage } from '../features/rel-dde/RelDdePage';
+import { RelTrocaMercadoriaPage } from '../features/rel-troca-mercadoria/RelTrocaMercadoriaPage';
 import { RelInterseccaoPage } from '../features/rel-interseccao/RelInterseccaoPage';
 import { PedidoVendaPage } from '../features/pedido-venda/PedidoVendaPage';
 import { FluxoCartoesPage } from '../features/fluxo-cartoes/FluxoCartoesPage';
@@ -329,6 +330,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
       { path: '/compras/cotacao-forn', element: <CotacaoFornPage /> }, // FRMCADCOTACAOFORN
       { path: '/relatorios/dias-estoque', element: <RelDdePage /> }, // FRMRELDDE
+      { path: '/relatorios/troca-mercadoria', element: <RelTrocaMercadoriaPage /> }, // FRMRELTROCAMERCADORIAFOR
       { path: '/relatorios/interseccao-produtos', element: <RelInterseccaoPage /> }, // FRMRELINTERSECCAOPRODUTOS
       { path: '/compras/pedido-venda', element: <PedidoVendaPage /> }, // FRMDIGITACAOPEDIDOS
       { path: '/financeiro/fluxo-cartoes', element: <FluxoCartoesPage /> }, // FRMFLUXOCARTOES

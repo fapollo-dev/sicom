@@ -450,6 +450,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('405_indices_historico_produto.sql'));
   await pool.query(sql('406_rbac_fixture_acesso_clientes.sql'));
   await pool.query(sql('407_baixas_revertidas_views.sql'));
+  await pool.query(sql('408_rel_troca_mercadoria.sql'));
   await pool.end();
   return pg;
 }
