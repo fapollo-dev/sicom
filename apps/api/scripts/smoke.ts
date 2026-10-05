@@ -12906,6 +12906,28 @@ async function main() {
           && i3.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 2
           && iVazio.status === 422 && iVazio.j.message === 'Não foram encontrados registros para imprimir o relatório.',
           { lojas: aL.map((l: any) => [l.idempresa, l.cobertura]), i1: [i1.status, i1.j.code, String(i1.j.modelo ?? '').slice(0, 120)], i2: [i2.status, i2.j.code, String(i2.j.modelo ?? '').slice(0, 120)], i3: [i3.status, i3.j.code, regB], vazio: [iVazio.status, iVazio.j.message] });
+
+        // §112.8 — o "Gerar cotação" da grade da ruptura (TFrmRelDDEGrid.GerarCotacao, convencional)
+        const gc = await fetch(`${base}/${DD}/cotacao`, { method: 'POST', headers: H, body: JSON.stringify({ coddpto: '9971', dias: '10', tipo: 'RUPTURA', sinal: 'MENOR_IGUAL', diasRuptura: '3', empresas: '1,2' }) });
+        const gcJ = (await gc.json().catch(() => ({}))) as any;
+        const cab = gc.status === 201 || gc.status === 200 ? (await pgDd.query(`SELECT descricao, liberada, situacao, flg_origem, empresas, pedidos, codoperador,
+            round(extract(epoch FROM dtfim_preenchimento - dtinicio_preenchimento) / 86400) AS dias FROM cotacao WHERE codctc = $1`, [gcJ.codctc])).rows[0] : null;
+        const itensC = cab ? (await pgDd.query(`SELECT p.idproduto, p.quantidade, p.fatorembalagem, p.valorcusto, p.valorvenda, p.descricao,
+            (SELECT string_agg(q.idempresa || ':' || q.qtde::float8, ',' ORDER BY q.idempresa) FROM cotacao_prodqtde q WHERE q.codcpr = p.codcpr) AS lojas
+            FROM cotacao_prod p WHERE p.codctc = $1 ORDER BY p.idproduto`, [gcJ.codctc])).rows : [];
+        const itB = itensC.find((x: any) => Number(x.idproduto) === pB);
+        const gcPadrao = await fetch(`${base}/${DD}/cotacao`, { method: 'POST', headers: H, body: JSON.stringify({ coddpto: '9971', dias: '10' }) });
+        const gcVazia = await fetch(`${base}/${DD}/cotacao`, { method: 'POST', headers: H, body: JSON.stringify({ coddpto: '9971', dias: '10', tipo: 'RUPTURA', sinal: 'IGUAL', diasRuptura: '999' }) });
+        const gcVaziaJ = (await gcVazia.json().catch(() => ({}))) as any;
+        check('DIAS DE ESTOQUE §112.8 [o "Gerar cotação" da ruptura]: uma cotação aberta e liberada (LIBERADA S, SITUACAO A, FLG_ORIGEM C, EMPRESAS ";1;2;", preenchimento de 3 dias, a descrição "Cotacao gerada pela relatório de dias para ruptura de estoque : dd/mm/aaaa hh:mm:ss") com um produto por item da grade — custo, venda e fator de embalagem da grade, quantidade 0 — e a quantidade zerada por loja; só na ruptura; grade vazia → "Não existem produtos na grade."',
+          (gc.status === 201 || gc.status === 200) && Number(gcJ.itens) === 2 && !!cab
+          && /^Cotacao gerada pela relatório de dias para ruptura de estoque : \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/.test(String(cab.descricao))
+          && cab.liberada === 'S' && cab.situacao === 'A' && cab.flg_origem === 'C' && cab.empresas === ';1;2;' && Number(cab.dias) === 3 && cab.pedidos === ''
+          && itensC.map((x: any) => Number(x.idproduto)).sort().join() === [pB, pE].sort().join()
+          && Number(itB?.quantidade) === 0 && Number(itB?.valorcusto) === 4 && Number(itB?.valorvenda) === 8 && Number(itB?.fatorembalagem) === 12 && itB?.lojas === '1:0,2:0'
+          && gcPadrao.status === 422 && gcVazia.status === 422 && gcVaziaJ.message === 'Não existem produtos na grade.',
+          { status: gc.status, j: gcJ, cab, itens: itensC, padrao: gcPadrao.status, vazia: [gcVazia.status, gcVaziaJ.message] });
+        if (gcJ.codctc) await pgDd.query(`DELETE FROM cotacao WHERE codctc = $1`, [gcJ.codctc]);
         await pgDd.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991120 AND 991122`);
         await pgDd.query(`DELETE FROM parceiros WHERE codparceiro = ANY($1)`, [[fornDd, fornSec]]).catch(() => undefined);
       } finally {

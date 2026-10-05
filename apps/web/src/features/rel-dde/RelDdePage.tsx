@@ -103,6 +103,25 @@ export function RelDdePage() {
     return c;
   }, [res, secundarios]);
 
+  // o "Gerar cotação" da grade da ruptura (TFrmRelDDEGrid.GerarCotacao, a cotação convencional): "Cotação gerada: N"
+  const gerarCotacao = async () => {
+    if (!res || res.tipo !== 'RUPTURA') return;
+    if (!res.linhas.length) { mensagem.erro(Object.assign(new Error('DDE_GRADE_VAZIA'), { envelope: { statusCode: 422, code: 'DDE_GRADE_VAZIA', message: 'Não existem produtos na grade.' } })); return; }
+    if (!window.confirm('Gerar a cotação convencional com os produtos da grade?')) return;
+    setOcupado(true);
+    try {
+      const corpo = Object.fromEntries(new URLSearchParams(consulta()));
+      const r = await fetch(`${BASE}/relatorios/dias-estoque/cotacao`, { method: 'POST', headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+      handle401(r);
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+        throw Object.assign(new Error(env.code), { envelope: env });
+      }
+      mensagem.sucesso(`Cotação gerada: ${(b as { codctc: number }).codctc}`);
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
   const exportar = () => {
     if (!res) return;
     // o "Exportar para Excel" da grade (`Dias de estoque.xlsx` / `Dias para ruptura de estoque.xlsx`)
@@ -168,6 +187,7 @@ export function RelDdePage() {
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
           <Button label="E&xportar" variant="soft" disabled={!res} onClick={exportar} />
+          {res?.tipo === 'RUPTURA' && <Button label="Gerar &cotação" variant="soft" disabled={ocupado} onClick={() => void gerarCotacao()} />}
         </div>
         <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
           <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>

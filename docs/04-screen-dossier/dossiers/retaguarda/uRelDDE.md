@@ -85,9 +85,27 @@ o padrão 104/106/108 tinha `relNomeEmpresa`). Teste de renderização em `apps/
 O `CkbExibeGrade` vem **marcado** (dfm: `Checked = True`): o `AntesImprimir` abre o `TFrmRelDDEGrid` antes do relatório — a grade
 é a consulta da tela no Apollo. A exportação para Excel (`Dias de estoque.xlsx` / `Dias para ruptura de estoque.xlsx`) é o CSV.
 
-O botão **"Gerar cotação"** (só na ruptura): ver corte B abaixo.
+### O "Gerar cotação" (corte B — `TFrmRelDDEGrid.GerarCotacao`, só na ruptura)
 
-## 10. Cobertura (smoke §112, 7 checks)
+**Vivo**: 4 cotações na produção (07/10/2020 → 16/03/2026; a última, 781 itens, virou o pedido 31837), todas "Convencional" e de
+uma loja. O que grava (opção "Convencional", `GerarCotacaoConvencional('C')`):
+
+| tabela | campos |
+|---|---|
+| COTACAO | DESCRICAO `Cotacao gerada pela relatório de dias para ruptura de estoque : dd/mm/aaaa hh:mm:ss` (conferida nas 4 da produção), DATA/DTCADASTRO/DTINICIOPREENCHIMENTO = agora, DTFIMPREENCHIMENTO = agora + 3, LIBERADA `S`, SITUACAO `A`, PEDIDOS `''`, EMPRESAS `;1;2;`, FLG_ORIGEM `C`, CODOPERADOR = USULTALTERACAO = o operador |
+| COTACAO_PROD | um por item da grade: IDPRODUTO, DESCRICAO, VALORCUSTO = VRCUSTO, VALORVENDA = VRVENDA, FATOREMBALAGEM = FATOREMBAL; QUANTIDADE, VLRUNITARIO, VLREMBALAGEM, QTDEATUAL, VALORCOTACAO, QTDTOTAL = 0; CODOPERADOR |
+| COTACAO_PRODQTDE | um por loja do `Empresas`, QTDE 0 (o `ExisteProdutoParaEmpresaCotacao` impede a repetição) |
+
+- grade vazia → "Não existem produtos na grade."; a resposta → "Cotação gerada: N".
+- ⚠️ **várias lojas**: a grade traz o produto uma vez por loja e o legado gravaria um COTACAO_PROD por linha (o mesmo produto
+  repetido, cada um já com a quantidade de todas as lojas). O destino tem `ux_cotacao_prod (codctc, idproduto)`: fica **um por
+  produto**, com os valores da primeira linha (a menor loja, pela ordem da grade). Na produção as 4 foram de uma loja só.
+- **"Interna (lista de fornecedores)"** (`GerarCotacaoListaFornecedores`, grava em COTACAO_LISTAF / COTACAO_LISTAF_ITENS): marginal,
+  com prova — COTACAO_LISTAF tem 1 linha ("TESTE COTACAO", 02/01/2023) e a única cotação 'L' é de 00:00:00 (o DDE grava a hora),
+  não veio daqui (ver FILA-CONVERSAO #114). Não oferecida.
+- RBAC: o botão não tem permissão própria na PERMISSOES; o gate é o da tela (`FRMRELDDE`).
+
+## 10. Cobertura (smoke §112, 8 checks)
 
 1. a conta e o **arredondamento** (100/10 → 10; 6/3 → 2; 8/3 = 2,67 → **3**);
 2. negativo cobre 0; o parado é −999999; a ordem do legado;
@@ -96,3 +114,4 @@ O botão **"Gerar cotação"** (só na ruptura): ver corte B abaixo.
 5. a ruptura com os três sinais, o `COBERTURA > 0`, fornecedor, fator, custo/venda e o secundário;
 6. as três validações com as mensagens;
 7. as lojas (o produto por loja) e a impressão nos três layouts + a mensagem sem registro.
+8. o "Gerar cotação": cabeçalho, um produto por item, a quantidade zerada por loja, só na ruptura, grade vazia.

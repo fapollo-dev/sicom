@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { relDdeSchema, type RelDdeDto } from '@apollo/shared';
 import { RelDdeService, type FiltroDde } from './rel-dde.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -21,6 +21,13 @@ export class RelDdeController {
   @RequerAcesso('FRMRELDDE', 'FRMRELDDE')
   gerar(@Query(new ZodValidationPipe(relDdeSchema)) q: RelDdeDto) {
     return this.svc.gerar(filtro(q));
+  }
+
+  /** o "Gerar cotação" da grade da ruptura (a cotação convencional com os produtos da grade) */
+  @Post('cotacao')
+  @RequerAcesso('FRMRELDDE', 'FRMRELDDE')
+  gerarCotacao(@Body(new ZodValidationPipe(relDdeSchema)) q: RelDdeDto) {
+    return this.svc.gerarCotacao(filtro(q));
   }
 
   /** a impressão nos layouts do cliente (`Dias_de_estoque_*.fr3`) */

@@ -4,7 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { relatorioMestre } from '../../shared/relatorios/relatorio-mestre';
-import { hojeNaLoja } from '../../shared/tempo/hoje';
+import { FUSO_LOJA, hojeNaLoja } from '../../shared/tempo/hoje';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 
 type AnyDB = Kysely<any>;
 type Linha = Record<string, unknown>;
@@ -203,6 +204,52 @@ export class RelDdeService {
       return { tipo, dias: f.dias, empresas, ...g };
     }
     return { tipo, dias: f.dias, empresas, linhas: await this.padrao(db, f, empresas), secundarios: [] };
+  }
+
+  /**
+   * O **"Gerar cotação"** da grade da ruptura (`TFrmRelDDEGrid.GerarCotacao`, opção "Convencional"): uma COTACAO aberta e liberada
+   * (`LIBERADA 'S'`, `SITUACAO 'A'`, preenchimento de agora a agora + 3 dias, `EMPRESAS ';1;2;'`, `FLG_ORIGEM 'C'`, a descrição com a
+   * data e hora) e, para cada produto da grade, um COTACAO_PROD com o custo, a venda e o fator de embalagem da grade (quantidades e
+   * valores zerados, como a tela de cotação inclui) e um COTACAO_PRODQTDE zerado por loja. Viva: 4 cotações na produção (a última
+   * em 16/03/2026, 781 itens, virou o pedido 31837).
+   *
+   * ⚠️ com várias lojas a grade traz o produto uma vez por loja e o legado gravaria um COTACAO_PROD por linha — o mesmo produto
+   * repetido na cotação, cada um já com a quantidade de todas as lojas. O destino tem a cotação × produto única: fica um por
+   * produto, com os valores da primeira linha (a da menor loja, pela ordem da grade). Na produção as 4 foram de uma loja só.
+   * A opção "Interna (lista de fornecedores)" grava em COTACAO_LISTAF — marginal, com prova (1 linha, "TESTE COTACAO", 02/01/2023;
+   * a única cotação 'L' é de 00:00, não veio daqui).
+   */
+  async gerarCotacao(f: FiltroDde): Promise<{ codctc: number; itens: number }> {
+    const { tipo, sinal, diasRuptura } = this.validar(f);
+    if (tipo !== 'RUPTURA') throw new BusinessRuleError('DDE_COTACAO_SO_RUPTURA', {}, 'A cotação é gerada pela grade da ruptura.');
+    const emp = currentTenant().empresaId ?? null;
+    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const op = currentTenant().operadorId ?? null;
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const empresas = await empresasDoOperador(db, f.empresas ?? null);
+    const { linhas } = await this.rupturaGrade(db, f, empresas, sinal, diasRuptura);
+    if (!linhas.length) throw new BusinessRuleError('DDE_GRADE_VAZIA', {}, 'Não existem produtos na grade.');
+    const porProduto = new Map<number, Linha>();
+    for (const l of linhas) if (!porProduto.has(Number(l.idproduto))) porProduto.set(Number(l.idproduto), l);
+    // FormatDateTime('dd/mm/yyyy hh:mm:ss', Now) — a hora da loja
+    const agora = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_LOJA, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      .format(new Date()).replace(',', '');
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = (await trx.insertInto('cotacao').values({
+        idempresa: emp, descricao: `Cotacao gerada pela relatório de dias para ruptura de estoque : ${agora}`, data: sql`now()`, liberada: 'S', situacao: 'A',
+        codoperador: op, usultalteracao: op, dtcadastro: sql`now()`, dtinicio_preenchimento: sql`now()`, dtfim_preenchimento: sql`now() + interval '3 days'`,
+        pedidos: '', empresas: `;${empresas.join(';')};`, flg_origem: 'C',
+      }).returning('codctc').executeTakeFirstOrThrow()) as { codctc: number };
+      const codctc = Number(c.codctc);
+      for (const l of porProduto.values()) {
+        const p = (await trx.insertInto('cotacao_prod').values({
+          codctc, idproduto: Number(l.idproduto), descricao: l.descricao ?? null, quantidade: 0, fatorembalagem: Number(l.fatorembal ?? 0),
+          valorcusto: Number(l.vrcusto ?? 0), valorvenda: Number(l.vrvenda ?? 0), vlrunitario: 0, vlrembalagem: 0, qtdeatual: 0, valorcotacao: 0, qtdtotal: 0, codoperador: op,
+        }).returning('codcpr').executeTakeFirstOrThrow()) as { codcpr: number };
+        await trx.insertInto('cotacao_prodqtde').values(empresas.map((e) => ({ codcpr: Number(p.codcpr), idempresa: e, qtde: 0 }))).execute();
+      }
+      return { codctc, itens: porProduto.size };
+    });
   }
 
   /**
