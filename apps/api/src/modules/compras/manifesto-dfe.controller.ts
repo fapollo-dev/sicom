@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { AcessoService } from '../../shared/acesso/acesso.service';
 import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
@@ -107,6 +107,13 @@ export class ManifestoDfeController {
   @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
   analisarItens(@Param('chave') chave: string) {
     return this.itens.analisar(chave);
+  }
+
+  /** o "Imprimir" da análise dos itens (Manifesto_Destinatario_Itens.fr3): `filtro` = todos | cadastrados | nao-cadastrados */
+  @Get('itens/:chave/impressao')
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  impressaoItens(@Param('chave') chave: string, @Query('filtro') filtro?: string) {
+    return this.itens.impressaoItens(chave, filtro === 'cadastrados' || filtro === 'nao-cadastrados' ? filtro : 'todos');
   }
 
   @Post('itens/:chave/fatores')

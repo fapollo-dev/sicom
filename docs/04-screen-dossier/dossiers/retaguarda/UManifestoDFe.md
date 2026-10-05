@@ -56,3 +56,13 @@ pedido×NF (parada desde 09/01/2025); o cadastro de produto/parceiro a partir do
 **Fora, com prova:** "Análise de pedido de compra" da linha — a análise pedido×NF parou em 09/01/2025 (9.030 análises, a
 última nessa data). ✅ A "conferência de preço simples" (o botão "Conf. Preço" da grade, `conf - conferencia de preco simples nf.fr3`, só na nota cadastrada) entrou em 30/09/2026 com as impressões da NF (`uNF-impressoes.md`). Colunas ALERTA/DESCRICAO_ALERTA são campos
 do dataset do binário novo (alerta fiscal), fora da view.
+
+## A impressão da análise dos itens no layout do cliente (05/10/2026)
+
+O menu "Imprimir" da análise dos itens (`TFrmAnalisaItensNfManifesto.ImprimirRelatorioProdManifesto`, uAnalisaItensNfManifesto.pas:1050 —
+"Imprimir todos", "…produtos cadastrados", "…produtos não cadastrados") sai no `Manifesto_Destinatario_Itens.fr3` da RELATORIOS:
+`GET compras/manifesto-dfe/itens/:chave/impressao?filtro=todos|cadastrados|nao-cadastrados`. `frxDBDatasetProdManifesto` = os itens da
+NFE_NAO_CADASTRADAS_ITENS na ordem do NROITEM (o filtro `ProdutoCadastrado = 'S'` / `'N' or NULL`), `frxDBDatasetDadosNota` = a linha da
+nota na grade (GET_NF_MANIFESTO: CHAVE, CNPJ_CPF, DATA_EMISSAO, NUMERO_NF, RAZAO, TOTAL_NF), `frxDBDatasetDadosEmpresa` = a empresa do
+login. Sem item: "Não existem produtos listados para construir o relatório.". O HTML próprio saiu. A conferência de preço da grade já usava
+o `conf - conferencia de preco simples nf.fr3`; o DANFE_ManifestoDest.fr3 é do ACBr (SEFAZ) e fica fora.

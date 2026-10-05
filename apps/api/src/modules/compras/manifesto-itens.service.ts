@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
 import { RecebimentoService } from './recebimento.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -174,6 +176,30 @@ export class ManifestoItensService {
       chave, numero: nota.numero, razao: nfe.emitNome ?? nota.razao, cnpj: nfe.emitCnpj, total: nota.total,
       parceiro, editavel: nota.processada !== 'SIM',
       itens: await this.linhas(dbw, chave),
+    };
+  }
+
+  /**
+   * O "Imprimir" da análise dos itens (`ImprimirRelatorioProdManifesto`, uAnalisaItensNfManifesto.pas:1050): `Manifesto_Destinatario_Itens.fr3`
+   * com os itens da nota (`frxDBDatasetProdManifesto` = a cópia do cdsNotasNaoImportadasItens, na ordem do NROITEM) — todos, só os
+   * cadastrados (`ProdutoCadastrado = 'S'`) ou só os não cadastrados —, a linha da nota na grade (`frxDBDatasetDadosNota` = a
+   * GET_NF_MANIFESTO: CHAVE, CNPJ_CPF, DATA_EMISSAO, NUMERO_NF, RAZAO, TOTAL_NF) e a empresa. Sem item: a mensagem do legado.
+   */
+  async impressaoItens(chaveEntrada: string, filtro: 'todos' | 'cadastrados' | 'nao-cadastrados') {
+    const emp = this.emp();
+    const chave = ManifestoItensService.chave(chaveEntrada);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const itens = (await this.linhas(db, chave)).filter((i) => filtro === 'todos' || (filtro === 'cadastrados' ? i.produto_cadastrado === 'S' : i.produto_cadastrado !== 'S'));
+    if (!itens.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não existem produtos listados para construir o relatório.');
+    const nota = (await sql<Record<string, unknown>>`SELECT * FROM get_nf_manifesto WHERE idempresa = ${emp} AND chave = ${chave} LIMIT 1`.execute(db)).rows[0] ?? { chave };
+    return {
+      titulo: `Produtos da NF ${str(nota.numero_nf ?? '')}`,
+      modelo: await modeloFr3(db, 'Manifesto_Destinatario_Itens.fr3'),
+      datasets: {
+        frxDBDatasetProdManifesto: itens.map((i) => registroFr3({ ...i, produtocadastrado: i.produto_cadastrado })),
+        frxDBDatasetDadosNota: [registroFr3(nota, new Set(['total_nf', 'idempresa']))],
+        frxDBDatasetDadosEmpresa: [await empresaParaRelatorio(db, emp)],
+      },
     };
   }
 

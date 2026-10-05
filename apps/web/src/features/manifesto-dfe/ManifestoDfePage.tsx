@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -8,7 +8,6 @@ import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -118,7 +117,6 @@ export function ManifestoDfePage() {
   const [analise, setAnalise] = useState<Analise | null>(null);
   const [fatores, setFatores] = useState<Record<number, string>>({});
   const [filtroItens, setFiltroItens] = useState<'T' | 'S' | 'N'>('T');
-  const refAnalise = useRef<HTMLDivElement>(null);
   const abrirAnalise = (a: Analise) => { setAnalise(a); setFatores(Object.fromEntries(a.itens.map((i) => [i.nroitem, String(i.fatorembal)]))); };
   const analisarItens = async (ch: string) => {
     if (busy) return;
@@ -141,10 +139,10 @@ export function ManifestoDfePage() {
     if (!cod?.trim() || !/^\d+$/.test(cod.trim())) return;
     void acaoAnalise('vincular', { nroitem: it.nroitem, idproduto: Number(cod.trim()) }, 'Item vinculado (referência do fornecedor gravada).');
   };
-  const imprimirAnalise = () => {
-    const win = window.open('', '_blank', 'width=1000,height=700');
-    if (!win || !refAnalise.current || !analise) return;
-    imprimirPagina(win, refAnalise.current, `Produtos da NF ${analise.numero} — ${analise.razao}`, undefined, true);
+  // o "Imprimir" da análise (Manifesto_Destinatario_Itens.fr3): todos, os cadastrados ou os não cadastrados, como o menu do legado
+  const imprimirAnalise = (filtro: 'todos' | 'cadastrados' | 'nao-cadastrados') => {
+    if (!analise) return;
+    imprimirRelatorio(`/compras/manifesto-dfe/itens/${analise.chave}/impressao?filtro=${filtro}`).catch((e) => mensagem.erro(e));
   };
   const alternar = (ch: string) => setSel((s) => { const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; });
 
@@ -354,10 +352,12 @@ export function ManifestoDfePage() {
             <Button label="&Gravar fatores" variant="soft" disabled={busy || !analise.editavel} onClick={() => void gravarFatores()} />
             <Button label="Fator &original a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'original' }, 'Produtos atualizados com sucesso!')} />
             <Button label="Fator &1,0 a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'unitario' }, 'Produtos atualizados com sucesso!')} />
-            <Button label="Im&primir" variant="ghost" onClick={imprimirAnalise} />
+            <Button label="Im&primir todos" variant="ghost" onClick={() => imprimirAnalise('todos')} />
+            <Button label="Imprimir cadastrados" variant="ghost" onClick={() => imprimirAnalise('cadastrados')} />
+            <Button label="Imprimir não cadastrados" variant="ghost" onClick={() => imprimirAnalise('nao-cadastrados')} />
             <Button label="&Fechar" variant="ghost" onClick={() => setAnalise(null)} />
           </div>
-          <div ref={refAnalise} className="overflow-x-auto">
+          <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-body-sm">
               <thead>
                 <tr className="text-left text-fg-muted">

@@ -588,4 +588,16 @@ describe('relatórios do legado com vários datasets', () => {
     expect(cp).toContain('CONTAS À PAGAR AGRUPADAS');
     expect(cp).toContain('Parceiro : FORN A 1 X1 01/03/2066 01/04/2066 40,00');
   });
+
+  it('manifesto (Manifesto_Destinatario_Itens.fr3): os itens da nota na ordem do item, com a nota da grade e a empresa', () => {
+    const t = texto(paginasDoModelo(modelo('manifesto-destinatario-itens.fr3'), {
+      frxDBDatasetProdManifesto: [{ NROITEM: 1, CODPROD: 'A1', EAN: '789', DESCRICAO: 'ARROZ 5KG', NCM: '10063021', CFOP: 5102, QUANTIDADE: 10, VRUNITARIO: 20.5, VRTOTAL: 205 }],
+      frxDBDatasetDadosNota: [{ NUMERO_NF: '123', DATA_EMISSAO: '2066-05-01T00:00:00', CHAVE: '3166', CNPJ_CPF: '04892455000110', RAZAO: 'FORN A', TOTAL_NF: 205 }],
+      frxDBDatasetDadosEmpresa: [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', FANTASIA: 'HIPER', CNPJ: '1' }],
+    }, agora));
+    expect(t).toContain('Relatório de produtos da nota fiscal - manifesto destinatário');
+    expect(t).toContain('NroNF: 123');
+    expect(t).toContain('Parceiro: 04892455000110 - FORN A');
+    expect(t).toContain('ARROZ 5KG');
+  });
 });

@@ -8772,6 +8772,18 @@ async function main() {
           && Number(impAn.codnf) > 0 && itNf.find((r) => Number(r.codproduto) === 2)?.f === 12
           && semXml.status === 422,
         { naTabela, an1, an2, parceiro: an.parceiro, fat1: fat.itens?.[0]?.fatorembal, orig1: orig.itens?.[0]?.fatorembal, impAn: impAn.codnf ?? impAn.code, itNf, semXml: semXml.status });
+      // o "Imprimir" da análise no Manifesto_Destinatario_Itens.fr3 (todos / cadastrados / não cadastrados)
+      await pgImp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (990504, 1, 'Manifesto_Destinatario_Itens.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64')]);
+      const impI = async (f: string) => { const r = await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}/impressao?filtro=${f}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const [iTodos, iCad, iNao] = [await impI('todos'), await impI('cadastrados'), await impI('nao-cadastrados')];
+      await pgImp.query(`DELETE FROM relatorios WHERE codrelatorio = 990504`);
+      check('MANIFESTO [a impressão da análise no layout do cliente]: o frxDBDatasetProdManifesto com os 2 itens na ordem do NROITEM (cadastrados: os 2 vinculados), a linha da nota na grade (GET_NF_MANIFESTO: CHAVE, RAZAO, TOTAL_NF) e a empresa; "não cadastrados" sem item → a mensagem do legado',
+        iTodos.status === 200 && iTodos.j.datasets?.frxDBDatasetProdManifesto?.map((i: any) => i.NROITEM).join(',') === '1,2' && iTodos.j.datasets?.frxDBDatasetDadosNota?.[0]?.CHAVE === chAn
+          && iTodos.j.datasets.frxDBDatasetDadosNota[0].TOTAL_NF === 63.44 && 'RAZAOSOCIAL' in (iTodos.j.datasets?.frxDBDatasetDadosEmpresa?.[0] ?? {})
+          && iCad.status === 200 && iCad.j.datasets?.frxDBDatasetProdManifesto?.length === 2
+          && iNao.status === 422 && iNao.j.message === 'Não existem produtos listados para construir o relatório.',
+        { iTodos: [iTodos.status, iTodos.j.code, iTodos.j.datasets?.frxDBDatasetDadosNota], iCad: iCad.status, iNao: [iNao.status, iNao.j.message] });
       if (Number(impAn.codnf) > 0) { await pgImp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(impAn.codnf)]); await pgImp.query(`DELETE FROM apagar WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); await pgImp.query(`DELETE FROM nf WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); }
       await pgImp.query(`DELETE FROM nfe_eventos WHERE chave_acesso = $1`, [chAn]);
       await pgImp.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chAn]);
