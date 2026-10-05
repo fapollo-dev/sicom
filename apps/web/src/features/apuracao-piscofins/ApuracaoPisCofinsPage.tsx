@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 /**
@@ -70,9 +70,6 @@ export function ApuracaoPisCofinsPage() {
   const [config, setConfig] = useState<Config[]>([]);
   const [novaConfig, setNovaConfig] = useState({ cfop: '', id_basecredito: '' });
   const [ajuste, setAjuste] = useState(vazioAjuste);
-  const [rel, setRel] = useState<Record<string, any> | null>(null);
-  const relRef = useRef<HTMLDivElement>(null);
-  const janelaRel = useRef<Window | null>(null);
   // os créditos do período anterior do Resumo — campo da tela, não gravado (`EdtCreditosPISAnterior`/`EdtCreditoCofinsAnt`)
   const [anterior, setAnterior] = useState({ pis: '', cofins: '' });
 
@@ -144,17 +141,11 @@ export function ApuracaoPisCofinsPage() {
     try { await req(`${P}-config/${encodeURIComponent(cfop)}`, { method: 'DELETE' }); await carregarConfig(); } catch (e) { mensagem.erro(e); }
   };
 
-  // a impressão (ApuracaoPis_Cofins.fr3): a janela abre no clique (o bloqueador de popup), os totais chegam e a tela imprime o relatório
-  const imprimir = async () => {
+  // a impressão no ApuracaoPis_Cofins.fr3 da RELATORIOS, com os totais nas variáveis do legado
+  const imprimir = () => {
     if (!aberta) return;
-    janelaRel.current = window.open('', '_blank');
-    try { setRel(await req<Record<string, any>>(`${P}/${aberta.codapuracao_pc}/relatorio`)); } catch (e) { janelaRel.current?.close(); mensagem.erro(e); }
+    imprimirRelatorio(`${P}/${aberta.codapuracao_pc}/impressao`).catch((e) => mensagem.erro(e));
   };
-  useEffect(() => {
-    if (!rel || !relRef.current || !janelaRel.current) return;
-    imprimirPagina(janelaRel.current, relRef.current, 'Apuração PIS / COFINS');
-    janelaRel.current = null;
-  }, [rel]);
 
   const t = aberta?.totais;
   const pcAjuste = apoio?.piscofins.find((x) => String(x.idpiscofins) === ajuste.idpiscofins);
@@ -214,7 +205,7 @@ export function ApuracaoPisCofinsPage() {
       {aberta && t && (
         <>
           <section className="flex flex-wrap gap-gp-lg rounded-radius-md border border-border bg-bg-surface p-pad-md">
-            <div className="w-full"><Button label="&Imprimir" variant="soft" onClick={() => void imprimir()} /></div>
+            <div className="w-full"><Button label="&Imprimir" variant="soft" onClick={imprimir} /></div>
             <div>
               <div className="text-body-sm text-fg-muted">Crédito (PIS / COFINS)</div>
               <div className="text-title-sm tabular-nums">{moeda(t.creditoPis)} / {moeda(t.creditoCofins)}</div>
@@ -289,7 +280,6 @@ export function ApuracaoPisCofinsPage() {
         </>
       )}
 
-      {rel && <div ref={relRef} className="hidden"><RelatorioApuracao r={rel} /></div>}
 
       {/* a aba Configuração do legado: os CFOPs que entram na base do crédito (PC_CONFIG) */}
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -344,53 +334,5 @@ function FragmentoPai({ pai, itens, onExcluir }: { pai: Pai; itens: Item[]; onEx
         </tr>
       ))}
     </>
-  );
-}
-
-/** o relatório `ApuracaoPis_Cofins.fr3`: o cabeçalho da empresa, as receitas, os créditos e a apuração COFINS × PIS */
-function RelatorioApuracao({ r }: { r: Record<string, any> }) {
-  const v = (x: unknown) => Number(x ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const linha = (rot: string, x: unknown) => <tr key={rot}><td>{rot}</td><td className="text-right tabular-nums">{v(x)}</td></tr>;
-  const e = r.empresa ?? {};
-  return (
-    <div>
-      <p><strong>{e.razao_social ?? ''}</strong> — {e.fantasia ?? ''} · CNPJ: {e.cnpj ?? ''} · INSC: {e.insc ?? ''} · Fone: {e.fone1 ?? ''}</p>
-      <p>Competencia: {dataBr(r.dataini)} até {dataBr(r.datafim)}</p>
-      <table><tbody>
-        {linha('Total de Receitas com Revendas ECFs', r.TOTRECECF)}
-        {linha('Total de Receitas com Revendas Notas Fiscais', r.TOTRECNF)}
-        {linha('Total de Receitas com Prestação de Serviços', r.TOTRECSERV)}
-        {linha('Outras Receitas', r.TOTRECOUT)}
-        {linha('(-) Outras Deduções', 0)}
-        {linha('(-) Receita Tributada Aliquota ZERO', r.TOTRECZERO)}
-        {linha('BASE DE CALCULO NA APURAÇÃO DO IMPOSTO', r.BASEAPURACAO)}
-      </tbody></table>
-      <table><tbody>
-        {linha('Total de Bens Adquiridos para Revenda', r.TOTBENSREV)}
-        {linha('Base de Calculo para Credito de Bens Adquiridos - Aliquota 9,25%', r.TOTBENADQALQ)}
-        {linha('Base de Calculo para Credito de Bens Adquiridos - Aliquota Diferenciada', r.TOTBENADQDIF)}
-        {linha('Bens Adquiridos para Revenda - Monofásicos', r.TOTBENADQMON)}
-        {linha('Crédito Fretes s/compras', r.TOTCREDFRETE)}
-        {linha('Crédito Energia Elétrica', r.TOTCREDELE)}
-        {linha('Devolução de Vendas', r.TOTDEVVENDAS)}
-        {linha('BASE DE CALCULO NA APURAÇÃO DOS CRÉDITOS', r.TOTBASECRED)}
-      </tbody></table>
-      <table>
-        <thead><tr><th>Apuração</th><th className="text-right">COFINS</th><th className="text-right">PIS</th></tr></thead>
-        <tbody>
-          {([
-            // as linhas sem variável no .fr3 (saldo credor, dedução processual, total) saem em branco, como no relatório do legado
-            ['Saldo Credor Mês Anterior', null, null], ['Valor Débito Saídas', r.TOTDEBSAICOF, r.TOTDEBSAIPIS],
-            ['(-) Ajuste Negativo Devolução de Vendas', r.TOTAJUSNEGDEVCOF, r.TOTAJUSNEGDEVPIS], ['Outros Débitos', r.TOTOUTDEBCOF, r.TOTOUTDEBPIS],
-            ['Valor Crédito Entradas', r.TOTVALCREENTCOF, r.TOTVALCREENTPIS], ['Outros Créditos', r.TOTOUTCRECOF, r.TOTOUTCREPIS],
-            ['(-) Ajuste Negativo Devolução de Compras', r.TOTAJUNEGCOF, r.TOTAJUNEGPIS],
-            ['Valor á Recolher Antes de Deduções Processuais', r.TOTVALRECCOF, r.TOTVALRECPIS],
-            ['Dedução do Crédito ICMS Conforme Processo', null, null], ['Valor Total a Recolher', null, null],
-          ] as Array<[string, unknown, unknown]>).map(([rot, c, p]) => (
-            <tr key={rot}><td>{rot}</td><td className="text-right tabular-nums">{c == null ? '' : v(c)}</td><td className="text-right tabular-nums">{p == null ? '' : v(p)}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="40233,6128502894" ReportOptions.Description.Text="" ReportOptions.LastChange="43270,4677611921" ScriptLanguage="PascalScript" ScriptText.Text="procedure ReportTitle1OnBeforePrint(Sender: TfrxComponent);&#13;&#10;begin&#13;&#10;                                                                      &#13;&#10;end;&#13;&#10;begin&#13;&#10;&#13;&#10;end.">
+  <Datasets>
+    <item DataSet="frxDBDataset1" DataSetName="frxDBDataset1"/>
+    <item DataSet="frxDBDataset2" DataSetName="frxDBDataset2"/>
+  </Datasets>
+  <Variables>
+    <item Name=" geral"/>
+    <item Name="TOTRECECF"/>
+    <item Name="TOTRECNF"/>
+    <item Name="TOTRECSERV"/>
+    <item Name="TOTRECOUT"/>
+    <item Name="TOTRECZERO"/>
+    <item Name="BASEAPURACAO"/>
+    <item Name="TOTBENSREV"/>
+    <item Name="TOTBENADQALQ"/>
+    <item Name="TOTBENADQDIF"/>
+    <item Name="TOTBENADQMON"/>
+    <item Name="TOTCREDFRETE"/>
+    <item Name="TOTCREDELE"/>
+    <item Name="TOTDEVVENDAS"/>
+    <item Name="TOTBASECRED"/>
+    <item Name="TOTDEBSAICOF"/>
+    <item Name="TOTDEBSAIPIS"/>
+    <item Name="TOTAJUSNEGDEVCOF"/>
+    <item Name="TOTAJUSNEGDEVPIS"/>
+    <item Name="TOTOUTDEBCOF"/>
+    <item Name="TOTOUTDEBPIS"/>
+    <item Name="TOTVALCREENTCOF"/>
+    <item Name="TOTVALCREENTPIS"/>
+    <item Name="TOTOUTCRECOF"/>
+    <item Name="TOTOUTCREPIS"/>
+    <item Name="TOTAJUNEGCOF"/>
+    <item Name="TOTAJUNEGPIS"/>
+    <item Name="TOTDEDCRECOF"/>
+    <item Name="TOTDEDCREPIS"/>
+    <item Name="TOTVALRECCOF"/>
+    <item Name="TOTVALRECPIS"/>
+    <item Name="TOTOUTDEDUCOES"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="215,9" PaperHeight="279,4" PaperSize="1" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="">
+    <TfrxReportTitle Name="ReportTitle1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="117,16543" Left="0" Top="18,89765" Width="740,409927" OnBeforePrint="ReportTitle1OnBeforePrint">
+      <TfrxMemoView Name="Memo19" Align="baCenter" Left="234,1418835" Top="7,55906" Width="272,12616" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="Tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Apuração PIS / COFINS"/>
+      <TfrxMemoView Name="frxDBDataset2RAZAOSOCIAL" Left="177,63791" Top="37,7953" Width="313,70099" Height="18,89765" DataField="RAZAOSOCIAL" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="[frxDBDataset2.&#34;RAZAOSOCIAL&#34;]"/>
+      <TfrxMemoView Name="frxDBDataset2FANTASIA" Left="498,89796" Top="37,7953" Width="317,48052" Height="18,89765" DataField="FANTASIA" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="[frxDBDataset2.&#34;FANTASIA&#34;]"/>
+      <TfrxMemoView Name="frxDBDataset2CNPJ" Left="177,63791" Top="60,25201" Width="185,19697" Height="18,89765" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="CNPJ: [frxDBDataset2.&#34;CNPJ&#34;]"/>
+      <TfrxMemoView Name="frxDBDataset2INSC" Left="366,61441" Top="60,25201" Width="181,41744" Height="18,89765" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="INSC: [frxDBDataset2.&#34;INSC&#34;]"/>
+      <TfrxMemoView Name="frxDBDataset2FONE1" Left="574,48856" Top="60,25201" Width="177,63791" Height="18,89765" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Fone: [frxDBDataset2.&#34;FONE1&#34;]"/>
+      <TfrxMemoView Name="Date" Left="740,78788" Top="7,55906" Width="234,33086" Height="18,89765" DisplayFormat.FormatStr="dd de mmmm, yyyy" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[Date]"/>
+      <TfrxMemoView Name="Memo20" Align="baCenter" Left="236,0316485" Top="94,48825" Width="268,34663" Height="15,11812" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" Font.Charset="1" Font.Color="255" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="[REFERENCIA]"/>
+      <TfrxPictureView Name="Picture1" Left="3,77953" Top="7,55906" Width="136,06308" Height="102,04731" Center="True" HightQuality="False" Transparent="False" TransparentColor="16777215"/>
+    </TfrxReportTitle>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="782,36271" Left="0" Top="196,53556" Width="740,409927" OnBeforePrint="MasterData1OnBeforePrint" ColumnWidth="0" ColumnGap="0" DataSet="frxDBDataset2" DataSetName="frxDBDataset2" RowCount="0">
+      <TfrxMemoView Name="frxDBDataset1DESCRICAO" Left="3,55906" Top="3,11812244000001" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Total de Receitas com Revendas ECFs"/>
+      <TfrxLineView Name="Line1" Left="0" Top="21,67718244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo2" Align="baRight" Left="587,81889764" Top="3" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTRECECF]"/>
+      <TfrxMemoView Name="Memo3" Left="3,55906" Top="26,57483488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Total de Receitas com Revendas Notas Fiscais"/>
+      <TfrxLineView Name="Line2" Left="0" Top="45,13389488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo4" Align="baRight" Left="587,81889764" Top="26,45671244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTRECNF]"/>
+      <TfrxMemoView Name="Memo5" Left="3,55906" Top="49,81107488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Total de Receitas com Prestação de Serviços"/>
+      <TfrxLineView Name="Line3" Left="0" Top="69,37013488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo12" Align="baRight" Left="587,81889764" Top="49,69295244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTRECSERV]"/>
+      <TfrxMemoView Name="Memo13" Left="3,55906" Top="73,26778488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Outras Receitas"/>
+      <TfrxLineView Name="Line6" Left="0" Top="92,82684488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo14" Align="baRight" Left="587,81889764" Top="73,14966244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTRECOUT]"/>
+      <TfrxMemoView Name="Memo15" Left="3,4015748" Top="96,72449488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="(-) Outras Deduções"/>
+      <TfrxLineView Name="Line7" Left="-0,77953" Top="116,28355488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo16" Align="baRight" Left="587,81889764" Top="96,60637244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTOUTDEDUCOES]"/>
+      <TfrxMemoView Name="Memo23" Left="3,55906" Top="119,96073488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="(-) Receita Tributada Aliquota ZERO"/>
+      <TfrxLineView Name="Line8" Left="0" Top="138,51979488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo24" Align="baRight" Left="587,81889764" Top="119,84261244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTRECZERO]"/>
+      <TfrxMemoView Name="Memo25" Left="3,55906" Top="142,19697488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="BASE DE CALCULO NA APURAÇÃO DO IMPOSTO"/>
+      <TfrxLineView Name="Line9" Left="0" Top="160,75603488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo26" Align="baRight" Left="587,81889764" Top="142,07885244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[BASEAPURACAO]"/>
+      <TfrxMemoView Name="Memo27" Left="3,55906" Top="177,43321488" Width="283,46475" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Total de Bens Adquiridos para Revenda"/>
+      <TfrxLineView Name="Line10" Left="0" Top="195,99227488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo28" Align="baRight" Left="587,81889764" Top="177,31509244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTBENSREV]"/>
+      <TfrxLineView Name="Line11" Left="0" Top="174,09462244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo29" Left="3,55906" Top="199,87415488" Width="321,26005" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Base de Calculo para Credito de Bens Adquiridos - Aliquota 9,25%"/>
+      <TfrxLineView Name="Line12" Left="0" Top="218,43321488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo30" Align="baRight" Left="587,81889764" Top="199,75603244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTBENADQALQ]"/>
+      <TfrxMemoView Name="Memo31" Left="2,67718" Top="221,12616488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Base de Calculo para Credito de Bens Adquiridos - Aliquota Diferenciada"/>
+      <TfrxLineView Name="Line14" Left="-0,88188" Top="239,68522488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo32" Align="baRight" Left="587,81889764" Top="221,00804244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTBENADQDIF]"/>
+      <TfrxMemoView Name="Memo33" Left="3,55906" Top="242,00804488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Bens Adquiridos para Revenda - Monofásicos"/>
+      <TfrxLineView Name="Line13" Left="0" Top="260,56710488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo34" Align="baRight" Left="587,81889764" Top="241,88992244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTBENADQMON]"/>
+      <TfrxMemoView Name="Memo35" Left="3,77952756" Top="264,68522488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Crédito Fretes s/compras"/>
+      <TfrxLineView Name="Line15" Left="-0,77953" Top="283,24428488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo36" Align="baRight" Left="587,81889764" Top="264,56710244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTCREDFRETE]"/>
+      <TfrxMemoView Name="Memo37" Left="3,77952756" Top="286,36240488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Crédito Energia Elétrica"/>
+      <TfrxLineView Name="Line16" Left="0" Top="304,92146488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo38" Align="baRight" Left="587,81889764" Top="286,24428244" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTCREDELE]"/>
+      <TfrxMemoView Name="Memo39" Left="3,77952756" Top="308,03958488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Bens Utilizados como Insumos"/>
+      <TfrxLineView Name="Line17" Left="0" Top="326,59864488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo40" Left="3,77952756" Top="329,59864244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Serviços Utilizados como Insumos"/>
+      <TfrxLineView Name="Line18" Left="0" Top="348,15770244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo41" Left="3,77952756" Top="351,27582244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Energia Elétrica"/>
+      <TfrxLineView Name="Line19" Left="0" Top="369,83488244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo42" Left="3,77952756" Top="372,95300244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Alugueis Pagos à Pessoa Jurídica"/>
+      <TfrxLineView Name="Line20" Left="0" Top="392,51206244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo43" Left="3,77952756" Top="395,63018244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Alugueis de Maquinas e Equipamentos Locados"/>
+      <TfrxLineView Name="Line21" Left="0" Top="414,18924244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo44" Left="3,77952756" Top="417,30736244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Despesas Armazenagens e Fretes Vendas"/>
+      <TfrxLineView Name="Line22" Left="0" Top="435,86642244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo45" Left="3,77952756" Top="438,98454244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Contraprestação de Arrendamento Leasing"/>
+      <TfrxLineView Name="Line23" Left="0" Top="457,54360244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo46" Left="3,77952756" Top="460,66172244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Depreciação sobre Ativo Imobilizado"/>
+      <TfrxLineView Name="Line24" Left="0" Top="478,22078244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo47" Left="3,77952756" Top="481,33890244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Sobre Ativo com Base na Aquisição"/>
+      <TfrxLineView Name="Line25" Left="1,77953" Top="498,89796244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo48" Left="3,77952756" Top="503,01608244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Encargos Amortização Edificação e Benfeitorias"/>
+      <TfrxLineView Name="Line26" Left="0" Top="522,57514244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo49" Left="3,77952756" Top="525,25232488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Devolução de Vendas"/>
+      <TfrxLineView Name="Line27" Left="1,77953" Top="542,81138488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo50" Align="baRight" Left="587,81889764" Top="525,35433071" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTDEVVENDAS]"/>
+      <TfrxMemoView Name="Memo51" Left="3,77952756" Top="549,81138244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="BASE DE CALCULO NA APURAÇÃO DOS CRÉDITOS"/>
+      <TfrxLineView Name="Line28" Left="-0,22047" Top="569,37044244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo52" Align="baRight" Left="587,81889764" Top="549,92125984" Width="151,18110236" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTBASECRED]"/>
+      <TfrxLineView Name="Line4" Left="-0,22047" Top="574,48856244" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo1" Left="3,77952756" Top="577,16574488" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Apuração"/>
+      <TfrxLineView Name="Line5" Left="0,55906" Top="594,72480488" Width="737,00835" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo6" Left="525,52783" Top="577,13385827" Width="75,59055118" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="COFINS"/>
+      <TfrxMemoView Name="Memo7" Left="661,81138" Top="577,13385827" Width="75,59055118" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="PIS"/>
+      <TfrxLineView Name="Line29" Left="491,3389" Top="576,26809244" Width="0" Height="204,09462" Color="0" Frame.Typ="1"/>
+      <TfrxLineView Name="Line30" Left="627,18151" Top="574,48856244" Width="0" Height="207,87415" Color="0" Frame.Typ="1"/>
+      <TfrxMemoView Name="Memo8" Left="3,77952756" Top="597,16574244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Saldo Credor Mês Anterior"/>
+      <TfrxMemoView Name="Memo9" Left="3,77952756" Top="615,06339244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Valor Débito Saídas"/>
+      <TfrxMemoView Name="Memo10" Left="3,77952756" Top="634,96104244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="(-) Ajuste Negativo Devolução de Vendas"/>
+      <TfrxMemoView Name="Memo11" Left="3,77952756" Top="653,85869244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Outros Débitos"/>
+      <TfrxMemoView Name="Memo17" Left="3,77952756" Top="672,75634244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Valor Crédito Entradas"/>
+      <TfrxMemoView Name="Memo18" Left="3,77952756" Top="691,65399244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Outros Créditos"/>
+      <TfrxMemoView Name="Memo21" Left="3,77952756" Top="708,77211244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="(-) Ajuste Negativo Devolução de Compras"/>
+      <TfrxMemoView Name="Memo22" Left="3,77952756" Top="725,66976244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Valor á Recolher Antes de Deduções Processuais"/>
+      <TfrxMemoView Name="Memo53" Left="3,77952756" Top="744,56741244" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" ParentFont="False" Text="Dedução do Crédito ICMS Conforme Processo"/>
+      <TfrxMemoView Name="Memo54" Left="3,77952756" Top="763,46506" Width="362,83488" Height="15,11812" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" ParentFont="False" Text="Valor Total a Recolher"/>
+      <TfrxMemoView Name="Memo55" Left="506,45709323" Top="614,92913386" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTDEBSAICOF]"/>
+      <TfrxMemoView Name="Memo56" Left="632,5201" Top="614,92913386" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTDEBSAIPIS]"/>
+      <TfrxMemoView Name="Memo57" Left="506,45702" Top="634,96104" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTAJUSNEGDEVCOF]"/>
+      <TfrxMemoView Name="Memo58" Left="632,692913385827" Top="634,96104" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTAJUSNEGDEVPIS]"/>
+      <TfrxMemoView Name="Memo59" Left="506,45702" Top="653,85826772" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTOUTDEBCOF]"/>
+      <TfrxMemoView Name="Memo60" Left="632,692913385827" Top="653,85826772" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTOUTDEBPIS]"/>
+      <TfrxMemoView Name="Memo61" Left="506,45702" Top="672,75634" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALCREENTCOF]"/>
+      <TfrxMemoView Name="Memo62" Left="632,69291339" Top="672,75634" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALCREENTPIS]"/>
+      <TfrxMemoView Name="Memo63" Left="506,45702" Top="691,65399" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTOUTCRECOF]"/>
+      <TfrxMemoView Name="Memo64" Left="632,69291339" Top="691,65399" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTOUTCREPIS]"/>
+      <TfrxMemoView Name="Memo65" Left="506,45702" Top="709,55164" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTAJUNEGCOF]"/>
+      <TfrxMemoView Name="Memo66" Left="632,692913385827" Top="710,55164" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTAJUNEGPIS]"/>
+      <TfrxMemoView Name="Memo67" Left="506,45702" Top="725,66976" Width="105,82677165" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALRECCOF]"/>
+      <TfrxMemoView Name="Memo68" Left="632,692913385827" Top="725,66976" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALRECPIS]"/>
+      <TfrxMemoView Name="Memo69" Left="506,45702" Top="744,56741" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTDEDCRECOF]"/>
+      <TfrxMemoView Name="Memo70" Left="632,692913385827" Top="744,56741" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTDEDCREPIS]"/>
+      <TfrxMemoView Name="Memo71" Left="506,45702" Top="763,46506" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALRECCOF]"/>
+      <TfrxMemoView Name="Memo72" Left="632,692913385827" Top="763,46506" Width="105,826771653543" Height="15,11812" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TOTVALRECPIS]"/>
+      <TfrxLineView Name="Line31" Left="0" Top="0,464439999999996" Width="0" Height="778,87415" Color="0" Frame.Typ="1"/>
+      <TfrxLineView Name="Line32" Left="739" Top="0,464439999999996" Width="0" Height="782,65368" Color="0" Frame.Typ="1"/>
+      <TfrxLineView Name="Line33" Left="2,13385827" Top="0,464439999999996" Width="736,10266" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxLineView Name="Line34" Left="1" Top="781,46444" Width="736,10266" Height="0" Color="0" Frame.Typ="4"/>
+    </TfrxMasterData>
+  </TfrxReportPage>
+</TfrxReport>

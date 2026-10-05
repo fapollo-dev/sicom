@@ -252,7 +252,7 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
 | Ajuste manual de crédito | sim (§2.4) | não existe | MÉDIA |
 | Crédito do período anterior | campo manual no Resumo | não existe | BAIXA |
 | Aba Configuração (PC_CONFIG) | sim | tabela existe (mig 041); sem tela aqui | MÉDIA |
-| Imprimir | `ApuracaoPis_Cofins.fr3` | não existe | BAIXA |
+| Imprimir | `ApuracaoPis_Cofins.fr3` | ✅ `GET …/:cod/impressao` no layout (05/10/2026) | — |
 | Pai/filho Créditos e Débitos | agrupado por (tipo de crédito, alíquota), pai recalculado | lista plana ordenada por tipo/CST | MÉDIA |
 | Totais da tela | recalcula pelo pai | soma `valorpis` gravado → nas 18 migradas herda o defeito da última linha (341: débito PIS 30.768,85 em vez de ~15.431) | ALTA pós-carga |
 | `APURACAO_PC_AJUSTE_M` | tabela nova (M110/M115/M220/M225/M510/M515/M620/M625), 0 linhas | não existe no destino nem no plano de carga | MÉDIA (todos os campos) |
@@ -328,3 +328,13 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
   abortar sem apuração) e o **E** (ajuste manual, crédito anterior, aba PC_CONFIG, impressão) e o **G** seguem pendentes.
 - Smoke §88/§90c (o dado de teste passou a ter a situação PIS/COFINS e o ICMS que a regra do legado usa), §117 (totais pelo pai) e
   §259 (crédito, NFC-e, *_APURA, escopo e período repetido).
+
+## Impressão no layout do cliente (05/10/2026)
+
+`GET fiscal/sped/apuracao-pc/:cod/impressao` → o `ApuracaoPis_Cofins.fr3` da RELATORIOS (só o DEFAULT 25 existe na produção) com os
+totais do `relatorio()` como as **variáveis numéricas** do `btnImprimirClick` (`Variables['TOTRECECF'] := TOTRECECF`…), a REFERENCIA
+("Competencia: dd/mm/aaaa até dd/mm/aaaa") e a empresa do login no `frxDBDataset2` (o `dmPrincipal.Empresa` que a banda percorre). A
+folha HTML saiu. O TOTOUTDEDUCOES do layout o legado nunca atribui (sai em branco). O `[Date]` do título tem o formato
+`dd de mmmm, yyyy` sem aspas: no FormatDateTime o "d" de "de" também é o dia — "30 30e setembro, 2026", defeito do layout. Smoke §259.6;
+teste de renderização.
+

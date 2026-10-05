@@ -999,3 +999,19 @@ describe('pedidos de compra — previsão de pagamentos (Pedidos_Compra_Previsao
     expect(f).toContain('LATICINIOS TREVO');
   });
 });
+
+describe('apuração PIS/COFINS (ApuracaoPis_Cofins.fr3)', () => {
+  it('as variáveis numéricas do btnImprimirClick no layout, com a empresa do login e a competência', () => {
+    const vars: Record<string, string> = { REFERENCIA: "'Competencia: 01/05/2040 até 31/05/2040'", TOTRECNF: '7.89', TOTRECECF: '1234.5', BASEAPURACAO: '1242.39',
+      TOTDEBSAIPIS: '-0.13', TOTDEBSAICOF: '-0.6', TOTBENSREV: '632', TOTVALCREENTPIS: '9.93', TOTVALRECPIS: '9.8', TOTVALRECCOF: '45.12' };
+    const t = texto(paginasDoModelo(modelo('apuracao-pis-cofins.fr3'), { frxDBDataset2: [{ ...empresa, INSC: '0012345', FONE1: '3433334444' }] }, agora, vars));
+    expect(t).toContain('Apuração PIS / COFINS');
+    expect(t).toContain('Competencia: 01/05/2040 até 31/05/2040');
+    expect(t).toContain('HIPER PINHEIRAO LTDA');
+    expect(t).toContain('1.234,50');
+    expect(t).toContain('-0,13');
+    expect(t).toContain('9,80');
+    // o [Date] com 'dd de mmmm, yyyy': no FormatDateTime do Delphi o "d" de "de" também é o dia (o layout não pôs o texto entre aspas)
+    expect(t).toContain('30 30e setembro, 2026');
+  });
+});

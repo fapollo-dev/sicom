@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -217,6 +219,30 @@ export class ApuracaoPcConsultaService {
       TOTVALCREENTPIS, TOTVALCREENTCOF, TOTOUTCREPIS, TOTOUTCRECOF, TOTAJUNEGPIS, TOTAJUNEGCOF, TOTDEDCREPIS: 0, TOTDEDCRECOF: 0,
       TOTVALRECPIS: TOTDEBSAIPIS + TOTAJUNEGPIS + TOTAJUSNEGDEVPIS + TOTVALCREENTPIS + TOTOUTCREPIS,
       TOTVALRECCOF: TOTDEBSAICOF + TOTAJUNEGCOF + TOTAJUSNEGDEVCOF + TOTVALCREENTCOF + TOTOUTCRECOF,
+    };
+  }
+
+  /**
+   * O "Imprimir" no layout: o `ApuracaoPis_Cofins.fr3` da RELATORIOS com os totais do `relatorio()` como as variáveis numéricas que o
+   * `btnImprimirClick` atribui (`frxReport1.Variables['TOTRECECF'] := TOTRECECF`…), a REFERENCIA ("Competencia: dd/mm/aaaa até dd/mm/aaaa")
+   * e a empresa do login no `frxDBDataset2` (o `dmPrincipal.Empresa`, que a banda de dados percorre). O TOTOUTDEDUCOES do layout o legado
+   * nunca atribui: sai em branco, como lá.
+   */
+  async impressao(cod: number) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.relatorio(cod);
+    const dmy = (v: unknown) => {
+      if (v instanceof Date) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
+      return String(v ?? '').slice(0, 10).split('-').reverse().join('/');
+    };
+    const variaveis: Record<string, string> = { REFERENCIA: textoVariavel(`Competencia: ${dmy(r.dataini)} até ${dmy(r.datafim)}`) };
+    for (const [k, v] of Object.entries(r)) if (/^(TOT|BASEAPURACAO)/.test(k)) variaveis[k] = String(Number(v) || 0);
+    const emp = currentTenant().empresaId ?? null;
+    return {
+      titulo: 'Apuração PIS / COFINS',
+      modelo: await modeloFr3(db, 'ApuracaoPis_Cofins.fr3'),
+      datasets: { frxDBDataset2: emp == null ? [] : [await empresaParaRelatorio(db, emp)] },
+      variaveis,
     };
   }
 

@@ -93,6 +93,13 @@ export class SpedController {
     return this.apuracaoConsulta.relatorio(cod);
   }
 
+  /** o "Imprimir": o ApuracaoPis_Cofins.fr3 com os totais nas variáveis do legado */
+  @Get('apuracao-pc/:cod/impressao')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')
+  impressaoApuracaoPc(@Param('cod', ParseIntPipe) cod: number) {
+    return this.apuracaoConsulta.impressao(cod);
+  }
+
   /** a aba Configuração da apuração: os CFOPs da base do crédito (PC_CONFIG). */
   @Get('apuracao-pc-config')
   @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')

@@ -25684,6 +25684,16 @@ async function main() {
           q(rl.TOTRECNF, 7.89) && q(rl.TOTDEBSAIPIS, -0.13) && q(rl.TOTDEBSAICOF, -0.6) && q(rl.TOTBENSREV, 632) && q(rl.TOTBENADQALQ, 632) && q(rl.TOTBENADQDIF, 0)
           && q(rl.TOTCREDELE, 300) && q(rl.TOTCREDFRETE, 0) && q(rl.TOTBASECRED, 932) && q(rl.TOTVALCREENTPIS, 9.93) && q(rl.TOTVALRECPIS, 9.8) && q(rl.BASEAPURACAO, 7.89),
           { rl });
+        // §259.6 — o "Imprimir" no ApuracaoPis_Cofins.fr3 (as variáveis numéricas do btnImprimirClick e a REFERENCIA)
+        await pgAq.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991121, 1, 'ApuracaoPis_Cofins.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="ApuracaoPC"/></TfrxReport>').toString('base64')]);
+        const ipc = await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/impressao`, { headers: H });
+        const ipcJ = (await ipc.json().catch(() => ({}))) as any;
+        await pgAq.query(`DELETE FROM relatorios WHERE codrelatorio = 991121`);
+        check('APURAÇÃO PIS/COFINS §259.6 [o "Imprimir" no layout]: o ApuracaoPis_Cofins.fr3 com os totais como variáveis NUMÉRICAS (TOTRECNF 7,89; TOTVALRECPIS 9,80), a REFERENCIA "Competencia: 01/05/2040 até 31/05/2040" e a empresa do login no frxDBDataset2',
+          ipc.status === 200 && String(ipcJ.modelo).includes('ApuracaoPC') && q(ipcJ.variaveis?.TOTRECNF, 7.89) && q(ipcJ.variaveis?.TOTVALRECPIS, 9.8)
+            && ipcJ.variaveis?.REFERENCIA === "'Competencia: 01/05/2040 até 31/05/2040'" && (ipcJ.datasets?.frxDBDataset2 ?? []).length === 1,
+          { st: ipc.status, ref: ipcJ.variaveis?.REFERENCIA, nf: ipcJ.variaveis?.TOTRECNF, rec: ipcJ.variaveis?.TOTVALRECPIS });
       } catch (e) {
         check('APURAÇÃO PIS/COFINS §259 [preparo]', false, { erro: (e as Error).message });
       } finally {
