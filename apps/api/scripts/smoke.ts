@@ -19995,6 +19995,9 @@ async function main() {
           { fP, fA, r0, iF: iF.code, iFa: iFa.code });
 
         // §166 — o RELATÓRIO DE PEDIDOS DE COMPRA, previsão de pagamentos (FRMRELPEDIDOCOMPRA, uRelPedidosCompra.pas)
+        // as lojas marcadas são recortadas às do operador (o GetMultiEmpresa): a 2 precisa estar na RELACAO_OPERADOR_EMPRESA do ADMIN
+        const tinhaRel2Pc = Number((await pgMl.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Pc) await pgMl.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
         const cR = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
           codparceiro: 22, data: '2037-03-10', data_faturamento: '2037-03-12', empresas: '1, 2', cd1: 30, cd2: 60,
           itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] }] }) });
@@ -20015,6 +20018,25 @@ async function main() {
           && doR(rFat).length === 0
           && JSON.stringify(doR(rSess)) === JSON.stringify([[1, 36]]),
           { cR: cR.status, ped: doR(rPed), parc: parcRel(rPed), rParc: [doR(rParc), parcRel(rParc).length], rFat: doR(rFat), rSess: doR(rSess), erro: rPed.code });
+        // §166.2 — o "Imprimir" (F11) no .fr3 do agrupamento
+        const stubPc = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"/></TfrxReport>`).toString('base64');
+        await pgMl.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (991111, 1, 'Pedidos_Compra_Previsao_Financeira.fr3', 'x', 'DEFAULT', $1), (991112, 1, 'Pedidos_Compra_Previsao_Financeira_DataFatu.fr3', 'x', 'DEFAULT', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubPc('PorFornecedor'), stubPc('PorFaturamento')]);
+        const impPc = async (q: string) => { const x = await fetch(`${base}/relatorios/pedidos-compra/impressao?${q}`, { headers: H }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const ipF = await impPc('dataIni=2037-03-01&dataFim=2037-03-31&filtroData=PEDIDO&empresas=1,2');
+        const ipFat = await impPc('dataIni=2037-03-12&dataFim=2037-03-12&filtroData=FATURAMENTO&empresas=1,2&agrupamento=FATURAMENTO&status=ABERTOS');
+        const vF = ((ipF.j.datasets?.frxDBVencimentos ?? []) as any[]).filter((v) => v.NROPEDIDO === codR);
+        check('RELATÓRIO DE PEDIDOS §166.2 [o "Imprimir" no .fr3 do agrupamento]: por fornecedor no Pedidos_Compra_Previsao_Financeira.fr3, por faturamento no _DataFatu; as parcelas no frxDBVencimentos com os campos do cdsVencimentos (DT_VENC_PARC, CONDPAG, VALOR_PARCELA, STATUS "Aberto"); PERIODO com o rótulo do filtro (o legado rotulava o filtro por faturamento como "Data de Vencimento da Parcela" — aqui "Data de Faturamento"), STATUS e EMPRESAS como o legado',
+          ipF.status === 200 && String(ipF.j.modelo).includes('PorFornecedor') && vF.length === 4
+            && vF.some((v) => v.IDEMPRESA === 2 && v.DT_VENC_PARC === '2037-05-11' && v.CONDPAG === 60 && v.VALOR_PARCELA === 30 && v.STATUS === 'Aberto')
+            && ipF.j.variaveis?.PERIODO === "'Data do Pedido  de 01/03/2037 até 31/03/2037'" && ipF.j.variaveis?.STATUS === "'Status dos Pedidos:  Abertos e Fechados.'"
+            && ipF.j.variaveis?.EMPRESAS === "'Empresa(s): 1,2'"
+          && ipFat.status === 200 && String(ipFat.j.modelo).includes('PorFaturamento') && String(ipFat.j.variaveis?.PERIODO).startsWith("'Data de Faturamento ")
+            && ipFat.j.variaveis?.STATUS === "'Status dos Pedidos:  Abertos.'",
+          { f: [ipF.status, vF.length, ipF.j.variaveis], fat: [ipFat.status, ipFat.j.variaveis] });
+        await pgMl.query(`DELETE FROM relatorios WHERE codrelatorio IN (991111, 991112)`);
+        if (!tinhaRel2Pc) await pgMl.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
         if (codR) {
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codR]);
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [codR]);

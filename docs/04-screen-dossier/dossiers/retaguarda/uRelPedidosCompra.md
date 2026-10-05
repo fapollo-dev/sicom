@@ -49,4 +49,14 @@ gravadas: é uma projeção própria do relatório, e o Apollo a reproduz assim.
 Colunas: pedido, data, valor da parcela, vencimento da parcela, vencimento do pedido, condição (o prazo), status,
 loja, faturamento. Total do grupo e total geral. A quebra não olha a loja (o `GroupHeader` é só o campo): o mesmo
 fornecedor em lojas seguidas fica num grupo só — reproduzido. Os cinco `.fr3` rotulam o total do grupo como "Total
-Fornecedor" mesmo quando o grupo é uma data; o Apollo escreve "Total do grupo".
+Fornecedor" mesmo quando o grupo é uma data.
+
+### A impressão no layout do cliente (05/10/2026)
+
+`GET relatorios/pedidos-compra/impressao` → o `.fr3` do agrupamento (PERSONALIZADO 862-866 da produção) com o
+`frxDBVencimentos` (as parcelas, com os campos do `cdsVencimentos`) e o `frxDBPrevFin`; variáveis PERIODO
+("Data do Pedido  de dd/mm/aaaa até dd/mm/aaaa"), STATUS ("Status dos Pedidos:  Abertos.") e EMPRESAS ("Empresa(s): 1,2").
+A folha HTML da grade saiu. **Um rótulo corrigido:** o legado tem três textos para os quatro rádios do filtro de data
+(`case rgFiltroDatas.ItemIndex of 0/1/2`, :102-106) — o filtro por FATURAMENTO imprimia "Data de Vencimento da Parcela" e o
+da PARCELA saía sem rótulo; aqui cada um com o seu. As lojas marcadas agora são recortadas às do operador
+(`empresasDoOperador`, o GetMultiEmpresa) — antes valiam as informadas. Smoke §166.2; teste de renderização (862, 863).

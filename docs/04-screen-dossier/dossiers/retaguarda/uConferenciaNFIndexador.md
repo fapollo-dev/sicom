@@ -73,7 +73,8 @@ Aqui as divisões usam `NULLIF`: o item aparece, com o encargo em zero, e o conf
 **Resolvido de outro jeito** (a função existe, o caminho é outro):
 
 - **"Recolher itens"** — o agrupamento visual por nota vira ordenação por nota na grade;
-- a **impressão** sai da própria grade, em paisagem, no lugar do relatório do legado.
+- a **impressão** sai da própria grade, em paisagem — um acréscimo: o legado **não imprime** esta tela (não há TfrxReport nem
+  `Imprimir` no `uConferenciaNFIndexador.pas`; só o "Exportar grid" XLSX/XML/TXT/HTML), conferido em 05/10/2026.
 
 **Ainda falta** (função do legado sem equivalente aqui):
 

@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import type { RelPedidosCompraDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
-import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -25,6 +27,21 @@ export interface VencimentoPedido {
 }
 
 /** a ordem da impressão por agrupamento (`cdsVencimentos.IndexFieldNames`, uRelPedidosCompra.pas:62) e a quebra */
+/** o `.fr3` de cada agrupamento (`btnImprimirClick`, :108-114) */
+const TEMPLATE: Record<RelPedidosCompraDto['agrupamento'], string> = {
+  FORNECEDOR: 'Pedidos_Compra_Previsao_Financeira.fr3', DATA_PEDIDO: 'Pedidos_Compra_Previsao_Financeira_Datapedido.fr3',
+  VENCIMENTO: 'Pedidos_Compra_Previsao_Financeira_DataVenc.fr3', FATURAMENTO: 'Pedidos_Compra_Previsao_Financeira_DataFatu.fr3',
+  VENC_PARCELA: 'Pedidos_Compra_Previsao_Financeira_DataVencParc.fr3',
+};
+
+/**
+ * o texto da variável PERIODO. O legado tem três rótulos para os quatro rádios (`case rgFiltroDatas.ItemIndex of 0/1/2`, :102-106): o
+ * filtro por FATURAMENTO sai como "Data de Vencimento da Parcela" e o da parcela sai sem rótulo — aqui cada um com o seu nome.
+ */
+const ROTULO_DATA: Record<RelPedidosCompraDto['filtroData'], string> = {
+  PEDIDO: 'Data do Pedido ', VENCIMENTO: 'Data de Vencimento do Pedido ', FATURAMENTO: 'Data de Faturamento ', PARCELA: 'Data de Vencimento da Parcela ',
+};
+
 const QUEBRA: Record<RelPedidosCompraDto['agrupamento'], keyof VencimentoPedido> = {
   FORNECEDOR: 'fornecedor', DATA_PEDIDO: 'data_pedido', VENCIMENTO: 'dt_vencimento',
   FATURAMENTO: 'dt_faturamento', VENC_PARCELA: 'dt_venc_parc',
@@ -52,17 +69,11 @@ const QUEBRA: Record<RelPedidosCompraDto['agrupamento'], keyof VencimentoPedido>
 export class RelPedidosCompraService {
   constructor(private readonly dbp: DatabaseProvider) {}
 
-  private emp(): number {
-    const e = currentTenant().empresaId ?? null;
-    if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    return e;
-  }
-
   async gerar(f: RelPedidosCompraDto) {
-    const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     if (f.dataIni > f.dataFim) throw new BusinessRuleError('DATA_INICIAL_MAIOR', { dataIni: f.dataIni, dataFim: f.dataFim });
-    const empresas = f.empresas?.length ? f.empresas : [emp];
+    // as marcadas recortadas às lojas do operador (o GetMultiEmpresa)
+    const empresas = await empresasDoOperador(db, f.empresas);
     const ini = sql`${f.dataIni}::date`;
     const fim = sql`${f.dataFim}::date`;
 
@@ -141,11 +152,39 @@ export class RelPedidosCompraService {
     return {
       filtro: { ...f, empresas },
       pedidos,
+      vencimentos,
       grupos,
       totais: {
         registros: pedidos.length,
         valor: r2(pedidos.reduce((s, p) => s + p.valor, 0)),
         parcelas: r2(vencimentos.reduce((s, v) => s + v.valor_parcela, 0)),
+      },
+    };
+  }
+
+  /**
+   * O "Imprimir" (F11): as parcelas (`cdsVencimentos` → `frxDBVencimentos`) na ordem do agrupamento (o `IndexFieldNames`), no `.fr3`
+   * do agrupamento, com PERIODO, STATUS ("Status dos Pedidos:  Abertos.") e EMPRESAS ("Empresa(s): 1,2").
+   */
+  async impressao(f: RelPedidosCompraDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.gerar(f);
+    const dmy = (d: string) => d.split('-').reverse().join('/');
+    const status = { TODOS: ' Abertos e Fechados.', ABERTOS: ' Abertos.', FECHADOS: ' Fechados.' }[f.status];
+    return {
+      titulo: 'Pedidos de compra — previsão de pagamentos',
+      modelo: await modeloFr3(db, TEMPLATE[f.agrupamento]),
+      datasets: {
+        frxDBVencimentos: r.vencimentos.map((v) => registroFr3({ ...v })),
+        frxDBPrevFin: r.pedidos.map((p) => registroFr3({
+          nropedido: p.nropedido, codparceiro: p.codparceiro, fornecedor: p.fornecedor, data_pedido: p.data_pedido, data_vencimento: p.data_vencimento,
+          data_faturamento: p.data_faturamento, idempresa: p.idempresa, fechado: p.fechado ? 'S' : 'N', valor: p.valor,
+        })),
+      },
+      variaveis: {
+        PERIODO: textoVariavel(`${ROTULO_DATA[f.filtroData]} de ${dmy(f.dataIni)} até ${dmy(f.dataFim)}`),
+        STATUS: textoVariavel(`Status dos Pedidos: ${status}`),
+        EMPRESAS: textoVariavel(`Empresa(s): ${r.filtro.empresas.join(',')}`),
       },
     };
   }

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" EngineOptions.DoublePass="True" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="40772,6454752546" ReportOptions.Description.Text="" ReportOptions.LastChange="42996,7530412732" ScriptLanguage="PascalScript" ScriptText.Text="begin&#13;&#10;&#13;&#10;end.        ">
+  <Datasets>
+    <item DataSetName="frxDBPrevFin"/>
+    <item DataSetName="frxDBVencimentos"/>
+  </Datasets>
+  <Variables>
+    <item Name=" New Category1"/>
+    <item Name="TOTAL_NF_D"/>
+    <item Name="PERIODO"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="Tahoma" Font.Style="0" Orientation="poLandscape" PaperWidth="297" PaperHeight="210" PaperSize="9" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="264,5671" VGuides.Text="">
+    <TfrxReportTitle Name="ReportTitle1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="102,04731" Left="0" Top="18,89765" Width="1046,92981" OnBeforePrint="ReportTitle1OnBeforePrint">
+      <TfrxMemoView Name="Memo2" Align="baCenter" Left="205,984385" Top="0,22047" Width="634,96104" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="PEDIDOS DE COMPRA - PREVISÃO DE PAGAMENTOS"/>
+      <TfrxMemoView Name="MARGEM_BRUTA" Left="34,01577" Top="21,7953" Width="978,89827" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[PERIODO]"/>
+      <TfrxMemoView Name="Date" Left="845,63049" Top="1" Width="185,19697" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-13" Font.Name="tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[Date]"/>
+      <TfrxMemoView Name="Memo11" Left="34,01577" Top="42,25201" Width="978,89827" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[STATUS]"/>
+      <TfrxMemoView Name="Memo19" Left="34,01577" Top="61,37013" Width="978,89827" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[EMPRESAS]"/>
+      <TfrxLineView Name="Line4" Left="7,55906" Top="98,26778" Width="1035,59122" Height="0" Color="0" Frame.Typ="4" Frame.Width="2"/>
+      <TfrxMemoView Name="Memo22" Align="baCenter" Left="349,606525" Top="75,81107" Width="347,71676" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" VAlign="vaCenter" Text="Agrupamento por Fornecedor"/>
+    </TfrxReportTitle>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="22,67718" Left="0" Top="464,88219" Width="1046,92981">
+      <TfrxMemoView Name="frxMemoView1" Left="909,8825" Top="0" Width="132,28355" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[Page#]/[TotalPages#]"/>
+    </TfrxPageFooter>
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="0" Left="0" Top="143,62214" Width="1046,92981"/>
+    <TfrxGroupHeader Name="GroupHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="52,91342" Left="0" Top="204,09462" Width="1046,92981" Condition="frxDBVencimentos.&#34;FORNECEDOR&#34;">
+      <TfrxMemoView Name="frxDBFornecedorFORNECEDOR" Left="99,11812" Top="2,77953" Width="60,47248" Height="18,89765" DataSetName="frxDBFornecedor" Font.Charset="1" Font.Color="8388608" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;CODPARCEIRO&#34;]"/>
+      <TfrxMemoView Name="frxDBFornecedorRAZAO" Left="166,82684" Top="2,77953" Width="680,3154" Height="18,89765" DataSetName="frxDBFornecedor" Font.Charset="1" Font.Color="8388608" Font.Height="-11" Font.Name="tahoma" Font.Style="1" ParentFont="False" Text="[frxDBVencimentos.&#34;FORNECEDOR&#34;]"/>
+      <TfrxLineView Name="Line1" Left="7,55906" Top="28,45671" Width="1035,59122" Height="0" Color="0" Frame.Style="fsDot" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo16" Left="6,89765" Top="2,77953" Width="90,70872" Height="18,89765" Font.Charset="1" Font.Color="8388608" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Fornecedor:"/>
+      <TfrxMemoView Name="Memo1" Left="37,7953" Top="33,01577" Width="100,42851" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Nro. Pedido"/>
+      <TfrxMemoView Name="Memo5" Left="144,1812" Top="33,01577" Width="96,64898" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Data Pedido"/>
+      <TfrxMemoView Name="Memo7" Left="683,24125" Top="33,01577" Width="123,10569" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Valor da Parc."/>
+      <TfrxMemoView Name="Memo12" Left="571,91373" Top="33,01577" Width="107,98757" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Data Venc. Parc."/>
+      <TfrxMemoView Name="Memo6" Left="246,11039" Top="33,01577" Width="104,20804" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Data Venc. Pedido"/>
+      <TfrxMemoView Name="Memo9" Left="468,31039" Top="33,01577" Width="100,42851" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Cond. Pagto"/>
+      <TfrxMemoView Name="Memo14" Left="812,59895" Top="33,01577" Width="123,10569" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Status Pedido"/>
+      <TfrxMemoView Name="Memo17" Left="941,10297" Top="33,01577" Width="92,86945" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Empresa"/>
+      <TfrxLineView Name="Line3" Left="7,55906" Top="24,67718" Width="1035,59122" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo20" Left="360,26005" Top="33,01577" Width="104,20804" Height="15,11812" DataSetName="frxFormasPagto" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="Data Faturamento"/>
+    </TfrxGroupHeader>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="19,89765" Left="0" Top="279,68522" Width="1046,92981" ColumnWidth="0" ColumnGap="0" DataSetName="frxDBVencimentos" RowCount="0">
+      <TfrxMemoView Name="frxDBnfPrecoNRONF" Left="37,62684" Top="2,55906" Width="100,42851" Height="15,11812" DataField="NROPEDIDO" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBVencimentos.&#34;NROPEDIDO&#34;]"/>
+      <TfrxMemoView Name="Memo27" Left="683,02715" Top="2,55906" Width="123,31979" Height="15,11812" DataField="VALOR_PARCELA" DataSetName="frxDBVencimentos" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBVencimentos.&#34;VALOR_PARCELA&#34;]"/>
+      <TfrxMemoView Name="Memo3" Left="142,41744" Top="2,55906" Width="100,42851" Height="15,11812" DataField="DATA_PEDIDO" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;DATA_PEDIDO&#34;]"/>
+      <TfrxMemoView Name="Memo13" Left="572,59091" Top="2,55906" Width="107,98757" Height="15,11812" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;DT_VENC_PARC&#34;]"/>
+      <TfrxMemoView Name="Memo8" Left="245,34663" Top="2,55906" Width="107,98757" Height="15,11812" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;DT_VENCIMENTO&#34;]"/>
+      <TfrxMemoView Name="Memo10" Left="468,52783" Top="2,55906" Width="100,64261" Height="15,11812" DataField="CONDPAG" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[frxDBVencimentos.&#34;CONDPAG&#34;]"/>
+      <TfrxMemoView Name="Memo15" Left="812,59895" Top="2,55906" Width="123,10569" Height="15,11812" DataField="STATUS" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;STATUS&#34;]"/>
+      <TfrxMemoView Name="Memo18" Left="941,10297" Top="2,55906" Width="92,86945" Height="15,11812" DataField="IDEMPRESA" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;IDEMPRESA&#34;]"/>
+      <TfrxMemoView Name="Memo21" Left="359,49629" Top="2,55906" Width="107,98757" Height="15,11812" DataSetName="frxDBVencimentos" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="tahoma" Font.Style="0" HAlign="haCenter" ParentFont="False" Text="[frxDBVencimentos.&#34;DT_FATURAMENTO&#34;]"/>
+    </TfrxMasterData>
+    <TfrxGroupFooter Name="GroupFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="30,23624" Left="0" Top="321,26005" Width="1046,92981">
+      <TfrxLineView Name="Line2" Left="7,55906" Top="25" Width="1035,59122" Height="0" Color="0" Frame.Style="fsDot" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo4" Left="488,86642" Top="7,55906" Width="317,48052" Height="15,11812" OnAfterPrint="Memo33OnAfterPrint" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="8388608" Font.Height="-11" Font.Name="Tahoma" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Total Fornecedor:  [SUM(&#60;frxDBVencimentos.&#34;VALOR_PARCELA&#34;&#62;,MasterData1)]"/>
+    </TfrxGroupFooter>
+    <TfrxReportSummary Name="ReportSummary1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="30,23624" Left="0" Top="411,96877" Width="1046,92981">
+      <TfrxMemoView Name="Memo31" Left="7,55906" Top="7,55906" Width="502,67749" Height="15,11812" DataSetName="frxDBnfPreco" DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="128" Font.Height="-11" Font.Name="tahoma" Font.Style="1" ParentFont="False" Text="Total Geral : [SUM(&#60;frxDBVencimentos.&#34;VALOR_PARCELA&#34;&#62;,MasterData1)]"/>
+    </TfrxReportSummary>
+  </TfrxReportPage>
+</TfrxReport>

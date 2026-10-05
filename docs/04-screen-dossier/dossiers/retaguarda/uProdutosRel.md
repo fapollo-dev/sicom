@@ -177,6 +177,6 @@ Cobertura: smoke §108.7; web `relatorio-fr3.spec.ts` (os 13 layouts).
 
 ## 10. O que falta
 
-Salvar/carregar layout.
+Nada: o "salvar layout" das grades do legado é o layout salvo da grade do Apollo (gradeLayoutService), já presente.
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

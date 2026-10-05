@@ -5,7 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -65,11 +65,16 @@ export function RelPedidosCompraPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const consulta = () => {
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+    return q;
+  };
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+      const q = consulta();
       const r = await fetch(`${BASE}/relatorios/pedidos-compra?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -81,15 +86,8 @@ export function RelPedidosCompraPage() {
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
-  const imprimir = () => {
-    if (!res) return;
-    const win = window.open('', '_blank', 'width=1024,height=768');
-    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-    const raiz = document.getElementById('rel-pedidos-impressao');
-    if (!raiz) { win.close(); return; }
-    const periodo = `${FILTROS.find((x) => x.v === f.filtroData)?.rotulo} de ${dataBr(f.dataIni)} até ${dataBr(f.dataFim)}`;
-    imprimirPagina(win, raiz, `Pedidos de compra — previsão de pagamentos · ${periodo}`, undefined, true);
-  };
+  // o "Imprimir" (F11) do legado: as parcelas no .fr3 do agrupamento (RELATORIOS do cliente)
+  const imprimir = () => { imprimirRelatorio(`/relatorios/pedidos-compra/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
 
   const cols = useMemo<DataTableColumnDef<Pedido>[]>(() => [
     { field: 'nropedido', headerName: 'Pedido', type: 'number', width: 90, isPrimary: true },
@@ -105,7 +103,6 @@ export function RelPedidosCompraPage() {
   ], []);
 
   const sel = 'rounded border border-border px-1 py-1';
-  const rotuloGrupo = AGRUPAMENTOS.find((a) => a.v === f.agrupamento)?.rotulo ?? '';
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -159,31 +156,6 @@ export function RelPedidosCompraPage() {
           </section>
           <DataTable rows={res.pedidos} columns={cols} getRowId={(p: Pedido) => `${p.nropedido}-${p.idempresa}`} />
 
-          {/* a impressão: as parcelas quebradas pelo agrupamento, com o total de cada grupo e o geral */}
-          <div id="rel-pedidos-impressao" className="hidden">
-            <p>Status dos pedidos: {f.status === 'TODOS' ? 'abertos e fechados' : f.status === 'ABERTOS' ? 'abertos' : 'fechados'} · Agrupamento: {rotuloGrupo}</p>
-            {res.grupos.map((g, i) => (
-              <div key={i}>
-                <h3>{rotuloGrupo}: {f.agrupamento === 'FORNECEDOR' ? (g.chave ?? '(sem fornecedor)') : dataBr(g.chave)}</h3>
-                <table>
-                  <thead><tr>
-                    <th>Pedido</th><th>Data</th><th className="text-right">Valor da parc.</th><th>Venc. parc.</th>
-                    <th>Venc. pedido</th><th className="text-right">Cond. pagto</th><th>Status</th><th>Loja</th><th>Faturamento</th>
-                    {f.agrupamento !== 'FORNECEDOR' && <th>Fornecedor</th>}
-                  </tr></thead>
-                  <tbody>{g.parcelas.map((v, j) => (
-                    <tr key={j}>
-                      <td>{v.nropedido}</td><td>{dataBr(v.data_pedido)}</td><td className="text-right tabular-nums">{moeda(v.valor_parcela)}</td>
-                      <td>{dataBr(v.dt_venc_parc)}</td><td>{dataBr(v.dt_vencimento)}</td><td className="text-right">{v.condpag}</td>
-                      <td>{v.status}</td><td>{v.idempresa}</td><td>{dataBr(v.dt_faturamento)}</td>
-                      {f.agrupamento !== 'FORNECEDOR' && <td>{v.fornecedor}</td>}
-                    </tr>))}</tbody>
-                </table>
-                <p><strong>Total do grupo: {moeda(g.total)}</strong></p>
-              </div>
-            ))}
-            <p><strong>Total geral: {moeda(res.totais.parcelas)}</strong></p>
-          </div>
         </>
       )}
     </div>

@@ -16,4 +16,11 @@ export class RelPedidosCompraController {
   gerar(@Query(new ZodValidationPipe(relPedidosCompraSchema)) q: RelPedidosCompraDto) {
     return this.svc.gerar(q);
   }
+
+  /** o "Imprimir" (F11): o .fr3 do agrupamento com as parcelas */
+  @Get('impressao')
+  @RequerAcesso('FRMRELPEDIDOCOMPRA', 'FRMRELPEDIDOCOMPRA')
+  impressao(@Query(new ZodValidationPipe(relPedidosCompraSchema)) q: RelPedidosCompraDto) {
+    return this.svc.impressao(q);
+  }
 }

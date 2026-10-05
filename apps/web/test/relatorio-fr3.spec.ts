@@ -978,3 +978,24 @@ describe('relatórios de produtos (FRMPRODUTOSREL) nos layouts do cliente', () =
     expect(mg).toContain('Empresa : 2 - PINHEIRAO LOJA 2');
   });
 });
+
+describe('pedidos de compra — previsão de pagamentos (Pedidos_Compra_Previsao_Financeira*.fr3)', () => {
+  const parc = (o: Record<string, unknown>) => ({ IDEMPRESA: 1, CODPARCEIRO: 22, NROPEDIDO: 31837, FORNECEDOR: 'CEREALISTA SUL', DATA_PEDIDO: '2026-09-10', DT_VENCIMENTO: '2026-10-10',
+    DT_FATURAMENTO: '2026-09-12', DT_VENC_PARC: '2026-10-12', CONDPAG: 30, VALOR_PARCELA: 18, STATUS: 'Aberto', ...o });
+  const vars = { PERIODO: "'Data do Pedido  de 01/09/2026 até 30/09/2026'", STATUS: "'Status dos Pedidos:  Abertos e Fechados.'", EMPRESAS: "'Empresa(s): 1,2'" };
+  it('por fornecedor: as parcelas, o total do fornecedor e o geral; por faturamento: a quebra pela data', () => {
+    const linhas = [parc({}), parc({ DT_VENC_PARC: '2026-11-11', CONDPAG: 60 }), parc({ CODPARCEIRO: 23, FORNECEDOR: 'LATICINIOS TREVO', NROPEDIDO: 31840, VALOR_PARCELA: 30.5 })];
+    const t = texto(paginasDoModelo(modelo('pedidos-compra-previsao.fr3'), { frxDBVencimentos: linhas }, agora, vars));
+    expect(t).toContain('PEDIDOS DE COMPRA - PREVISÃO DE PAGAMENTOS');
+    expect(t).toContain('Data do Pedido de 01/09/2026 até 30/09/2026'.replace('Pedido de', 'Pedido  de').replace(/\s+/g, ' '));
+    expect(t).toContain('CEREALISTA SUL');
+    expect(t).toContain('12/10/2026');
+    expect(t).toContain('Total Fornecedor: 36,00');
+    expect(t).toContain('Total Geral : 66,50');
+    expect(t).toContain('Empresa(s): 1,2');
+    const f = texto(paginasDoModelo(modelo('pedidos-compra-previsao-datafatu.fr3'), { frxDBVencimentos: linhas }, agora, vars));
+    expect(f).toContain('12/09/2026 Data Faturamento:');
+    expect(f).toContain('Total Fornecedor: 66,50'); // os cinco layouts rotulam o total do grupo como "Total Fornecedor"
+    expect(f).toContain('LATICINIOS TREVO');
+  });
+});
