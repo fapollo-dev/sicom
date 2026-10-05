@@ -6,7 +6,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   listarRelatorios, camposDaFonte, executar, baixarCsv,
   type RelatorioSalvo, type CampoFonte, type Execucao, type Condicao, OPERADORES,
@@ -73,17 +73,12 @@ export function RelatoriosPage() {
   };
 
   /**
-   * IMPRIMIR / PDF — o substituto do FastReport: manda para o diálogo nativo o que a tela já mostra, e o
-   * operador escolhe impressora ou "Salvar como PDF". A orientação vem do relatório (`IMPRIMIR_EM_PAISAGEM`).
-   * ⚠️ a janela abre SÍNCRONA no clique, senão o bloqueador de pop-up a engole (lição das etiquetas).
+   * IMPRIMIR — o `MontaRelatorio` do legado: o servidor monta o .fr3 sobre o `Config\RelatorioGeral_*.fr3` do cliente (com ou sem
+   * grupo, com quebra de página) e a impressão sai no motor dos layouts, como os outros relatórios.
    */
   const imprimir = () => {
-    if (!res) return;
-    const win = window.open('', '_blank', 'width=1024,height=768');
-    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-    const raiz = document.getElementById('rel-impressao');
-    if (!raiz) { win.close(); return; }
-    imprimirPagina(win, raiz, res.titulo, undefined, res.paisagem);
+    if (sel == null) return;
+    imprimirRelatorio('/relatorios/construtor/impressao', { codrelatoriodef: sel, filtros: filtros.filter((f) => f.campo) }).catch((e) => mensagem.erro(e));
   };
 
   const setFiltro = (i: number, patch: Partial<Condicao>) =>
@@ -154,7 +149,7 @@ export function RelatoriosPage() {
                 onClick={() => setFiltros((fs) => [...fs, { campo: campos[0]?.campo ?? '', operador: '=', valor: '' }])} />
               <Button label="&Gerar" disabled={ocupado || sel == null} onClick={() => void rodar()} />
               <Button label="&Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
-              <Button label="&Imprimir / PDF" variant="soft" disabled={!res} onClick={imprimir} />
+              <Button label="&Imprimir" variant="soft" disabled={sel == null || ocupado} onClick={imprimir} />
               <Button label="Ed&itar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
               <Button label="&Novo relatório" variant="soft" disabled={!pode('BTNNOVORELATORIO')} onClick={() => navigate('/relatorios/construtor/novo')} />
             </div>

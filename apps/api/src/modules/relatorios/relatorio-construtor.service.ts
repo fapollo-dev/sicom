@@ -4,6 +4,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FUSO_LOJA } from '../../shared/tempo/hoje';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3 } from '../../shared/relatorios/registro-fr3';
+import { montarRelatorioGeral, type ColunaFr3, type TipoCampoFr3 } from './relatorio-geral-fr3';
 
 type AnyDB = Kysely<any>;
 
@@ -30,6 +33,8 @@ export interface ColunaDef {
   calculado?: { campo1: string; operacao: '+' | '-' | '*' | '/'; campo2: string; condicao?: string };
   titulo?: string;
   largura?: number;
+  /** o TAMANHO_MAX do legado: a largura é o maior dado da coluna (ou o título), recalculada a cada execução */
+  larguraAuto?: boolean;
   posicao?: number;
   totalizar?: boolean;
   formato?: 'texto' | 'moeda' | 'data' | 'numero';
@@ -227,6 +232,12 @@ export class RelatorioConstrutorService {
     linhas: Array<Record<string, unknown>>; totais: Record<string, number>; truncado: boolean;
     grupos?: GrupoRelatorio[]; somenteAgrupamento: boolean; quebraPagina: boolean;
   }> {
+    const { interno: _i, ...r } = await this.rodar(p);
+    return r;
+  }
+
+  /** a consulta do relatório (o `ProcessaSQL`) com o que a impressão precisa a mais: as colunas inteiras, os campos do grupo nas linhas */
+  private async rodar(p: { codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[]; limite?: number }) {
     const db = this.dbp.forTenantRead() as AnyDB;
     let fonte = p.fonte ?? '';
     let def = p.definicao as Definicao | undefined;
@@ -312,8 +323,10 @@ export class RelatorioConstrutorService {
           de = k;
         }
       }
-      for (const l of linhas) grupo.forEach((_, i) => { delete l[`g${i}`]; });
     }
+    // as linhas da grade sem os campos do grupo; a impressão fica com eles (é a Condition do GroupHeader)
+    const linhasComGrupo = linhas.map((l) => ({ ...l }));
+    if (grupo.length) for (const l of linhas) grupo.forEach((_, i) => { delete l[`g${i}`]; });
 
     // a coluna do grupo não sai no detalhe: vai no cabeçalho dele (o legado compara com o ÚLTIMO campo do grupo — é onde o cursor do
     // cdsAgrupar para depois do laço)
@@ -336,6 +349,7 @@ export class RelatorioConstrutorService {
       grupos,
       somenteAgrupamento: !!def.somenteAgrupamento && !!grupos,
       quebraPagina: !!def.quebraPagina && !!grupos,
+      interno: { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros: p.filtros ?? [] },
     };
   }
 
@@ -416,5 +430,77 @@ export class RelatorioConstrutorService {
       linhas.push(r.colunas.map((c) => (r.totais[c.chave] != null ? esc(r.totais[c.chave]) : '')).join(';'));
     }
     return { nome: `${r.titulo.replace(/[^\wÀ-ÿ ()-]/g, '_')}.csv`, conteudo: `﻿${linhas.join('\r\n')}\r\n` };
+  }
+
+  /**
+   * A IMPRESSÃO (`btnImprimirClick` → `MontaRelatorio`, uRelatorio.pas:1603): o modelo `Config\RelatorioGeral_SemGrupo.fr3`
+   * (sem agrupamento), `_ComGrupo.fr3` ou `_ComSalto.fr3` (com quebra de página por grupo) com os objetos de cada coluna montados como o
+   * legado monta (`relatorio-geral-fr3.ts`). A largura é o TAMANHO efetivo do `ProcessaSQL`: o salvo (TAMANHO_LIMITE) ou, no
+   * "tamanho máximo" (TAMANHO_MAX), o maior entre o título e o maior dado da coluna (data: no mínimo 10). Sem dados: "Dados não
+   * encontrados com os configurações atuais, Verifique".
+   */
+  async impressao(p: { codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[] }) {
+    const r = await this.rodar({ ...p, limite: 20000 });
+    const { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros } = r.interno;
+    if (!linhasComGrupo.length) throw new BusinessRuleError('RELATORIO_SEM_DADOS', {}, 'Dados não encontrados com os configurações atuais, Verifique');
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const info = new Map(((await sql<{ column_name: string; data_type: string; tam: number | null }>`
+      SELECT column_name, data_type, character_maximum_length AS tam FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = ${relacao}`.execute(db)).rows).map((x) => [x.column_name, x]));
+    // o DataType do campo no cdsDados: inteiro e decimal alinham à direita (o decimal com %2.2n), a data sai dd/mm/aaaa
+    const tipoDoCampo = (campo: string | undefined): TipoCampoFr3 => {
+      const dt = info.get(campo ?? '')?.data_type ?? '';
+      if (/^(integer|smallint|bigint)$/.test(dt)) return 'inteiro';
+      if (/numeric|double|real/.test(dt)) return 'decimal';
+      if (/date|timestamp/.test(dt)) return 'data';
+      return 'texto';
+    };
+    const texto = (v: unknown) => (v == null ? '' : v instanceof Date ? 'dd/mm/aaaa' : String(v));
+    const colunas: ColunaFr3[] = cols.map((c, i) => {
+      const tipo: TipoCampoFr3 = c.calculado ? 'decimal' : tipoDoCampo(c.campo);
+      const titulo = c.titulo || c.campo || 'Calculado';
+      let tamanho = Number(c.largura ?? 0);
+      if (c.larguraAuto || !tamanho) {
+        tamanho = tipo === 'data' ? Math.max(10, titulo.length)
+          : Math.max(titulo.length, ...linhasComGrupo.map((l) => texto(l[`c${i}`]).length));
+      }
+      return { campo: `C${i}`, origem: c.campo ?? `__calc${i}`, titulo, tamanho, tipo, totalizar: !!c.totalizar };
+    });
+    const ordemGrupo = grupo.map((g, i) => ({ campo: `G${i}`, origem: g, tipo: tipoDoCampo(g) }));
+    // as condições do relatório (cdsWhere): "Campo: valor, …" — o nome com a primeira letra maiúscula e o resto minúsculo, o 1º "_"
+    // vira espaço com a letra seguinte maiúscula; o valor como o frame mostra (data dd/mm/aaaa, "entre" com " à ")
+    const nomeCampo = (cmp: string) => {
+      const u = cmp.indexOf('_');
+      if (u < 0) return cmp.charAt(0).toUpperCase() + cmp.slice(1).toLowerCase();
+      return `${cmp.charAt(0).toUpperCase()}${cmp.slice(1, u).toLowerCase()} ${cmp.charAt(u + 1).toUpperCase()}${cmp.slice(u + 2).toLowerCase()}`;
+    };
+    const mostrar = (cmp: string, v: unknown): string => {
+      const um = (x: unknown) => {
+        const t = String(x ?? '');
+        if (tipoDe.get(cmp)?.tipo === 'data' && /^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10).split('-').reverse().join('/');
+        if (tipoDe.get(cmp)?.tipo === 'numero' && t !== '' && Number.isFinite(Number(t))) return String(Number(t)).replace('.', ',');
+        return t;
+      };
+      return Array.isArray(v) ? v.map(um).join(' à ') : um(v);
+    };
+    const textoWhere = [...(def.condicoes ?? []), ...filtros].map((c) => `${nomeCampo(c.campo)}: ${mostrar(c.campo, c.valor)}`).join(', ');
+    const arquivo = !grupo.length ? 'RelatorioGeral_SemGrupo.fr3' : def.quebraPagina ? 'RelatorioGeral_ComSalto.fr3' : 'RelatorioGeral_ComGrupo.fr3';
+    const emp = (await sql<Record<string, unknown>>`
+      SELECT fantasia, endereco, bairro, cidade, uf, cnpj FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0] ?? {};
+    const s = (k: string) => String(emp[k] ?? '');
+    const modelo = montarRelatorioGeral(await modeloFr3(db, arquivo, { pasta: 'Config' }), {
+      titulo: def.titulo ?? '', paisagem: !!def.paisagem, quebraPagina: !!def.quebraPagina, somenteAgrupamento: !!def.somenteAgrupamento,
+      colunas, grupo: ordemGrupo, tamanhoCampoGrupo: grupo.length ? Number(info.get(grupo[grupo.length - 1])?.tam ?? 0) : 0,
+      textoWhere, empresa: { fantasia: s('fantasia'), logradouro: `${s('endereco')} - ${s('bairro')} - ${s('cidade')} - ${s('uf')} - ${s('cnpj')}` },
+      totalRegistros: linhasComGrupo.length,
+    });
+    const numericos = new Set(colunas.filter((c) => c.tipo === 'inteiro' || c.tipo === 'decimal').map((c) => c.campo));
+    const dados = linhasComGrupo.map((l) => {
+      const o: Record<string, unknown> = {};
+      colunas.forEach((c, i) => { const v = l[`c${i}`]; o[c.campo] = numericos.has(c.campo) && v != null && v !== '' ? Number(v) : v; });
+      ordemGrupo.forEach((g, i) => { o[g.campo] = l[`g${i}`]; });
+      return registroFr3(o);
+    });
+    return { titulo: r.titulo, modelo, datasets: { frxDBDatasetDados: dados, frxDBDataset1: [registroFr3({ fantasia: s('fantasia'), endereco: s('endereco'), bairro: s('bairro'), cidade: s('cidade'), uf: s('uf'), cnpj: s('cnpj') })] } };
   }
 }

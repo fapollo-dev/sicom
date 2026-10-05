@@ -75,6 +75,8 @@ export const colunaRelatorioSchema = z.object({
   }).optional(),
   titulo: z.string().max(80).optional(),
   largura: z.coerce.number().int().min(1).max(200).optional(),
+  /** o TAMANHO_MAX do legado: a largura sai do maior dado da coluna (ou do título), a cada execução */
+  larguraAuto: z.boolean().optional(),
   posicao: z.coerce.number().int().min(0).max(999).optional(),
   totalizar: z.boolean().optional(),
   formato: z.enum(['texto', 'moeda', 'data', 'numero']).optional(),

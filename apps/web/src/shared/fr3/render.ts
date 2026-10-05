@@ -189,7 +189,7 @@ class Relatorio {
       round: ([v]) => Math.round(Number(v) || 0), trunc: ([v]) => Math.trunc(Number(v) || 0), abs: ([v]) => Math.abs(Number(v) || 0),
       frac: ([v]) => (Number(v) || 0) % 1, int: ([v]) => Math.trunc(Number(v) || 0),
       datetostr: ([v]) => (v instanceof Date ? formatDateTime('dd/mm/yyyy', v) : texto(v)), timetostr: ([v]) => (v instanceof Date ? formatDateTime('hh:nn:ss', v) : texto(v)),
-      vartostr: ([v]) => texto(v), inttostrdef: ([v]) => String(Math.trunc(Number(v) || 0)),
+      vartostr: ([v]) => texto(v), chr: ([v]) => String.fromCharCode(Math.trunc(Number(v) || 0)), inttostrdef: ([v]) => String(Math.trunc(Number(v) || 0)),
       // as cores do Delphi que os scripts usam (TColor = $00BBGGRR)
       clred: () => 0x0000ff, clblack: () => 0, clblue: () => 0xff0000, clgreen: () => 0x008000, clwhite: () => 0xffffff, clgray: () => 0x808080,
       clnavy: () => 0x800000, clmaroon: () => 0x000080, clsilver: () => 0xc0c0c0,

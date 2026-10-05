@@ -11496,6 +11496,25 @@ async function main() {
           && execJ.linhas[0]?.c1 === 'REL-1',
           { colunas: execJ.colunas, linhas: execJ.linhas, totais: execJ.totais });
 
+        // §95.3b — a IMPRESSÃO (o MontaRelatorio sobre o Config\RelatorioGeral_SemGrupo.fr3 do cliente)
+        const { readFileSync } = await import('node:fs');
+        const { resolve: resolverCaminho } = await import('node:path');
+        // o smoke roda em apps/api (pnpm --filter): o modelo do cliente vem da fixture dos testes
+        const tplRc = readFileSync(resolverCaminho(process.cwd(), 'test/fixtures/relatoriogeral-semgrupo.fr3'));
+        await pgRc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991953, 1, 'RelatorioGeral_SemGrupo.fr3', 'x', 'PERSONALIZADO', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [tplRc.toString('base64')]);
+        const impRc = await fetch(`${base}/${RC}/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: exemplo?.codrelatoriodef, filtros: [{ campo: 'duplicata', operador: 'comeca', valor: 'REL-' }] }) });
+        const impRcJ = (await impRc.json().catch(() => ({}))) as any;
+        const semDadosRc = await fetch(`${base}/${RC}/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: exemplo?.codrelatoriodef, filtros: [{ campo: 'duplicata', operador: 'comeca', valor: 'NADA-' }] }) });
+        const semDadosRcJ = (await semDadosRc.json().catch(() => ({}))) as any;
+        const modRc = String(impRcJ.modelo ?? '');
+        check('RELATÓRIO §95.3b [a impressão: o MontaRelatorio do legado]: o servidor monta o .fr3 sobre o Config\\RelatorioGeral_SemGrupo.fr3 — um título por coluna no PageHeader, o campo no MasterData (a data em dd/mm/yyyy, o valor com %2.2n à direita), o SUM da totalizada no ReportSummary, a condição no cabeçalho ("Duplicata: REL-") e "Total de Registros: 2"; sem dados, a mensagem do legado',
+          impRc.status === 200 && /Name="MemoTitulo3"/.test(modRc) && /Name="MemoCampo3"[^>]*DisplayFormat\.FormatStr="%2\.2n"/.test(modRc)
+            && modRc.includes('[SUM(&#60;frxDBDatasetDados.&#34;C3&#34;&#62;,MasterDataDados)]') && modRc.includes('Total de Registros: 2') && modRc.includes('Duplicata: REL-')
+            && (impRcJ.datasets?.frxDBDatasetDados ?? []).length === 2 && typeof impRcJ.datasets?.frxDBDatasetDados?.[0]?.C3 === 'number'
+          && semDadosRc.status === 422 && semDadosRcJ.message === 'Dados não encontrados com os configurações atuais, Verifique',
+          { status: impRc.status, code: impRcJ.code, msg: impRcJ.message, linhas: (impRcJ.datasets?.frxDBDatasetDados ?? []).length, semDados: [semDadosRc.status, semDadosRcJ.message] });
+        await pgRc.query(`DELETE FROM relatorios WHERE codrelatorio = 991953`);
+
         // coluna CALCULADA — o `CAMPOCALC` do legado (CAMPO1 operação CAMPO2)
         const defCalc = {
           titulo: 'Líquido a pagar',

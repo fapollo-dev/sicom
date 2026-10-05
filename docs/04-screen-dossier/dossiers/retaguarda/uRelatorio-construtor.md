@@ -222,3 +222,33 @@ importados rodariam sem total, fora de ordem e sem grupo. Agora, pela leitura de
   "preenchido" (o `Aux = '='` do legado nunca é verdadeiro); em número o legado quebraria a consulta — aqui é recusado.
 - O editor carrega e grava ordenação, agrupamento e as duas opções (antes descartava ao gravar um relatório importado).
 - O CSV continua como o do legado: as linhas de detalhe (o Apollo soma a linha de total).
+
+## A impressão: o `MontaRelatorio` (05/10/2026)
+
+Antes a impressão era o HTML da grade (o "substituto do FastReport"). O legado não tem layout por relatório: o `MontaRelatorio`
+(uRelatorio.pas:1603, ~800 linhas) carrega um de três modelos da pasta `Config\` — `RelatorioGeral_SemGrupo.fr3` (sem agrupamento),
+`RelatorioGeral_ComGrupo.fr3` e `RelatorioGeral_ComSalto.fr3` (com quebra de página por grupo; PERSONALIZADOS 612/613/615 na
+produção) — e cria os objetos em código. O Apollo faz o mesmo sobre o XML do modelo (`relatorio-geral-fr3.ts`), pelas bandas que o
+legado acha com `FindObject` (`MasterDataDados`, `PageHeaderDados`, `ReportTitleDados`, `ReportSummaryDados`, `GrupoHeader`,
+`GroupFooterDados`):
+
+- **alturas**: MasterData 15 (0 em "mostrar apenas os agrupados"); PageHeader 16 (130 com quebra, e o GroupHeader com
+  `StartNewPage`); GroupHeader 15 (30 com quebra; 0 em só agrupados); GroupFooter 16; ReportSummary 15;
+- **página**: soma dos TAMANHOs (menos o tamanho do campo do grupo) acima de 157 → "As colunas ultrapassam a margem da folha.
+  Retrato: 113, Paisagem: 157. Verifique!"; acima de 113 (ou "paisagem") → A4 paisagem;
+- **cada coluna** (o laço pula só o ÚLTIMO campo do grupo — o cursor do cdsAgrupar para nele): largura = TAMANHO × 6,5 (+20 se
+  totaliza); o título no PageHeader (no GroupHeader com quebra), negrito Tahoma 8, à direita se numérico; o campo no MasterData
+  (inteiro e decimal à direita, decimal com `%2.2n`, data `dd/mm/yyyy` com HideZeros); o `SUM(...,MasterDataDados)` no
+  ReportSummary (grená) e no GroupFooter (preto); em "só agrupados", o valor do grupo no rodapé e o desvio do índice 1 do laço;
+- **grupo**: `Condition` = a concatenação dos campos (`VarToStr` nos não-texto); o cabeçalho, os valores separados por `chr(32)`;
+  "Total: " no rodapé do grupo e no sumário quando há totalizada; a linha embaixo do cabeçalho da página;
+- **cabeçalho**: as condições (`cdsWhere`: "Campo: valor" — o nome com a 1ª maiúscula e o 1º "_" virando espaço, o valor como o
+  frame mostra: data dd/mm/aaaa, "entre" com " à "), o título (`MemoCabecalho2` do modelo), a loja (`frxDBDataset1RAZAOSOCIAL` =
+  FANTASIA; `…LOGRADOURO` = endereço - bairro - cidade - UF - CNPJ) e "Total de Registros: N". O logo (`images\logorel<loja>.jpg`)
+  é arquivo da estação e não tem equivalente.
+- **a largura**: o TAMANHO efetivo do `ProcessaSQL` — o `TAMANHO_LIMITE` salvo quando > 0 e sem "tamanho máximo"; com
+  `TAMANHO_MAX`, o maior entre o título e o maior dado da coluna (data: mínimo 10). ⚠️ o importador levava o `TAMANHO` (84 das 488
+  colunas da produção têm TAMANHO ≠ TAMANHO_LIMITE); agora leva o efetivo e marca `larguraAuto` nas 3 com TAMANHO_MAX — reimportar
+  com "substituir" para atualizar os já importados.
+- sem dados: "Dados não encontrados com os configurações atuais, Verifique".
+- testes: `relatorio-geral-fr3.spec.ts` (API, o montador) e a renderização do gerado (web); smoke §95.3b.

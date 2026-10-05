@@ -801,3 +801,21 @@ describe('extrato de funcionários (UFuncionario.pas)', () => {
     expect(s).toContain('60,00');
   });
 });
+
+describe('construtor de relatórios (o MontaRelatorio sobre o RelatorioGeral_ComGrupo.fr3 do cliente)', () => {
+  it('o cabeçalho do grupo com o valor, as colunas, o subtotal "Total:" do grupo, o total geral e o total de registros', () => {
+    // o .fr3 que o montador da API gera (test/relatorio-geral-fr3.spec.ts, caso "com grupo")
+    const l = (forn: string, venc: string, valor: number) => ({ C0: forn, C1: venc, C2: valor, G0: forn });
+    const pgs = paginasDoModelo(modelo('construtor-comgrupo-gerado.fr3'), { frxDBDatasetDados: [l('CAMIL', '2026-09-10T00:00:00', 100), l('CAMIL', '2026-09-20T00:00:00', 50.5), l('NESTLE', '2026-09-15T00:00:00', 30)], frxDBDataset1: [{}] }, agora);
+    const t = texto(pgs);
+    expect(t).toContain('HIPER');
+    expect(t).toContain('CONTAS PAGAS NO MES');
+    expect(t).toContain('Data Pagamento: 01/09/2026 à 30/09/2026');
+    expect(t).toContain('Vencimento');
+    expect(t).toContain('CAMIL');
+    expect(t).toContain('10/09/2026');
+    expect(t).toContain('150,50'); // o subtotal do grupo CAMIL
+    expect(t).toContain('180,50'); // o total geral
+    expect(t).toContain('Total de Registros: 2');
+  });
+});

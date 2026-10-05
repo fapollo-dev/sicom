@@ -249,8 +249,12 @@ export function converter(xml: string): Definicao {
   brutas
     .sort((x, y) => Number(x.POSICAO ?? 0) - Number(y.POSICAO ?? 0))
     .forEach((a, i) => {
-      const largura = Number(a.TAMANHO ?? 0) || undefined;
-      const base: ColunaDef = { titulo: a.TITULO || a.CAMPO, largura, posicao: i + 1 };
+      // a largura EFETIVA do ProcessaSQL: o TAMANHO_LIMITE (o tamanho que a coluna ficou) quando > 0 e sem o "tamanho máximo"; com o
+      // TAMANHO_MAX, recalculada a cada execução pelo maior dado (larguraAuto). Na produção 84 das 488 colunas têm TAMANHO ≠ LIMITE.
+      const auto = verdade(a.TAMANHO_MAX);
+      const limite = Number(a.TAMANHO_LIMITE ?? 0);
+      const largura = (!auto && limite > 0 ? limite : Number(a.TAMANHO ?? 0)) || undefined;
+      const base: ColunaDef = { titulo: a.TITULO || a.CAMPO, largura, posicao: i + 1, ...(auto ? { larguraAuto: true } : {}) };
       if (verdade(a.CAMPOCALC)) {
         const c = calculos.get(a.CAMPO);
         const conta = c?.formula ? lerFormula(c.formula) : null;
