@@ -28,7 +28,7 @@ O ranking original desta página cobria as telas mais usadas. Refeito contra `ME
 
 | tela | acessos | op | situação |
 |---|---|---|---|
-| DIAS DE ESTOQUE (`FRMRELDDE`) | 132 | 5 | ✅ **completa** (mig 220) — e trouxe `MOVIMENTACAO_DIARIA`, **4,03 milhões de linhas** que não estavam na carga |
+| DIAS DE ESTOQUE (`FRMRELDDE`) | 133 | 5 | ✅ **completa** (mig 220; 05/10: os dois tipos, a ruptura, as lojas, o arredondamento do CAST e a impressão nos layouts do cliente) — e trouxe `MOVIMENTACAO_DIARIA`, **4,03 milhões de linhas** que não estavam na carga |
 | INTERSECÇÃO DE PRODUTOS (`FRMRELINTERSECCAOPRODUTOS`) | 117 | 10 | fila |
 | DIGITAÇÃO DE PEDIDOS (`FRMDIGITACAOPEDIDOS`) | 116 | 9 | fila |
 | TRANSFERÊNCIA DE MERCADORIA (`FRMSAIDADEP`) | 104 | 9 | fila |

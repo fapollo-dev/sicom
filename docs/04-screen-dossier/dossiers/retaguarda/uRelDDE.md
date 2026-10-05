@@ -1,74 +1,98 @@
-# DIAS DE ESTOQUE / COBERTURA (`FRMRELDDE`) — completa
+# DIAS DE ESTOQUE / COBERTURA (`FRMRELDDE`)
 
-`URelDDE.pas` (373) + `.dfm` (1.181) + **`uDDE.pas` (318)**, onde vive a conta. **132 acessos, 5 operadores.**
+`URelDDE.pas` (373) + `.dfm` (1.181) + **`uDDE.pas` (318)**, onde vive a conta, + a grade **`URelDDEGrid.pas` (640)** /
+`udmRelDDEGrid`. Herda o `TFrmRelMaster` (URelMaster.pas). **133 acessos, 5 operadores.**
 
 ## 1. A pergunta que a tela responde
 
 **Com o que tenho na prateleira, quantos dias eu aguento?**
 
 ```
-média diária = quantidade vendida na janela ÷ dias da janela
-cobertura    = estoque ÷ média diária          (em dias, truncado para inteiro)
+cobertura = estoque ÷ (vendido na janela ÷ dias da janela)      CAST(... AS NUMBER(20)) — arredonda
 ```
 
-É o número que o comprador olha antes de emitir o pedido — mais direto que "tenho 100 unidades", porque 100
-unidades podem ser três dias ou três meses.
+## 2. A tabela de 4 milhões de linhas que faltava na carga
 
-## 2. ⚠️ A tabela de 4 milhões de linhas que faltava na carga
+A venda vem de **`MOVIMENTACAO_DIARIA`** (`IDEMPRESA · CODPRODUTO · DATA · QTDE`) — 4.034.759 linhas na produção (15/09/2026),
+2019 → ontem. Não estava no destino nem no plano de carga (mig 220). Existe para o relatório não somar as 18,9 milhões de `vendas`.
 
-A venda vem de **`MOVIMENTACAO_DIARIA`** — a consolidação por produto e por dia
-(`IDEMPRESA · CODPRODUTO · DATA · QTDE`). Medida na produção em 15/09/2026:
+## 3. Os dois tipos do `cbbTipoRel`
 
-| | |
-|---|---|
-| linhas | **4.034.759** |
-| período | 02/01/2019 → **14/09/2026** |
-| produtos | 18.296 |
+| tipo | classe | SQL | layout |
+|---|---|---|---|
+| **Dias de estoque** | `TDiasDeEstoquePadrao` | `GetSQLBaseDiasEstoque` | `Dias_de_estoque_1_empresa.fr3`; `Dias_de_estoque_varias_empresas.fr3` quando o `Empresas` tem vírgula (`SetaRelatorioVariasEmpresas`) |
+| **Dias de estoque (ruptura)** | `TDiasDeEstoqueRuptura` | a base × `GET_PRODUTOS` × `GET_PARCEIROS` ⟕ `CODREFERENCIA_FOR` | `Dias_de_estoque_ruptura.fr3` (2 níveis: fornecedor ≥ 1, produto = 2) |
 
-**Não estava no destino nem no plano de carga** (mig 220 cria a tabela; o `plano-tabelas.json` passou de 153
-para 154 tabelas, com ela na fase 2). É a **maior tabela ausente** encontrada até aqui.
+O `HabilitaFiltrosRelatorio` mostra a condição de ruptura e os níveis expandidos só na ruptura, e o "Exibir somente produtos
+vendidos no período" (`CkbFiltrarProdutosVendidos`, desmarcado por padrão) só no padrão.
 
-E ela existe por um motivo: somar `vendas` (18,9 milhões de linhas) para obter a mesma média custa uma ordem
-de grandeza mais. O legado mantém essa consolidação justamente para o relatório abrir rápido.
+## 4. `GetSQLBaseDiasEstoque`, linha a linha
 
-## 3. Os três casos da conta (`GetSQLBaseDiasEstoque:19`)
+- **`PROD_VENDIDOS`**: produto × loja com venda desde `TRUNC(CURRENT_DATE − dias)`; estoque = `ESTOQUE + ESTOQUE_DEP`;
+  `COBERTURA = CAST(CASE WHEN estoque < 0 THEN 0 WHEN vendido > 0 THEN estoque ÷ (vendido ÷ dias) ELSE −999999 END AS NUMBER(20))`.
+- ⚠️ **o `CAST(... AS NUMBER(20))` arredonda** — provado no Oracle da produção (05/10/2026): `CAST(2.7 AS NUMBER(20)) = 3`,
+  `CAST(2.5 …) = 3`, `CAST(−0.5 …) = −1`. O Apollo **truncava** (8 vendendo 3/dia dava 2; o legado dá 3). O `numeric(20)` do PG
+  arredonda igual. Smoke §112.1.
+- sem o "só vendidos": `UNION ALL` com os produtos **sem venda** na janela — estoque descontado do que está em troca
+  (`GET_TROCAS_PRODUTO`, mig 376 — **só neste ramo**), venda 0, cobertura **−999999**.
+- os filtros do `MontaFiltroSQL` — `FiltroNomeEdit` = coluna do nome do edit sem o "Edt", prefixo do `Hint` (só o produto tem,
+  `P`): **produto, departamento, grupo, subgrupo, seção, fornecedor**, todos colunas de PRODUTOS (conferido na produção: nenhuma
+  das outras tabelas do FROM tem essas colunas, sem ambiguidade); e `IDEMPRESA IN (lojas)`, trocado por `M.`/`E.IDEMPRESA`.
+- `ORDER BY DESCRICAO, IDPRODUTO, IDEMPRESA`.
 
-| caso | cobertura |
-|---|---|
-| estoque **negativo** | **0** — não se cobre dia nenhum com estoque no vermelho, e a divisão daria número negativo sem sentido |
-| **vendeu** na janela | `estoque ÷ (vendido ÷ dias)`, truncado |
-| **não vendeu** | o legado grava **`-999999`** |
+### O −999999
 
-### ⚠️ O sentinela que não pode chegar ao comprador
+É o "não dá para calcular" do Delphi num campo numérico, e **é o que o legado entrega**: o layout (`DBDRelatorioCOBERTURAOnBeforePrint`)
+e a grade (`GrdProdutosDBTableView1COBERTURAGetDisplayText`) escrevem **"Sem vendas"**. A versão anterior do Apollo trocava por
+nulo + `sem_venda`; voltou ao valor do legado, porque o layout do cliente compara com −999999 — e a tela escreve "Sem vendas" como
+a grade.
 
-`-999999` não é cobertura: é o jeito do Delphi dizer *"não dá para calcular"* num campo numérico. Repassado
-como está, ele poria **"-999999 dias"** na tela e, ao ordenar por cobertura, jogaria justamente esses itens
-para o **topo** — como se fossem os mais urgentes, quando são os que ninguém comprou.
+## 5. A ruptura (`TDiasDeEstoqueRuptura`)
 
-Aqui a cobertura vem **nula**, com `sem_venda` ao lado, e a tela escreve **"sem venda no período"**.
+```
+WHERE DDE.COBERTURA <sinal> <dias da ruptura>  AND DDE.IDEMPRESA IN (...)  AND COBERTURA > 0
+```
 
-## 4. O estoque somado
+- `GetSinalOperador`: "Maior ou igual" → `>=`, "Igual a" → `=`, o resto → `<=`. O `EdtDiasRuptura.Text` vai cru para o SQL — um
+  decimal ("10,5") quebraria o SQL do legado; aqui é inteiro.
+- `COBERTURA > 0` tira o negativo (0) e o parado (−999999).
+- `GET_PRODUTOS` = `MULTI_PRECO ⟕ PRODUTOS` (o preço **da loja**); `GET_PARCEIROS` = `PARCEIROS ⟕ PARCEIROS_END` (uma linha por
+  endereço, que o GROUP BY colapsa) — o serviço usa as tabelas direto, com a mesma semântica.
+- **a grade** (`GetSQLGrid`): + `FATOREMBAL` (`FATORKG` no KG, senão `FATORCX`), `VRCUSTO`, `VRVENDA`, agrupada por fornecedor, com os
+  fornecedores secundários (`GetSQLAuxiliarGrid`, `CODREFERENCIA_FOR ⟕ PARCEIROS FRN='S'`) como detalhe por produto;
+- **a impressão** (`GetSQL`): um registro por fornecedor secundário, `ORDER BY IDEMPRESA, RAZAO, CODFOR_SEC`.
 
-`ESTOQUE + ESTOQUE_DEP` (loja + depósito). Neste cliente o depósito está zerado — soma zero, e fica fiel para
-quem usar. (Ver `uProdutosRel.md` §2: escolher só a gêmea daria tudo zero.)
+## 6. As validações (`Validacoes`, com as mensagens do legado)
 
-## 5. Os dois filtros
+- dias da cobertura ≤ 0 → "Informe a quantidade de dias para o cálculo da cobertura."
+- ruptura sem dias → "Informe a quantidade de dias para a ruptura"
+- ruptura sem sinal → "Informe o sinal de operação para a condição de ruptura"
+- impressão sem registro → "Não foram encontrados registros para imprimir o relatório." (`TFrmRelMaster`)
 
-- **"só os que venderam"** — tira o produto parado da lista;
-- **"cobertura até N dias"** — o filtro de ruptura: o que não cobre a próxima entrega.
+## 7. As lojas
 
-## 6. Cobertura (§112 do smoke, 4 checks)
+`dmPrincipal.GetMultiEmpresa` = as lojas marcadas, recortadas às do operador (`empresasDoOperador`); nada marcado = a do login.
+Várias lojas: o produto vem por loja, e a impressão do padrão troca de layout.
 
-1. a conta: 100 em estoque vendendo 10/dia = 10 dias; 6 vendendo 3/dia = 2;
-2. estoque negativo cobre **zero**;
-3. o sentinela `-999999` vira nulo + "sem venda no período";
-4. os dois filtros.
+## 8. A impressão
 
-## 7. O que ficou de fora
+`TFrmRelMaster.GeraRelatorio` → `relatorioMestre` (DBDRelatorio / DbdAuxiliar / DBDVariaveisAdicionais com `IDEmpresas` "1,2" e
+`NiveisExpandidos`). Os layouts PERSONALIZADOS da produção (720/722/724) — o cabeçalho deles é fixo ("Apollo Sistemas de Gestão",
+o padrão 104/106/108 tinha `relNomeEmpresa`). Teste de renderização em `apps/web/test/relatorio-fr3.spec.ts` (os três).
 
-**Resolvido de outro jeito:** a exportação para Excel do legado (`NomeArquivoExcel`) é o CSV da grade.
+## 9. A grade e o "Gerar cotação"
 
-**✅ O `GET_TROCAS_PRODUTO` (25/09/2026, mig 376):** a view do legado (lida da produção: 102 produtos × loja, 515 unidades)
-virou view no Apollo — itens de troca não fechados + itens de devolução ao fornecedor com PRODUTO_TROCA 'S' ainda sem nota —
-e o DDE a desconta do estoque **só dos produtos sem venda no período**, como o fonte (`uDDE.pas:196-203`; o ramo dos vendidos
-não desconta — fiel, com o valor parado acompanhando). Smoke §112.5. Os níveis expandidos da impressão seguem na grade.
+O `CkbExibeGrade` vem **marcado** (dfm: `Checked = True`): o `AntesImprimir` abre o `TFrmRelDDEGrid` antes do relatório — a grade
+é a consulta da tela no Apollo. A exportação para Excel (`Dias de estoque.xlsx` / `Dias para ruptura de estoque.xlsx`) é o CSV.
+
+O botão **"Gerar cotação"** (só na ruptura): ver corte B abaixo.
+
+## 10. Cobertura (smoke §112, 7 checks)
+
+1. a conta e o **arredondamento** (100/10 → 10; 6/3 → 2; 8/3 = 2,67 → **3**);
+2. negativo cobre 0; o parado é −999999; a ordem do legado;
+3. "só vendidos" e os filtros por código;
+4. `GET_TROCAS_PRODUTO` só no ramo dos não vendidos;
+5. a ruptura com os três sinais, o `COBERTURA > 0`, fornecedor, fator, custo/venda e o secundário;
+6. as três validações com as mensagens;
+7. as lojas (o produto por loja) e a impressão nos três layouts + a mensagem sem registro.

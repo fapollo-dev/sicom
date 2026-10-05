@@ -1,9 +1,15 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { relDdeSchema, type RelDdeDto } from '@apollo/shared';
-import { RelDdeService } from './rel-dde.service';
+import { RelDdeService, type FiltroDde } from './rel-dde.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
+
+const filtro = (q: RelDdeDto): FiltroDde => ({
+  tipo: q.tipo ?? 'PADRAO', dias: q.dias, diasRuptura: q.diasRuptura ?? null, sinal: q.sinal ?? null,
+  somenteVendidos: q.somenteVendidos ?? false, idproduto: q.idproduto ?? null, coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null,
+  codsubgrupo: q.codsubgrupo ?? null, codsecao: q.codsecao ?? null, codfor: q.codfor ?? null, empresas: q.empresas ?? null,
+});
 
 /** DIAS DE ESTOQUE (`FRMRELDDE`) — RBAC: gate de tela. */
 @Controller('relatorios/dias-estoque')
@@ -14,10 +20,13 @@ export class RelDdeController {
   @Get()
   @RequerAcesso('FRMRELDDE', 'FRMRELDDE')
   gerar(@Query(new ZodValidationPipe(relDdeSchema)) q: RelDdeDto) {
-    return this.svc.gerar({
-      dias: q.dias, coberturaAte: q.coberturaAte ?? null, somenteVendidos: q.somenteVendidos ?? false,
-      coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null,
-      codsecao: q.codsecao ?? null, produto: q.produto ?? null,
-    });
+    return this.svc.gerar(filtro(q));
+  }
+
+  /** a impressão nos layouts do cliente (`Dias_de_estoque_*.fr3`) */
+  @Get('impressao')
+  @RequerAcesso('FRMRELDDE', 'FRMRELDDE')
+  impressao(@Query(new ZodValidationPipe(relDdeSchema)) q: RelDdeDto) {
+    return this.svc.impressao(filtro(q), q.niveis ?? null);
   }
 }

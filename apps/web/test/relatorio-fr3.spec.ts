@@ -654,3 +654,43 @@ describe('relatórios do legado com vários datasets', () => {
     expect(ve).toContain('2 BEBIDAS 200,00');
   });
 });
+
+describe('dias de estoque (esquema do TFrmRelMaster, uDDE.pas)', () => {
+  const v = (emp: string, n = 0) => [{ IDEmpresas: emp, DataInicial: '2026-09-30T00:00:00', DataFinal: '2026-09-30T00:00:00', NiveisExpandidos: n, Tabela: 0 }];
+  const p = (id: number, desc: string, est: number, vend: number, cob: number, emp = 1) => ({ IDPRODUTO: id, IDEMPRESA: emp, CODBARRA: `789${id}`, DESCRICAO: desc,
+    QTDE_ESTOQUE: est, QTDE_VENDIDA: vend, COBERTURA: cob, FANTASIA: emp === 1 ? 'HIPER' : 'FILIAL', RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA' });
+
+  it('uma loja (Dias_de_estoque_1_empresa.fr3): a cobertura com duas casas e o −999999 escrito "Sem vendas"', () => {
+    const t = texto(paginasDoModelo(modelo('dias-estoque-1-empresa.fr3'), { DBDRelatorio: [p(11, 'ARROZ 5KG', 100, 300, 10), p(12, 'FEIJAO 1KG', 40, 0, -999999)], DBDVariaveisAdicionais: v('1') }, agora));
+    expect(t).toContain('RELATÓRIO DE DIAS DE ESTOQUE');
+    expect(t).toContain('Empresas: 1');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('10,00');
+    expect(t).toContain('Sem vendas');
+    expect(t).not.toContain('-999999');
+  });
+
+  it('várias lojas (Dias_de_estoque_varias_empresas.fr3): o produto agrupa as lojas', () => {
+    const t = texto(paginasDoModelo(modelo('dias-estoque-varias-empresas.fr3'), { DBDRelatorio: [p(11, 'ARROZ 5KG', 100, 300, 10, 1), p(11, 'ARROZ 5KG', 20, 0, -999999, 2)], DBDVariaveisAdicionais: v('1,2') }, agora));
+    expect(t).toContain('Empresas: 1,2');
+    expect(t).toContain('HIPER');
+    expect(t).toContain('FILIAL');
+    expect(t.match(/ARROZ 5KG/g)?.length).toBe(1);
+    expect(t).toContain('Sem vendas');
+  });
+
+  it('ruptura (Dias_de_estoque_ruptura.fr3): fornecedor › produto › fornecedores secundários, recolhidos pelos níveis expandidos', () => {
+    const r = (sec: number, nome: string) => ({ CODFOR: 7, FORNECEDOR: 'CAMIL ALIMENTOS', IDEMPRESA: 1, IDPRODUTO: 11, CODBARRA: '78911', DESCRICAO: 'ARROZ 5KG',
+      QTDE_ESTOQUE: 6, QTDE_VENDIDA: 90, COBERTURA: 2, FANTASIA: 'HIPER', RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', CODFOR_SEC: sec, FORNECEDOR_SECUNDARIO: nome });
+    const linhas = [r(31, 'DISTRIBUIDORA A'), r(32, 'DISTRIBUIDORA B')];
+    const n2 = texto(paginasDoModelo(modelo('dias-estoque-ruptura.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v('1', 2) }, agora));
+    expect(n2).toContain('RELATÓRIO DIAS DE ESTOQUE - RUPTURA');
+    expect(n2).toContain('Fornecedor : CAMIL ALIMENTOS');
+    expect(n2).toContain('ARROZ 5KG');
+    expect(n2).toContain('FORNECEDOR :31 | DISTRIBUIDORA A');
+    expect(n2).toContain('FORNECEDOR :32 | DISTRIBUIDORA B');
+    const n0 = texto(paginasDoModelo(modelo('dias-estoque-ruptura.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v('1', 0) }, agora));
+    expect(n0).toContain('Fornecedor : CAMIL ALIMENTOS');
+    expect(n0).not.toContain('DISTRIBUIDORA A');
+  });
+});

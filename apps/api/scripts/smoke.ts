@@ -12789,91 +12789,134 @@ async function main() {
       }
     }
 
-    // ===== §112) DIAS DE ESTOQUE / COBERTURA (FRMRELDDE) — com o que tenho, quantos dias eu aguento.
+    // ===== §112) DIAS DE ESTOQUE / COBERTURA (FRMRELDDE, uDDE.pas) — com o que tenho, quantos dias eu aguento.
     // A venda vem de MOVIMENTACAO_DIARIA, tabela de 4 milhões de linhas que faltava na carga (mig 220). ====
     {
       const DD = 'relatorios/dias-estoque';
       const pgDd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tinhaRel2 = Number((await pgDd.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const ids: number[] = [];
+      let trc: number | null = null;
       try {
+        if (!tinhaRel2) await pgDd.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
         await pgDd.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9971,'DEPTO DDE','D')
           ON CONFLICT (codfamilia) DO NOTHING`);
-        const mkP = async (cod: string, desc: string, estoque: number, vendaDia: number | null, custo: number) => {
-          const id = Number((await pgDd.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota)
-            VALUES ($1,$2,9971,'UN',2,'T01') RETURNING idproduto`, [cod, desc])).rows[0].idproduto);
-          await pgDd.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,1,$2)`, [id, estoque]);
-          await pgDd.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,1,$2,$3)`, [id, custo, custo * 2]);
+        const [fornDd, fornSec] = [991125, 991126];
+        await pgDd.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, tipofj, frn) VALUES ($1,'FORN DDE PRINCIPAL','FORN DDE','J','S'), ($2,'FORN DDE SECUNDARIO','FORN SEC','J','S')
+          ON CONFLICT (codparceiro) DO NOTHING`, [fornDd, fornSec]);
+        const mkP = async (cod: string, desc: string, estoque: number, vendaDia: number | null, custo: number, emp = 1) => {
+          const id = Number((await pgDd.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota, fatorcx)
+            VALUES ($1,$2,9971,'UN',$3,'T01',12) RETURNING idproduto`, [cod, desc, fornDd])).rows[0].idproduto);
+          ids.push(id);
+          await pgDd.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,$2,$3)`, [id, emp, estoque]);
+          await pgDd.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,$2,$3,$4)`, [id, emp, custo, custo * 2]);
           if (vendaDia != null) {
             // 10 dias de venda, para a janela de 10 dar média exata
             for (let d = 1; d <= 10; d += 1) {
-              await pgDd.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde)
-                VALUES (1,$1,current_date - $2::int,$3)`, [id, d, vendaDia]);
+              await pgDd.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde) VALUES ($1,$2,current_date - $3::int,$4)`, [emp, id, d, vendaDia]);
             }
           }
           return id;
         };
-        // 100 em estoque, 10/dia → média 10, cobertura 10 dias
-        const pA = await mkP('7009000009991', 'DDE COBERTURA 10', 100, 10, 5.00);
+        // 100 em estoque, 10/dia → cobertura 10 dias
+        const pA = await mkP('7009000009991', 'DDE A COBERTURA 10', 100, 10, 5.00);
         // 6 em estoque, 3/dia → cobertura 2 dias (ruptura)
-        const pB = await mkP('7009000009992', 'DDE RUPTURA', 6, 3, 4.00);
+        const pB = await mkP('7009000009992', 'DDE B RUPTURA', 6, 3, 4.00);
         // estoque NEGATIVO: o legado força cobertura ZERO
-        const pC = await mkP('7009000009993', 'DDE NEGATIVO', -5, 2, 3.00);
-        // nunca vendeu: no legado vira -999999
-        const pD = await mkP('7009000009994', 'DDE SEM VENDA', 40, null, 2.00);
+        const pC = await mkP('7009000009993', 'DDE C NEGATIVO', -5, 2, 3.00);
+        // nunca vendeu: o legado grava -999999 ("Sem vendas")
+        const pD = await mkP('7009000009994', 'DDE D SEM VENDA', 40, null, 2.00);
+        // 8 em estoque, 3/dia → 2,67 dias: o CAST(... AS NUMBER(20)) ARREDONDA para 3 (a produção: 2,7 → 3)
+        const pE = await mkP('7009000009995', 'DDE E ARREDONDA', 8, 3, 1.00);
+        await pgDd.query(`INSERT INTO codreferencia_for (idproduto, codref, codfor) VALUES ($1, 'REF-DDE', $2)`, [pB, fornSec]);
 
-        const r = await fetch(`${base}/${DD}?dias=10&coddpto=9971`, { headers: H });
-        const j = (await r.json().catch(() => ({}))) as any;
-        const a = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pA);
-        const b = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pB);
-        const c = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pC);
+        const dd = async (q: string, rota = '') => { const r = await fetch(`${base}/${DD}${rota}?coddpto=9971&${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const de = (j: any, id: number) => (j.linhas ?? []).find((l: any) => Number(l.idproduto) === id);
 
-        check('DIAS DE ESTOQUE §112.1 [a conta que decide a compra]: média diária = vendido na janela ÷ dias; cobertura = estoque ÷ média, truncada para dias inteiros como o `CAST(... AS NUMBER(20))` do legado. 100 em estoque vendendo 10/dia cobrem **10 dias**; 6 vendendo 3/dia cobrem **2** — e é esse o número que o comprador olha antes de emitir o pedido',
-          r.status === 200
-          && Math.abs(Number(a?.media_diaria) - 10) < 0.005 && Number(a?.cobertura) === 10
-          && Math.abs(Number(b?.media_diaria) - 3) < 0.005 && Number(b?.cobertura) === 2,
-          { cobertura10: a && { media: a.media_diaria, cob: a.cobertura },
-            ruptura: b && { media: b.media_diaria, cob: b.cobertura } });
+        const r1 = await dd('dias=10');
+        const a = de(r1.j, pA); const b = de(r1.j, pB); const c = de(r1.j, pC); const d = de(r1.j, pD); const e = de(r1.j, pE);
+        check('DIAS DE ESTOQUE §112.1 [a conta e o arredondamento do legado]: cobertura = estoque ÷ (vendido ÷ dias) no `CAST(... AS NUMBER(20))`, que **arredonda** (Oracle da produção: 2,7 → 3) — 100 vendendo 10/dia cobrem 10; 6 vendendo 3/dia, 2; 8 vendendo 3/dia (2,67), **3**. O Apollo truncava (dava 2)',
+          r1.status === 200 && Number(a?.cobertura) === 10 && Number(b?.cobertura) === 2 && Number(e?.cobertura) === 3 && Number(a?.qtde_vendida) === 100,
+          { a: a?.cobertura, b: b?.cobertura, e: e?.cobertura });
 
-        check('DIAS DE ESTOQUE §112.2 [estoque negativo cobre ZERO dias]: o legado força `CASE WHEN QTDE_ESTOQUE < 0 THEN 0` antes de qualquer divisão — não dá para cobrir dia nenhum com estoque que já está no vermelho, e a conta daria um número negativo sem sentido nenhum na coluna de dias',
-          Number(c?.cobertura) === 0 && Number(c?.qtde_estoque) === -5,
-          { negativo: c && { estoque: c.qtde_estoque, cobertura: c.cobertura } });
+        check('DIAS DE ESTOQUE §112.2 [estoque negativo cobre ZERO; o parado é −999999]: `CASE WHEN QTDE_ESTOQUE < 0 THEN 0` antes da divisão; e, com o "só vendidos" desmarcado (o padrão do legado), o produto sem venda vem com venda 0 e cobertura **−999999** — o valor que o layout e a grade escrevem "Sem vendas". Ordem do legado: DESCRICAO, IDPRODUTO, IDEMPRESA',
+          Number(c?.cobertura) === 0 && Number(c?.qtde_estoque) === -5 && Number(d?.cobertura) === -999999 && Number(d?.qtde_vendida) === 0
+          && (r1.j.linhas ?? []).map((l: any) => l.descricao).join('|') === 'DDE A COBERTURA 10|DDE B RUPTURA|DDE C NEGATIVO|DDE D SEM VENDA|DDE E ARREDONDA',
+          { c: c && [c.qtde_estoque, c.cobertura], d: d && [d.qtde_vendida, d.cobertura], ordem: (r1.j.linhas ?? []).map((l: any) => l.descricao) });
 
-        const comParados = await fetch(`${base}/${DD}?dias=10&coddpto=9971&somenteVendidos=false`, { headers: H });
-        const cpJ = (await comParados.json().catch(() => ({}))) as any;
-        const semVenda = (cpJ.linhas ?? []).find((l: any) => Number(l.idproduto) === pD);
-        check('DIAS DE ESTOQUE §112.3 [o sentinela −999999 não chega ao comprador]: quando o produto não vendeu no período o legado grava **−999999** na cobertura — é o jeito do Delphi dizer "não dá para calcular" num campo numérico. Repassar isso poria "−999999 dias" na tela e, ao ordenar por cobertura, jogaria justamente esses itens para o topo como se fossem os mais urgentes. Aqui a cobertura vem **nula** com `sem_venda` ao lado, e a tela escreve "sem venda no período"',
-          comParados.status === 200 && !!semVenda
-          && semVenda.cobertura == null && semVenda.sem_venda === true
-          && Number(semVenda.qtde_estoque) === 40,
-          { semVenda: semVenda && { cob: semVenda.cobertura, flag: semVenda.sem_venda } });
+        const soV = await dd('dias=10&somenteVendidos=true');
+        const porProd = await dd(`dias=10&idproduto=${pB}`);
+        const porForn = await dd(`dias=10&codfor=${fornDd + 999999}`);
+        check('DIAS DE ESTOQUE §112.3 [os filtros do MontaFiltroSQL]: "Exibir somente produtos vendidos no período" tira o parado (4 em vez de 5); os filtros por código (produto, fornecedor) cortam os dois ramos',
+          (soV.j.linhas ?? []).length === 4 && !de(soV.j, pD) && (porProd.j.linhas ?? []).length === 1 && (porForn.j.linhas ?? []).length === 0,
+          { soVendidos: (soV.j.linhas ?? []).length, porProduto: (porProd.j.linhas ?? []).length, porFornecedor: (porForn.j.linhas ?? []).length });
 
-        const soVendidos = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971&somenteVendidos=true`, { headers: H })).json().catch(() => ({}))) as any;
-        const ate3 = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971&coberturaAte=3`, { headers: H })).json().catch(() => ({}))) as any;
-        check('DIAS DE ESTOQUE §112.4 [os dois filtros do legado]: "só os que venderam" tira o produto parado da lista (3 em vez de 4); e "cobertura até N dias" é o filtro de ruptura — com N=3 sobram os que cobrem 2 dias e o de estoque negativo (que cobre 0), e some o que cobre 10',
-          Number(soVendidos.totais?.itens) === 3
-          && Number(ate3.totais?.itens) === 2
-          && !(ate3.linhas ?? []).some((l: any) => Number(l.idproduto) === pA),
-          { soVendidos: soVendidos.totais?.itens, ate3dias: ate3.totais?.itens });
-
-        // o GET_TROCAS_PRODUTO (uDDE.pas:196-203): o que está em troca aberta sai do estoque do produto SEM venda (40 − 6 = 34) e não do
-        // vendido (o A segue 100 com 7 em troca); a troca fechada não conta
-        const trc = Number((await pgDd.query(`INSERT INTO troca (idempresa, codparceiro) VALUES (1, 2) RETURNING codtroca`)).rows[0].codtroca);
+        // o GET_TROCAS_PRODUTO (uDDE.pas): o que está em troca aberta sai do estoque do produto SEM venda (40 − 6 = 34) e não do vendido
+        trc = Number((await pgDd.query(`INSERT INTO troca (idempresa, codparceiro) VALUES (1, 2) RETURNING codtroca`)).rows[0].codtroca);
         await pgDd.query(`ALTER TABLE itens_troca DISABLE TRIGGER USER`).catch(() => undefined);
         await pgDd.query(`INSERT INTO itens_troca (codtroca, idempresa, idproduto, qtde, estoqueretirada, fechado) VALUES
           ($1,1,$2,6,'LOJA','N'), ($1,1,$2,9,'LOJA','S'), ($1,1,$3,7,'LOJA','N')`, [trc, pD, pA]);
         await pgDd.query(`ALTER TABLE itens_troca ENABLE TRIGGER USER`).catch(() => undefined);
-        const jt = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971`, { headers: H })).json().catch(() => ({}))) as any;
-        const dT = (jt.linhas ?? []).find((l: any) => Number(l.idproduto) === pD);
-        const aT = (jt.linhas ?? []).find((l: any) => Number(l.idproduto) === pA);
-        check('DIAS DE ESTOQUE §112.5 [o que está em troca — GET_TROCAS_PRODUTO]: o produto sem venda tem o estoque descontado da troca aberta (40 − 6 = 34; a fechada de 9 não conta) e o valor parado acompanha (34 × 2,00); o vendido não desconta (100, como no ramo dos vendidos do fonte)',
-          Math.abs(Number(dT?.qtde_estoque) - 34) < 0.001 && Math.abs(Number(dT?.valor_parado) - 68) < 0.005 && Math.abs(Number(aT?.qtde_estoque) - 100) < 0.001,
-          { dT: dT && [dT.qtde_estoque, dT.valor_parado], aT: aT?.qtde_estoque });
-        await pgDd.query(`DELETE FROM troca WHERE codtroca = $1`, [trc]);
-        await pgDd.query(`DELETE FROM movimentacao_diaria WHERE codproduto = ANY($1)`, [[pA, pB, pC, pD]]);
-        await pgDd.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
-        await pgDd.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
-        await pgDd.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
-        await pgDd.query(`DELETE FROM familias_prod WHERE codfamilia=9971`);
+        const rt = await dd('dias=10');
+        check('DIAS DE ESTOQUE §112.4 [o que está em troca — GET_TROCAS_PRODUTO]: o produto sem venda tem o estoque descontado da troca aberta (40 − 6 = 34; a fechada de 9 não conta); o vendido não desconta (100, como no ramo PROD_VENDIDOS do fonte)',
+          Math.abs(Number(de(rt.j, pD)?.qtde_estoque) - 34) < 0.001 && Math.abs(Number(de(rt.j, pA)?.qtde_estoque) - 100) < 0.001,
+          { d: de(rt.j, pD)?.qtde_estoque, a: de(rt.j, pA)?.qtde_estoque });
+
+        const ru = await dd('dias=10&tipo=RUPTURA&sinal=MENOR_IGUAL&diasRuptura=3');
+        const ruB = de(ru.j, pB);
+        const ruIgual = await dd('dias=10&tipo=RUPTURA&sinal=IGUAL&diasRuptura=10');
+        const ruMaior = await dd('dias=10&tipo=RUPTURA&sinal=MAIOR_IGUAL&diasRuptura=3');
+        check('DIAS DE ESTOQUE §112.5 [a ruptura: COBERTURA <sinal> N e COBERTURA > 0]: "Menor ou igual" 3 traz os que cobrem 2 e 3 — sem o negativo (0) e sem o parado (−999999), que o `COBERTURA > 0` tira —, com o fornecedor principal, o fator de embalagem (FATORCX fora do KG), custo e venda da loja e o fornecedor secundário (CODREFERENCIA_FOR) no detalhe; "Igual a" 10 só o A; "Maior ou igual" 3 o A e o E',
+          ru.status === 200 && (ru.j.linhas ?? []).map((l: any) => Number(l.idproduto)).sort().join() === [pB, pE].sort().join()
+          && ruB?.fornecedor === 'FORN DDE PRINCIPAL' && Number(ruB?.codfor) === fornDd && Number(ruB?.fatorembal) === 12 && Number(ruB?.vrcusto) === 4 && Number(ruB?.vrvenda) === 8
+          && (ru.j.secundarios ?? []).some((x: any) => Number(x.idproduto) === pB && Number(x.codfor_sec) === fornSec && x.fornecedor_secundario === 'FORN DDE SECUNDARIO')
+          && (ruIgual.j.linhas ?? []).map((l: any) => Number(l.idproduto)).join() === String(pA)
+          && (ruMaior.j.linhas ?? []).map((l: any) => Number(l.idproduto)).sort().join() === [pA, pE].sort().join(),
+          { menorIgual3: (ru.j.linhas ?? []).map((l: any) => l.descricao), b: ruB, sec: ru.j.secundarios, igual10: (ruIgual.j.linhas ?? []).length, maiorIgual3: (ruMaior.j.linhas ?? []).length });
+
+        const v0 = await dd('dias=0');
+        const semSinal = await dd('dias=10&tipo=RUPTURA&diasRuptura=3');
+        const semDias = await dd('dias=10&tipo=RUPTURA&sinal=IGUAL');
+        check('DIAS DE ESTOQUE §112.6 [as validações do legado, com as mensagens dele]: dias da cobertura ≤ 0, ruptura sem sinal e ruptura sem dias são recusados',
+          v0.status === 422 && v0.j.message === 'Informe a quantidade de dias para o cálculo da cobertura.'
+          && semSinal.status === 422 && semSinal.j.message === 'Informe o sinal de operação para a condição de ruptura'
+          && semDias.status === 422 && semDias.j.message === 'Informe a quantidade de dias para a ruptura',
+          { v0: [v0.status, v0.j.message], semSinal: [semSinal.status, semSinal.j.message], semDias: [semDias.status, semDias.j.message] });
+
+        // multi-loja: o mesmo produto na loja 2, sem venda lá
+        await pgDd.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,2,15)`, [pA]);
+        await pgDd.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,2,5,10) ON CONFLICT (idproduto, idempresa) DO NOTHING`, [pA]);
+        const ml = await dd('dias=10&empresas=1,2');
+        const aL = (ml.j.linhas ?? []).filter((l: any) => Number(l.idproduto) === pA);
+        // um stub por layout, com o nome do arquivo dentro, para saber qual a impressão carregou
+        const stubDd = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"/></TfrxReport>`).toString('base64');
+        for (const [k, nome] of ['Dias_de_estoque_1_empresa.fr3', 'Dias_de_estoque_varias_empresas.fr3', 'Dias_de_estoque_ruptura.fr3'].entries()) {
+          await pgDd.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [991120 + k, nome, stubDd(nome)]);
+        }
+        const i1 = await dd('dias=10', '/impressao');
+        const i2 = await dd('dias=10&empresas=1,2', '/impressao');
+        const i3 = await dd('dias=10&tipo=RUPTURA&sinal=MENOR_IGUAL&diasRuptura=3&niveis=2', '/impressao');
+        const iVazio = await dd('dias=10&tipo=RUPTURA&sinal=IGUAL&diasRuptura=999', '/impressao');
+        const regB = (i3.j.datasets?.DBDRelatorio ?? []).find((l: any) => Number(l.IDPRODUTO) === pB);
+        check('DIAS DE ESTOQUE §112.7 [as lojas e a impressão no layout do cliente]: com as lojas 1,2 o produto vem por loja (a 2 sem venda, −999999) e a impressão troca para `Dias_de_estoque_varias_empresas.fr3` (o `Empresas` com vírgula); uma loja no `..._1_empresa.fr3`; a ruptura no `..._ruptura.fr3` com o fornecedor secundário no registro e os níveis expandidos; sem registro, a mensagem do TFrmRelMaster',
+          aL.length === 2 && aL.some((l: any) => Number(l.idempresa) === 2 && Number(l.cobertura) === -999999)
+          && i1.status === 200 && String(i1.j.modelo ?? '').includes('Dias_de_estoque_1_empresa.fr3') && i1.j.datasets?.DBDVariaveisAdicionais?.[0]?.IDEmpresas === '1'
+          && i2.status === 200 && String(i2.j.modelo ?? '').includes('Dias_de_estoque_varias_empresas.fr3') && i2.j.datasets?.DBDVariaveisAdicionais?.[0]?.IDEmpresas === '1,2'
+          && i3.status === 200 && String(i3.j.modelo ?? '').includes('Dias_de_estoque_ruptura.fr3') && regB?.FORNECEDOR_SECUNDARIO === 'FORN DDE SECUNDARIO' && regB?.FORNECEDOR === 'FORN DDE PRINCIPAL'
+          && i3.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 2
+          && iVazio.status === 422 && iVazio.j.message === 'Não foram encontrados registros para imprimir o relatório.',
+          { lojas: aL.map((l: any) => [l.idempresa, l.cobertura]), i1: [i1.status, i1.j.code, String(i1.j.modelo ?? '').slice(0, 120)], i2: [i2.status, i2.j.code, String(i2.j.modelo ?? '').slice(0, 120)], i3: [i3.status, i3.j.code, regB], vazio: [iVazio.status, iVazio.j.message] });
+        await pgDd.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991120 AND 991122`);
+        await pgDd.query(`DELETE FROM parceiros WHERE codparceiro = ANY($1)`, [[fornDd, fornSec]]).catch(() => undefined);
       } finally {
+        if (trc != null) await pgDd.query(`DELETE FROM troca WHERE codtroca = $1`, [trc]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM codreferencia_for WHERE idproduto = ANY($1)`, [ids]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM movimentacao_diaria WHERE codproduto = ANY($1)`, [ids]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [ids]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [ids]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [ids]).catch(() => undefined);
+        await pgDd.query(`DELETE FROM familias_prod WHERE codfamilia=9971`).catch(() => undefined);
+        if (!tinhaRel2) await pgDd.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
         await pgDd.end();
       }
     }

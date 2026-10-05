@@ -456,19 +456,30 @@ export const gradeLayoutSalvarSchema = z.object({
 });
 export type GradeLayoutSalvarDto = z.infer<typeof gradeLayoutSalvarSchema>;
 
-/** DIAS DE ESTOQUE / COBERTURA (`FRMRELDDE`): com o que tenho, quantos dias eu aguento. */
+/**
+ * DIAS DE ESTOQUE / COBERTURA (`FRMRELDDE`, uDDE.pas): com o que tenho, quantos dias eu aguento. Os dois tipos do `cbbTipoRel` —
+ * "Dias de estoque" e "Dias de estoque (ruptura)" — com os filtros por código do `MontaFiltroSQL` e as lojas do `GetMultiEmpresa`.
+ */
 export const relDdeSchema = z.object({
-  /** a janela de venda que dá a média diária. */
-  dias: z.coerce.number().int().min(1).max(365),
-  /** o filtro de ruptura: só o que cobre até N dias. */
-  coberturaAte: z.coerce.number().int().min(0).max(9999).nullish(),
-  /** falso = traz também o que não vendeu no período. */
+  tipo: z.enum(['PADRAO', 'RUPTURA']).nullish(),
+  /** o `EdtDiasCalculoCobertura`: a janela de venda que dá a média diária (≤ 0 é recusado com a mensagem do legado). */
+  dias: z.coerce.number().int().max(3650),
+  /** a ruptura: o `cbbSinal` e o `EdtDiasRuptura` (`WHERE DDE.COBERTURA <sinal> <dias>`). */
+  diasRuptura: z.coerce.number().int().max(999999).nullish(),
+  sinal: z.enum(['MAIOR_IGUAL', 'IGUAL', 'MENOR_IGUAL']).nullish(),
+  /** o `CkbFiltrarProdutosVendidos` (só no tipo padrão): sem ele, entram os que não venderam (cobertura −999999, "Sem vendas"). */
   somenteVendidos: boolQuery.optional(),
+  idproduto: z.coerce.number().int().positive().nullish(),
   coddpto: z.coerce.number().int().positive().nullish(),
   codgrupo: z.coerce.number().int().positive().nullish(),
   codsubgrupo: z.coerce.number().int().positive().nullish(),
   codsecao: z.coerce.number().int().positive().nullish(),
-  produto: z.string().max(150).nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+    .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter(Boolean) : v))
+    .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
+  /** o `CmbNiveisExpandidos` da impressão da ruptura (0-2) */
+  niveis: z.coerce.number().int().min(0).max(2).nullish(),
 });
 export type RelDdeDto = z.infer<typeof relDdeSchema>;
 
