@@ -43,10 +43,29 @@ compradores são listas distintas, como as notas e os pedidos.
 
 ## 5. Folds declarados
 
-- **Comprador** = `pedidocompra.codoperador` no destino (a migration 060 não trouxe `USUCADASTRO`; o
-  codoperador é carimbado no create). O filtro "Comprador" do legado é sobre `PC.USUCADASTRO`.
+- **Comprador** = `pedidocompra.usucadastro` (o `PC.USUCADASTRO` do legado — quem cadastrou o pedido). ⚠️ Até 05/10/2026 o
+  Apollo usava o `codoperador` (a nota antiga dizia que a mig 060 não trouxe `USUCADASTRO`; a mig 162 trouxe, e o pedido novo o
+  carimba): na produção os dois divergem em **214 dos 8.236** pedidos analisados.
 - A nota honra `apnn_tabela` (o legado junta só `NFE_NAO_CADASTRADAS`, que é 100% do golden).
 - Tenant-scoped (o legado monta `A.CODEMPRESA IN (lista)`).
 - O filtro por fornecedor/comprador entra se **algum** pedido da análise bate — no legado o WHERE age nas linhas
   do cartesiano antes do GROUP BY, o que dá a mesma semântica.
 - `.fr3`: acessório; o retorno traz o material inteiro (com `truncado` quando passa do limite).
+
+
+## O binário novo, a impressão e as lojas (05/10/2026)
+
+O V$SQL da produção (sql_id `2nfs8zjd9kv39`, 5 execuções no dia) mostra o `GetSQL` do binário novo: além do de 2020, traz
+`A.APN_DIFERENCA_VALOR`, `A.APN_STATUS_FINALIZACAO`, `A.CODOPERADOR_FINALIZADO` e `OP.NOME AS USUARIO_LIBERACAO` (`LEFT JOIN
+OPERADORES OP ON OP.CODOPERADOR = A.CODOPERADOR_FINALIZADO`), um **filtro por pedido** (`AND PC.CODPEDCOMP = 36257`) e, com ele,
+**nenhum filtro de data**; as lojas no formato do `GetMultiEmpresa(True, '', True)` — `IN (1, 2)`.
+
+- **o pedido**: `codpedcomp` — a análise entra se algum pedido dela é o informado, e aí sem o período;
+- **as lojas**: `empresas`, recortadas às do operador (antes, só a do login);
+- **a impressão** (`AnalisesPedidoNF.fr3`, PERSONALIZADO 644 — o DEFAULT 23 também já pede os campos do binário novo): grupos por
+  loja › comprador › fornecedor › pedidos › análise com `CODCOMPRADOR = MAX(PC.USUCADASTRO)` e `CODPARCEIRO = MAX(PC.CODPARCEIRO)`
+  (as chaves de grupo do legado), as listas de notas/pedidos distintas e a análise de comprador órfão presente (as correções da
+  consulta, acima); o script troca o rótulo do usuário pelo `APN_STATUS_FINALIZACAO` ('FEP' = "Usuário que editou os pedidos:");
+  os três detalhes do `AntesImprimir` (`QryProdutosDiv` / `QryProdutosIneNF` / `QryProdutosInePedido`, mestre-detalhe por
+  `APN_DATA_ANALISE;APN_ID`) no sub-relatório, abertos pelo "Expandido" (`GphAnalise.ExpandDrillDown`).
+- smoke §129.5; teste de renderização (expandido e recolhido).

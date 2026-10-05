@@ -747,3 +747,30 @@ describe('análise de comportamento por período (RelAnaliseComportamentoPeriodo
     expect(pgs.flatMap((p) => p.html).join('')).toMatch(/<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#ff0000"/);
   });
 });
+
+describe('análises de pedidos × notas fiscais (AnalisesPedidoNF.fr3)', () => {
+  const rel = [
+    { APN_ID: 501, APN_DATA_ANALISE: '2026-09-10T10:00:00', CODEMPRESA: 1, CODCOMPRADOR: 8, COMPRADOR: 'MARIA', CODPARCEIRO: 22, FORNECEDOR: 'CAMIL', PEDIDOS: '36257', NOTAS_FISCAIS: '770001, 770002',
+      APN_STATUS_STR: 'Finalizado', APN_TOTAL_PARCIAL_STR: 'Total', APN_DIFERENCA_VALOR: 15.4, APN_STATUS_FINALIZACAO: 'FEP', USUARIO_LIBERACAO: 'JOAO' },
+  ];
+  const div = [{ APN_ID: 501, IDPRODUTO: 11, CODBARRA: '7891', DESCRICAO: 'ARROZ 5KG', UNIDADE: 'UN', APND_QUANTIDADE_NF: 10, APND_QUANTIDADE_PC: 8, APND_VALOR_NF: 12.5, APND_VALOR_PC: 11, __MESTRE: 0 }];
+  const ine = [{ APN_ID: 501, IDPRODUTO: 12, CODBARRA: '7892', DESCRICAO: 'FEIJAO 1KG', APNIN_VALOR: 7.9, __MESTRE: 0 }];
+  const inp = [{ APN_ID: 501, IDPRODUTO: 13, CODBARRA: '7893', DESCRICAO: 'OLEO 900ML', APNIP_VALOR: 4.2, __MESTRE: 0 }];
+  const v = (exp: string) => [{ IDEmpresas: '1, 2', DataInicial: '2026-09-01T00:00:00', DataFinal: '2026-09-30T00:00:00', NiveisExpandidos: 0, Tabela: 0, Expandido: exp }];
+
+  it('loja › comprador › fornecedor › pedidos › análise; o "Expandido" abre os três detalhes da análise', () => {
+    const t = texto(paginasDoModelo(modelo('analises-pedido-nf.fr3'), { DBDRelatorio: rel, DbdProdutosDiv: div, DbdProdutosIneNF: ine, DbdProdutosInePedido: inp, DBDVariaveisAdicionais: v('S') }, agora));
+    expect(t).toContain('ANÁLISES DE PEDIDOS X NOTAS FISCAIS');
+    expect(t).toContain('Comprador: MARIA');
+    expect(t).toContain('Fornecedor: CAMIL');
+    expect(t).toContain('Pedidos: 36257');
+    expect(t).toContain('Notas fiscais: 770001, 770002');
+    expect(t).toContain('Usuário que editou os pedidos:'); // FEP
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('FEIJAO 1KG');
+    expect(t).toContain('OLEO 900ML');
+    const n = texto(paginasDoModelo(modelo('analises-pedido-nf.fr3'), { DBDRelatorio: rel, DbdProdutosDiv: div, DbdProdutosIneNF: ine, DbdProdutosInePedido: inp, DBDVariaveisAdicionais: v('N') }, agora));
+    expect(n).toContain('Análise: 501');
+    expect(n).not.toContain('ARROZ 5KG');
+  });
+});

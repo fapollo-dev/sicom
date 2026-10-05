@@ -17043,9 +17043,10 @@ async function main() {
       try {
         // dois pedidos (fornecedores 22 e 2, compradores 7 e 8) e duas notas na MESMA análise → o legado faz 2×2 = 4
         // linhas e o LISTAGG lista cada nota duas vezes; um terceiro pedido SEM comprador numa segunda análise
-        const pc1 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (22,1,'2047-02-01',7) RETURNING codpedcomp`)).rows[0].codpedcomp);
-        const pc2 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (2,1,'2047-02-01',8) RETURNING codpedcomp`)).rows[0].codpedcomp);
-        const pc3 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (22,1,'2047-02-03',NULL) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        const pc1 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro) VALUES (22,1,'2047-02-01',7,7) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        // o comprador é quem CADASTROU (PC.USUCADASTRO): o pc2 foi cadastrado pelo 8 e alterado pelo 7
+        const pc2 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro) VALUES (2,1,'2047-02-01',7,8) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        const pc3 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro) VALUES (22,1,'2047-02-03',NULL,NULL) RETURNING codpedcomp`)).rows[0].codpedcomp);
         await pgRa.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf) VALUES
           (991811,'35470200000000000000000000000000000000991811','11222333000144','FORN A','2047-02-02 10:00:00-03','E',500,1,55,'770001'),
           (991812,'35470200000000000000000000000000000000991812','11222333000144','FORN A','2047-02-02 11:00:00-03','E',300,1,55,'770002'),
@@ -17081,7 +17082,7 @@ async function main() {
         const porForn = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codparceiro=2`, { headers: H })).json().catch(() => ({}))) as any;
         const porComp = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codcomprador=7`, { headers: H })).json().catch(() => ({}))) as any;
         const nenhum = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codparceiro=999`, { headers: H })).json().catch(() => ({}))) as any;
-        check('REL ANÁLISE PEDIDO×NF §129.3 [o filtro é sobre ALGUM pedido da análise]: fornecedor 2 acha a 991801 (pelo segundo pedido) e não a 991802; comprador 7 acha só a 991801 (a 991802 não tem comprador); fornecedor inexistente, nenhuma. No destino o comprador é `pedidocompra.codoperador` — a migration 060 não trouxe `USUCADASTRO`',
+        check('REL ANÁLISE PEDIDO×NF §129.3 [o filtro é sobre ALGUM pedido da análise]: fornecedor 2 acha a 991801 (pelo segundo pedido) e não a 991802; comprador 7 acha só a 991801 (a 991802 não tem comprador); fornecedor inexistente, nenhuma. O comprador é `PC.USUCADASTRO` (quem cadastrou o pedido, mig 162) — não o `codoperador`, que diverge em 214 dos 8.236 pedidos analisados na produção',
           (porForn.analises ?? []).map((a: any) => a.apnId).join() === '991801'
           && (porComp.analises ?? []).map((a: any) => a.apnId).join() === '991801'
           && (nenhum.analises ?? []).length === 0,
@@ -17097,6 +17098,23 @@ async function main() {
           && a1?.divergentes === undefined
           && semGrantRa.status === 403 && invertidoRa.status === 400,
           { div: e1?.divergentes?.length, soNf: e1?.soNaNf?.length, soPed: e1?.soNoPedido?.length, rbac: semGrantRa.status, invertido: invertidoRa.status });
+
+        // §129.5 — o pedido (binário novo: sem data quando há pedido) e a impressão no AnalisesPedidoNF.fr3
+        const porPed = (await (await fetch(`${base}/${RA}?dataIni=2001-01-01&dataFim=2001-01-02&codpedcomp=${pc3}`, { headers: H })).json().catch(() => ({}))) as any;
+        const stubRa = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+        await pgRa.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991295, 1, 'AnalisesPedidoNF.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubRa]);
+        const impRa = await fetch(`${base}/${RA}/impressao?dataIni=2047-02-01&dataFim=2047-02-28&expandido=true`, { headers: H });
+        const iRa = (await impRa.json().catch(() => ({}))) as any;
+        const rRa = (iRa.datasets?.DBDRelatorio ?? []) as any[];
+        const r1 = rRa.find((x) => Number(x.APN_ID) === 991801);
+        const iDiv = (iRa.datasets?.DbdProdutosDiv ?? []) as any[];
+        check('REL ANÁLISE PEDIDO×NF §129.5 [o pedido e a impressão]: o filtro por pedido do binário novo (o V$SQL da produção: `AND PC.CODPEDCOMP = 36257` e nenhum filtro de data) acha a análise do pedido fora do período (a excluída fica fora); a impressão no AnalisesPedidoNF.fr3 traz a análise com as listas distintas, o comprador pelo USUCADASTRO (`CODCOMPRADOR = MAX`, o 8 do pc2), o fornecedor pelo MAX(CODPARCEIRO), a diferença e o status da finalização, e os detalhes (divergentes, só na NF, só no pedido) ligados à linha da análise (__MESTRE); o "Expandido" vai no DBDVariaveisAdicionais e as lojas no formato "1, 2" do GetMultiEmpresa do binário novo',
+          (porPed.analises ?? []).map((a: any) => a.apnId).join() === '991802'
+          && impRa.status === 200 && !!r1 && r1.NOTAS_FISCAIS === '770001, 770002' && Number(r1.CODCOMPRADOR) === 8 && Number(r1.CODPARCEIRO) === 22
+          && iDiv.length >= 1 && iDiv.every((d) => Number(rRa[d.__MESTRE]?.APN_ID) === Number(d.APN_ID))
+          && iRa.datasets?.DBDVariaveisAdicionais?.[0]?.Expandido === 'S' && iRa.datasets?.DBDVariaveisAdicionais?.[0]?.IDEmpresas === '1',
+          { porPedido: (porPed.analises ?? []).map((a: any) => a.apnId), status: impRa.status, code: iRa.code, r1, div: iDiv.slice(0, 2), vars: iRa.datasets?.DBDVariaveisAdicionais });
+        await pgRa.query(`DELETE FROM relatorios WHERE codrelatorio = 991295`);
 
         await pgRa.query(`DELETE FROM analise_pedido_nf WHERE apn_id IN (991801,991802,991803,991804)`);
         await pgRa.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (991811,991812,991813)`);

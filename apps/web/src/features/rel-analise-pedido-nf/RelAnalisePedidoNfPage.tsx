@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * RELATÓRIO DE ANÁLISE PEDIDO × NF (`FRMRELANALISEPEDIDONF`).
@@ -30,16 +31,24 @@ interface Resultado { analises: Item[]; total: number; truncado: boolean }
 
 export function RelAnalisePedidoNfPage() {
   const mensagem = useMensagem();
-  const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), codparceiro: '', codcomprador: '', expandido: false });
+  const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), codparceiro: '', codcomprador: '', codpedcomp: '', empresas: '', expandido: false });
+  const consulta = () => {
+    const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, expandido: String(f.expandido) });
+    if (f.codparceiro.trim()) q.set('codparceiro', f.codparceiro.trim());
+    if (f.codcomprador.trim()) q.set('codcomprador', f.codcomprador.trim());
+    if (f.codpedcomp.trim()) q.set('codpedcomp', f.codpedcomp.trim());
+    if (f.empresas.trim()) q.set('empresas', f.empresas.replace(/\s/g, ''));
+    return q;
+  };
+  // o "Imprimir" no layout do cliente (AnalisesPedidoNF.fr3)
+  const imprimir = () => { imprimirRelatorio(`/compras/rel-analise-pedido-nf/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, expandido: String(f.expandido) });
-      if (f.codparceiro.trim()) q.set('codparceiro', f.codparceiro.trim());
-      if (f.codcomprador.trim()) q.set('codcomprador', f.codcomprador.trim());
+      const q = consulta();
       const r = await fetch(`${BASE}/compras/rel-analise-pedido-nf?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -65,11 +74,14 @@ export function RelAnalisePedidoNfPage() {
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-32"><Field label="&Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
           <div className="w-32"><Field label="&Comprador" value={f.codcomprador} onChange={(e) => setF({ ...f, codcomprador: e.target.value })} /></div>
+          <div className="w-28"><Field label="&Pedido" value={f.codpedcomp} onChange={(e) => setF({ ...f, codpedcomp: e.target.value })} /></div>
+          <div className="w-32"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.expandido} onChange={(e) => setF({ ...f, expandido: e.target.checked })} />
             Expandido
           </label>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
         </div>
       </section>
 

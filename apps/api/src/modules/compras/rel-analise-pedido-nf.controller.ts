@@ -16,4 +16,11 @@ export class RelAnalisePedidoNfController {
   gerar(@Query(new ZodValidationPipe(relAnalisePedidoNfSchema)) q: RelAnalisePedidoNfDto) {
     return this.svc.gerar(q);
   }
+
+  /** a impressão no layout do cliente (`AnalisesPedidoNF.fr3`) */
+  @Get('impressao')
+  @RequerAcesso('FRMRELANALISEPEDIDONF', 'FRMRELANALISEPEDIDONF')
+  impressao(@Query(new ZodValidationPipe(relAnalisePedidoNfSchema)) q: RelAnalisePedidoNfDto) {
+    return this.svc.impressao(q);
+  }
 }
