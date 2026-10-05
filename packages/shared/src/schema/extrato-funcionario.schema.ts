@@ -6,8 +6,13 @@ const dia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const extratoFuncionarioSchema = z.object({
   dataIni: dia,
   dataFim: dia,
-  /** sintético = "1 - Extrato" (por funcionário × tipo × dia); analítico = "2/3" (linha a linha com centro de custo). */
-  tipo: z.enum(['sintetico', 'analitico']).default('sintetico'),
+  /**
+   * o `CmbTipoRelatorio`: sintetico = "1 - Extrato de funcionário" (por funcionário × tipo × dia); analitico = "2 - … analítico" e
+   * analitico_sintetico = "3 - … sintético" — os dois com o mesmo SQL linha a linha (centro de custo), em layouts diferentes.
+   */
+  tipo: z.enum(['sintetico', 'analitico', 'analitico_sintetico']).default('sintetico'),
+  /** o `CmbNiveisExpandidos` da impressão (só o tipo 2 escolhe; o 1 imprime recolhido e o 3 com 1 nível) */
+  niveis: z.coerce.number().int().min(0).max(2).optional(),
   /** o convênio (parceiro que é `CODCONVENIO` de funcionários). */
   codconvenio: z.coerce.number().int().positive().optional(),
   codoperador: z.coerce.number().int().positive().optional(),

@@ -4,6 +4,7 @@ import type { ExtratoFuncionarioDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { relatorioMestre } from '../../shared/relatorios/relatorio-mestre';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -36,9 +37,10 @@ const OPS = sql`ops AS (SELECT codparceiro, max(codoperador) AS codoperador, cou
  * informado, tem de ser convênio de alguém (`ParceiroEConvenio`). O 3º ramo do UNION (`AGRUPARECEBER`) tem
  * **0 linhas na produção** e não foi replicado.
  *
- * ⚠️ O legado não filtra empresa (`FiltraEmpresa := False`) — em 2026 o AP de funcionários está em 4
- * empresas e o AR em 2. Aqui tenant-scoped. E 74% dos AR de funcionários de 2026 (7.490, R$ 314 mil) têm
- * `AGRUPADO='S'` e ficam fora por regra — os consolidados (OBS nula) caem em 'Convênio de Funcionários'.
+ * ⚠️ O legado não filtra empresa (`FiltraEmpresa := False`, UFuncionario.pas) — o convênio de funcionários atravessa as lojas (em
+ * 2026 o AP de funcionários está em 4 empresas e o AR em 2) e o extrato mostra todas. Fiel desde 05/10/2026 (antes o Apollo recortava
+ * à loja do login e o extrato saía incompleto). E 74% dos AR de funcionários de 2026 (7.490, R$ 314 mil) têm `AGRUPADO='S'` e ficam
+ * fora por regra — os consolidados (OBS nula) caem em 'Convênio de Funcionários'.
  */
 @Injectable()
 export class ExtratoFuncionarioService {
@@ -84,9 +86,9 @@ export class ExtratoFuncionarioService {
     }
   }
 
-  async gerar(f: ExtratoFuncionarioDto): Promise<Record<string, unknown>> {
-    const emp = this.emp();
-    const db = this.dbp.forTenantRead() as AnyDB;
+  /** as linhas do `GetSQL` do tipo (sem o limite da grade quando `limite` é nulo — a impressão) */
+  private async linhas(db: AnyDB, f: ExtratoFuncionarioDto, limite: number | null): Promise<Array<Record<string, unknown>>> {
+    this.emp();
     await this.validar(db, f);
     const conv = f.codconvenio ?? null;
     const opf = f.codoperador ?? null;
@@ -97,15 +99,14 @@ export class ExtratoFuncionarioService {
          AND (${opf}::integer IS NULL OR op.codoperador = ${opf}::integer)
          ${sit} ${obs}`;
     const whereAp = sql`
-       WHERE a.codempresa = ${emp}
-         AND coalesce(a.codcxagrupamentocr, 0) = 0 AND coalesce(a.agrupado, 'N') = 'N'
+       WHERE coalesce(a.codcxagrupamentocr, 0) = 0 AND coalesce(a.agrupado, 'N') = 'N'
          AND a.dtcompra::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date ${comum}`;
     const whereAr = sql`
-       WHERE a.codempresa = ${emp}
-         AND coalesce(a.agrupado, 'N') = 'N'
+       WHERE coalesce(a.agrupado, 'N') = 'N'
          AND a.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date ${comum}`;
 
-    const linhas = f.tipo === 'sintetico'
+    const lim = limite == null ? sql`` : sql`LIMIT ${limite}`;
+    return f.tipo === 'sintetico'
       ? (await sql<Record<string, unknown>>`
           WITH ${OPS},
           ap AS (
@@ -122,7 +123,7 @@ export class ExtratoFuncionarioService {
              GROUP BY 1, 2, 3, 4, 5, 6)
           SELECT * FROM (SELECT * FROM ap UNION ALL SELECT * FROM ar) x
            ORDER BY nome, codoperador, codparceiro, tipo, data, sinal
-           LIMIT ${f.limite}`.execute(db)).rows
+           ${lim}`.execute(db)).rows
       : (await sql<Record<string, unknown>>`
           WITH ${OPS},
           ar AS (
@@ -143,7 +144,12 @@ export class ExtratoFuncionarioService {
               ${whereAp})
           SELECT * FROM (SELECT * FROM ar UNION ALL SELECT * FROM ap) x
            ORDER BY nome, codoperador, codparceiro, tipo, desccodplc, data
-           LIMIT ${f.limite}`.execute(db)).rows;
+           ${lim}`.execute(db)).rows;
+  }
+
+  async gerar(f: ExtratoFuncionarioDto): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const linhas = await this.linhas(db, f, f.limite);
 
     // por funcionário: créditos (AP, '+') − débitos (AR, '−') = saldo
     const porFuncionario = new Map<number, { codparceiro: number; nome: string; codoperador: number | null; operadores: number; creditos: number; debitos: number; saldo: number; linhas: number }>();
@@ -167,5 +173,28 @@ export class ExtratoFuncionarioService {
       truncado: linhas.length >= f.limite,
       totais: { linhas: linhas.length, funcionarios: funcionarios.length, creditos, debitos, saldo: r2(creditos - debitos) },
     };
+  }
+
+  /**
+   * A impressão (`TFrmRelMaster.GeraRelatorio`): "1 - Extrato" em `Funcionario1 - Extrato de funcionario.fr3` (recolhido — o
+   * `CmbNiveisExpandidos` fica em -1), "2 - analítico" em `Funcionario2 - Extrato de funcionario analítico.fr3` (os níveis escolhidos,
+   * 1 de fábrica) e "3 - sintético" em `Funcionario2 - Extrato de funcionario sintético.fr3` (1 nível, o combo desabilitado). O
+   * `DBDRelatorio` é o `GetSQL` da classe, na ordem dele; os layouts somam o VALOR como vem (no tipo 1 o débito vem positivo, com o
+   * SINAL ao lado — o total do layout soma os dois, como o legado).
+   */
+  async impressao(f: ExtratoFuncionarioDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const linhas = (await this.linhas(db, f, null)).map((l) => {
+      const { operadores: _o, titulos: _t, origem: _g, quitada: _q, ...r } = l;
+      return { ...r, valor: num(l.valor) };
+    });
+    const [arquivo, niveis] = f.tipo === 'sintetico' ? ['Funcionario1 - Extrato de funcionario.fr3', 0]
+      : f.tipo === 'analitico' ? ['Funcionario2 - Extrato de funcionario analítico.fr3', f.niveis ?? 1]
+        : ['Funcionario2 - Extrato de funcionario sintético.fr3', 1];
+    return relatorioMestre(db, {
+      arquivo, titulo: 'Extrato de funcionários', relatorio: linhas,
+      // FiltraEmpresa := False: o IDEmpresas fica vazio
+      variaveis: { empresas: [], dataIni: f.dataIni, dataFim: f.dataFim, niveis },
+    });
   }
 }

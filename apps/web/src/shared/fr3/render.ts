@@ -193,6 +193,8 @@ class Relatorio {
       // as cores do Delphi que os scripts usam (TColor = $00BBGGRR)
       clred: () => 0x0000ff, clblack: () => 0, clblue: () => 0xff0000, clgreen: () => 0x008000, clwhite: () => 0xffffff, clgray: () => 0x808080,
       clnavy: () => 0x800000, clmaroon: () => 0x000080, clsilver: () => 0xc0c0c0,
+      // `Get(Nome)`: a variável que o script gravou com `Set` (na 1ª passada, para o cabeçalho do grupo mostrar o total na final)
+      get: ([k]) => this.locais.get(`set:${texto(k).toLowerCase()}`) ?? null,
     };
     this.amb = {
       agora,
@@ -398,6 +400,11 @@ class Relatorio {
     if (ad && this.lista(ad[1])) {
       const lista = this.lista(ad[1])!;
       if (ad[2] === 'clear') lista.length = 0; else lista.push(texto(args[0] ? avaliar(args[0], this.amb, this.funcoes) : ''));
+      return true;
+    }
+    // `Set(Nome, Valor)`: a variável do relatório — como os locais do script, atravessa da 1ª passada para a final
+    if (nome === 'set' && args.length >= 2) {
+      this.locais.set(`set:${texto(avaliar(args[0], this.amb, this.funcoes)).toLowerCase()}`, avaliar(args[1], this.amb, this.funcoes));
       return true;
     }
     if (/\.free$/.test(nome)) return true;

@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * EXTRATO DE FUNCIONÁRIO (`FRMRELFUNCIONARIO`). Dossiê: `uRelFuncionario.md`.
@@ -20,12 +21,22 @@ const inicioDoMes = () => `${hoje().slice(0, 8)}01`;
 
 type Convenio = { codparceiro: number; razao: string; fantasia: string | null; funcionarios: number };
 type Func = { codparceiro: number; nome: string; codoperador: number | null; operadores: number; creditos: number; debitos: number; saldo: number; linhas: number };
-type Resultado = { tipo: 'sintetico' | 'analitico'; linhas: Array<Record<string, unknown>>; funcionarios: Func[]; truncado: boolean; totais: { linhas: number; funcionarios: number; creditos: number; debitos: number; saldo: number } };
+type Resultado = { tipo: 'sintetico' | 'analitico' | 'analitico_sintetico'; linhas: Array<Record<string, unknown>>; funcionarios: Func[]; truncado: boolean; totais: { linhas: number; funcionarios: number; creditos: number; debitos: number; saldo: number } };
 
 export function ExtratoFuncionarioPage() {
   const mensagem = useMensagem();
   const [convenios, setConvenios] = useState<Convenio[]>([]);
-  const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), tipo: 'sintetico', codconvenio: '', codoperador: '', situacao: 'todos', filtro: 'todos' });
+  const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), tipo: 'sintetico', codconvenio: '', codoperador: '', situacao: 'todos', filtro: 'todos', niveis: '1' });
+  const consulta = () => {
+    const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo, situacao: f.situacao, filtro: f.filtro });
+    if (f.codconvenio) q.set('codconvenio', f.codconvenio);
+    if (f.codoperador.trim()) q.set('codoperador', f.codoperador.trim());
+    // os níveis expandidos: só o tipo 2 escolhe (o legado habilita o combo só nele)
+    if (f.tipo === 'analitico') q.set('niveis', f.niveis);
+    return q;
+  };
+  // o "Imprimir" nos layouts do cliente (Funcionario1/2 - Extrato de funcionario*.fr3)
+  const imprimir = () => { imprimirRelatorio(`/cobranca/extrato-funcionario/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -43,9 +54,7 @@ export function ExtratoFuncionarioPage() {
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo, situacao: f.situacao, filtro: f.filtro });
-      if (f.codconvenio) q.set('codconvenio', f.codconvenio);
-      if (f.codoperador.trim()) q.set('codoperador', f.codoperador.trim());
+      const q = consulta();
       setRes(await pedir<Resultado>(`${BASE}/cobranca/extrato-funcionario?${q}`));
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
@@ -66,7 +75,8 @@ export function ExtratoFuncionarioPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <Sel label="Relatório" k="tipo" opts={[['sintetico', 'Extrato (sintético)'], ['analitico', 'Analítico']]} />
+          <Sel label="Relatório" k="tipo" opts={[['sintetico', '1 - Extrato de funcionário'], ['analitico', '2 - Extrato de funcionário analítico'], ['analitico_sintetico', '3 - Extrato de funcionário sintético']]} />
+          {f.tipo === 'analitico' && <Sel label="Níveis expandidos" k="niveis" opts={[['0', ''], ['1', '1 nível'], ['2', '2 níveis']]} />}
           <div className="w-80">
             <label className="mb-1 block text-body-sm text-fg-muted">Convênio</label>
             <select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={f.codconvenio} onChange={(e) => setF({ ...f, codconvenio: e.target.value })}>
@@ -78,6 +88,7 @@ export function ExtratoFuncionarioPage() {
           <Sel label="Situação" k="situacao" opts={[['todos', 'Todos'], ['quitados', 'Quitados'], ['abertos', 'Abertos']]} />
           <Sel label="Tipo" k="filtro" opts={[['todos', 'Todos'], ['compra', 'Compra'], ['adiantamento', 'Adiantamento'], ['quebra', 'Quebra'], ['estorno', 'Estorno indevido']]} />
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
         </div>
       </section>
 
@@ -110,22 +121,22 @@ export function ExtratoFuncionarioPage() {
             <table className="w-full min-w-[1000px] border-collapse text-body-sm">
               <thead><tr className="border-b border-border text-left text-fg-muted">
                 <th className="p-pad-xs">Funcionário</th><th className="p-pad-xs">Operador</th>
-                {res.tipo === 'analitico' && <th className="p-pad-xs">C. custo</th>}
+                {res.tipo !== 'sintetico' && <th className="p-pad-xs">C. custo</th>}
                 <th className="p-pad-xs">Tipo</th><th className="p-pad-xs">Data</th>
                 {res.tipo === 'sintetico' ? <><th className="p-pad-xs">Sinal</th><th className="p-pad-xs text-right">Títulos</th></> : <><th className="p-pad-xs">Origem</th><th className="p-pad-xs">Documento</th><th className="p-pad-xs">Parc.</th><th className="p-pad-xs">Tipo doc.</th><th className="p-pad-xs">Quitada</th></>}
                 <th className="p-pad-xs text-right">Valor</th>
-                {res.tipo === 'analitico' && <th className="p-pad-xs">Obs</th>}
+                {res.tipo !== 'sintetico' && <th className="p-pad-xs">Obs</th>}
               </tr></thead>
               <tbody>{res.linhas.map((l, i) => (
                 <tr key={i} className="border-b border-border">
                   <td className="p-pad-xs">{String(l.nome ?? '')}</td><td className="p-pad-xs tabular-nums">{l.codoperador == null ? '' : String(l.codoperador)}</td>
-                  {res.tipo === 'analitico' && <td className="p-pad-xs">{String(l.desccodplc ?? '')}</td>}
+                  {res.tipo !== 'sintetico' && <td className="p-pad-xs">{String(l.desccodplc ?? '')}</td>}
                   <td className="p-pad-xs">{String(l.tipo ?? '')}</td><td className="p-pad-xs">{dataBr(l.data)}</td>
                   {res.tipo === 'sintetico'
                     ? <><td className="p-pad-xs">{String(l.sinal)}</td><td className="p-pad-xs text-right tabular-nums">{String(l.titulos ?? '')}</td></>
                     : <><td className="p-pad-xs">{String(l.origem)}</td><td className="p-pad-xs tabular-nums">{String(l.documento ?? '')}</td><td className="p-pad-xs">{String(l.parcelas ?? '')}</td><td className="p-pad-xs">{String(l.tipodoc ?? '')}</td><td className="p-pad-xs">{l.quitada === 'S' ? 'sim' : 'não'}</td></>}
                   <td className={`p-pad-xs text-right tabular-nums font-semibold ${(res.tipo === 'sintetico' ? l.sinal === '-' : Number(l.valor) < 0) ? 'text-fg-danger' : ''}`}>{moeda(Math.abs(Number(l.valor ?? 0)))}</td>
-                  {res.tipo === 'analitico' && <td className="p-pad-xs text-fg-muted">{String(l.obs ?? '')}</td>}
+                  {res.tipo !== 'sintetico' && <td className="p-pad-xs text-fg-muted">{String(l.obs ?? '')}</td>}
                 </tr>))}</tbody>
             </table>
           </div>

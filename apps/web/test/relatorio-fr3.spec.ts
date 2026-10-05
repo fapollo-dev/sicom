@@ -774,3 +774,30 @@ describe('análises de pedidos × notas fiscais (AnalisesPedidoNF.fr3)', () => {
     expect(n).not.toContain('ARROZ 5KG');
   });
 });
+
+describe('extrato de funcionários (UFuncionario.pas)', () => {
+  const v = (n: number) => [{ IDEmpresas: '', DataInicial: '2026-09-01T00:00:00', DataFinal: '2026-09-30T00:00:00', NiveisExpandidos: n, Tabela: 0 }];
+  it('1 - Extrato: por funcionário com o total no cabeçalho (o Set/Get da 1ª passada) e o total geral', () => {
+    const l = (nome: string, tipo: string, data: string, sinal: string, valor: number) => ({ CODPARCEIRO: nome === 'ANA' ? 1 : 2, CODOPERADOR: 10, NOME: nome, TIPO: tipo, DATA: data, SINAL: sinal, VALOR: valor });
+    const rows = [l('ANA', 'Adiantamento', '2026-09-05T00:00:00', '+', 100), l('ANA', 'Compras', '2026-09-06T00:00:00', '-', 40), l('BETO', 'Quebra', '2026-09-07T00:00:00', '-', 15)];
+    const t1 = texto(paginasDoModelo(modelo('funcionario1-extrato.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(1) }, agora));
+    expect(t1).toContain('EXTRATO DE FUNCIONÁRIOS');
+    expect(t1).toContain('ANA');
+    expect(t1).toContain('Total : 140,00');
+    expect(t1).toContain('Adiantamento');
+    expect(t1).toContain('155,00');
+    const t0 = texto(paginasDoModelo(modelo('funcionario1-extrato.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(0) }, agora));
+    expect(t0).not.toContain('Adiantamento');
+  });
+
+  it('2 - analítico e 3 - sintético: as linhas com documento, parcela e tipo de documento', () => {
+    const l = (nome: string, tipo: string, valor: number, doc: number) => ({ CODPARCEIRO: 1, CODOPERADOR: 10, NOME: nome, DESCCODPLC: '01.01', TIPO: tipo, DATA: '2026-09-05T00:00:00', VALOR: valor, DOCUMENTO: doc, PARCELAS: '1/1', TIPODOC: 'DP', OBS: 'CONTA ORIGINADA DE VENDAS' });
+    const rows = [l('ANA', 'CONVENIO', -40, 9001), l('ANA', 'ADIANTAMENTO', 100, 9002)];
+    const a = texto(paginasDoModelo(modelo('funcionario2-analitico.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(2) }, agora));
+    expect(a).toContain('9001');
+    expect(a).toContain('ANA');
+    const s = texto(paginasDoModelo(modelo('funcionario2-sintetico.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(1) }, agora));
+    expect(s).toContain('9002');
+    expect(s).toContain('60,00');
+  });
+});

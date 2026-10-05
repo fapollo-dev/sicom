@@ -17681,14 +17681,14 @@ async function main() {
         const P = 'dataIni=2052-02-01&dataFim=2052-02-29';
         const sint = await g(`${P}&codconvenio=993601`);
         const L = (sint.j.linhas ?? []) as any[];
-        const linha = (nome: string, tipo: string) => L.find((l) => l.nome === nome && l.tipo === tipo);
+        const linha = (nome: string, tipo: string) => L.find((l) => l.nome === nome && l.tipo === tipo && Number(l.valor) !== 777);
         const fA = (sint.j.funcionarios ?? []).find((x: any) => x.codparceiro === 993602);
-        check('EXTRATO FUNCIONÁRIO §141.1 [o sintético do convênio — as regras do UFuncionario.pas]: TIPO pelo texto da OBS (Compras/Quebra/Adiantamento; OBS nula = "Convênio de Funcionários"); AR entra "−" e AP "+"; agrupados ficam fora (AR AGRUPADO=S; AP com CODCXAGRUPAMENTOCR); a loja 2 fora por tenant (o legado não filtra empresa). FUNC A: Compras 03/02 −150 (2 títulos), Quebra 10/02 −30, Adiantamento 15/02 +200, operador 993611 pelo CODPARCEIRO; FUNC B: Convênio 08/02 −20. Totais: créditos 200, débitos 200, saldo 0; FUNC A saldo +20',
-          sint.status === 200 && L.length === 4
+        check('EXTRATO FUNCIONÁRIO §141.1 [o sintético do convênio — as regras do UFuncionario.pas]: TIPO pelo texto da OBS (Compras/Quebra/Adiantamento; OBS nula = "Convênio de Funcionários"); AR entra "−" e AP "+"; agrupados ficam fora (AR AGRUPADO=S; AP com CODCXAGRUPAMENTOCR); a loja 2 ENTRA — o legado não filtra empresa (`FiltraEmpresa := False`: o convênio atravessa as lojas). FUNC A: Compras 03/02 −150 (2 títulos), Compras 05/02 −777 (loja 2), Quebra 10/02 −30, Adiantamento 15/02 +200, operador 993611 pelo CODPARCEIRO; FUNC B: Convênio 08/02 −20. Totais: créditos 200, débitos 977, saldo −777; FUNC A saldo −757',
+          sint.status === 200 && L.length === 5 && L.some((l) => l.nome === 'FUNC A' && l.tipo === 'Compras' && Number(l.valor) === 777)
           && Number(linha('FUNC A', 'Compras')?.valor) === 150 && linha('FUNC A', 'Compras')?.sinal === '-' && linha('FUNC A', 'Compras')?.titulos === 2
           && Number(linha('FUNC A', 'Quebra')?.valor) === 30 && Number(linha('FUNC A', 'Adiantamento')?.valor) === 200 && linha('FUNC A', 'Adiantamento')?.sinal === '+'
           && Number(linha('FUNC B', 'Convênio de Funcionários')?.valor) === 20 && linha('FUNC A', 'Compras')?.codoperador === 993611
-          && Number(sint.j.totais?.creditos) === 200 && Number(sint.j.totais?.debitos) === 200 && Number(sint.j.totais?.saldo) === 0 && Number(fA?.saldo) === 20,
+          && Number(sint.j.totais?.creditos) === 200 && Number(sint.j.totais?.debitos) === 977 && Number(sint.j.totais?.saldo) === -777 && Number(fA?.saldo) === -757,
           { status: sint.status, n: L.length, linhas: L.map((l) => [l.nome, l.tipo, l.sinal, l.valor, l.titulos, l.codoperador]), totais: sint.j.totais, fA });
         const quit = await g(`${P}&codconvenio=993601&situacao=quitados`);
         const soCompra = await g(`${P}&filtro=compra`);
@@ -17703,11 +17703,27 @@ async function main() {
         const A = (ana.j.linhas ?? []) as any[];
         const conv = (await (await fetch(`${base}/${XF}/convenios`, { headers: H })).json().catch(() => [])) as any[];
         const semGrant = await fetch(`${base}/${XF}?${P}&codconvenio=993601`, { headers: H_SEM_ACESSO });
-        check('EXTRATO FUNCIONÁRIO §141.3 [analítico + lista de convênios]: 5 linhas (4 AR negativas com documento/parcela/tipo doc, 1 AP positiva), o tipo da AR sem centro de custo é a própria OBS (e "Convênios de funcionários" para OBS nula); a lista de convênios traz o 993601 com 2 funcionários; sem grant, 403',
-          ana.status === 200 && A.length === 5 && A.filter((l) => l.origem === 'AR').length === 4 && A.filter((l) => l.origem === 'AR').every((l) => Number(l.valor) < 0 && l.documento != null)
+        check('EXTRATO FUNCIONÁRIO §141.3 [analítico + lista de convênios]: 6 linhas (5 AR negativas com documento/parcela/tipo doc — a da loja 2 inclusa —, 1 AP positiva), o tipo da AR sem centro de custo é a própria OBS (e "Convênios de funcionários" para OBS nula); a lista de convênios traz o 993601 com 2 funcionários; sem grant, 403',
+          ana.status === 200 && A.length === 6 && A.filter((l) => l.origem === 'AR').length === 5 && A.filter((l) => l.origem === 'AR').every((l) => Number(l.valor) < 0 && l.documento != null)
           && A.some((l) => l.origem === 'AP' && Number(l.valor) === 200) && A.some((l) => l.nome === 'FUNC B' && l.tipo === 'Convênios de funcionários')
           && conv.some((c: any) => c.codparceiro === 993601 && c.funcionarios === 2) && semGrant.status === 403,
           { status: ana.status, n: A.length, ar: A.filter((l) => l.origem === 'AR').length, tipos: A.map((l) => l.tipo), conv: conv.find((c: any) => c.codparceiro === 993601), rbac: semGrant.status });
+        // §141.4 — a impressão nos três layouts (Funcionario1/2 - Extrato de funcionario*.fr3)
+        const stubXf = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        for (const [k, n] of ['Funcionario1 - Extrato de funcionario.fr3', 'Funcionario2 - Extrato de funcionario analítico.fr3', 'Funcionario2 - Extrato de funcionario sintético.fr3'].entries()) {
+          await pgXf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [991410 + k, n, stubXf(n)]);
+        }
+        const imp = async (qs: string) => { const r = await fetch(`${base}/${XF}/impressao?${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const i1 = await imp(`${P}&codconvenio=993601`);
+        const i2 = await imp(`${P}&codconvenio=993601&tipo=analitico&niveis=2`);
+        const i3 = await imp(`${P}&codconvenio=993601&tipo=analitico_sintetico&niveis=2`);
+        check('EXTRATO FUNCIONÁRIO §141.4 [a impressão nos layouts do cliente]: "1 - Extrato" no Funcionario1 (recolhido: o combo de níveis fica em −1) com o GetSQL da classe (NOME, TIPO, DATA, SINAL, VALOR); "2 - analítico" no Funcionario2 analítico com os níveis escolhidos; "3 - sintético" no Funcionario2 sintético com 1 nível (o combo desabilitado); sem filtro de loja (IDEmpresas vazio, FiltraEmpresa := False)',
+          i1.status === 200 && String(i1.j.modelo ?? '').includes('Funcionario1') && i1.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 0 && (i1.j.datasets?.DBDRelatorio ?? []).length === 5
+            && (i1.j.datasets?.DBDRelatorio ?? []).every((r: any) => r.SINAL != null && r.TITULOS === undefined) && i1.j.datasets?.DBDVariaveisAdicionais?.[0]?.IDEmpresas === ''
+          && i2.status === 200 && String(i2.j.modelo ?? '').includes('analítico') && i2.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 2 && (i2.j.datasets?.DBDRelatorio ?? []).length === 6
+          && i3.status === 200 && String(i3.j.modelo ?? '').includes('sintético') && i3.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 1,
+          { i1: [i1.status, i1.j.code, (i1.j.datasets?.DBDRelatorio ?? []).length, i1.j.datasets?.DBDVariaveisAdicionais], i2: [i2.status, i2.j.code], i3: [i3.status, i3.j.code] });
+        await pgXf.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991410 AND 991412`);
         await pgXf.query(`DELETE FROM areceber WHERE codparceiro IN (993602,993603)`);
         await pgXf.query(`DELETE FROM apagar WHERE codparceiro IN (993602,993603)`);
         await pgXf.query(`DELETE FROM operadores WHERE codoperador = 993611`);

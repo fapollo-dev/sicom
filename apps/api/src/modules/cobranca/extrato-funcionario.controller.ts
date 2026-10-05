@@ -15,6 +15,11 @@ export class ExtratoFuncionarioController {
   @RequerAcesso('FRMRELFUNCIONARIO', 'FRMRELFUNCIONARIO')
   gerar(@Query(new ZodValidationPipe(extratoFuncionarioSchema)) q: ExtratoFuncionarioDto) { return this.svc.gerar(q); }
 
+  /** a impressão nos layouts do cliente (`Funcionario1/2 - Extrato de funcionario*.fr3`) */
+  @Get('impressao')
+  @RequerAcesso('FRMRELFUNCIONARIO', 'FRMRELFUNCIONARIO')
+  impressao(@Query(new ZodValidationPipe(extratoFuncionarioSchema)) q: ExtratoFuncionarioDto) { return this.svc.impressao(q); }
+
   @Get('convenios')
   @RequerAcesso('FRMRELFUNCIONARIO', 'FRMRELFUNCIONARIO')
   convenios() { return this.svc.convenios(); }

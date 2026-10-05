@@ -41,7 +41,7 @@ agrupado). Rádios: Situação (quitados/abertos/todos) e Tipo (todos/compra/adi
 
 ## 4. O que o Apollo faz diferente
 
-- **Tenant-scoped** (`FiltraEmpresa := False` no legado).
+- ~~Tenant-scoped~~ → desde 05/10/2026 **todas as lojas**, como o legado (`FiltraEmpresa := False`; ver abaixo).
 - Devolve, além das linhas, o resumo **por funcionário** (créditos, débitos, saldo, quantos operadores
   ativos ele tem) e os totais.
 - Colunas do legado que o destino não tinha, acrescentadas em `apagar`: `codcxagrupamentocr`, `codplcfuncionarios`.
@@ -51,3 +51,19 @@ agrupado). Rádios: Situação (quitados/abertos/todos) e Tipo (todos/compra/adi
 ## 5. Fora
 
 Os .fr3 (3 layouts) e o "sintético por nível" como layout separado — o dado é o do analítico.
+
+## A impressão, os três tipos e as lojas (05/10/2026)
+
+- **Os três tipos do `CmbTipoRelatorio`**: "1 - Extrato de funcionário" (`TExtratoFuncionario`, por funcionário × tipo × dia, com o
+  SINAL) e "2 - … analítico" / "3 - … sintético" (`TExtratoFuncionarioAnalitico` com `TipoRel` 'A' / 'S' — o MESMO SQL linha a
+  linha, layouts diferentes). O Apollo tinha só dois; o tipo 3 entrou (`analitico_sintetico`).
+- **As lojas**: o legado **não filtra empresa** (`FiltraEmpresa := False`) — o convênio de funcionários atravessa as lojas. O Apollo
+  recortava à loja do login e o extrato saía incompleto (a quebra lançada na loja 2 sumia do extrato do funcionário). Fiel agora.
+- **A impressão** (`TFrmRelMaster.GeraRelatorio`): o `DBDRelatorio` é o `GetSQL` da classe, na ordem dele, sem o limite da grade;
+  - tipo 1 → `Funcionario1 - Extrato de funcionario.fr3`, recolhido (o `CmbNiveisExpandidos` fica em −1 → 0 níveis); o script
+    guarda o total de cada funcionário com `Set(<NOME>, SUM(...))` na 1ª passada e o cabeçalho do grupo o lê com `Get` na final
+    ("Total : …") — o motor ganhou `Set`/`Get`. O layout soma o VALOR como vem (o débito do tipo 1 vem positivo com o SINAL ao
+    lado; o total do layout soma os dois, como o legado);
+  - tipo 2 → `Funcionario2 - Extrato de funcionario analítico.fr3`, com os níveis escolhidos (1 de fábrica);
+  - tipo 3 → `Funcionario2 - Extrato de funcionario sintético.fr3`, 1 nível (o combo desabilitado).
+- smoke §141.1-4 (a loja 2 agora entra); testes de renderização dos três layouts.
