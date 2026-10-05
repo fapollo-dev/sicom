@@ -146,7 +146,7 @@ class Relatorio {
   private readonly amb: Ambiente;
 
   constructor(xml: string, dados: Registro[] | Conjuntos, private readonly agora: Date, variaveisExtras: Record<string, string> = {}, private readonly totalPaginas = 0,
-    textos: Record<string, string> = {}) {
+    textos: Record<string, string> = {}, private readonly dialogo?: RespostaDialogo) {
     this.raiz = parse(xml);
     this.unico = Array.isArray(dados) ? dados : null;
     if (!Array.isArray(dados)) for (const [k, v] of Object.entries(dados)) this.conjuntos.set(nomeDs(k), v ?? []);
@@ -156,7 +156,9 @@ class Relatorio {
       // só os objetos do relatório (Tfrx*): o <item Name="DtInicial"> das variáveis não é objeto e esconderia a variável
       if (nome && no.tag.startsWith('Tfrx')) this.estados.set(nome.toLowerCase(), {
         no, Visible: no.a.Visible !== 'False', Left: n(no.a.Left), Top: n(no.a.Top), Width: n(no.a.Width), Height: n(no.a.Height),
-        Text: no.a.Text ?? '', final: null, feito: false, extras: {},
+        Text: no.a.Text ?? '', final: null, feito: false,
+        // os controles do diálogo (TfrxCheckBoxControl/TfrxRadioButtonControl): o `Checked` que o script lê
+        extras: /Tfrx(CheckBox|RadioButton)Control/.test(no.tag) ? { checked: no.a.Checked === 'True' } : {},
       });
       no.filhos.forEach(indexar);
     };
@@ -392,6 +394,22 @@ class Relatorio {
 
   private estado(no: No): Estado | undefined { return no.a.Name ? this.estados.get(no.a.Name.toLowerCase()) : undefined; }
 
+  /** a resposta do diálogo (TfrxDialogPage): o Checked de cada controle e o botão clicado — o OnClick dele roda o script do layout */
+  private aplicarDialogo(): void {
+    if (!this.dialogo) return;
+    for (const [nome, v] of Object.entries(this.dialogo.marcados)) { const e = this.estados.get(nome.toLowerCase()); if (e) e.extras.checked = v; }
+    const b = this.dialogo.botao ? this.estados.get(this.dialogo.botao.toLowerCase()) : undefined;
+    if (b) this.evento(b.no, 'OnClick');
+  }
+
+  /** o clique num controle do diálogo (o OnClick do check que desmarca o outro): devolve o Checked de todos depois do script */
+  clicar(nome: string, marcados: Record<string, boolean>): Record<string, boolean> {
+    for (const [k, v] of Object.entries(marcados)) { const e = this.estados.get(k.toLowerCase()); if (e) e.extras.checked = v; }
+    const e = this.estados.get(nome.toLowerCase());
+    if (e) this.evento(e.no, 'OnClick');
+    return Object.fromEntries(Object.keys(marcados).map((k) => [k, !!this.estados.get(k.toLowerCase())?.extras.checked]));
+  }
+
   /** o texto do memo; o memo ligado a campo (DataField) sem texto mostra o campo. */
   private modeloDoTexto(e: Estado, o: No): string {
     return e.Text || (o.a.DataField ? `[<${nomeDs(o.a.DataSetName || o.a.DataSet) || 'frxDBDataset2'}."${o.a.DataField}">]` : '');
@@ -590,6 +608,7 @@ class Relatorio {
     const saida: PaginaSaida[] = [];
     try { executar(this.prog.principal, this.amb, this.funcoes, this.prog); } catch { /* script principal */ }
     this.evento(this.raiz, 'OnStartReport');
+    this.aplicarDialogo();
     // as páginas de sub-relatório (`TfrxSubreport Page="Page2"`) não saem sozinhas: as bandas delas rodam dentro da banda do subrelatório
     const paginasDeSub = new Set<string>();
     const juntarSubs = (no: No) => { if (no.tag === 'TfrxSubreport' && no.a.Page) paginasDeSub.add(no.a.Page.toLowerCase()); no.filhos.forEach(juntarSubs); };
@@ -819,13 +838,49 @@ class Relatorio {
   }
 }
 
-export interface TrabalhoImpressao { modelo: string; registros: Registro[] | Conjuntos; variaveis?: Record<string, string>; textos?: Record<string, string> }
+export interface TrabalhoImpressao { modelo: string; registros: Registro[] | Conjuntos; variaveis?: Record<string, string>; textos?: Record<string, string>; dialogo?: RespostaDialogo }
+
+/** a resposta do usuário ao diálogo do layout: o Checked de cada controle e o botão clicado */
+export interface RespostaDialogo { marcados: Record<string, boolean>; botao?: string }
+/** o diálogo do layout (TfrxDialogPage) — as opções (check/radio) e os botões — que o FastReport mostra antes de montar o relatório */
+export interface DialogoDoModelo {
+  titulo: string;
+  controles: Array<{ nome: string; tipo: 'check' | 'radio'; caption: string; marcado: boolean; grupo: string }>;
+  botoes: Array<{ nome: string; caption: string }>;
+}
+
+export function dialogoDoModelo(xml: string): DialogoDoModelo | null {
+  const raiz = parse(xml);
+  const pg = raiz.filhos.find((c) => c.tag === 'TfrxDialogPage');
+  if (!pg) return null;
+  const controles: DialogoDoModelo['controles'] = [];
+  const botoes: DialogoDoModelo['botoes'] = [];
+  const andar = (no: No, grupo: string) => {
+    for (const c of no.filhos) {
+      if (!c.a.Name) continue;
+      if (c.tag === 'TfrxCheckBoxControl' || c.tag === 'TfrxRadioButtonControl') {
+        controles.push({ nome: c.a.Name, tipo: c.tag === 'TfrxCheckBoxControl' ? 'check' : 'radio', caption: c.a.Caption ?? c.a.Name, marcado: c.a.Checked === 'True', grupo });
+      } else if (c.tag === 'TfrxButtonControl' || c.tag === 'TfrxBitBtnControl') {
+        botoes.push({ nome: c.a.Name, caption: (c.a.Caption ?? 'OK').replace(/&/g, '') });
+      }
+      andar(c, c.tag === 'TfrxGroupBoxControl' || c.tag === 'TfrxPanelControl' ? c.a.Name : grupo);
+    }
+  };
+  andar(pg, pg.a.Name ?? 'dialogo');
+  return { titulo: pg.a.Caption ?? 'Opções de impressão', controles, botoes };
+}
+
+/** o OnClick de um controle do diálogo (o script que desmarca o outro check): o Checked de todos depois dele */
+export function clicarNoDialogo(xml: string, nome: string, marcados: Record<string, boolean>): Record<string, boolean> {
+  return new Relatorio(xml, [], new Date()).clicar(nome, marcados);
+}
 
 /** as páginas de um trabalho de impressão (um Imprimir(frxReport1) do legado). */
-export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}, textos: Record<string, string> = {}): PaginaSaida[] {
+export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}, textos: Record<string, string> = {},
+  dialogo?: RespostaDialogo): PaginaSaida[] {
   // [TotalPages#] pede a contagem antes: a primeira passada só conta as páginas (o DoublePass do FastReport)
-  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis, 0, textos).gerar().length : 0;
-  return new Relatorio(xml, dados, agora, variaveis, total, textos).gerar();
+  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis, 0, textos, dialogo).gerar().length : 0;
+  return new Relatorio(xml, dados, agora, variaveis, total, textos, dialogo).gerar();
 }
 
 /** o documento HTML da impressão: cada tamanho de papel vira uma @page nomeada, uma etiqueta/folha por página. */
@@ -835,7 +890,7 @@ export function documentoDeImpressao(trabalhos: TrabalhoImpressao[], modelos: Re
   for (const t of trabalhos) {
     const xml = modelos[t.modelo];
     if (!xml) { avisos.push(`Modelo "${t.modelo}" não encontrado.`); continue; }
-    try { paginas.push(...paginasDoModelo(xml, t.registros, agora, t.variaveis, t.textos)); } catch (e) { avisos.push(`Modelo "${t.modelo}": ${(e as Error).message}`); }
+    try { paginas.push(...paginasDoModelo(xml, t.registros, agora, t.variaveis, t.textos, t.dialogo)); } catch (e) { avisos.push(`Modelo "${t.modelo}": ${(e as Error).message}`); }
   }
   const tamanhos = new Map<string, PaginaSaida>();
   for (const p of paginas) tamanhos.set(p.chave, p);

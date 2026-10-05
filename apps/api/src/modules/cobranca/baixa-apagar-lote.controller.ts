@@ -2,14 +2,18 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseG
 import { baixaApagarGravarSchema, baixaApagarTitulosSchema, type BaixaApagarGravarDto, type BaixaApagarTitulosDto } from '@apollo/shared';
 import { BaixaApagarLoteService } from './baixa-apagar-lote.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
+import { ReciboBaixaService } from './recibo-baixa.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /** BAIXA DE CONTAS A PAGAR (`FRMBAIXAAPAGAR`) — as opções do legado: a tela, "Iniciar baixa" (`BTNADICIONARREGISTRO`) e `BTNGRAVAR`. */
 @Controller('cobranca/baixa-apagar')
 @UseGuards(AcessoGuard)
 export class BaixaApagarLoteController {
-  constructor(private readonly svc: BaixaApagarLoteService) {}
+  constructor(
+    private readonly svc: BaixaApagarLoteService,
+    private readonly recibos: ReciboBaixaService,
+  ) {}
 
   @Get('titulos')
   @RequerAcesso('FRMBAIXAAPAGAR', 'FRMBAIXAAPAGAR')
@@ -27,6 +31,13 @@ export class BaixaApagarLoteController {
   @RequerAcesso('FRMBAIXAAPAGAR', 'FRMBAIXAAPAGAR')
   padroes() {
     return this.svc.padroes();
+  }
+
+  /** o recibo no layout do cliente (Config\recibopagar.fr3) — da baixa ou da consulta de baixas (o "Recibo" do FRMCONSAPGBX) */
+  @Get('recibo/:lote/impressao')
+  @RequerAcessoDeAlgum(['FRMBAIXAAPAGAR', 'FRMBAIXAAPAGAR'], ['FRMCONSAPGBX', 'FRMCONSAPGBX'])
+  reciboImpressao(@Param('lote', ParseIntPipe) lote: number) {
+    return this.recibos.reciboPagar(lote);
   }
 
   /** o recibo do lote (recibopagar.fr3) */

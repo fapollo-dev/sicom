@@ -7,8 +7,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { apiHeaders } from '../../shared/auth/session';
-import { imprimirRecibo, type ReciboBaixa } from './imprimirRecibo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   contasBaixa, gravarBaixa, iniciarBaixa, manutencaoBaixa, padroesBaixa, titulosBaixa,
   type ContaBaixa, type FiltroTitulos, type PadroesBaixa, type TituloBaixa,
@@ -192,17 +191,9 @@ export function BaixaApagarPage() {
   const tipoSel = padroes?.recursos.find((x) => x.tipo === Number(novo?.tipo ?? 0));
   const contasDoTipo = contas.filter((c) => !c.caixa || tipoSel?.contaCaixa);
 
-  // "Deseja fazer a emissão do recibo?" — a janela abre no clique e o dado chega depois (popup-blocker)
+  // "Deseja fazer a emissão do recibo?" — o recibo no layout do cliente (Config\recibopagar.fr3)
   const imprimirReciboLote = (lote: number) => {
-    const win = window.open('', '_blank');
-    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
-    void executar(async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/cobranca/baixa-apagar/recibo/${lote}`, { headers: apiHeaders() });
-        if (!res.ok) throw new Error('Não foi possível carregar o recibo.');
-        imprimirRecibo(win, (await res.json()) as ReciboBaixa, 'AP');
-      } catch (e) { win.close(); throw e; }
-    });
+    imprimirRelatorio(`/cobranca/baixa-apagar/recibo/${lote}/impressao`).catch((e) => mensagem.erro(e));
   };
 
   return (

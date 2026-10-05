@@ -5,7 +5,8 @@
  */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../auth/session';
-import { documentoDeImpressao, type Conjuntos } from './render';
+import { dialogoDoModelo, documentoDeImpressao, type Conjuntos, type RespostaDialogo } from './render';
+import { perguntarNoDialogo } from './dialogo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -34,9 +35,12 @@ export async function imprimirRelatorio(path: string | (() => string), corpo?: u
     if (antes) await antes();
     // o caminho pode depender do `antes` (a pergunta do IMPRIME_ZERADO_PC do pedido de compra decide o filtro)
     const r = await buscarRelatorio(typeof path === 'function' ? path() : path, corpo);
-    const doc = documentoDeImpressao([{ modelo: 'relatorio', registros: r.datasets, variaveis: r.variaveis, textos: r.textos }], { relatorio: r.modelo }, new Date(), r.titulo);
-    if (doc.avisos.length) throw new Error(doc.avisos.join('\n'));
     if (!win) throw new Error('O navegador bloqueou a janela de impressão.');
+    // o layout com diálogo (TfrxDialogPage) pergunta antes, na própria janela
+    const dlg = dialogoDoModelo(r.modelo);
+    const dialogo: RespostaDialogo | undefined = dlg ? await perguntarNoDialogo(win, dlg, r.modelo) : undefined;
+    const doc = documentoDeImpressao([{ modelo: 'relatorio', registros: r.datasets, variaveis: r.variaveis, textos: r.textos, dialogo }], { relatorio: r.modelo }, new Date(), r.titulo);
+    if (doc.avisos.length) throw new Error(doc.avisos.join('\n'));
     win.document.open();
     win.document.write(doc.html);
     win.document.close();

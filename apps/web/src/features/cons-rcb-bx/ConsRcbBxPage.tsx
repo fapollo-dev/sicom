@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
@@ -137,6 +138,8 @@ export function ConsRcbBxPage() {
             <h3 className="text-body-sm font-semibold">{det.semLote ? 'Baixa avulsa' : `Lote ${det.lote}`} · {det.totais.titulos} título(s) · pago {moeda(det.totais.valorPago)}</h3>
             {det.revertido ? <span className="rounded-radius-sm border border-border px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-danger">Lote revertido</span>
               : <Button label="&Reverter baixa" variant="outline" disabled={ocupado} onClick={() => void reverter()} />}
+            {/* o "Recibo" da consulta (UconsRCBbx.MniReciboClick): o recibo do lote no layout do cliente; o a receber pergunta antes */}
+            <Button label="Re&cibo" variant="ghost" disabled={ocupado} onClick={() => { if (!window.confirm('Deseja fazer a emissão do recibo?')) return; imprimirRelatorio(`/cobranca/baixa-receber/recibo/${det.semLote ? 0 : det.lote}/impressao`).catch((e) => mensagem.erro(e)); }} />
             {/* a manutenção do lote (UconsRCBbx.pas:278-380): reabre na tela de baixa e regrava num lote novo */}
             {!det.revertido && !det.semLote && det.movimentos.length > 0 && (
               <Button label="&Manutenção do lote" variant="ghost" disabled={ocupado} onClick={() => navigate(`/cobranca/baixa-receber?manutencao=${det.lote}`)} />

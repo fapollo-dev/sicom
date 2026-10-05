@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { paginasDoModelo } from '../src/shared/fr3/render';
+import { clicarNoDialogo, dialogoDoModelo, paginasDoModelo } from '../src/shared/fr3/render';
 
 /** os modelos PERSONALIZADOS da RELATORIOS da produção (as conferências do menu da NF, uNF.pas:13541-13635) */
 const modelo = (arq: string) => readFileSync(resolve(__dirname, 'fixtures/relatorios', arq), 'utf8');
@@ -541,5 +541,29 @@ describe('relatórios do legado com vários datasets', () => {
     const ag = texto(paginasDoModelo(modelo('ped-compra-agrupado.fr3'), { FDBPedidoAgrupado: [{ ...base, IDEMPRESA: 2, QTDTOTAL: 60 }] }, agora));
     expect(ag).toContain('ARROZ');
     expect(ag).toContain('600,00');
+  });
+
+  it('recibos das baixas (Config\\recibopagar.fr3 com o diálogo "Layout de impressão" e Config\\recibo.fr3): o diálogo lista as opções, o OnClick do check desmarca o outro, o botão escolhe a página (recibo por fornecedor × lista)', () => {
+    const x = modelo('recibopagar-config.fr3');
+    const dlg = dialogoDoModelo(x);
+    expect(dlg?.titulo).toBe('Layout de impressão');
+    expect(dlg?.controles.map((c) => `${c.nome}:${c.marcado}`).join(',')).toBe('chkRecibo:true,chkLista:false');
+    expect(dlg?.botoes[0]?.nome).toBe('btnVisualizar');
+    expect(clicarNoDialogo(x, 'chkLista', { chkRecibo: true, chkLista: true })).toEqual({ chkRecibo: false, chkLista: true });
+    const emp = [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', ENDERECO: 'RUA A', BAIRRO: 'CENTRO', CIDADE: 'BH', UF: 'MG', CNPJ: '1', INSC: '2', FONE1: '3' }];
+    const doc = (f: string, dup: string, v: number) => ({ FORNECEDOR: f, DUPLICATA: dup, DATA_PAGAMENTO: '2066-02-10T00:00:00', DATA_VENCEU: '2066-02-05T00:00:00', VALOR_DOCUMENTO: v,
+      VALOR_PAGO: v, JUROS: 0, ACRES_DESC: 0, HISTORICO: 'PAGTO', OBSERVACAO: 'OBS', CNPJ_CPF: '99', NR_NF: '123', CODIGO_DOCUMENTO: 7, CLIENTE: 'CLI' });
+    const dados = { dbdRecibo: [doc('FORN A', 'D1', 100), doc('FORN A', 'D2', 50), doc('FORN B', 'D3', 30)], dbdEmpresa: emp };
+    const rec = paginasDoModelo(x, dados, agora, { VARIOS_FORNECEDORES: "'S'" }, {}, { marcados: { chkRecibo: true, chkLista: false }, botao: 'btnVisualizar' });
+    expect(rec.length).toBe(2); // um recibo por fornecedor
+    expect(texto(rec)).toContain('PAGAMOS À .: FORN A');
+    expect(texto(rec)).toContain('FORN A 150,00');
+    const lst = texto(paginasDoModelo(x, dados, agora, { VARIOS_FORNECEDORES: "'S'" }, {}, { marcados: { chkRecibo: false, chkLista: true }, botao: 'btnVisualizar' }));
+    expect(lst).toContain('LISTA DE RECIBOS');
+    expect(lst).toContain('A QUANTIA DE.: R$ 180,00');
+    const rcb = texto(paginasDoModelo(modelo('recibo-config.fr3'), { dbdRecibo: [doc('', 'D9', 80)], dbdEmpresa: emp }, agora));
+    expect(rcb).toContain('RECEBEMOS DO(A) SR(A)(S).: CLI');
+    expect(rcb).toContain('A QUANTIA DE.: R$ 80,00');
+    expect(rcb).toContain('GUARDAR ESTE RECIBO POR 12 MESES');
   });
 });

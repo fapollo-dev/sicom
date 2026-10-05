@@ -2,14 +2,18 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseG
 import { baixaReceberGravarSchema, baixaReceberRetornoSchema, baixaReceberTitulosSchema, type BaixaReceberGravarDto, type BaixaReceberRetornoDto, type BaixaReceberTitulosDto } from '@apollo/shared';
 import { BaixaReceberLoteService } from './baixa-receber-lote.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
+import { ReciboBaixaService } from './recibo-baixa.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /** BAIXA DE CONTAS A RECEBER (`FRMBAIXAARECEBER`) — a tela, "Iniciar baixa" (`BTNADICIONARREGISTRO`) e `BTNGRAVAR`. */
 @Controller('cobranca/baixa-receber')
 @UseGuards(AcessoGuard)
 export class BaixaReceberLoteController {
-  constructor(private readonly svc: BaixaReceberLoteService) {}
+  constructor(
+    private readonly svc: BaixaReceberLoteService,
+    private readonly recibos: ReciboBaixaService,
+  ) {}
 
   @Get('titulos')
   @RequerAcesso('FRMBAIXAARECEBER', 'FRMBAIXAARECEBER')
@@ -27,6 +31,13 @@ export class BaixaReceberLoteController {
   @RequerAcesso('FRMBAIXAARECEBER', 'FRMBAIXAARECEBER')
   padroes() {
     return this.svc.padroes();
+  }
+
+  /** o recibo no layout do cliente (Config\recibo.fr3) — da baixa ou da consulta de baixas (o "Recibo" do FRMCONSRCBBX) */
+  @Get('recibo/:lote/impressao')
+  @RequerAcessoDeAlgum(['FRMBAIXAARECEBER', 'FRMBAIXAARECEBER'], ['FRMCONSRCBBX', 'FRMCONSRCBBX'])
+  reciboImpressao(@Param('lote', ParseIntPipe) lote: number) {
+    return this.recibos.reciboReceber(lote);
   }
 
   /** o recibo do lote (recibo.fr3) */

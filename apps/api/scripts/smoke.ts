@@ -27607,6 +27607,49 @@ async function main() {
         await pgFd.end();
       }
     }
+    // ══ §295 RECIBOS DAS BAIXAS no layout do cliente (Config\recibopagar.fr3 / Config\recibo.fr3) — da baixa e da consulta ══════
+    {
+      const pgRb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const apgs: number[] = [];
+      const rcbs: number[] = [];
+      try {
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        // o mesmo nome nos dois lotes de PERSONALIZADO (Config\ e Relatorios\): o recibo é carregado de Config\ — o de código menor
+        await pgRb.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+            (992950, 1, 'recibopagar.fr3', 'x', 'PERSONALIZADO', $1), (992951, 1, 'recibopagar.fr3', 'x', 'PERSONALIZADO', $2), (992952, 1, 'recibo.fr3', 'x', 'PERSONALIZADO', $3)
+            ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3('PASTA CONFIG'), fr3('PASTA RELATORIOS'), fr3('RECIBO CONFIG')]);
+        const apg = async (forn: number, dup: string, v: number) => Number((await pgRb.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, txjuros)
+            VALUES (1, $1, $2, '2066-02-05', $3, 0, 'S', 'DP', 2) RETURNING codapg`, [forn, dup, v])).rows[0].codapg);
+        const a1 = await apg(2, 'REC295-1', 100); const a2 = await apg(22, 'REC295-2', 50); const a3 = await apg(2, 'REC295-3', 30);
+        apgs.push(a1, a2, a3);
+        await pgRb.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote) VALUES
+            ($1, 1, '2066-02-10', 100, 0, 0, 'I', 992951), ($2, 1, '2066-02-10', 50, 0, 0, 'I', 992951), ($3, 1, '2066-02-10', 30, 0, 0, 'E', 992952)`, [a1, a2, a3]);
+        const r1 = Number((await pgRb.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, quitada, agrupado, cadastrado_manualmente, consiliado, gerado, duplicata)
+            VALUES (1, 20, '2066-01-10', '2066-02-05', 80, 'S', 'N', 'S', 'N', 'OPERADOR', 'R295') RETURNING codrcb`)).rows[0].codrcb);
+        rcbs.push(r1);
+        await pgRb.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote) VALUES ($1, 1, '2066-02-10', 80, 0, 0, 'I', 992953)`, [r1]);
+        const imp = async (lado: string, lote: number, h = H) => { const r = await fetch(`${base}/cobranca/baixa-${lado}/recibo/${lote}/impressao`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const ap = await imp('apagar', 992951);
+        const apRev = await imp('apagar', 992952);
+        const ar = await imp('receber', 992953);
+        const nada = await imp('apagar', 0);
+        const semAcesso = await imp('apagar', 992951, H_SEM_ACESSO);
+        const dr = ap.j.datasets?.dbdRecibo ?? [];
+        check('RECIBOS §295 [as baixas no Config\\recibopagar.fr3 / Config\\recibo.fr3]: o dbdRecibo é a GET_APAGARBX do lote na ordem do fornecedor (2 títulos, 2 fornecedores → VARIOS_FORNECEDORES S), o dbdEmpresa a empresa do login; com o mesmo nome em Config\\ e Relatorios\\, vale o de Config\\ (código menor); o lote revertido lê a GET_APAGARBX_REVERTIDAS (VALOR soma o TXJUROS: 30 + 2); o a receber lê a GET_ARECEBERBX; lote sem título → "Nenhum título foi selecionado."; sem a tela → 403',
+          ap.status === 200 && dr.length === 2 && dr.every((d: any) => d.LOTE === 992951) && ap.j.variaveis?.VARIOS_FORNECEDORES === "'S'"
+          && String(ap.j.modelo).includes('PASTA CONFIG') && 'RAZAOSOCIAL' in (ap.j.datasets?.dbdEmpresa?.[0] ?? {}) && dr[0].VALOR_PAGO != null && typeof dr[0].DATA_PAGAMENTO === 'string'
+          && apRev.status === 200 && apRev.j.datasets?.dbdRecibo?.length === 1 && apRev.j.datasets.dbdRecibo[0].VALOR_DOCUMENTO === 32 && apRev.j.variaveis?.VARIOS_FORNECEDORES === "'N'"
+          && ar.status === 200 && ar.j.datasets?.dbdRecibo?.[0]?.DUPLICATA === 'R295' && ar.j.datasets.dbdRecibo[0].VALOR_PAGO === 80 && String(ar.j.modelo).includes('RECIBO CONFIG')
+          && nada.status === 422 && nada.j.message === 'Nenhum título foi selecionado.' && semAcesso.status === 403,
+          { ap: [ap.status, ap.j.code, dr.map((d: any) => [d.FORNECEDOR, d.DUPLICATA, d.VALOR_PAGO, d.LOTE]), ap.j.variaveis], apRev: [apRev.status, apRev.j.code, apRev.j.datasets?.dbdRecibo?.[0]], ar: [ar.status, ar.j.code, ar.j.datasets?.dbdRecibo?.[0]],
+            nada: [nada.status, nada.j.message], semAcesso: semAcesso.status });
+      } finally {
+        await pgRb.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992950 AND 992952`).catch(() => undefined);
+        if (apgs.length) { await pgRb.query(`DELETE FROM apagar_bx WHERE codapg = ANY($1::int[])`, [apgs]).catch(() => undefined); await pgRb.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [apgs]).catch(() => undefined); }
+        if (rcbs.length) { await pgRb.query(`DELETE FROM areceber_bx WHERE codrcb = ANY($1::int[])`, [rcbs]).catch(() => undefined); await pgRb.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [rcbs]).catch(() => undefined); }
+        await pgRb.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

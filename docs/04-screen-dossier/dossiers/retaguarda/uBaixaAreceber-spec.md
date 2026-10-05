@@ -503,3 +503,16 @@ documento, data da baixa = a do arquivo; a tela preenche a grade e o histórico 
 Diferente do legado, a baixa parcial funciona com o retorno (lá o `cdsDoctosRec` vazio a impedia). Pendentes: o retorno BB
 400 (conta 322, 10 lotes, último em jan/2025) e a certificação das posições com um arquivo real (não há retorno guardado no
 Oracle).
+
+## Recibo no layout do cliente (05/10/2026)
+
+O recibo da baixa ("Documentos baixados com sucesso. Deseja fazer a emissão do recibo?") e o "Recibo" da consulta de baixas saem no
+layout do cliente: `GET cobranca/baixa-apagar/recibo/:lote/impressao` (`Config\recibopagar.fr3`, RBAC FRMBAIXAAPAGAR ou FRMCONSAPGBX) e
+`GET cobranca/baixa-receber/recibo/:lote/impressao` (`Config\recibo.fr3`, FRMBAIXAARECEBER ou FRMCONSRCBBX — a consulta do a receber
+pergunta "Deseja fazer a emissão do recibo?" antes, como o legado). `dbdRecibo` = o `cdsDoctoBX` (`SELECT * FROM GET_APAGARBX WHERE LOTE`,
+na ordem do FORNECEDOR; `GET_ARECEBERBX … ORDER BY DATA_VENCEU`), `dbdEmpresa` = a empresa do login, `VARIOS_FORNECEDORES` = mais de um
+fornecedor no lote. O lote revertido lê a `GET_APAGARBX_REVERTIDAS` / `GET_ARECEBERBX_REVERTIDAS` (mig 407 — o `SetRevertido` da consulta;
+4.669 / 613 linhas revertidas na produção; o A Pagar soma o TXJUROS ao VALOR e ao ACRES_DESC). O layout é o de `Config\` — na RELATORIOS o
+mesmo nome existe no lote de `Relatorios\` com outro desenho; o de Config é o de código menor (`modeloFr3(…, { pasta: 'Config' })`). O
+recibopagar de Config pergunta o "Layout de impressão" (Recibo — um por fornecedor — × Lista de recibos): o diálogo do FastReport sai na
+janela de impressão e o OnClick do layout escolhe a página. O HTML próprio (`imprimirRecibo.ts`) saiu. Smoke §295.

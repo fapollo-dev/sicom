@@ -2,6 +2,7 @@ import { ConsCliRcbController } from './cons-cli-rcb.controller';
 import { ConsApgBxController } from './cons-apg-bx.controller';
 import { BaixaApagarLoteController } from './baixa-apagar-lote.controller';
 import { BaixaApagarLoteService } from './baixa-apagar-lote.service';
+import { ReciboBaixaService } from './recibo-baixa.service';
 import { BaixaReceberLoteController } from './baixa-receber-lote.controller';
 import { BaixaReceberLoteService } from './baixa-receber-lote.service';
 import { ConsRcbBxController } from './cons-rcb-bx.controller';
@@ -102,7 +103,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     FechamentoCaixaController,
     // FRMMOVCAIXA — o lançamento de caixa gerencial (F06).
     LancamentoCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, BaixaApagarLoteService, BaixaReceberLoteService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
+  providers: [ReciboBaixaService, FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, BaixaApagarLoteService, BaixaReceberLoteService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, BaixaContabilService,
