@@ -136,6 +136,8 @@ export function ConsApgBxPage() {
               : <Button label="&Reverter baixa" variant="outline" disabled={ocupado} onClick={() => void reverter()} />}
             {/* o "Recibo" da consulta (UconsAPGbx.MniReciboClick): o recibo do lote no layout do cliente */}
             <Button label="Re&cibo" variant="ghost" disabled={ocupado} onClick={() => { imprimirRelatorio(`/cobranca/baixa-apagar/recibo/${det.semLote ? 0 : det.lote}/impressao`).catch((e) => mensagem.erro(e)); }} />
+            {/* o "Dados do pagamento" (MniDadosPagamentoClick): títulos, recursos e cheques do lote no DadosPagamentoCP.fr3 */}
+            <Button label="&Dados do pagamento" variant="ghost" disabled={ocupado || det.semLote} onClick={() => { imprimirRelatorio(`/cobranca/cons-apg-bx/${det.lote}/dados-pagamento`).catch((e) => mensagem.erro(e)); }} />
             {/* a manutenção do lote (UConsAPGbx.pas:203-290): reabre na tela de baixa e regrava num lote novo */}
             {!det.revertido && !det.semLote && det.movimentos.length > 0 && (
               <Button label="&Manutenção do lote" variant="ghost" disabled={ocupado} onClick={() => navigate(`/cobranca/baixa-apagar?manutencao=${det.lote}`)} />

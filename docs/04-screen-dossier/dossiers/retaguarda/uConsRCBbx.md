@@ -54,3 +54,11 @@ fornecedor no lote. O lote revertido lê a `GET_APAGARBX_REVERTIDAS` / `GET_AREC
 mesmo nome existe no lote de `Relatorios\` com outro desenho; o de Config é o de código menor (`modeloFr3(…, { pasta: 'Config' })`). O
 recibopagar de Config pergunta o "Layout de impressão" (Recibo — um por fornecedor — × Lista de recibos): o diálogo do FastReport sai na
 janela de impressão e o OnClick do layout escolhe a página. O HTML próprio (`imprimirRecibo.ts`) saiu. Smoke §295.
+
+## "Dados do recebimento" (05/10/2026)
+
+O item de menu `MniDadosRecebimentoClick` (UconsRCBbx.pas:586) imprime `Relatorios\DadosRecebimentoCR.fr3` sobre os conjuntos da consulta:
+**DbdTitulos** (GET_ARECEBERBX do lote, ORDER BY DATA_VENCEU; o revertido, a _REVERTIDAS), **DbdRecursos** (o movimento bancário do lote),
+**DbdChequesRepassados** (os cheques recebidos na baixa — `CHEQUE.IDLOTEBXRCB`, 10 na produção) e **DbdPermutas** (PERMUTAS do lote — 0 linhas
+na produção, a tabela não veio: a seção sai vazia), mais o DbdEmpresa. `GET cobranca/cons-rcb-bx/:lote/dados-recebimento` (FRMCONSRCBBX) e o
+botão "Dados do recebimento" da tela. Smoke §295.2; teste de renderização (713).

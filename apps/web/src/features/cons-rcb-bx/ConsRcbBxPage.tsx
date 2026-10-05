@@ -140,6 +140,8 @@ export function ConsRcbBxPage() {
               : <Button label="&Reverter baixa" variant="outline" disabled={ocupado} onClick={() => void reverter()} />}
             {/* o "Recibo" da consulta (UconsRCBbx.MniReciboClick): o recibo do lote no layout do cliente; o a receber pergunta antes */}
             <Button label="Re&cibo" variant="ghost" disabled={ocupado} onClick={() => { if (!window.confirm('Deseja fazer a emissão do recibo?')) return; imprimirRelatorio(`/cobranca/baixa-receber/recibo/${det.semLote ? 0 : det.lote}/impressao`).catch((e) => mensagem.erro(e)); }} />
+            {/* o "Dados do recebimento" (MniDadosRecebimentoClick): títulos, recursos, cheques e permutas do lote no DadosRecebimentoCR.fr3 */}
+            <Button label="&Dados do recebimento" variant="ghost" disabled={ocupado || det.semLote} onClick={() => { imprimirRelatorio(`/cobranca/cons-rcb-bx/${det.lote}/dados-recebimento`).catch((e) => mensagem.erro(e)); }} />
             {/* a manutenção do lote (UconsRCBbx.pas:278-380): reabre na tela de baixa e regrava num lote novo */}
             {!det.revertido && !det.semLote && det.movimentos.length > 0 && (
               <Button label="&Manutenção do lote" variant="ghost" disabled={ocupado} onClick={() => navigate(`/cobranca/baixa-receber?manutencao=${det.lote}`)} />

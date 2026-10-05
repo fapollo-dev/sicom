@@ -1015,3 +1015,34 @@ describe('apuração PIS/COFINS (ApuracaoPis_Cofins.fr3)', () => {
     expect(t).toContain('30 30e setembro, 2026');
   });
 });
+
+describe('consulta de baixas: dados do pagamento / recebimento (DadosPagamentoCP.fr3, DadosRecebimentoCR.fr3)', () => {
+  const emp = [{ CODEMPRESA: 1, FANTASIA: 'HIPER PINHEIRAO' }];
+  const recursos = [{ NROCONTA: '12345-6', TITULAR: 'CAIXA LOJA 1', MODALIDADE: 'DINHEIRO', VALOR: -150 }];
+  it('o pagamento: títulos, recursos (o valor sem sinal), cheques de terceiros vazios e os próprios', () => {
+    const t = texto(paginasDoModelo(modelo('dados-pagamento-cp.fr3'), {
+      DbdEmpresa: emp, DbdRecursos: recursos, DbdChequesRepassados: [],
+      DbdTitulos: [{ CODIGO_DOCUMENTO: 9001, FORNECEDOR: 'CEREALISTA SUL', VALOR_PAGO: 100, DATA_COMPRA: '2026-09-01', DATA_VENCEU: '2026-09-30', DATA_PAGAMENTO: '2026-10-01' },
+        { CODIGO_DOCUMENTO: 9002, FORNECEDOR: 'LATICINIOS TREVO', VALOR_PAGO: 50, DATA_COMPRA: '2026-09-02', DATA_VENCEU: '2026-09-30', DATA_PAGAMENTO: '2026-10-01' }],
+      DbdChequesProprios: [{ NROCHEQUE: 4455, RAZAO: 'CEREALISTA SUL', VALOR: 30, DTEMISSAO: '2026-10-01', DTVENC: '2026-11-01' }],
+    }, agora));
+    expect(t).toContain('Dados do pagamento');
+    expect(t).toContain('Empresa: 1 - HIPER PINHEIRAO');
+    expect(t).toContain('LATICINIOS TREVO');
+    expect(t).toContain('150,00'); // SUM(VALOR_PAGO) e o recurso de −150 sem o sinal
+    expect(t).toContain('CAIXA LOJA 1');
+    expect(t).toContain('Cheques próprios');
+    expect(t).toContain('4455');
+  });
+  it('o recebimento: o cliente, os cheques recebidos e as permutas', () => {
+    const t = texto(paginasDoModelo(modelo('dados-recebimento-cr.fr3'), {
+      DbdEmpresa: emp, DbdRecursos: [{ ...recursos[0], VALOR: 80 }], DbdPermutas: [],
+      DbdTitulos: [{ CODIGO_DOCUMENTO: 7001, CLIENTE: 'JOSE DA SILVA', VALOR_PAGO: 80, DATA_VENDA: '2026-09-10', DATA_VENCEU: '2026-10-05', DATA_PAGAMENTO: '2026-10-05' }],
+      DbdChequesRepassados: [{ NROCHEQUE: '000777', TITULAR: 'JOSE DA SILVA', VALOR: 80, DTEMISSAO: '2026-10-04', BOMPARA: '2026-11-04' }],
+    }, agora));
+    expect(t).toContain('Dados do recebimento');
+    expect(t).toContain('JOSE DA SILVA');
+    expect(t).toContain('000777');
+    expect(t).toContain('04/11/2026');
+  });
+});

@@ -27991,8 +27991,34 @@ async function main() {
           && nada.status === 422 && nada.j.message === 'Nenhum título foi selecionado.' && semAcesso.status === 403,
           { ap: [ap.status, ap.j.code, dr.map((d: any) => [d.FORNECEDOR, d.DUPLICATA, d.VALOR_PAGO, d.LOTE]), ap.j.variaveis], apRev: [apRev.status, apRev.j.code, apRev.j.datasets?.dbdRecibo?.[0]], ar: [ar.status, ar.j.code, ar.j.datasets?.dbdRecibo?.[0]],
             nada: [nada.status, nada.j.message], semAcesso: semAcesso.status });
+
+        // §295.2 — o "Dados do pagamento/recebimento" do menu das consultas (DadosPagamentoCP.fr3 / DadosRecebimentoCR.fr3)
+        await pgRb.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+            (992957, 1, 'DadosPagamentoCP.fr3', 'x', 'PERSONALIZADO', $1), (992958, 1, 'DadosRecebimentoCR.fr3', 'x', 'PERSONALIZADO', $2)
+            ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3('DADOS PAGAMENTO'), fr3('DADOS RECEBIMENTO')]);
+        await pgRb.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, idlote, dtemissao, nrodocumento, liberado)
+            VALUES (NULL, 1, -150, 'D', 'BAIXA 295', 992951, '2066-02-10', 'DOC295', 'S'), (NULL, 1, 80, 'C', 'RECEB 295', 992953, '2066-02-10', 'DOC295R', 'S')`);
+        await pgRb.query(`INSERT INTO chq_proprio (codchqproprio, valor, dtemissao, dtvenc, nrocheque, codparceiro, idempresa, idlote) VALUES (992955, 30, '2066-02-10', '2066-03-10', 4455, 2, 1, 992951)`);
+        await pgRb.query(`INSERT INTO cheque (codchq, nrocheque, valor, titular, dtemissao, bompara, codparceiro, idempresa, idlotebxrcb) VALUES (992956, '000777', 80, 'CLIENTE CHQ 295', '2066-02-09', '2066-03-09', 20, 1, 992953)`);
+        const dad = async (rota: string, h = H) => { const r = await fetch(`${base}/cobranca/${rota}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const dp = await dad('cons-apg-bx/992951/dados-pagamento');
+        const drc = await dad('cons-rcb-bx/992953/dados-recebimento');
+        const dpSem = await dad('cons-apg-bx/992951/dados-pagamento', H_SEM_ACESSO);
+        const dpNada = await dad('cons-apg-bx/992999/dados-pagamento');
+        await pgRb.query(`DELETE FROM mov_contas_bancarias WHERE idlote IN (992951, 992953)`);
+        await pgRb.query(`DELETE FROM chq_proprio WHERE codchqproprio = 992955`);
+        await pgRb.query(`DELETE FROM cheque WHERE codchq = 992956`);
+        const dsP = dp.j.datasets ?? {}, dsR = drc.j.datasets ?? {};
+        check('RECIBOS §295.2 [o "Dados do pagamento/recebimento" das consultas de baixas]: o DadosPagamentoCP.fr3 com os conjuntos que a consulta abre para o lote — DbdTitulos (a GET_APAGARBX), DbdRecursos (o movimento bancário do lote, com a MODALIDADE/TITULAR do layout), DbdChequesProprios (CHQ_PROPRIO do lote com a RAZAO), DbdChequesRepassados vazio (CHEQUE_REP: 0 linhas na produção) e o DbdEmpresa; o DadosRecebimentoCR.fr3 com os cheques recebidos (CHEQUE.IDLOTEBXRCB) e as permutas vazias (0 na produção); lote inexistente → 422; sem a tela → 403',
+          dp.status === 200 && String(dp.j.modelo).includes('DADOS PAGAMENTO') && (dsP.DbdTitulos ?? []).length === 2
+            && (dsP.DbdRecursos ?? []).some((r: any) => r.VALOR === -150 && r.NRODOCUMENTO === 'DOC295') && (dsP.DbdChequesProprios ?? []).some((c: any) => c.NROCHEQUE === 4455 && c.VALOR === 30 && c.RAZAO != null)
+            && Array.isArray(dsP.DbdChequesRepassados) && dsP.DbdChequesRepassados.length === 0 && (dsP.DbdEmpresa ?? []).length === 1
+          && drc.status === 200 && String(drc.j.modelo).includes('DADOS RECEBIMENTO') && (dsR.DbdTitulos ?? []).length === 1 && (dsR.DbdRecursos ?? []).some((r: any) => r.VALOR === 80)
+            && (dsR.DbdChequesRepassados ?? []).some((c: any) => c.NROCHEQUE === '000777' && c.VALOR === 80 && c.TITULAR === 'CLIENTE CHQ 295') && (dsR.DbdPermutas ?? []).length === 0
+          && dpNada.status === 422 && dpSem.status === 403,
+          { dp: [dp.status, dp.j.code, Object.fromEntries(Object.entries(dsP).map(([k, v]: any) => [k, v.length]))], drc: [drc.status, drc.j.code, dsR.DbdChequesRepassados?.[0]], nada: dpNada.status, sem: dpSem.status });
       } finally {
-        await pgRb.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992950 AND 992952`).catch(() => undefined);
+        await pgRb.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992950 AND 992958`).catch(() => undefined);
         if (apgs.length) { await pgRb.query(`DELETE FROM apagar_bx WHERE codapg = ANY($1::int[])`, [apgs]).catch(() => undefined); await pgRb.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [apgs]).catch(() => undefined); }
         if (rcbs.length) { await pgRb.query(`DELETE FROM areceber_bx WHERE codrcb = ANY($1::int[])`, [rcbs]).catch(() => undefined); await pgRb.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [rcbs]).catch(() => undefined); }
         await pgRb.end();

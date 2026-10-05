@@ -86,3 +86,12 @@ fornecedor no lote. O lote revertido lê a `GET_APAGARBX_REVERTIDAS` / `GET_AREC
 mesmo nome existe no lote de `Relatorios\` com outro desenho; o de Config é o de código menor (`modeloFr3(…, { pasta: 'Config' })`). O
 recibopagar de Config pergunta o "Layout de impressão" (Recibo — um por fornecedor — × Lista de recibos): o diálogo do FastReport sai na
 janela de impressão e o OnClick do layout escolhe a página. O HTML próprio (`imprimirRecibo.ts`) saiu. Smoke §295.
+
+## "Dados do pagamento" (05/10/2026)
+
+O item de menu `MniDadosPagamentoClick` (UConsAPGbx.pas:415) imprime `Relatorios\DadosPagamentoCP.fr3` sobre os conjuntos que a consulta
+abriu para o lote: **DbdTitulos** (o `cdsDoctoBX` — GET_APAGARBX do lote; o revertido, a _REVERTIDAS), **DbdRecursos** (o `sqqContaCorrente`:
+MOV_CONTAS_BANCARIAS do lote com operação, modalidade, conta e titular — o layout imprime o valor sem sinal), **DbdChequesRepassados**
+(CHEQUE_REP × CHEQUE), **DbdChequesProprios** (CHQ_PROPRIO do lote com a razão) e DbdEmpresa. `GET cobranca/cons-apg-bx/:lote/dados-pagamento`
+(FRMCONSAPGBX) e o botão "Dados do pagamento" da tela. Na produção a CHEQUE_REP tem **0 linhas** (nem veio para o destino) e nenhum
+CHQ_PROPRIO tem lote: as duas seções de cheque saem vazias. Smoke §295.2; teste de renderização (712).
