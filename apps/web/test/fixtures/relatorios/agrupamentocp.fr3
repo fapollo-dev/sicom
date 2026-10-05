@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" EngineOptions.DoublePass="True" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="39765,6742319444" ReportOptions.Description.Text="" ReportOptions.LastChange="43367,3602249769" ScriptLanguage="PascalScript" ScriptText.Text="    &#13;&#10;begin&#13;&#10;        &#13;&#10;end." StoreInDFM="False" OnStartReport="FrxRelatorioOnStartReport" OnStopReport="FrxRelatorioOnStopReport">
+  <Datasets>
+    <item DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento"/>
+    <item DataSet="DbdApagar" DataSetName="DbdApagar"/>
+  </Datasets>
+  <Variables>
+    <item Name=" CAT"/>
+    <item Name="MARGEM_BRUTA" Value="36,68"/>
+    <item Name="TOTAL_CUSTO" Value="10425,17"/>
+    <item Name="TOTAL_VENDA" Value="28424,75"/>
+    <item Name="LUCRO_BRUTO_PERC" Value="63,32"/>
+    <item Name="LUCRO_BRUTO" Value="17999,58"/>
+    <item Name=" New Category2"/>
+    <item Name="TOTAL_ACRES" Value="0"/>
+    <item Name="DtInicial" Value="'01/08/2016'"/>
+    <item Name="DtFinal" Value="'01/08/2016'"/>
+    <item Name="HrInicial" Value="'00:00'"/>
+    <item Name="HrFinal" Value="'23:59'"/>
+    <item Name="Empresa" Value="'1'"/>
+    <item Name="DESCONTOTOTAL" Value="0"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="210" PaperHeight="297" PaperSize="9" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="" OnBeforePrint="Page1OnBeforePrint">
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="117,16537874" Left="0" Top="18,89765" Width="718,1107">
+      <TfrxShapeView Name="Shape1" Left="0" Top="56,13389" Width="718,1107" Height="56,69295"/>
+      <TfrxMemoView Name="Memo1" Align="baCenter" Left="204,09462" Top="11,33859" Width="309,92146" Height="18,89765" Font.Charset="1" Font.Color="0" Font.Height="-16" Font.Name="Arial" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="CONTAS À PAGAR AGRUPADAS"/>
+      <TfrxSysMemoView Name="SysMemo2" Left="672,65399" Top="12,33859" Width="41,57483" Height="11,33859" DisplayFormat.FormatStr="hh:mm:ss" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[TIME]"/>
+      <TfrxSysMemoView Name="SysMemo5" Left="553,57514" Top="12,33859" Width="113,3859" Height="11,33859" DisplayFormat.FormatStr="DD/MM/YYYY" DisplayFormat.Kind="fkDateTime" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[DATE]"/>
+      <TfrxMemoView Name="DbdApagarRAZAOSOCIAL" Left="6" Top="60,47248" Width="336,37817" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Empresa: [DbdApagar.&#34;RAZAOSOCIAL&#34;]"/>
+      <TfrxMemoView Name="Memo4" Left="5" Top="89,92919" Width="396,85065" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Parceiro: [DbdApagar.&#34;RAZAO&#34;]"/>
+      <TfrxMemoView Name="DbdApagarDTCOMPRA" Left="400,05535" Top="60,47248" Width="60,47248" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Emissão:"/>
+      <TfrxMemoView Name="Memo5" Left="560,14997" Top="60,47248" Width="79,37013" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Vencimento:"/>
+      <TfrxMemoView Name="DbdApagarDTCOMPRA1" Left="461,88219" Top="60,47248" Width="71,81107" Height="18,89765" DataField="DTCOMPRA" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[DbdApagar.&#34;DTCOMPRA&#34;]"/>
+      <TfrxMemoView Name="Memo6" Left="638,63822" Top="60,47248" Width="75,5906" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[DbdApagar.&#34;DTVENC&#34;]"/>
+      <TfrxMemoView Name="DbdAgrupamentoVALOR" Left="619,74057" Top="89,92919" Width="94,48825" Height="18,89765" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-16" Font.Name="Arial" Font.Style="1" HAlign="haRight" ParentFont="False" Text="[DbdApagar.&#34;VALOR&#34;]"/>
+      <TfrxMemoView Name="Memo7" Left="526,69326" Top="89,92919" Width="90,70872" Height="18,89765" DataSet="DbdApagar" DataSetName="DbdApagar" Font.Charset="1" Font.Color="-16777208" Font.Height="-16" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Valor total:"/>
+    </TfrxPageHeader>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="42,7953" Left="0" Top="419,52783" Width="718,1107">
+      <TfrxLineView Name="Line2" Left="0" Top="3,67718" Width="718,110236220472" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxSysMemoView Name="SysMemo1" Left="532,91373" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Página [PAGE#] de [TOTALPAGES#]"/>
+      <TfrxMemoView Name="Memo2" Left="-1,22047" Top="6,33859" Width="185,19697" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Apollo Sistemas de Gestão"/>
+      <TfrxMemoView Name="Memo3" Left="-1,22047" Top="19,89765" Width="105,82684" Height="11,33859" Font.Charset="1" Font.Color="0" Font.Height="-9" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Fone : (34) 3229-3291"/>
+    </TfrxPageFooter>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="18,89765" Left="0" Top="291,02381" Width="718,1107" ColumnWidth="0" ColumnGap="0" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" RowCount="0">
+      <TfrxMemoView Name="MemZebra" Left="-2,22047" Top="0,22047" Width="718,11023622" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" Highlight.Font.Charset="1" Highlight.Font.Color="255" Highlight.Font.Height="-13" Highlight.Font.Name="Arial" Highlight.Font.Style="0" Highlight.Condition="&#60;line&#62; mod 2" Highlight.FillType="ftBrush" Highlight.Fill.BackColor="14803425" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="DbdAgrupamentoCODAPG" Left="268,34663" Top="0" Width="79,37013" Height="18,89765" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[DbdAgrupamento.&#34;CODAPG&#34;]"/>
+      <TfrxMemoView Name="DbdAgrupamentoDUPLICATA" Left="355,61441" Top="0" Width="94,48825" Height="18,89765" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[DbdAgrupamento.&#34;DUPLICATA&#34;]"/>
+      <TfrxMemoView Name="DbdAgrupamentoDTCOMPRA" Left="455,7483" Top="0,22047" Width="75,5906" Height="18,89765" DataField="DTCOMPRA" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[DbdAgrupamento.&#34;DTCOMPRA&#34;]"/>
+      <TfrxMemoView Name="DbdAgrupamentoDTVENC" Left="542,3389" Top="0,22047" Width="75,5906" Height="18,89765" DataField="DTVENC" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[DbdAgrupamento.&#34;DTVENC&#34;]"/>
+      <TfrxMemoView Name="DbdAgrupamentoVALOR1" Left="623,07916" Top="0,22047" Width="90,70872" Height="18,89765" DataField="VALOR" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[DbdAgrupamento.&#34;VALOR&#34;]"/>
+    </TfrxMasterData>
+    <TfrxHeader Name="Header1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="26,45668071" Left="0" Top="196,53556" Width="718,1107">
+      <TfrxMemoView Name="Memo8" Left="272,12616" Top="1,44094" Width="79,37013" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Código"/>
+      <TfrxLineView Name="Line1" Left="0" Top="23,45671" Width="718,1107" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo9" Left="459,7483" Top="1,44094" Width="75,5906" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Emissão"/>
+      <TfrxMemoView Name="Memo10" Left="546,3389" Top="1,44094" Width="75,5906" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Vencimento"/>
+      <TfrxMemoView Name="Memo11" Left="623,5201" Top="1,44094" Width="90,70872" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Valor"/>
+      <TfrxMemoView Name="Memo12" Left="359,39394" Top="1,44094" Width="94,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Duplicata"/>
+      <TfrxMemoView Name="Memo14" Left="0" Top="2" Width="173,85838" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-15" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Documentos agrupados"/>
+    </TfrxHeader>
+    <TfrxGroupHeader Name="GroupHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="22,67718" Left="0" Top="245,66945" Width="718,1107" Condition="DbdAgrupamento.&#34;CODPARCEIRO&#34;">
+      <TfrxMemoView Name="Memo15" Left="3,55906" Top="0" Width="532,91373" Height="18,89765" DataSet="DbdAgrupamento" DataSetName="DbdAgrupamento" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Parceiro : [DbdAgrupamento.&#34;RAZAO&#34;]"/>
+    </TfrxGroupHeader>
+    <TfrxGroupFooter Name="GroupFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="26,45671" Left="0" Top="332,59864" Width="718,1107">
+      <TfrxLineView Name="Line3" Left="2,33859" Top="24,11812" Width="714,33117" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxSysMemoView Name="SysMemo3" Left="625,06339" Top="0,22047" Width="90,70872" Height="18,89765" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" HAlign="haRight" ParentFont="False" Text="[SUM(&#60;DbdAgrupamento.&#34;VALOR&#34;&#62;,MasterData1)]"/>
+    </TfrxGroupFooter>
+  </TfrxReportPage>
+</TfrxReport>

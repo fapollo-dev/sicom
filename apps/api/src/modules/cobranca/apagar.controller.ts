@@ -98,6 +98,12 @@ export class ApagarController {
     return this.agrupamento.removerTitulo(id, membro);
   }
 
+  /** a impressão do agrupamento no layout do cliente (AgrupamentoCP[Agrupado] / AgrupamentoCPCR[Agrupado].fr3) */
+  @Get(':id/relatorio-agrupamento/impressao')
+  impressaoAgrupamento(@Param('id', ParseIntPipe) id: number, @Query('agrupado') agrupado?: string) {
+    return this.agrupamento.impressao(id, agrupado === '1' || agrupado === 'true');
+  }
+
   /** os dados das impressões do agrupamento (o relatório do legado depois de agrupar / pelo consolidado). */
   @Get(':id/relatorio-agrupamento')
   relatorioAgrupamento(@Param('id', ParseIntPipe) id: number) {

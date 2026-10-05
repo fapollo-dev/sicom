@@ -7,6 +7,8 @@ import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
 import { DocumentosContabilService } from './documentos-contabil.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
@@ -220,6 +222,43 @@ export class ApagarAgrupamentoService {
       convenio, empresa: { razao: empresa.razao_social ?? null },
       consolidado: { codapg: num(c.codapg), parceiro: c.razao ?? null, dtcompra: c.dtcompra, dtvenc: c.dtvenc, valor: num(c.valor) },
       documentos: docs.map((d) => ({ ...d, valor: num(d.valor) })),
+    };
+  }
+
+  /**
+   * As impressões do agrupamento no layout do cliente (`BtnImprimirClick`, uAPagar.pas:2460): o `QryAgrupamento` no DbdAgrupamento —
+   * os A Pagar do grupo (`SELECT A.*, P.RAZAO … ORDER BY P.RAZAO, A.DTCOMPRA, A.CODAPG`, AgrupamentoCP.fr3) ou somados por parceiro
+   * (AgrupamentoCPAgrupado.fr3); no convênio (os A Receber do grupo na grade) os A RECEBER (`… ORDER BY P.RAZAO, A.DTVENDA, A.DTVENC`,
+   * AgrupamentoCPCR.fr3 / …CPCRAgrupado.fr3 com SUM(TOTAL)). DbdApagar = o título consolidado da tela com a razão da empresa. Sem linha:
+   * "Não foram encontrados dados para imprimir.".
+   */
+  async impressao(codConsolidado: number, agrupado: boolean) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cons = (await sql<Record<string, unknown>>`SELECT a.*, p.razao, e.razao_social AS razaosocial FROM apagar a
+        LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro LEFT JOIN empresas e ON e.idempresa = a.codempresa
+       WHERE a.codapg = ${codConsolidado} AND a.codempresa = ${emp} AND a.agrupamento = 'S'`.execute(db)).rows[0];
+    if (!cons) throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codapg: codConsolidado });
+    const g = num(cons.codgrupo);
+    const convenio = num(cons.codcxagrupamentocr) > 0;
+    const rows = convenio
+      ? (agrupado
+        ? (await sql<Record<string, unknown>>`SELECT p.razao, a.codparceiro, sum(a.valor) AS valor, sum(a.total) AS total FROM areceber a JOIN parceiros p ON p.codparceiro = a.codparceiro
+            WHERE a.codgrupo_agrupamento_apg = ${g} GROUP BY p.razao, a.codparceiro ORDER BY p.razao`.execute(db)).rows
+        : (await sql<Record<string, unknown>>`SELECT a.*, p.razao FROM areceber a JOIN parceiros p ON p.codparceiro = a.codparceiro
+            WHERE a.codgrupo_agrupamento_apg = ${g} ORDER BY p.razao, a.dtvenda, a.dtvenc`.execute(db)).rows)
+      : (agrupado
+        ? (await sql<Record<string, unknown>>`SELECT p.razao, a.codparceiro, sum(a.valor) AS valor FROM apagar a JOIN parceiros p ON p.codparceiro = a.codparceiro
+            WHERE a.codgrupo_agrupamento_apg = ${g} GROUP BY p.razao, a.codparceiro ORDER BY p.razao`.execute(db)).rows
+        : (await sql<Record<string, unknown>>`SELECT a.*, p.razao FROM apagar a JOIN parceiros p ON p.codparceiro = a.codparceiro
+            WHERE a.codgrupo_agrupamento_apg = ${g} ORDER BY p.razao, a.dtcompra, a.codapg`.execute(db)).rows);
+    if (!rows.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados dados para imprimir.');
+    const nums = await colunasNumericas(db, ['apagar', 'areceber'], ['valor', 'total']);
+    const arquivo = convenio ? (agrupado ? 'AgrupamentoCPCRAgrupado.fr3' : 'AgrupamentoCPCR.fr3') : (agrupado ? 'AgrupamentoCPAgrupado.fr3' : 'AgrupamentoCP.fr3');
+    return {
+      titulo: `Agrupamento ${codConsolidado}`,
+      modelo: await modeloFr3(db, arquivo),
+      datasets: { DbdAgrupamento: rows.map((r) => registroFr3(r, nums)), DbdApagar: [registroFr3(cons, nums)] },
     };
   }
 

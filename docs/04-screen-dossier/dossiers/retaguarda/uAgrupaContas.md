@@ -573,3 +573,21 @@ SELECT FORM, OPCAO, COUNT(*), COUNT(DISTINCT CODOPERADOR) FROM PERMISSOES
  WHERE FORM LIKE 'FRMAGRUPA%' OR (FORM IN ('FRMCADARECEBER','FRMAPAGAR') AND OPCAO LIKE '%AGRUP%')
  GROUP BY FORM, OPCAO;
 ```
+
+## As impressões no layout do cliente (05/10/2026)
+
+As impressões do agrupamento saem nos layouts da RELATORIOS pelo motor .fr3 (o HTML próprio `imprimirAgrupamento.ts` saiu):
+- **A Receber** (`GET cadastro/areceber/:id/relatorio-agrupamento/impressao?modo=analitico|totalizado|funcionario`): `Agrupamento.fr3`,
+  `Agrupamentototalizado.fr3` e `Agrupamento_extrato_funcionario.fr3`. `FDBAgrupamentoRCB` = o `QryAgrupados` (udmCadAReceber.dfm: os
+  títulos do grupo com OPERADORA = o operador, NOMECLIENTE/RAZAO = o cliente, a forma, o banco, o centro de custo, na ordem do cliente e da
+  venda; o endereço ativo do cliente — o JOIN do legado duplicaria com dois endereços ativos, 0 de 20.562 membros desde 2025 na produção),
+  `frxDBDataset3` = o consolidado da tela (TOTAL, TXADM: o script do layout mostra a taxa administrativa só quando > 0), `frxDBDataset2` = a
+  empresa do login, `frxDBConsulta` = o extrato por funcionário (`GeraConsulta`).
+- **A Pagar** (`GET cadastro/apagar/:id/relatorio-agrupamento/impressao?agrupado=`): o `QryAgrupamento` no `DbdAgrupamento` —
+  `SELECT A.*, P.RAZAO … ORDER BY P.RAZAO, A.DTCOMPRA, A.CODAPG` (AgrupamentoCP.fr3) ou a soma por parceiro (AgrupamentoCPAgrupado.fr3); no
+  convênio os A RECEBER do grupo (AgrupamentoCPCR[Agrupado].fr3, com SUM(TOTAL)). `DbdApagar` = o consolidado com a razão da empresa. Sem
+  linha: "Não foram encontrados dados para imprimir.".
+- **Motor .fr3:** o extrato por funcionário é `DoublePass` — a 1ª passada guarda o total de cada grupo numa TStringList (`Lista.Add`) com
+  `Engine.FinalPass` falso e a final escreve nos cabeçalhos; o motor agora roda as duas passadas com o estado do script (variáveis, listas e
+  os objetos como o OnStartReport os deixou) atravessando, e o OnStartReport/bloco principal uma vez só.
+- O `AgrupamentoAR.fr3` (o do desconto de títulos, `frmDescontoTitulo`) fica para a tela do desconto. Smoke §190.2.

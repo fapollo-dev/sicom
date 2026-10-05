@@ -6,11 +6,13 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  adicionarAoAgrupamento, agruparPagar, agruparReceber, buscarParaAgrupar, membrosAgrupamento, relatorioAgrupamentoAP, relatorioAgrupamentoAR,
+  adicionarAoAgrupamento, agruparPagar, agruparReceber, buscarParaAgrupar, membrosAgrupamento,
   removerDoAgrupamento, reverterAgrupamento,
   type ConvenioSugestao, type FiltroAgrupar, type Lado, type TituloAgrupar,
 } from './agrupamentoApi';
-import { imprimirAgrupamentoAP, imprimirAgrupamentoAR, type ModoAR } from './imprimirAgrupamento';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+
+type ModoAR = 'analitico' | 'totalizado' | 'funcionario';
 
 /**
  * AGRUPAR CONTAS A RECEBER / A PAGAR (`FRMAGRUPACONTASARECEBER` / `FRMAGRUPACONTASAPAGAR`; dossiê uAgrupaContas.md).
@@ -110,18 +112,12 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
     setJuros(new Set());
   });
 
-  // IMPRIMIR (o relatório do agrupamento do legado): a janela abre no clique e o dado chega depois (popup-blocker)
+  // IMPRIMIR (o relatório do agrupamento do legado) no layout .fr3 do cliente
   const imprimir = (modo: ModoAR | 'agrupado' | 'analiticoAp') => {
     const id = Number(consulta.cod);
     if (!id) return;
-    const win = window.open('', '_blank');
-    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
-    void executar(async () => {
-      try {
-        if (ar) imprimirAgrupamentoAR(win, await relatorioAgrupamentoAR(id), modo as ModoAR);
-        else imprimirAgrupamentoAP(win, await relatorioAgrupamentoAP(id), modo === 'agrupado');
-      } catch (e) { win.close(); throw e; }
-    });
+    const path = ar ? `/cadastro/areceber/${id}/relatorio-agrupamento/impressao?modo=${modo}` : `/cadastro/apagar/${id}/relatorio-agrupamento/impressao?agrupado=${modo === 'agrupado' ? 1 : 0}`;
+    imprimirRelatorio(path).catch((e) => mensagem.erro(e));
   };
 
   const consultar = () => executar(async () => {

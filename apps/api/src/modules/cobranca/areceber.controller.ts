@@ -116,6 +116,12 @@ export class AreceberController {
     return this.agrupamento.removerTitulo(id, membro);
   }
 
+  /** a impressão do agrupamento no layout do cliente (Agrupamento / Agrupamentototalizado / Agrupamento_extrato_funcionario.fr3) */
+  @Get(':id/relatorio-agrupamento/impressao')
+  impressaoAgrupamento(@Param('id', ParseIntPipe) id: number, @Query('modo') modo?: string) {
+    return this.agrupamento.impressao(id, modo === 'totalizado' || modo === 'funcionario' ? modo : 'analitico');
+  }
+
   /** os dados das impressões do agrupamento (o relatório do legado depois de agrupar / pelo consolidado). */
   @Get(':id/relatorio-agrupamento')
   relatorioAgrupamento(@Param('id', ParseIntPipe) id: number) {

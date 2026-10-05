@@ -566,4 +566,26 @@ describe('relatórios do legado com vários datasets', () => {
     expect(rcb).toContain('A QUANTIA DE.: R$ 80,00');
     expect(rcb).toContain('GUARDAR ESTE RECIBO POR 12 MESES');
   });
+
+  it('agrupamento (layouts da produção): o extrato de convênio com a taxa administrativa, o extrato por funcionário com os totais dos grupos no cabeçalho (DoublePass: a 1ª passada guarda numa TStringList, a final escreve) e o A Pagar agrupado', () => {
+    const emp = [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', FANTASIA: 'HIPER', CNPJ: '1' }];
+    const mb = (cli: string, cup: string, v: number) => ({ CODRCB: 1, NROCUPOM: cup, DTVENDA: '2066-03-01T10:00:00', DTVENC: '2066-04-10T00:00:00', VALOR: v, CODPDV: 3, OPERADORA: 'CAIXA 1', CODEMPRESA: 1, RAZAO: cli });
+    const cons = [{ NOMECLIENTE: 'CONVENIO X', DTVENDA: '2066-03-31T00:00:00', DTVENC: '2066-04-10T00:00:00', TOTAL: 160, TXADM: 10 }];
+    const an = texto(paginasDoModelo(modelo('agrupamento.fr3'), { FDBAgrupamentoRCB: [mb('ANA', '11', 50), mb('ANA', '12', 30), mb('BETO', '13', 70)], frxDBDataset3: cons, frxDBDataset2: emp }, agora));
+    expect(an).toContain('EXTRATO DE CONVÊNIO');
+    expect(an).toContain('Convênio: CONVENIO X');
+    expect(an).toContain('ANA 1 11 01/03/2066 10/04/2066 R$ 50,00 3 CAIXA 1');
+    expect(an).toContain('R$ 80,00 BETO'); // o subtotal do cliente
+    expect(an).toContain('Taxa Administrativa R$ 10,00'); // o ColumnFooter só com TXADM > 0
+    const ex = (nome: string, tipo: string, v: number) => ({ NOME: nome, TIPO: tipo, DATA: '2066-03-01T00:00:00', VALOR: -v, DOCUMENTO: 5, PARCELAS: '1', TIPODOC: 'CV', OBS: 'X' });
+    const fu = texto(paginasDoModelo(modelo('agrupamento-extrato-funcionario.fr3'), { frxDBConsulta: [ex('ANA', 'CONVENIOS DE FUNCIONARIOS', 50), ex('ANA', 'FARMACIA', 30), ex('BETO', 'CONVENIOS DE FUNCIONARIOS', 70)] }, agora));
+    expect(fu).toContain('ANA -80,00 CONVENIOS DE FUNCIONARIOS -50,00');
+    expect(fu).toContain('FARMACIA -30,00');
+    expect(fu).toContain('BETO -70,00');
+    expect(fu).toContain('Total geral -150,00');
+    const cp = texto(paginasDoModelo(modelo('agrupamentocp.fr3'), { DbdAgrupamento: [{ CODAPG: 1, CODPARCEIRO: 2, RAZAO: 'FORN A', DUPLICATA: 'X1', DTCOMPRA: '2066-03-01T00:00:00', DTVENC: '2066-04-01T00:00:00', VALOR: 40 }],
+      DbdApagar: [{ RAZAO: 'CONSOLIDADO', RAZAOSOCIAL: 'HIPER', DTCOMPRA: '2066-03-31T00:00:00', DTVENC: '2066-04-10T00:00:00', VALOR: 40 }] }, agora));
+    expect(cp).toContain('CONTAS À PAGAR AGRUPADAS');
+    expect(cp).toContain('Parceiro : FORN A 1 X1 01/03/2066 01/04/2066 40,00');
+  });
 });

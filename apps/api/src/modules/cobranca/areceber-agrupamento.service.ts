@@ -8,6 +8,8 @@ import { configNaTrx } from '../compras/pedido-heranca';
 import { novoGrupo } from './apagar-caixa';
 import { DocumentosContabilService } from './documentos-contabil.service';
 import { emSavepoint } from './fechamento-contabil.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
@@ -351,6 +353,44 @@ export class AreceberAgrupamentoService {
       membros: membros.map((m) => ({ ...m, valor: num(m.valor) })),
       extrato: extrato.map(({ ord_data: _o, ...e }) => ({ ...e, valor: num(e.valor) })),
     };
+  }
+
+  /**
+   * As impressões do agrupamento no layout do cliente (`btnImprimirClick`, uCadAReceber.pas:1237): `Agrupamento.fr3` (rgTipoRel 0),
+   * `Agrupamentototalizado.fr3` (1) e `Agrupamento_extrato_funcionario.fr3` (2, o `GeraConsulta`). FDBAgrupamentoRCB = o `QryAgrupados`
+   * (os títulos do grupo com o operador em OPERADORA e o cliente em RAZAO/NOMECLIENTE, na ordem do cliente e da venda), frxDBDataset3 = o
+   * título consolidado da tela (TOTAL, TXADM — o script do layout soma a taxa administrativa), frxDBDataset2 = a empresa do login e
+   * frxDBConsulta = o extrato por funcionário.
+   */
+  async impressao(codConsolidado: number, modo: 'analitico' | 'totalizado' | 'funcionario') {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const projecao = sql`SELECT r.*, o.nome AS operadora, p1.razao AS nomevendedor, p2.razao AS nomecobrador, p3.razao AS nomecliente, p3.razao AS razao,
+           e.endereco, e.bairro, e.cidade, e.cep, e.uf, e.cnpj_cpf, e.rg_insc, f.modalidade, em.razao_social AS razaosocial, b.banco, plc.descricao, plc.desccodplc
+      FROM areceber r
+      LEFT JOIN operadores o ON o.codoperador = r.codoperador
+      LEFT JOIN parceiros p1 ON p1.codparceiro = r.codvendedor
+      LEFT JOIN parceiros p2 ON p2.codparceiro = r.codcobrador
+      LEFT JOIN parceiros p3 ON p3.codparceiro = r.codparceiro
+      LEFT JOIN LATERAL (SELECT * FROM parceiros_end pe WHERE pe.codparceiro = p3.codparceiro AND coalesce(pe.ativado, 'S') = 'S' ORDER BY pe.codend LIMIT 1) e ON true
+      LEFT JOIN formas_pgto f ON f.idpgto = r.idpgto
+      LEFT JOIN empresas em ON em.idempresa = r.codempresa
+      LEFT JOIN bancos b ON b.codbco = r.codbco
+      LEFT JOIN plc ON plc.codplc = r.codplc`;
+    const cons = (await sql<Record<string, unknown>>`${projecao} WHERE r.codrcb = ${codConsolidado} AND r.codempresa = ${emp} AND r.agrupamento = 'S'`.execute(db)).rows[0];
+    if (!cons) throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codrcb: codConsolidado });
+    const membros = (await sql<Record<string, unknown>>`${projecao} WHERE r.codgrupo_agrupamento_rcb = ${num(cons.codgrupo)} ORDER BY p3.razao, r.dtvenda`.execute(db)).rows;
+    const nums = await colunasNumericas(db, ['areceber']);
+    const tirar = (r: Record<string, unknown>) => { const { senha: _s, ...resto } = r; return registroFr3(resto, nums); };
+    const datasets: Record<string, Array<Record<string, unknown>>> = {
+      FDBAgrupamentoRCB: membros.map(tirar), frxDBDataset3: [tirar(cons)], frxDBDataset2: [await empresaParaRelatorio(db, emp)],
+    };
+    if (modo === 'funcionario') {
+      const r = await this.relatorio(codConsolidado);
+      datasets.frxDBConsulta = r.extrato.map((x: Record<string, unknown>) => registroFr3({ ...x, data: x.data ? `${String(x.data).split('/').reverse().join('-')}T00:00:00` : null }, new Set(['valor', 'documento', 'codparceiro', 'codoperador'])));
+    }
+    const arquivo = modo === 'analitico' ? 'Agrupamento.fr3' : modo === 'totalizado' ? 'Agrupamentototalizado.fr3' : 'Agrupamento_extrato_funcionario.fr3';
+    return { titulo: `Agrupamento ${codConsolidado}`, modelo: await modeloFr3(db, arquivo), datasets };
   }
 
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {

@@ -40,17 +40,3 @@ export const reverterAgrupamento = (lado: Lado, id: number) => req<{ revertido: 
 export const adicionarAoAgrupamento = (id: number, codrcbs: number[]) =>
   req<Record<string, unknown>>(`/cadastro/areceber/${id}/adicionar-ao-agrupamento`, { method: 'POST', body: JSON.stringify({ codrcbs }) });
 export const removerDoAgrupamento = (id: number, membro: number) => req<Record<string, unknown>>(`/cadastro/areceber/${id}/remover-do-agrupamento/${membro}`, { method: 'POST' });
-export interface RelatorioAgrupamentoAR {
-  empresa: { razao: string | null; fantasia: string | null; cnpj: string | null };
-  consolidado: { codrcb: number; cliente: string | null; dtvenda: string; dtvenc: string; total: number; txadm: number };
-  membros: Array<{ codrcb: number; nrocupom: string | null; dtvenda: string; dtvenc: string; valor: number; codpdv: number | null; operador: string | null; codempresa: number; codparceiro: number; cliente: string | null }>;
-  extrato: Array<{ nome: string; codoperador: number | null; codparceiro: number; tipo: string; data: string; valor: number; documento: number; parcelas: number | null; tipodoc: string | null; obs: string | null }>;
-}
-export interface RelatorioAgrupamentoAP {
-  convenio: boolean;
-  empresa: { razao: string | null };
-  consolidado: { codapg: number; parceiro: string | null; dtcompra: string; dtvenc: string; valor: number };
-  documentos: Array<{ codigo: number; duplicata: string | null; codparceiro: number; razao: string | null; emissao: string; dtvenc: string; valor: number }>;
-}
-export const relatorioAgrupamentoAR = (id: number) => req<RelatorioAgrupamentoAR>(`/cadastro/areceber/${id}/relatorio-agrupamento`);
-export const relatorioAgrupamentoAP = (id: number) => req<RelatorioAgrupamentoAP>(`/cadastro/apagar/${id}/relatorio-agrupamento`);

@@ -145,6 +145,13 @@ class Relatorio {
   private readonly funcoes: Record<string, (args: Valor[], amb: Ambiente) => Valor>;
   private readonly amb: Ambiente;
 
+  /** `Engine.FinalPass`: falso na 1ª passada do DoublePass, verdadeiro na que imprime (e na passada única) */
+  private passeFinal = true;
+  /** o estado do script da 1ª passada (as variáveis e as listas atravessam as passadas, como no FastReport) */
+  private herdado: { locais: Map<string, Valor>; listas: Map<string, string[]>; objetos: Map<string, Partial<Estado>> } | null = null;
+  /** os objetos como o começo do relatório os deixou (o OnStartReport esconde página, liga coluna…): a passada final parte daí */
+  private objetosNoInicio = new Map<string, Partial<Estado>>();
+
   constructor(xml: string, dados: Registro[] | Conjuntos, private readonly agora: Date, variaveisExtras: Record<string, string> = {}, private readonly totalPaginas = 0,
     textos: Record<string, string> = {}, private readonly dialogo?: RespostaDialogo) {
     this.raiz = parse(xml);
@@ -280,6 +287,7 @@ class Relatorio {
       this.listas.set(h, []);
       return h;
     }
+    if (caminho.join('.').toLowerCase() === 'engine.finalpass') return this.passeFinal;
     const [o, ...resto] = this.resolver(caminho);
     // um nome solto que é variável do relatório vence o objeto de mesmo nome (o `[DATA]` do FechamentoCaixa.fr3 × a página "Data"): o
     // `DoGetValue` do FastReport olha as Variables antes do script
@@ -368,6 +376,13 @@ class Relatorio {
       const banda = this.estados.get(gl[1]);
       const ds = banda ? banda.no.a.DataSetName || banda.no.a.DataSet || '' : '';
       if (lista) { lista.length = 0; lista.push(...Object.keys(this.linhas(ds)[0] ?? {}).map((k) => k.toUpperCase())); }
+      return true;
+    }
+    // `Lista.Add(Texto)` / `Lista.Clear` da TStringList do script (o extrato por funcionário guarda os totais dos grupos na 1ª passada)
+    const ad = /^(\w+)\.(add|clear)$/.exec(nome);
+    if (ad && this.lista(ad[1])) {
+      const lista = this.lista(ad[1])!;
+      if (ad[2] === 'clear') lista.length = 0; else lista.push(texto(args[0] ? avaliar(args[0], this.amb, this.funcoes) : ''));
       return true;
     }
     if (/\.free$/.test(nome)) return true;
@@ -604,11 +619,29 @@ class Relatorio {
     return { html, altura };
   }
 
+  /** a passada da dupla: a 1ª (`final` falso) só conta; a final herda o estado do script dela */
+  passada(final: boolean, anterior?: Relatorio): this {
+    this.passeFinal = final;
+    if (anterior) this.herdado = { locais: anterior.locais, listas: anterior.listas, objetos: anterior.objetosNoInicio };
+    return this;
+  }
+
   gerar(): PaginaSaida[] {
     const saida: PaginaSaida[] = [];
-    try { executar(this.prog.principal, this.amb, this.funcoes, this.prog); } catch { /* script principal */ }
-    this.evento(this.raiz, 'OnStartReport');
+    if (this.herdado) {
+      // a passada final: o bloco principal e o OnStartReport já rodaram na 1ª (o FastReport os roda uma vez por relatório); os objetos
+      // voltam como o começo do relatório os deixou e as variáveis do script seguem com o que a 1ª passada acumulou
+      for (const [k, v] of this.herdado.locais) this.locais.set(k, v);
+      for (const [k, v] of this.herdado.listas) this.listas.set(k, [...v]);
+      for (const [k, v] of this.herdado.objetos) { const e = this.estados.get(k); if (e) Object.assign(e, { ...v, extras: { ...v.extras } }); }
+    } else {
+      try { executar(this.prog.principal, this.amb, this.funcoes, this.prog); } catch { /* script principal */ }
+      this.evento(this.raiz, 'OnStartReport');
+    }
     this.aplicarDialogo();
+    if (!this.passeFinal) {
+      for (const [k, e] of this.estados) this.objetosNoInicio.set(k, { Visible: e.Visible, Left: e.Left, Top: e.Top, Width: e.Width, Height: e.Height, Text: e.Text, extras: { ...e.extras } });
+    }
     // as páginas de sub-relatório (`TfrxSubreport Page="Page2"`) não saem sozinhas: as bandas delas rodam dentro da banda do subrelatório
     const paginasDeSub = new Set<string>();
     const juntarSubs = (no: No) => { if (no.tag === 'TfrxSubreport' && no.a.Page) paginasDeSub.add(no.a.Page.toLowerCase()); no.filhos.forEach(juntarSubs); };
@@ -878,9 +911,12 @@ export function clicarNoDialogo(xml: string, nome: string, marcados: Record<stri
 /** as páginas de um trabalho de impressão (um Imprimir(frxReport1) do legado). */
 export function paginasDoModelo(xml: string, dados: Registro[] | Conjuntos, agora = new Date(), variaveis: Record<string, string> = {}, textos: Record<string, string> = {},
   dialogo?: RespostaDialogo): PaginaSaida[] {
-  // [TotalPages#] pede a contagem antes: a primeira passada só conta as páginas (o DoublePass do FastReport)
-  const total = /TotalPages#/i.test(xml) ? new Relatorio(xml, dados, agora, variaveis, 0, textos, dialogo).gerar().length : 0;
-  return new Relatorio(xml, dados, agora, variaveis, total, textos, dialogo).gerar();
+  // o DoublePass do FastReport (EngineOptions.DoublePass, ou o [TotalPages#] que pede a contagem): a 1ª passada conta as páginas e roda o
+  // script com Engine.FinalPass falso (o extrato por funcionário guarda ali os totais dos grupos); a final herda as variáveis do script
+  if (!/TotalPages#/i.test(xml) && !/EngineOptions\.DoublePass="True"/i.test(xml)) return new Relatorio(xml, dados, agora, variaveis, 0, textos, dialogo).gerar();
+  const primeira = new Relatorio(xml, dados, agora, variaveis, 0, textos, dialogo).passada(false);
+  const total = primeira.gerar().length;
+  return new Relatorio(xml, dados, agora, variaveis, total, textos, dialogo).passada(true, primeira).gerar();
 }
 
 /** o documento HTML da impressão: cada tamanho de papel vira uma @page nomeada, uma etiqueta/folha por página. */

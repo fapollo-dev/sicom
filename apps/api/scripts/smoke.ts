@@ -21588,6 +21588,29 @@ async function main() {
           && rAr.extrato.some((e: any) => e.tipo === 'VALE FUNCIONARIO') && rAr.extrato.some((e: any) => e.tipo === 'CONVENIOS DE FUNCIONARIOS')
           && consAp > 0 && rAp.convenio === false && rAp.consolidado?.valor === 100 && rAp.documentos?.length === 2 && rAp.documentos.reduce((s: number, d: any) => s + d.valor, 0) === 100,
           { consAr, rAr, consAp, rAp });
+
+        // §190.2 — as mesmas impressões no layout do cliente (Agrupamento*.fr3 / AgrupamentoCP*.fr3)
+        const fr3 = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="x"/></TfrxReportTitle></TfrxReportPage></TfrxReport>').toString('base64');
+        for (const [i, nome] of ['Agrupamento.fr3', 'Agrupamentototalizado.fr3', 'Agrupamento_extrato_funcionario.fr3', 'AgrupamentoCP.fr3', 'AgrupamentoCPAgrupado.fr3'].entries()) {
+          await pgCG.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [991900 + i, nome, fr3]);
+        }
+        const im = async (path: string, h = H) => { const r = await fetch(`${base}/${path}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const iAn = await im(`cadastro/areceber/${consAr}/relatorio-agrupamento/impressao?modo=analitico`);
+        const iFu = await im(`cadastro/areceber/${consAr}/relatorio-agrupamento/impressao?modo=funcionario`);
+        const iCp = await im(`cadastro/apagar/${consAp}/relatorio-agrupamento/impressao`);
+        const iCpA = await im(`cadastro/apagar/${consAp}/relatorio-agrupamento/impressao?agrupado=1`);
+        const iNao = await im(`cadastro/areceber/${rcb[0]}/relatorio-agrupamento/impressao`);
+        await pgCG.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991900 AND 991904`);
+        const mAn = iAn.j.datasets?.FDBAgrupamentoRCB ?? [];
+        check('AGRUPAMENTO §190.2 [as impressões no layout do cliente]: o A Receber leva o QryAgrupados no FDBAgrupamentoRCB (2 títulos na ordem do cliente, o operador em OPERADORA e o cliente em RAZAO/NOMECLIENTE), o consolidado no frxDBDataset3 (TOTAL 42,50) e a empresa no frxDBDataset2; o extrato por funcionário acrescenta o frxDBConsulta (valor negativo, DATA no dia); o A Pagar leva os documentos no DbdAgrupamento (2 → 100) e, agrupado, a soma por parceiro (1 linha de 100), com o consolidado no DbdApagar; título que não é agrupamento → 422',
+          iAn.status === 200 && mAn.length === 2 && mAn.every((x: any) => x.OPERADORA != null && x.RAZAO != null && x.NOMECLIENTE != null) && iAn.j.datasets?.frxDBDataset3?.[0]?.TOTAL === 42.5
+          && 'RAZAOSOCIAL' in (iAn.j.datasets?.frxDBDataset2?.[0] ?? {}) && !Object.keys(mAn[0] ?? {}).some((k) => /SENHA/.test(k))
+          && iFu.status === 200 && (iFu.j.datasets?.frxDBConsulta ?? []).length === 2 && iFu.j.datasets.frxDBConsulta.every((x: any) => x.VALOR < 0 && /T00:00:00$/.test(String(x.DATA)))
+          && iCp.status === 200 && (iCp.j.datasets?.DbdAgrupamento ?? []).length === 2 && iCp.j.datasets.DbdAgrupamento.reduce((s2: number, d: any) => s2 + d.VALOR, 0) === 100 && iCp.j.datasets?.DbdApagar?.[0]?.VALOR === 100
+          && iCpA.status === 200 && iCpA.j.datasets?.DbdAgrupamento?.length === 1 && iCpA.j.datasets.DbdAgrupamento[0].VALOR === 100
+          && iNao.status === 422,
+          { iAn: [iAn.status, iAn.j.code, mAn.map((x: any) => [x.RAZAO, x.VALOR, x.OPERADORA]), iAn.j.datasets?.frxDBDataset3?.[0]?.TOTAL], iFu: [iFu.status, iFu.j.datasets?.frxDBConsulta],
+            iCp: [iCp.status, iCp.j.code, iCp.j.datasets?.DbdAgrupamento?.map((d: any) => d.VALOR)], iCpA: [iCpA.status, iCpA.j.datasets?.DbdAgrupamento], iNao: iNao.status });
       } finally {
         await pgCG.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[]) OR codrcb = $2`, [rcb, consAr]).catch(() => undefined);
         await pgCG.query(`DELETE FROM caixa WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE codapg = $1)`, [consAp]).catch(() => undefined);
