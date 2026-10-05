@@ -527,7 +527,14 @@ As impressões do corte 4 saíam em HTML próprio (`imprimirPagina`); agora saem
   `FDBComprovanteQuebra` (NOME, CODPDV, DATAFECHAMENTO, SALDO; o layout faz o `FormatFloat('0.00', SALDO * (-1))`).
 - **Histórico** (`GET turno/historico/impressao`): `Rel_Historico_Finalizadoras.fr3` com o `frxDBHistorico` (CODHIST, HISTORICO, NOME, DATA).
 - Vazios: as mesmas mensagens do legado (422). Os GETs JSON `turno/quebra` e `turno/historico` continuam (smoke §182).
-- **Restam** (cortes B e C): a lista do diálogo de documentos (`fec_fechamento_de_caixa_doc_fin_*.fr3`, 10 layouts, UConsDocs.pas:455-500)
-  e o relatório "Fechamento de caixa" (`MontaRel`, FechamentoCaixa.fr3).
+- **Corte B — a lista do diálogo de documentos** (`GET turno/documentos/impressao?operacao=`, BTNFECHA como o diálogo; `btnImprimirClick`,
+  UConsDocs.pas:455): a grade como está (todos, marcados ou não) no `frxdbdtstDocs` do layout do tipo — `_car` (CARTAO), `_crb` (RCB),
+  `_chq` (CHQ), `_tkt` (TICKET: VALOR = o bruto, VALORLIQ = o líquido que a tela confere), `_dev` (DEV: DTVENDA truncada) e `_sangria` /
+  `_suprimento` (as linhas fixas; NOME_RESPONSAVEL, MODALIDADE com o COALESCE 'DINHEIRO') —, com as colunas do cds do legado (as consultas do
+  diálogo ganharam DTCADASTRO/USULTALTERACAO/DTULTIMALTERACAO/IDEMPRESA do cartão, BOMPARA/parceiro/banco/agência/BAIXADO do cheque, …) e
+  as variáveis DtInicial = DtFinal = o dia do caixa, Empresa = a razão social (o layout de sangria lê `[Dtfinal]`: a variável não diferencia
+  caixa). Imprimir **não** cria o cartão da refechada. Correção de paridade: a grade de cheques volta à ordem do legado (`ORDER BY NROCHEQUE`).
+  Recarga, correspondente e voucher: mortos (fora). Smoke §294.
+- **Resta** (corte C): o relatório "Fechamento de caixa" (`MontaRel`, FechamentoCaixa.fr3).
 Smoke §293; renderização dos 4 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
 

@@ -119,8 +119,8 @@ export const inserirDocumento = (t: TurnoRef, operacao: string, campos: CamposDo
   req<{ tipo: 'CARTAO' | 'RCB' | 'SANGRIA'; codigo: number }>(`${P}/turno/documentos`, { method: 'POST', body: JSON.stringify({ ...t, operacao, campos, ...liberacao }) });
 export const excluirDocumento = (t: TurnoRef, operacao: string, codigo: number, liberacao?: { login: string; senha: string }) =>
   req<{ codigo: number; excluido: boolean }>(`${P}/turno/documentos/excluir`, { method: 'POST', body: JSON.stringify({ ...t, operacao, codigo, ...liberacao }) });
-/** as impressões do menu no layout do cliente: o caminho que o `imprimirRelatorio` busca (análise, quebra, histórico) */
-export const rotaImpressaoTurno = (recurso: 'analise' | 'quebra' | 'historico', t: TurnoRef, extra: Record<string, string> = {}) =>
+/** as impressões no layout do cliente: o caminho que o `imprimirRelatorio` busca (análise, quebra, histórico, lista de documentos) */
+export const rotaImpressaoTurno = (recurso: 'analise' | 'quebra' | 'historico' | 'documentos', t: TurnoRef, extra: Record<string, string> = {}) =>
   `${P}/turno/${recurso}/impressao?${qs(t, extra)}`;
 export interface CancelamentosTurno {
   cupons: Array<{ nrocupom: string | null; pdv: string; nropedido: string; motivo: string | null; qtde: number; total: number; responsavel: string | null }>;

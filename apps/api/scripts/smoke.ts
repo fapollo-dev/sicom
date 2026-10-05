@@ -27512,6 +27512,64 @@ async function main() {
         await pgFi.end();
       }
     }
+    // ══ §294 FECHAMENTO DE CAIXA — o "Imprimir" do diálogo de documentos no fec_fechamento_de_caixa_doc_fin_<tipo>.fr3 ══════
+    {
+      const pgFd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2064-05-12';
+      const CHA = '82120564080000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const qsT = (operacao: string, dia = DIA) => new URLSearchParams({ data: dia, chave: CHA, nropdv: '82', codoperadora: '7', situacao: '2', operacao }).toString();
+      try {
+        await pgFd.query(`INSERT INTO cx_vendas (data, nropdv, codoperadora, nropedido, operacao, debito_credito, valor, troco, idempresa, chave, status) VALUES
+            ($1, 82, 7, '82120564090000', 'CARTOES', 'C', 80, 0, 1, $3, 'F'), ($2, 82, 7, '82120564100000', 'CONVENIO', 'C', 30, 0, 1, $3, 'F'),
+            ($1, 82, 7, '82120564090001', 'DINHEIRO', 'C', 10, 0, 1, $3, 'F')`, [ts('09:00:00'), ts('10:00:00'), CHA]);
+        const opr = Number(((await pgFd.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0] as any).c);
+        await pgFd.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, chave, nroparcela, obs)
+            VALUES (1, $1, 3, $2, 50, 82, 7, '82120564090000', $3, 1, 'CARTAO 294 B'), (1, $1, 3, $2, 30, 82, 7, '82120564090000', $3, 2, 'CARTAO 294 A')`, [opr, ts('09:00:00'), CHA]);
+        await pgFd.query(`INSERT INTO areceber (codempresa, idpgto, dtvenda, dtvenc, valor, codpdv, codoperador, nrocupom, chave, codparceiro)
+            VALUES (1, 4, $1, '2064-06-12 00:00:00-03', 30, 82, 7, '820001', $2, 2)`, [ts('10:00:00'), CHA]);
+        await pgFd.query(`INSERT INTO hist_sangria_suprimento (idempresa, data, codpdv, idpgto, descricao, valor, chave, codoperador, responsavel, tipo)
+            VALUES (1, $1, 82, 1, 'SANGRIA 294', 40, $2, 7, 7, 'SAN')`, [ts('11:00:00'), CHA]);
+        const fr3 = (t: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="${t}"/></TfrxReportTitle></TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, t] of ['car', 'crb', 'sangria'].entries()) {
+          const nome = `fec_fechamento_de_caixa_doc_fin_${t}.fr3`;
+          await pgFd.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [992940 + i, nome, fr3(nome)]);
+        }
+        const nCartoesAntes = Number(((await pgFd.query(`SELECT count(*) AS n FROM cartao WHERE chave = $1`, [CHA])).rows[0] as any).n);
+        const imp = async (op: string, h = H) => { const r = await fetch(`${base}/${FC}/turno/documentos/impressao?${qsT(op)}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const car = await imp('CARTOES');
+        const crb = await imp('CONVENIO');
+        const san = await imp('SANGRIA EM DINHEIRO');
+        const sup = await imp('SUPRIMENTO');
+        const din = await imp('DINHEIRO');
+        const fora = await imp('NAO EXISTE');
+        const semAcesso = await imp('CARTOES', H_SEM_ACESSO);
+        const nCartoesDepois = Number(((await pgFd.query(`SELECT count(*) AS n FROM cartao WHERE chave = $1`, [CHA])).rows[0] as any).n);
+        const dc = car.j.datasets?.frxdbdtstDocs ?? [];
+        const razao = String(((await pgFd.query(`SELECT razao_social FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.razao_social ?? '');
+        const msg = 'Não existem dados para gerar e imprimir o relatório.';
+        check('FECHAMENTO §294 [o "Imprimir" da lista de documentos no layout do cliente]: CARTOES no _car com os 2 cartões (CODVENDCARTAO, NROPARCELA, OBS, IDEMPRESA, DTVENDA com a hora, sem o CODIGO/SEL da tela); CONVENIO no _crb com a razão do parceiro, DTVENC e CODEMPRESA; a SANGRIA EM DINHEIRO no _sangria com o NOME_RESPONSAVEL e a MODALIDADE; DtInicial = DtFinal = o dia e Empresa = a razão social; SUPRIMENTO sem lançamento e DINHEIRO (sem documento) → a mensagem do legado; operação fora do turno → 422; imprimir não cria o cartão da refechada; sem acesso → 403',
+          car.status === 200 && dc.length === 2 && dc.every((d: any) => typeof d.CODVENDCARTAO === 'number' && d.IDEMPRESA === 1 && d.CODIGO === undefined && d.SEL === undefined)
+          && dc.map((d: any) => d.OBS).sort().join(',') === 'CARTAO 294 A,CARTAO 294 B' && dc[0].DTVENDA === '2064-05-12T09:00:00' && dc.some((d: any) => d.NROPARCELA === 2)
+          && car.j.variaveis?.DtInicial === "'12/05/2064'" && car.j.variaveis?.DtFinal === "'12/05/2064'" && car.j.variaveis?.Empresa === `'${razao.replace(/'/g, "''")}'`
+          && crb.status === 200 && crb.j.datasets?.frxdbdtstDocs?.[0]?.RAZAO != null && crb.j.datasets.frxdbdtstDocs[0].DTVENC === '2064-06-12T00:00:00' && crb.j.datasets.frxdbdtstDocs[0].CODEMPRESA === 1
+          && typeof crb.j.datasets.frxdbdtstDocs[0].CODRCB === 'number'
+          && san.status === 200 && san.j.datasets?.frxdbdtstDocs?.[0]?.NOME_RESPONSAVEL != null && san.j.datasets.frxdbdtstDocs[0].MODALIDADE === 'DINHEIRO' && san.j.datasets.frxdbdtstDocs[0].VALOR === 40
+          && san.j.datasets.frxdbdtstDocs[0].CODPDV === 82
+          && sup.status === 422 && sup.j.message === msg && din.status === 422 && din.j.message === msg && fora.status === 422
+          && nCartoesAntes === nCartoesDepois && semAcesso.status === 403,
+          { car: [car.status, car.j.code, car.j.message, dc, car.j.variaveis], crb: [crb.status, crb.j.code, crb.j.datasets], san: [san.status, san.j.code, san.j.datasets],
+            sup: [sup.status, sup.j.message], din: [din.status, din.j.message], fora: [fora.status, fora.j.code], cartoes: [nCartoesAntes, nCartoesDepois], semAcesso: semAcesso.status });
+      } finally {
+        await pgFd.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992940 AND 992942`).catch(() => undefined);
+        await pgFd.query(`DELETE FROM cartao WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgFd.query(`DELETE FROM areceber WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgFd.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgFd.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgFd.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

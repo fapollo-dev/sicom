@@ -13,7 +13,7 @@ import { FechamentoContabilService, avisoDoErro, emSavepoint, type AvisoContabil
 import { gravarLog, historicoDeGravacao } from '../../shared/log/registro-log';
 import { LiberacaoService } from '../auth/liberacao.service';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
-import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -465,7 +465,9 @@ export class FechamentoCaixaService {
       rows = (await sql<Record<string, unknown>>`
         SELECT t.codvendcartao AS codigo, t.nrocupom, to_char(t.dtvenda AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtvenda, t.valor,
                t.codoperador, t.codpdv, o.operadora, t.codoperadora, t.nropedido, t.idpgto, t.liberado, t.consiliado, t.nroparcela, t.chave,
-               t.nsu, t.nsuhost, t.autorizacao, t.codrede, t.obs
+               t.nsu, t.nsuhost, t.autorizacao, t.codrede, t.obs, t.idempresa,
+               to_char(t.dtcadastro AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtcadastro, t.usultalteracao,
+               to_char(t.dtultimalteracao AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtultimalteracao
           FROM cartao t LEFT JOIN operadoras o ON o.codoperadoras = t.codoperadora LEFT JOIN formas_pgto g ON g.idpgto = t.idpgto
          WHERE t.idempresa = ${c.emp} ${pdvOp('t.codpdv', 't.codoperador')} ${forma('t.idpgto')} ${naoConc('t.consiliado')} ${chave('t.chave')}
            AND ${this.noDia('t.dtvenda', c)}
@@ -473,7 +475,7 @@ export class FechamentoCaixaService {
     } else if (tipo === 'RCB') {
       rows = (await sql<Record<string, unknown>>`
         SELECT r.codrcb AS codigo, r.nrocupom, to_char(r.dtvenda AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtvenda, r.valor,
-               to_char(r.dtvenc AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS dtvenc, r.codoperador, r.codparceiro, r.codpdv, p.razao, r.obs, r.idpgto, r.quitada, r.consiliado, r.txjuros, r.chave, r.origem
+               to_char(r.dtvenc AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS dtvenc, r.codoperador, r.codparceiro, r.codpdv, p.razao, r.obs, r.idpgto, r.quitada, r.consiliado, r.txjuros, r.chave, r.origem, r.codempresa
           FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro LEFT JOIN formas_pgto g ON g.idpgto = r.idpgto
          WHERE r.codempresa = ${c.emp} ${pdvOp('r.codpdv', 'r.codoperador')} ${forma('r.idpgto')} ${naoConc('r.consiliado')} ${chave('r.chave')}
            AND ${this.noDia('r.dtvenda', c)}
@@ -482,16 +484,18 @@ export class FechamentoCaixaService {
       rows = (await sql<Record<string, unknown>>`
         SELECT ch.codchq AS codigo, ch.nrocheque, ch.titular, to_char(ch.dtemissao AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS dtemissao, ch.valor,
                ch.operador, ch.codpdv, ch.idpgto, ch.consiliado, ch.chave,
-               CASE WHEN h.identificador IS NOT NULL THEN 'S' ELSE 'N' END AS sangria
+               CASE WHEN h.identificador IS NOT NULL THEN 'S' ELSE 'N' END AS sangria,
+               to_char(ch.bompara, 'YYYY-MM-DD') AS bompara, ch.codparceiro, p.razao, ch.idempresa, ch.observacao, ch.codbco, b.banco, b.agencia, ch.baixado
           FROM cheque ch LEFT JOIN hist_sangria_suprimento h ON h.identificador = ch.identificador LEFT JOIN formas_pgto g ON g.idpgto = ch.idpgto
+          LEFT JOIN parceiros p ON p.codparceiro = ch.codparceiro LEFT JOIN bancos b ON b.codbco = ch.codbco
          WHERE ch.idempresa = ${c.emp} ${pdvOp('ch.codpdv', 'ch.operador')} ${forma('ch.idpgto')} ${naoConc('ch.consiliado')} ${chave('ch.chave')}
            AND ${this.noDia('ch.dtemissao', c)}
-         ORDER BY ch.codchq`.execute(db)).rows;
+         ORDER BY ch.nrocheque, ch.codchq`.execute(db)).rows;
     } else if (tipo === 'TICKET') {
       // o ticket não filtra a CHAVE (`sqqDocsTkt`) e confere pelo líquido
       rows = (await sql<Record<string, unknown>>`
         SELECT t.codticket AS codigo, to_char(t.data AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS data, t.valor AS valorbruto, t.valorliq AS valor,
-               t.nropedido, t.codpdv, t.idpgto, t.codoperador, t.liberado, t.consiliado
+               t.nropedido, t.codpdv, t.idpgto, t.codoperador, t.liberado, t.consiliado, t.idempresa
           FROM ticket t LEFT JOIN formas_pgto g ON g.idpgto = t.idpgto
          WHERE t.idempresa = ${c.emp} ${pdvOp('t.codpdv', 't.codoperador')} ${forma('t.idpgto')} ${naoConc('t.consiliado')}
            AND ${this.noDia('t.data', c)}
@@ -499,7 +503,7 @@ export class FechamentoCaixaService {
     } else if (tipo === 'DEV') {
       rows = (await sql<Record<string, unknown>>`
         SELECT h.codhistdevolucao AS codigo, h.nropedido, h.nrodocumento, to_char(h.dtvenda AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtvenda,
-               h.valor, h.codpdv, h.codoperador, coalesce(h.tipo_devolucao, 'V') AS tipo_devolucao, h.conciliado
+               h.valor, h.codpdv, h.codoperador, coalesce(h.tipo_devolucao, 'V') AS tipo_devolucao, h.conciliado, h.idempresa, h.codcaixa
           FROM hist_devolucao h
          WHERE h.idempresa = ${c.emp} ${pdvOp('h.codpdv', 'h.codoperador')} ${chave('h.chave')}
            ${filtraPdv && !consulta ? sql`AND coalesce(h.conciliado, 'N') <> 'S'` : sql``}
@@ -515,8 +519,9 @@ export class FechamentoCaixaService {
       : fx === 'OUTRAS SANGRIAS' ? sql`AND fp.destino NOT IN ('CXA', 'CHQ')` : sql``;
     const rows = (await sql<Record<string, unknown>>`
       SELECT h.codhistsangria AS codigo, to_char(h.data AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS data, h.descricao, h.nrodocumento, h.valor,
-             h.idpgto, fp.modalidade, h.responsavel, h.tipo
+             h.idpgto, fp.modalidade, h.responsavel, h.tipo, h.codpdv, opr.nome AS nome_responsavel
         FROM hist_sangria_suprimento h LEFT JOIN formas_pgto fp ON h.idpgto = fp.idpgto AND h.idempresa = fp.idempresa
+        LEFT JOIN operadores opr ON opr.codoperador = h.responsavel
        WHERE h.idempresa = ${c.emp}
          ${filtraPdv ? sql`${c.pdv > 0 ? sql`AND h.codpdv = ${c.pdv}` : sql``} ${c.op > 0 ? sql`AND h.codoperador = ${c.op}` : sql``}
            AND ${this.daChave('h.chave', c)} AND h.tipo = ${fx === 'SUPRIMENTO' ? 'SUP' : 'SAN'} ${destino}` : sql``}
@@ -552,6 +557,55 @@ export class FechamentoCaixaService {
       ...(await this.manutencaoDocumentos(db, c, det, linha.tipo)),
       ...(refechada ? { cartoesCriados: refechada } : {}),
       documentos: lista, conferido: r2(lista.filter((d) => d.sel).reduce((s, d) => s + d.valor, 0)),
+    };
+  }
+
+  /**
+   * O "Imprimir" do diálogo de documentos (`btnImprimirClick`, UConsDocs.pas:455): a grade como está (todos os documentos, marcados ou
+   * não) no `frxdbdtstDocs` do layout do tipo — fec_fechamento_de_caixa_doc_fin_{car,crb,chq,tkt,dev}.fr3, e o _sangria/_suprimento para
+   * as linhas fixas —, com DtInicial = DtFinal = o dia do caixa e Empresa = a razão social da loja. Sem documento: a mensagem do legado.
+   * Não roda o CARTAO da refechada: imprimir não grava (o diálogo já o fez ao abrir). Recarga, correspondente e voucher: mortos.
+   */
+  async impressaoDocumentos(t: TurnoFechamentoDto, operacaoBruta: string) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const operacao = String(operacaoBruta ?? '').trim().toUpperCase();
+    const det = await this.montar(db, c);
+    const vazio = () => new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não existem dados para gerar e imprimir o relatório.');
+    const dataHora = (v: unknown) => (v ? (String(v).length === 10 ? `${v}T00:00:00` : String(v).replace(' ', 'T')) : null);
+    let layout: string;
+    let linhas: Array<Record<string, unknown>>;
+    if ((FIXAS_FECHAMENTO as readonly string[]).includes(operacao)) {
+      const docs = await this.docsSangria(db, c, operacao as Fixa, det.filtraPdv);
+      layout = operacao === 'SUPRIMENTO' ? 'suprimento' : 'sangria';
+      linhas = docs.map((d) => ({ ...d, codhistsangria: d.codigo, idempresa: c.emp, data: dataHora(d.data), modalidade: d.modalidade ?? 'DINHEIRO' }));
+    } else {
+      const linha = det.linhas.find((l) => l.operacao === operacao);
+      if (!linha) throw new BusinessRuleError('FECHAMENTO_OPERACAO_FORA_DO_TURNO', { operacao });
+      if (!linha.tipo || linha.tipo === 'DINHEIRO' || linha.idpgto == null) throw vazio();
+      const docs = await this.listarDocs(db, c, linha.tipo, linha.idpgto, det.modo === 'consulta', det.filtraPdv);
+      const conv: Record<string, [string, (d: Record<string, unknown>) => Record<string, unknown>]> = {
+        CARTAO: ['car', (d) => ({ ...d, codvendcartao: d.codigo, dtvenda: dataHora(d.dtvenda), dtcadastro: dataHora(d.dtcadastro), dtultimalteracao: dataHora(d.dtultimalteracao) })],
+        RCB: ['crb', (d) => ({ ...d, codrcb: d.codigo, dtvenda: dataHora(d.dtvenda), dtvenc: dataHora(d.dtvenc) })],
+        CHQ: ['chq', (d) => ({ ...d, codchq: d.codigo, dtemissao: dataHora(d.dtemissao), bompara: dataHora(d.bompara) })],
+        // o grid confere pelo líquido; o dataset do legado tem VALOR = o bruto e VALORLIQ
+        TICKET: ['tkt', (d) => ({ ...d, codticket: d.codigo, data: dataHora(d.data), valor: num(d.valorbruto), valorliq: d.valor })],
+        // TRUNC(H.DTVENDA) no FdqDevolucao
+        DEV: ['dev', (d) => ({ ...d, codhistdevolucao: d.codigo, dtvenda: d.dtvenda ? `${String(d.dtvenda).slice(0, 10)}T00:00:00` : null })],
+      };
+      const [l, f] = conv[linha.tipo];
+      layout = l;
+      linhas = docs.map((d) => f(d as Record<string, unknown>));
+    }
+    if (!linhas.length) throw vazio();
+    const nums = await colunasNumericas(db, ['cartao', 'areceber', 'cheque', 'ticket', 'hist_devolucao', 'hist_sangria_suprimento']);
+    const dia = c.data.split('-').reverse().join('/');
+    const razao = (await sql<{ razao_social: string | null }>`SELECT razao_social FROM empresas WHERE idempresa = ${c.emp}`.execute(db)).rows[0]?.razao_social ?? '';
+    return {
+      titulo: `Documentos da finalizadora (${operacao.toLowerCase()})`,
+      modelo: await modeloFr3(db, `fec_fechamento_de_caixa_doc_fin_${layout}.fr3`),
+      datasets: { frxdbdtstDocs: linhas.map((r) => { const { codigo: _c, sel: _s, ...resto } = r; return registroFr3(resto, nums); }) },
+      variaveis: { DtInicial: textoVariavel(dia), DtFinal: textoVariavel(dia), Empresa: textoVariavel(razao) },
     };
   }
 

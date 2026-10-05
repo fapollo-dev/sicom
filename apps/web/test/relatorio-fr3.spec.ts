@@ -479,4 +479,25 @@ describe('relatórios do legado com vários datasets', () => {
     const hi = texto(paginasDoModelo(modelo('rel-historico-finalizadoras.fr3'), { frxDBHistorico: [{ CODHIST: 1, HISTORICO: 'ALTEROU O CARTAO', NOME: 'MARIA', DATA: '2063-04-10T12:00:00' }] }, agora));
     expect(hi).toContain('10/04/2063 12:00:00 ALTEROU O CARTAO MARIA');
   });
+
+  it('fechamento de caixa: a lista do diálogo de documentos nos layouts doc_fin (cartão, ticket com o líquido, sangria com a variável Dtfinal do layout)', () => {
+    const v = { DtInicial: "'12/05/2064'", DtFinal: "'12/05/2064'", Empresa: "'HIPER PINHEIRAO LTDA'" };
+    const car = texto(paginasDoModelo(modelo('fec-doc-fin-car.fr3'), { frxdbdtstDocs: [
+      { CODVENDCARTAO: 11, NROCUPOM: '5', DTVENDA: '2064-05-12T09:00:00', VALOR: 50, CODOPERADOR: 7, CODPDV: 82, OPERADORA: 'VISA', CODOPERADORA: 1, IDEMPRESA: 1, NROPEDIDO: '82120564090000',
+        IDPGTO: 3, LIBERADO: 'N', CONSILIADO: null, NROPARCELA: 1, CHAVE: '82120564080000', DTCADASTRO: '2064-05-12T09:01:00', USULTALTERACAO: null, DTULTIMALTERACAO: null, OBS: 'CARTAO 294 B' },
+      { CODVENDCARTAO: 12, NROCUPOM: '5', DTVENDA: '2064-05-12T09:00:00', VALOR: 30, CODOPERADOR: 7, CODPDV: 82, OPERADORA: 'VISA', CODOPERADORA: 1, IDEMPRESA: 1, NROPEDIDO: '82120564090000',
+        IDPGTO: 3, LIBERADO: 'N', CONSILIADO: null, NROPARCELA: 2, CHAVE: '82120564080000', DTCADASTRO: null, USULTALTERACAO: null, DTULTIMALTERACAO: null, OBS: 'CARTAO 294 A' }] }, agora, v));
+    expect(car).toContain('DOCUMENTOS DA FINALIZADORA - CARTÃO');
+    expect(car).toContain('Periodo: 12/05/2064 até 12/05/2064 Empresa(s): HIPER PINHEIRAO LTDA');
+    expect(car).toContain('CARTAO 294 B');
+    expect(car).toContain('Valor Total: 80,00');
+    const tkt = texto(paginasDoModelo(modelo('fec-doc-fin-tkt.fr3'), { frxdbdtstDocs: [
+      { CODTICKET: 3, DATA: '2064-05-12T00:00:00', VALOR: 25, VALORLIQ: 23.5, NROPEDIDO: '82120564100000', CODPDV: 82, IDPGTO: 5, IDEMPRESA: 1, CODOPERADOR: 7, LIBERADO: 'N' }] }, agora, v));
+    expect(tkt).toContain('DOCUMENTOS DA FINALIZADORA - TICKET');
+    expect(tkt).toContain('23,50');
+    const san = texto(paginasDoModelo(modelo('fec-doc-fin-sangria.fr3'), { frxdbdtstDocs: [
+      { CODPDV: 82, DATA: '2064-05-12T11:00:00', DESCRICAO: 'SANGRIA 294', MODALIDADE: 'DINHEIRO', NOME_RESPONSAVEL: 'MARIA', VALOR: 40 }] }, agora, v));
+    expect(san).toContain('Periodo: 12/05/2064 até 12/05/2064'); // o layout lê [Dtfinal]: a variável do FastReport não diferencia caixa
+    expect(san).toContain('40,00 12/05/2064 11:00:00 82 MARIA DINHEIRO SANGRIA 294');
+  });
 });

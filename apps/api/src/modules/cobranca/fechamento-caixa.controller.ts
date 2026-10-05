@@ -131,6 +131,14 @@ export class FechamentoCaixaController {
     return this.svc.impressaoHistorico(q);
   }
 
+  /** o "Imprimir" do diálogo de documentos: a grade no fec_fechamento_de_caixa_doc_fin_<tipo>.fr3 do cliente */
+  @Get('turno/documentos/impressao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  impressaoDocumentos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto, @Query('operacao') operacao?: string) {
+    if (!operacao) throw new BusinessRuleError('FECHAMENTO_OPERACAO_FORA_DO_TURNO', { operacao: '' });
+    return this.svc.impressaoDocumentos(q, operacao);
+  }
+
   @Get('turno/documentos')
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   documentos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto, @Query('operacao') operacao?: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal, PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
@@ -8,7 +8,6 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import { imprimirRelatorioFechamento } from './imprimirFechamento';
 import { imprimirRelatorio as imprimirFr3 } from '../../shared/fr3/imprimirRelatorio';
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
@@ -301,14 +300,11 @@ export function FechamentoCaixaPage() {
     if (ref) imprimirFr3(rotaImpressaoTurno('analise', ref, { modo })).catch((e) => mensagem.erro(e));
   };
 
-  // a lista do diálogo de documentos (fec_fechamento_de_caixa_doc_fin_*.fr3): imprime a grade como está
-  const gradeDocs = useRef<HTMLDivElement>(null);
+  // a lista do diálogo de documentos no fec_fechamento_de_caixa_doc_fin_<tipo>.fr3 do cliente: a grade como está
   const imprimirDocs = () => {
-    if (!docs || !gradeDocs.current) return;
+    if (!docs || !ref) return;
     if (!docs.d.documentos.length) { mensagem.erro(new Error('Não existem dados para gerar e imprimir o relatório.')); return; }
-    const win = window.open('', '_blank');
-    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
-    imprimirPagina(win, gradeDocs.current, `Documentos da finalizadora (${docs.d.operacao.toLowerCase()}) — ${ref?.data.split('-').reverse().join('/') ?? ''}`);
+    imprimirFr3(rotaImpressaoTurno('documentos', ref, { operacao: docs.d.operacao })).catch((e) => mensagem.erro(e));
   };
 
   // sair da finalização grava o rascunho, como o FormClose do legado
@@ -696,7 +692,7 @@ export function FechamentoCaixaPage() {
             {docs.d.documentos.length === 0
               ? <small className="text-fg-muted">Nenhum documento para esta operação.</small>
               : (
-                <div ref={gradeDocs} className="max-h-96 overflow-auto rounded-md border border-border">
+                <div className="max-h-96 overflow-auto rounded-md border border-border">
                   <table className="w-full text-sm">
                     <tbody>
                       {docs.d.documentos.map((x) => (
