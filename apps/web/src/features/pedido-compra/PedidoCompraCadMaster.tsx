@@ -26,7 +26,6 @@ import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
   atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido,
 } from './pedidoCompraApi';
-import { imprimirPedido } from './imprimirPedido';
 import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import type { PendenciasFornecedor } from './pedidoCompraApi';
@@ -867,19 +866,15 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
 
   // IMPRESSÃO (mniImprimirPedidoClick / agrupado, uPedidoCompra.pas:2893/2818): a janela abre JÁ no clique (o bloqueador
   // de pop-up engole janela aberta depois de um await); IMPRIME_ZERADO_PC 'N' tira as linhas zeradas, 'P' pergunta.
+  // o documento sai no ped_compra.fr3 / ped_compra_agrupado.fr3 do cliente
   const imprimir = async (agrupado: boolean) => {
-    const win = window.open('', '_blank', 'width=1024,height=768');
-    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-    try {
+    let comZerados = true;
+    await imprimirRelatorio(() => `/compras/pedidos/${codpedcomp}/impressao/fr3?agrupado=${agrupado ? 1 : 0}&zerados=${comZerados ? 1 : 0}`, undefined, async () => {
       const d = await obterImpressaoPedido(codpedcomp, agrupado);
       const zerado = d.imprime_zerado;
-      const comZerados = zerado === 'S' || !d.tem_zerados
+      comZerados = zerado === 'S' || !d.tem_zerados
         || (zerado === 'P' && window.confirm('Deseja imprimir os itens com quantidade igual a zero?'));
-      imprimirPedido(win, d, comZerados);
-    } catch (e) {
-      win.close();
-      mensagem.erro(e);
-    }
+    }).catch((e) => mensagem.erro(e));
   };
 
   // corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO) — "Atualizar preço → On-line".

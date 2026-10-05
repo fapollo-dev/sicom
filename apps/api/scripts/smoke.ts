@@ -19684,6 +19684,22 @@ async function main() {
           && imp.cabecalho?.cond_pagto === '30-60-90' && Number(imp.totais?.compra) === 106.01 && Number(impAg.totais?.compra) === 106.01
           && imp.lojas?.[1]?.razao_social != null && sitOk,
           { porLojaImp, agImp, cab: imp.cabecalho, totais: [imp.totais, impAg.totais], loja2: imp.lojas?.[1]?.razao_social, sitInfo });
+        // §165.6b — o mesmo documento no layout do cliente (ped_compra.fr3 / ped_compra_agrupado.fr3)
+        const fr3P = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="x"/></TfrxReportTitle></TfrxReportPage></TfrxReport>').toString('base64');
+        for (const [i, nome] of ['ped_compra.fr3', 'ped_compra_agrupado.fr3'].entries()) {
+          await pgMl.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [991650 + i, nome, fr3P]);
+        }
+        const iF = (await (await fetch(`${base}/${PED}/${codP}/impressao/fr3`, { headers: H2 })).json().catch(() => ({}))) as any;
+        const iFa = (await (await fetch(`${base}/${PED}/${codP}/impressao/fr3?agrupado=1&zerados=0`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgMl.query(`DELETE FROM relatorios WHERE codrelatorio IN (991650, 991651)`);
+        const fP = (iF.datasets?.frxDBPedidoCompra ?? []).map((r: any) => [r.IDEMPRESA, r.IDPRODUTO, r.QTDE, r.QTDTOTAL]);
+        const fA = (iFa.datasets?.FDBPedidoAgrupado ?? []).map((r: any) => [r.IDPRODUTO, r.IDEMPRESA, r.QTDE, r.QTDTOTAL]);
+        const r0 = iF.datasets?.frxDBPedidoCompra?.[0] ?? {};
+        check('PEDIDO MULTI-LOJA §165.6b [o pedido no ped_compra.fr3 do cliente]: o frxDBPedidoCompra é o cdsImprime — uma linha por loja × item com a quantidade da loja, os dados da loja (RAZAOSOCIAL), a condição em CODPGTO e os prazos CD1..CD8 para o script, o OPERADOR e o DESCPADRAO; o agrupado (FDBPedidoAgrupado) soma as lojas por item com IDEMPRESA = quantas lojas',
+          JSON.stringify(fP) === JSON.stringify([[1, 1, 3, 18], [1, 2, 1, 1], [2, 1, 5, 30]]) && r0.RAZAOSOCIAL != null && r0.CD1 === 30 && r0.CD3 === 90 && 'CODPGTO' in r0 && 'DESCPADRAO' in r0
+          && 'DESCRICAO_SITUACAO' in r0 && typeof r0.DATA === 'string'
+          && JSON.stringify(fA) === JSON.stringify([[1, 2, 8, 48], [2, 1, 1, 1]]),
+          { fP, fA, r0, iF: iF.code, iFa: iFa.code });
 
         // §166 — o RELATÓRIO DE PEDIDOS DE COMPRA, previsão de pagamentos (FRMRELPEDIDOCOMPRA, uRelPedidosCompra.pas)
         const cR = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({

@@ -73,6 +73,12 @@ export class PedidoCompraController {
 
   /** a IMPRESSÃO do pedido (`ped_compra.fr3` por loja; `?agrupado=1` = `ped_compra_agrupado.fr3`). Leitura: como o
    *  resto da leitura do pedido, sem opção própria — o legado não tem permissão de impressão (0 na PERMISSOES). */
+  /** o pedido no layout do cliente (`ped_compra.fr3` / `?agrupado=1` `ped_compra_agrupado.fr3`); `zerados=0` tira os itens zerados */
+  @Get(':id/impressao/fr3')
+  impressaoFr3(@Param('id', ParseIntPipe) id: number, @Query('agrupado') agrupado?: string, @Query('zerados') zerados?: string) {
+    return this.impressaoSvc.impressaoFr3(id, agrupado === '1' || agrupado === 'true', zerados !== '0');
+  }
+
   @Get(':id/impressao')
   impressao(@Param('id', ParseIntPipe) id: number, @Query('agrupado') agrupado?: string) {
     return this.impressaoSvc.impressao(id, agrupado === '1' || agrupado === 'true');

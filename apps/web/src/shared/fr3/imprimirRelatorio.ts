@@ -25,13 +25,15 @@ export async function buscarRelatorio(path: string, corpo?: unknown): Promise<Re
 
 /**
  * abre a janela no clique e desenha o relatório quando os dados chegam; erro fecha a janela e sobe para a tela mostrar. `antes`: o que
- * roda entre abrir a janela e buscar o relatório (o "registrar" que o legado imprime em seguida) — falhou, a janela fecha.
+ * roda entre abrir a janela e buscar o relatório (o "registrar" que o legado imprime em seguida) — falhou, a janela fecha. `path` pode
+ * ser uma função, avaliada depois do `antes`.
  */
-export async function imprimirRelatorio(path: string, corpo?: unknown, antes?: () => Promise<unknown>): Promise<void> {
+export async function imprimirRelatorio(path: string | (() => string), corpo?: unknown, antes?: () => Promise<unknown>): Promise<void> {
   const win = window.open('', '_blank', 'width=1000,height=760');
   try {
     if (antes) await antes();
-    const r = await buscarRelatorio(path, corpo);
+    // o caminho pode depender do `antes` (a pergunta do IMPRIME_ZERADO_PC do pedido de compra decide o filtro)
+    const r = await buscarRelatorio(typeof path === 'function' ? path() : path, corpo);
     const doc = documentoDeImpressao([{ modelo: 'relatorio', registros: r.datasets, variaveis: r.variaveis, textos: r.textos }], { relatorio: r.modelo }, new Date(), r.titulo);
     if (doc.avisos.length) throw new Error(doc.avisos.join('\n'));
     if (!win) throw new Error('O navegador bloqueou a janela de impressão.');

@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
 import { lojasDoPedido } from './pedido-lojas';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = any;
 
@@ -173,6 +175,74 @@ export class PedidoImpressaoService {
         compra: r2(todas.reduce((s, i) => s + i.total, 0)),
         bonificado: r2(todas.reduce((s, i) => s + (i.total * i.bonificacao) / 100, 0)),
       },
+    };
+  }
+
+  /**
+   * O pedido no layout do cliente: `ped_compra.fr3` (frxDBPedidoCompra = o `cdsImprime`, uma linha por loja × item com os dados da loja)
+   * ou `ped_compra_agrupado.fr3` (FDBPedidoAgrupado = o mesmo SQL agrupado pelos `CamposAgrupamento` — as lojas do pedido somadas, IDEMPRESA =
+   * quantas lojas). As colunas do `sqqImprime` (CODPGTO = a descrição da condição; o script do layout escreve os prazos CD1..CD8 por cima,
+   * com os defeitos dele: o CD8 sem hífen e, sem prazos, vazio), o CODREF do fornecedor (`PreencheCodRefFornecedor`) e, com `zerados` =
+   * false, o `AND COALESCE(PQ.QTDTOTAL, 0) > 0` que o IMPRIME_ZERADO_PC 'N'/'P' (resposta não) põe.
+   */
+  async impressaoFr3(codpedcomp: number, agrupado: boolean, zerados: boolean) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cab = (await sql<Record<string, unknown>>`
+        SELECT p.codpedcomp, p.idempresa, p.empresas, p.codparceiro FROM pedidocompra p
+         WHERE p.codpedcomp = ${codpedcomp} AND coalesce(p.indr, 'I') <> 'E'
+           AND (p.idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(p.empresas, ''), ' ', ''), ',')))`.execute(db)).rows[0];
+    if (!cab) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+    const lojas = agrupado ? lojasDoPedido(cab.empresas, cab.idempresa as number) : null;
+    const rows = (await sql<Record<string, unknown>>`
+        SELECT p.codpedcomp, f.razao AS fornecedor, p.obs, co.descricao AS codpgto,
+               to_char(p.dt_vencimento, 'YYYY-MM-DD"T"HH24:MI:SS') AS dt_vencimento, to_char(p.data, 'YYYY-MM-DD"T"HH24:MI:SS') AS data,
+               po.codbarra, po.descricao, po.unidade, pq.qtde, pq.qtdtotal, pe.fatorembalagem, pe.vrcusto, pe.vlrembalagem, pe.bonificacao,
+               pq.idempresa, e.razao_social AS razaosocial, e.fantasia, e.endereco, e.cnpj, e.insc, e.fone1,
+               p.cd1, p.cd2, p.cd3, p.cd4, p.cd5, p.cd6, p.cd7, p.cd8, f.email, o.nome AS operador, f.descpadrao,
+               coalesce(sit.descricao, '') AS descricao_situacao, d.icm_efetivo, pe.idproduto,
+               (SELECT c.codref FROM codreferencia_for c WHERE c.idproduto = pe.idproduto AND c.codfor = p.codparceiro
+                 ORDER BY coalesce(c.tiporef, 'E') DESC, c.codreferencia_for LIMIT 1) AS codref,
+               pe.vrcustoliquido, pe.desconto, pe.vlrembalagemb, pe.vrcustob, f.codparceiro
+          FROM pedidocompra p
+          LEFT JOIN parceiros f ON f.codparceiro = p.codparceiro
+          LEFT JOIN condicoes_pagto co ON co.codconpagto = p.codconpagto
+          JOIN pedidocompra_i pe ON pe.codpedcomp = p.codpedcomp
+          LEFT JOIN produtos po ON po.idproduto = pe.idproduto
+          JOIN pedido_compra_qtde pq ON pq.codpedcompi = pe.codpedcompi
+          LEFT JOIN empresas e ON e.idempresa = pq.idempresa
+          LEFT JOIN operadores o ON o.codoperador = p.usultalteracao
+          LEFT JOIN situacao_nf sit ON sit.idsituacao_nf = pe.idsituacao_nf
+          LEFT JOIN det_aliquota d ON d.aliquota = po.aliquota AND d.uf = e.uf
+         WHERE p.codpedcomp = ${codpedcomp}
+           ${lojas ? sql`AND pq.idempresa = ANY(${lojas}::int[])` : sql``}
+           ${zerados ? sql`` : sql`AND coalesce(pq.qtdtotal, 0) > 0`}
+         ORDER BY pq.idempresa, po.descricao, pe.idproduto`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'O pedido não tem itens para imprimir.');
+    const nums = await colunasNumericas(db, ['pedidocompra', 'pedidocompra_i', 'pedido_compra_qtde', 'det_aliquota', 'parceiros']);
+    if (!agrupado) {
+      return {
+        titulo: `Pedido de compra ${codpedcomp}`,
+        modelo: await modeloFr3(db, 'ped_compra.fr3'),
+        datasets: { frxDBPedidoCompra: rows.map((r) => registroFr3(r, nums)) },
+      };
+    }
+    // o GROUP BY dos CamposAgrupamento (uPedidoCompra.pas:2818): tudo menos a loja — a quantidade soma e o IDEMPRESA conta as lojas
+    const campos = ['codpedcomp', 'fornecedor', 'obs', 'codpgto', 'dt_vencimento', 'data', 'codbarra', 'descricao', 'unidade', 'fatorembalagem', 'vrcusto',
+      'vlrembalagem', 'bonificacao', 'cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8', 'email', 'operador', 'descpadrao', 'descricao_situacao', 'icm_efetivo',
+      'idproduto', 'codref', 'vrcustoliquido', 'desconto', 'codparceiro'];
+    const grupos = new Map<string, Record<string, unknown>>();
+    for (const r of rows) {
+      const k = JSON.stringify(campos.map((c) => r[c] ?? null));
+      const g = grupos.get(k);
+      if (g) { g.idempresa = num(g.idempresa) + 1; g.qtde = num(g.qtde) + num(r.qtde); g.qtdtotal = num(g.qtdtotal) + num(r.qtdtotal); }
+      else grupos.set(k, { ...Object.fromEntries(campos.map((c) => [c, r[c]])), idempresa: 1, qtde: num(r.qtde), qtdtotal: num(r.qtdtotal) });
+    }
+    const agr = [...grupos.values()].sort((a, b) => String(a.descricao ?? '').localeCompare(String(b.descricao ?? '')) || num(a.idproduto) - num(b.idproduto));
+    return {
+      titulo: `Pedido de compra ${codpedcomp} (agrupado)`,
+      modelo: await modeloFr3(db, 'ped_compra_agrupado.fr3'),
+      datasets: { FDBPedidoAgrupado: agr.map((r) => registroFr3(r, nums)) },
     };
   }
 }

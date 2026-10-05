@@ -520,4 +520,26 @@ describe('relatórios do legado com vários datasets', () => {
     expect(t).toContain('Cancelamentos: 629,72'); // o TotalCancelamento do script soma o do operador + PDV de cada grupo, como o legado
     expect(t.match(/-1\.753,70 Sangria:/g)?.length).toBe(2); // o SUM(MasterData2) do sub-relatório de totais acumula desde o começo
   });
+
+  it('pedido de compra (ped_compra.fr3 da produção): uma folha por loja com os dados dela, os prazos pelo script (30-60), a situação do item e os totais da loja; o agrupado soma as lojas', () => {
+    const item = (loja: number, desc: string, qt: number, emb: number, sit = '', bon = 0) => ({ CODPEDCOMP: 295, FORNECEDOR: 'FORN A', OBS: 'ENTREGAR CEDO', CODPGTO: 'A PRAZO', DT_VENCIMENTO: '2065-01-30T00:00:00',
+      DATA: '2065-01-10T00:00:00', CODBARRA: '789', DESCRICAO: desc, UNIDADE: 'CX', QTDE: qt, QTDTOTAL: qt * 12, FATOREMBALAGEM: 12, VRCUSTO: emb / 12, VLREMBALAGEM: emb, BONIFICACAO: bon,
+      IDEMPRESA: loja, RAZAOSOCIAL: `LOJA ${loja} LTDA`, FANTASIA: `LOJA ${loja}`, ENDERECO: 'RUA A', CNPJ: '1', INSC: '2', FONE1: '3', CD1: 30, CD2: 60, CD3: 0, CD4: 0, CD5: 0, CD6: 0, CD7: 0, CD8: 0,
+      EMAIL: null, OPERADOR: 'COMPRADOR', DESCPADRAO: 5, DESCRICAO_SITUACAO: sit, ICM_EFETIVO: 18, IDPRODUTO: 1, CODREF: null });
+    const pags = paginasDoModelo(modelo('ped-compra.fr3'), { frxDBPedidoCompra: [item(1, 'ARROZ', 2, 120, 'TRIBUTADO', 10), item(1, 'FEIJAO', 1, 60), item(2, 'ARROZ', 3, 120)] }, agora);
+    const t = texto(pags);
+    expect(pags.length).toBe(2);
+    expect(t).toContain('PEDIDO DE COMPRA 295');
+    expect(t).toContain('30-60'); // o script troca a descrição da condição pelos prazos
+    expect(t).toContain('Fornecedor com desconto de 5 %');
+    expect(t).toContain('Razão: LOJA 1 LTDA');
+    expect(t).toContain('ARROZ 2,0000 CX 10,0000 240,00 12,00 24,0000 120,00 TRIBUTADO 18');
+    expect(t).toContain('Total da compra: 300,00 Total bonificado: 24,00 2 produto(s)');
+    expect(t).toContain('Razão: LOJA 2 LTDA');
+    expect(t).toContain('Total da compra: 360,00');
+    const { IDEMPRESA: _l, RAZAOSOCIAL: _r, FANTASIA: _f, ENDERECO: _e, CNPJ: _c, INSC: _i, FONE1: _o, ...base } = item(1, 'ARROZ', 5, 120);
+    const ag = texto(paginasDoModelo(modelo('ped-compra-agrupado.fr3'), { FDBPedidoAgrupado: [{ ...base, IDEMPRESA: 2, QTDTOTAL: 60 }] }, agora));
+    expect(ag).toContain('ARROZ');
+    expect(ag).toContain('600,00');
+  });
 });

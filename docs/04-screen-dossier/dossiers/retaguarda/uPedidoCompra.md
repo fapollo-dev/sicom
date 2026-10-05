@@ -477,6 +477,12 @@ Não existia no Apollo, nem constava deste dossiê: o documento que vai ao forne
 - Não há permissão de impressão no legado (0 linhas na `PERMISSOES`): é leitura, como no Apollo.
 - **Situação da NF por item** (mig 305, `PEDIDOCOMPRA_I.IDSITUACAO_NF`): esparsa na produção (769 de 211.035; 17 em
   2025), fora da conta do conferidor. Item sem situação herda a do cabeçalho (uPedidoCompra.pas:7349); sai na impressão.
+- **05/10/2026 — no layout do cliente.** O documento sai no `ped_compra.fr3` / `ped_compra_agrupado.fr3` da RELATORIOS pelo motor
+  .fr3 (`GET :id/impressao/fr3?agrupado=&zerados=`): `frxDBPedidoCompra` = o `cdsImprime` (todas as colunas do `sqqImprime`, uma linha
+  por loja × item; CODREF do fornecedor) e `FDBPedidoAgrupado` = o mesmo SQL agrupado pelos `CamposAgrupamento` (IDEMPRESA = quantas
+  lojas). Com o layout do cliente, o script dele roda como é — a decisão anterior de "não copiar os defeitos" da Cond. Pagto cai: o
+  CD8 sai sem hífen e, sem prazos, a condição sai vazia, como o cliente vê hoje. A pergunta do IMPRIME_ZERADO_PC 'P' continua na
+  tela (o `imprimirRelatorio` aceita o caminho calculado depois dela). O HTML próprio (`imprimirPedido.ts`) saiu. Smoke §165.6b.
 
 API `GET compras/pedidos/:id/impressao[?agrupado=1]`; a tela monta o documento e entrega à camada global de impressão.
 Smoke §165.6. **1438/0.**

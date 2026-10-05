@@ -10,7 +10,6 @@ import {
   type AtualizarPedidoCompraDto,
   type PedidoCompra,
 } from '@apollo/shared';
-import type { ImpressaoPedido } from './imprimirPedido';
 
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -238,4 +237,32 @@ export interface PendenciasFornecedor {
 }
 export function pendenciasFornecedor(codparceiro: number, empresas: string): Promise<PendenciasFornecedor> {
   return req(`/compras/pedidos/fornecedor/${codparceiro}/pendencias?${new URLSearchParams({ empresas }).toString()}`);
+}
+
+/** o dado da impressão do pedido (`GET compras/pedidos/:id/impressao`): a tela lê o IMPRIME_ZERADO_PC e se há itens zerados antes do .fr3 */
+export interface LinhaImpressao {
+  idproduto: number;
+  codbarra: string | null;
+  descricao: string | null;
+  unidade: string | null;
+  qtde: number;
+  qtdtotal: number;
+  fatorembalagem: number;
+  vrcusto: number;
+  vlrembalagem: number;
+  total: number;
+  bonificacao: number;
+  situacao: string | null;
+  icm_efetivo: number | null;
+}
+export interface ImpressaoPedido {
+  cabecalho: {
+    codpedcomp: number; data: string | null; fornecedor: string | null; obs: string | null; cond_pagto: string | null;
+    dt_vencimento: string | null; comprador: string | null; descpadrao: number | null;
+  };
+  agrupado: boolean;
+  lojas: Array<{ idempresa: number; razao_social: string | null; fantasia: string | null; endereco: string | null; cnpj: string | null; insc: string | null; fone1: string | null; itens: LinhaImpressao[] }>;
+  itens: LinhaImpressao[];
+  imprime_zerado: string;
+  tem_zerados: boolean;
 }
