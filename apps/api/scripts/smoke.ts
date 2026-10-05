@@ -12497,66 +12497,68 @@ async function main() {
       }
     }
 
-    // ===== §108) RELATÓRIOS DE PRODUTOS (FRMPRODUTOSREL) corte-1 — os três do núcleo de estoque. A tela do
-    // legado tem 15 relatórios em ~10.900 linhas; estes três compartilham a posição de estoque. ====
+    // ===== §108) RELATÓRIOS DE PRODUTOS (FRMPRODUTOSREL) corte 3 — análise, ruptura, estoque atual e alterações de preço no SQL do
+    // legado (o FDqProdutos e o GetSQLRelAlteracaoPrecos). ====
     {
       const PR = 'relatorios/produtos';
       const pgPr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         await pgPr.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9951,'DEPTO EST','D')
           ON CONFLICT (codfamilia) DO NOTHING`);
-        const mk = async (cod: string, desc: string, qtde: number, minimo: number, maximo: number,
-                          ativo: string, custo: number, venda: number, diasUltVenda: number | null) => {
+        const mk = async (cod: string, desc: string, qtde: number, minimo: number | null, maximo: number | null,
+                          ativo: string, custo: number, venda: number) => {
           const id = Number((await pgPr.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota, ativo)
             VALUES ($1,$2,9951,'UN',2,'T01',$3) RETURNING idproduto`, [cod, desc, ativo])).rows[0].idproduto);
-          await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo, dtvenda)
-            VALUES ($1,1,$2,$3,$4, ${diasUltVenda == null ? 'NULL' : `current_date - ${diasUltVenda}`})`, [id, qtde, minimo, maximo]);
+          await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo) VALUES ($1,1,$2,$3,$4)`, [id, qtde, minimo, maximo]);
           // o "ativo" do relatório é o da LOJA (MULTI_PRECO — config ATIVO_PELA_MULTIPRECO efetiva 'S', como na produção)
           await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo) VALUES ($1,1,$2,$3,$4)`, [id, custo, venda, ativo]);
           return id;
         };
-        const pNeg = await mk('7009000006661', 'EST NEGATIVO', -5, 0, 0, 'S', 6.00, 10.00, 3);
-        const pZero = await mk('7009000006662', 'EST ZERADO', 0, 0, 0, 'S', 4.00, 8.00, 200);
-        const pOk = await mk('7009000006663', 'EST POSITIVO', 30, 10, 50, 'S', 5.00, 10.00, 1);
-        const pMin = await mk('7009000006664', 'EST NO MINIMO', 10, 10, 40, 'S', 2.00, 5.00, 10);
-        const pInativo = await mk('7009000006665', 'EST INATIVO', 7, 0, 0, 'N', 1.00, 2.00, null);
+        const pNeg = await mk('7009000006661', 'EST NEGATIVO', -5, 0, 0, 'S', 6.00, 10.00);
+        const pZero = await mk('7009000006662', 'EST ZERADO', 0, null, null, 'S', 4.00, 8.00); // mínimo/máximo em branco (87.021 linhas na produção)
+        const pOk = await mk('7009000006663', 'EST POSITIVO', 30, 10, 50, 'S', 5.00, 10.00);
+        const pMin = await mk('7009000006664', 'EST NO MINIMO', 10, 10, 40, 'S', 2.00, 5.00);
+        const pInativo = await mk('7009000006665', 'EST INATIVO', 7, 0, 0, 'N', 1.00, 2.00);
 
         const chamar = async (qs: string) => {
           const r = await fetch(`${base}/${PR}?${qs}`, { headers: H });
           return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
         };
+        const descs = (x: any) => (x.j.linhas ?? []).map((l: any) => String(l.descricao));
 
         const neg = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=NEGATIVA&ativo=S&coddpto=9951');
         const zer = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=ZERADA&ativo=S&coddpto=9951');
         const nz = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=NEGATIVA_OU_ZERADA&ativo=S&coddpto=9951');
         const igMin = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=IGUAL_MINIMO&ativo=S&coddpto=9951');
         const maiorMin = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=MAIOR_MINIMO&ativo=S&coddpto=9951');
-        check('RELATÓRIO DE PRODUTOS §108.1 [as quinze comparações — e a armadilha do mínimo não cadastrado]: `cmbFiltro` compara a quantidade com o mínimo e o máximo, em quinze formas. As quatro de SINAL são exatas: negativa 1, zerada 1, "negativa ou zerada" 2. Já as dez de mínimo/máximo comparam contra `coalesce(minimo, 0)`, então **num cadastro sem mínimo elas viram comparações contra ZERO**: "igual ao mínimo" traz **2** — o produto que está de fato no seu mínimo (10 de 10) e o que está zerado com mínimo em branco (0 = 0). Não é defeito da consulta, é o cadastro: em produção só **4 produtos têm mínimo** e **2 têm máximo**, em 203.546 linhas de estoque. As dez comparações existem, mas neste cliente elas medem quase nada — e é por isso que a ruptura é o corte que interessa',
+        check('RELATÓRIO DE PRODUTOS §108.1 [as quinze comparações cruas do cmbFiltro]: o legado compara as colunas sem coalesce (`B.QTDE = B.MINIMO`). As quatro de SINAL: negativa 1, zerada 1, "negativa ou zerada" 2. As de mínimo/máximo deixam de fora o produto com mínimo EM BRANCO — "igual ao mínimo" traz só o que está no seu mínimo (10 de 10), não o zerado sem mínimo (o coalesce(…, 0) do corte 1 o trazia, porque 0 = 0). Na produção são 87.021 linhas de ESTOQUE com mínimo nulo',
           neg.status === 200
           && Number(neg.j.totais.itens) === 1 && Number(zer.j.totais.itens) === 1
           && Number(nz.j.totais.itens) === 2
-          && Number(igMin.j.totais.itens) === 2
+          && Number(igMin.j.totais.itens) === 1 && descs(igMin)[0] === 'EST NO MINIMO'
           && Number(maiorMin.j.totais.itens) === 1,
           { negativa: neg.j.totais?.itens, zerada: zer.j.totais?.itens, ambas: nz.j.totais?.itens,
             igualMinimo: igMin.j.totais?.itens, maiorMinimo: maiorMin.j.totais?.itens });
 
-        const rup = await chamar('tipo=RUPTURA&coddpto=9951&ativo=S');
-        const rup100 = await chamar('tipo=RUPTURA&coddpto=9951&ativo=S&diasSemVenda=100');
-        const linRup = (rup100.j.linhas ?? [])[0] as any;
-        check('RELATÓRIO DE PRODUTOS §108.2 [ruptura é falta COM tempo]: o que zerou ou ficou negativo já é ruptura (2 itens), mas o número que decide a ação é há quanto tempo não vende — com o corte de 100 dias sobra só o item parado há 200, e o que zerou ontem fica de fora. É a diferença entre "acabou porque vende muito" e "acabou e ninguém sentiu falta"',
-          Number(rup.j.totais.itens) === 2
-          && Number(rup100.j.totais.itens) === 1
-          && String(linRup?.descricao) === 'EST ZERADO'
-          && Number(linRup?.dias_sem_venda) >= 199,
-          { semCorte: rup.j.totais?.itens, com100dias: rup100.j.totais?.itens, item: linRup && { desc: linRup.descricao, dias: linRup.dias_sem_venda } });
+        const rupSemDep = await chamar('tipo=RUPTURA&coddpto=9951');
+        await pgPr.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES ($1,1,12)`, [pNeg]);
+        const rup = await chamar('tipo=RUPTURA&coddpto=9951');
+        const lr = (rup.j.linhas ?? [])[0] as any;
+        check('RELATÓRIO DE PRODUTOS §108.2 [ruptura NA LOJA = falta na loja com saldo no depósito]: o legado força o cmbFiltro 14 (loja zerada ou negativa) E o cbbEstoqueDep 13 (depósito > 0) — é o que dá para repor puxando do depósito. Sem estoque de depósito a ruptura sai VAZIA (como neste cliente, que tem o ESTOQUE_DEP todo zerado). Com 12 no depósito, o negativo (−5 na loja) entra e o zerado sem depósito não; a quantidade é a da loja e o valor parado é o de loja + depósito positivo: (−5 + 12) × 6,00 = 42,00',
+          Number(rupSemDep.j.totais?.itens) === 0
+          && Number(rup.j.totais?.itens) === 1 && String(lr?.descricao) === 'EST NEGATIVO'
+          && Number(lr?.qtde) === -5 && Number(lr?.qtde_dep) === 12 && Math.abs(Number(lr?.totalcusto) - 42) < 0.005,
+          { semDeposito: rupSemDep.j.totais?.itens, comDeposito: rup.j.totais?.itens, linha: lr && { d: lr.descricao, q: lr.qtde, dep: lr.qtde_dep, custo: lr.totalcusto } });
 
         const ana = await chamar('tipo=ANALISE&coddpto=9951&ativo=S&filtroEstoque=MAIOR_ZERO');
         const anaOk = (ana.j.linhas ?? []).find((l: any) => String(l.descricao) === 'EST POSITIVO');
-        check('RELATÓRIO DE PRODUTOS §108.3 [a análise põe dinheiro na posição]: 30 unidades a 5,00 de custo são **150,00** parados na prateleira, que valem 300,00 a preço de venda, com margem de **50%** sobre a venda. É o que transforma "tenho 30" em "tenho 150 reais imobilizados neste item"',
-          Math.abs(Number(anaOk?.valor_custo) - 150) < 0.005
-          && Math.abs(Number(anaOk?.valor_venda) - 300) < 0.005
-          && Math.abs(Number(anaOk?.margem) - 50) < 0.02,
-          { item: anaOk && { custo: anaOk.valor_custo, venda: anaOk.valor_venda, margem: anaOk.margem } });
+        const anaTodos = await chamar('tipo=ANALISE&coddpto=9951');
+        const anaNeg = (anaTodos.j.linhas ?? []).find((l: any) => String(l.descricao) === 'EST NEGATIVO');
+        check('RELATÓRIO DE PRODUTOS §108.3 [a análise põe dinheiro na posição, "sem incidência" do rádio]: 30 a 5,00 de custo são 150,00 parados, 300,00 a preço de venda; a ordem é empresa, fornecedor, descrição. Na análise a quantidade é a da LOJA, e o valor é o de loja + depósito só quando positivo (o FormataEstoque SEM_INCIDENCIA): o negativo mostra −5, mas o valor dele é (−5 + 12) × 6,00 = 42,00',
+          Math.abs(Number(anaOk?.totalcusto) - 150) < 0.005 && Math.abs(Number(anaOk?.totalvenda) - 300) < 0.005
+          && descs(ana).join('|') === 'EST NO MINIMO|EST POSITIVO'
+          && Number(anaNeg?.qtde) === -5 && Math.abs(Number(anaNeg?.totalcusto) - 42) < 0.005,
+          { item: anaOk && { custo: anaOk.totalcusto, venda: anaOk.totalvenda }, ordem: descs(ana), neg: anaNeg && { q: anaNeg.qtde, c: anaNeg.totalcusto } });
 
         const soInativos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951&ativo=N');
         const todos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951');
@@ -12566,29 +12568,46 @@ async function main() {
           && Number(todos.j.totais.itens) === 5,
           { soInativos: soInativos.j.totais?.itens, todos: todos.j.totais?.itens });
 
-        // ── ALTERAÇÕES DE PREÇO: o único dos doze relatórios restantes que está vivo ──────────────────
+        const negDe = (x: any) => (x.j.linhas ?? []).find((l: any) => String(l.descricao) === 'EST NEGATIVO');
+        const emLoja = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951&disponivelEm=ESTOQUE');
+        const emDep = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951&disponivelEm=DEPOSITO');
+        const res = (todos.j.resumo ?? []).find((r: any) => Number(r.coddpto) === 9951);
+        check('RELATÓRIO DE PRODUTOS §108.5 [estoque atual: o rgDisponivelEm e o resumo por departamento]: "Todos" soma loja + depósito (−5 + 12 = 7, valor 42,00), "Estoque" só a loja (−5, valor 0) e "Depósito" só o depósito (12, valor 72,00). O resumo (o dbdSubConsulta do layout) soma por departamento: 7 + 0 + 30 + 10 + 7 = 54 unidades, 42 + 150 + 20 + 7 = 219,00 de custo',
+          Number(negDe(todos)?.qtde) === 7 && Math.abs(Number(negDe(todos)?.totalcusto) - 42) < 0.005
+          && Number(negDe(emLoja)?.qtde) === -5 && Number(negDe(emLoja)?.totalcusto) === 0
+          && Number(negDe(emDep)?.qtde) === 12 && Math.abs(Number(negDe(emDep)?.totalcusto) - 72) < 0.005
+          && String(res?.descdepto) === 'DEPTO EST' && Number(res?.qtde) === 54 && Math.abs(Number(res?.totalcusto) - 219) < 0.005,
+          { todos: negDe(todos) && [negDe(todos).qtde, negDe(todos).totalcusto], loja: negDe(emLoja) && [negDe(emLoja).qtde, negDe(emLoja).totalcusto],
+            dep: negDe(emDep) && [negDe(emDep).qtde, negDe(emDep).totalcusto], resumo: res });
+
+        // ── ALTERAÇÕES DE PREÇO (13): o GetSQLRelAlteracaoPrecos ──────────────────────────────────────────
         await pgPr.query(`INSERT INTO historico_dinamico
           (codhistorico, campo, valor_anterior, valor_atual, tabela, data, codoperador, codempresa, chave, valor_chave, historico, origem)
-          VALUES (997001,'VRVENDA','10.00','12.50','MULTI_PRECO','2050-03-10 09:00',7,1,'IDPRODUTO',$1::text,'Alteração manual','Cadastro'),
-                 (997002,'VRVENDA','12.50','9.90','MULTI_PRECO','2050-03-12 14:30',7,1,'IDPRODUTO',$1::text,'Ajuste de preço','Lote'),
-                 (997003,'VRCUSTO','5.00','6.00','MULTI_PRECO','2050-03-12 14:31',7,1,'IDPRODUTO',$1::text,'Custo','Cadastro')`,
-          [String(pOk)]);
+          VALUES (997001,'VRVENDA','10,00','12,50','MULTI_PRECO','2050-03-10 09:00-03',7,1,'IDPRODUTO',$1::text,'Cadastro de produtos',NULL),
+                 (997002,'VRVENDA','12.50','9.90','MULTI_PRECO','2050-03-12 14:30-03',7,1,'IDPRODUTO',$1::text,'Alteracao do Valor de Venda',NULL),
+                 (997003,'VRCUSTO','5,00','6,00','MULTI_PRECO','2050-03-12 14:31-03',7,1,'IDPRODUTO',$1::text,'Custo',NULL),
+                 (997004,'VRVENDASUG','10,00','11,00','MULTI_PRECO','2050-03-12 14:32-03',7,1,'IDPRODUTO',$1::text,'Sugerido',NULL),
+                 (997005,'VRVENDA','9.999,00','4,99','MULTI_PRECO','2050-03-11 08:00-03',7,1,'IDPRODUTO',$2::text,'Precificação de Mercadorias',NULL),
+                 (997006,'VRVENDA','4,00','5,00','MULTI_PRECO','2050-03-11 08:00-03',7,2,'IDPRODUTO',$2::text,'Outra loja',NULL),
+                 (997007,'VRVENDA','4,00','5,00','MULTI_PRECO','2050-04-01 00:30-03',7,1,'IDPRODUTO',$2::text,'Fora do período',NULL)`,
+          [String(pOk), String(pMin)]);
+        const alt = await chamar('tipo=ALTERACOES_PRECO&dataIni=2050-03-01&dataFim=2050-03-31');
+        const al = (alt.j.linhas ?? []) as any[];
+        const h = (c: number) => al.find((l) => Number(l.codhistorico) === c);
+        const altProd = await chamar(`tipo=ALTERACOES_PRECO&dataIni=2050-03-01&dataFim=2050-03-31&produto=${pMin}`);
+        check('RELATÓRIO DE PRODUTOS §108.6 [alterações de preço: só o campo VRVENDA, o texto com vírgula, a ordem do legado]: o legado filtra `H.CAMPO = \'VRVENDA\'` — o VRVENDASUG (15.865 linhas na produção, 16% a mais no LIKE do corte 1) e o VRCUSTO ficam fora; as empresas marcadas (a da loja 2 fora) e o período pela data da loja (01/04 00:30 fora de março). O valor gravado é TEXTO: 97% com vírgula ("12,50"), "9.999,00" com milhar e "9.90" com ponto — o cast numérico do corte 1 dava erro em todo período real. De 10,00 a 12,50 = +2,50 (+25%); de 9.999,00 a 4,99 = −9.994,01. Ordem: descrição, empresa, código; o operador pelo nome; o produto filtra',
+          alt.status === 200 && al.length === 3
+          && al.map((l) => Number(l.codhistorico)).join(',') === '997005,997001,997002'
+          && Math.abs(Number(h(997001)?.variacao) - 2.5) < 0.005 && Math.abs(Number(h(997001)?.variacao_pct) - 25) < 0.02
+          && Math.abs(Number(h(997002)?.variacao) + 2.6) < 0.005
+          && Math.abs(Number(h(997005)?.variacao) + 9994.01) < 0.005
+          && Number(alt.j.totais.reducoes) === 2 && Number(alt.j.totais.produtos) === 2
+          && String(h(997001)?.nome ?? '').length > 0
+          && (altProd.j.linhas ?? []).length === 1,
+          { status: alt.status, ordem: al.map((l) => l.codhistorico), v: al.map((l) => l.variacao), totais: alt.j.totais, porProduto: (altProd.j.linhas ?? []).length });
 
-        const alt = await fetch(`${base}/${PR}?tipo=ALTERACOES_PRECO&dataIni=2050-03-01&dataFim=2050-03-31`, { headers: H });
-        const altJ = (await alt.json().catch(() => ({}))) as any;
-        const subiu = (altJ.linhas ?? []).find((l: any) => Number(l.codhistorico) === 997001);
-        const baixou = (altJ.linhas ?? []).find((l: any) => Number(l.codhistorico) === 997002);
-        check('RELATÓRIO DE PRODUTOS §108.5 [alterações de preço — o ÚNICO dos doze relatórios restantes que está vivo]: lê o `historico_dinamico`, que guarda toda mudança de VRVENDA: quem mudou, quando, e de quanto para quanto. Em produção são **97.977 registros** em **15.471 produtos**, de 07/08/2020 até hoje. É o relatório que responde "por que este produto está com esse preço" — e, quando o preço saiu errado, quem o colocou lá. De 10,00 para 12,50 é +2,50 (+25%); de 12,50 para 9,90 é −2,60 (−20,80%); e a alteração de VRCUSTO **não entra**, porque o relatório é de PREÇO',
-          alt.status === 200
-          && Number(altJ.totais.itens) === 2
-          && Math.abs(Number(subiu?.variacao) - 2.5) < 0.005 && Math.abs(Number(subiu?.variacao_pct) - 25) < 0.02
-          && Math.abs(Number(baixou?.variacao) + 2.6) < 0.005 && Math.abs(Number(baixou?.variacao_pct) + 20.8) < 0.02
-          && Number(altJ.totais.negativos) === 1
-          && String(subiu?.operador ?? '').length > 0,
-          { itens: altJ.totais?.itens, subiu: subiu && { v: subiu.variacao, p: subiu.variacao_pct },
-            baixou: baixou && { v: baixou.variacao, p: baixou.variacao_pct }, baixaram: altJ.totais?.negativos });
-
-        await pgPr.query(`DELETE FROM historico_dinamico WHERE codhistorico IN (997001,997002,997003)`);
+        await pgPr.query(`DELETE FROM historico_dinamico WHERE codhistorico BETWEEN 997001 AND 997007`);
+        await pgPr.query(`DELETE FROM estoque_dep WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);

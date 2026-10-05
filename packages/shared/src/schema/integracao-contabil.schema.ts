@@ -411,6 +411,17 @@ export const produtosRelSchema = z.object({
     'MENOR_IGUAL_MAXIMO', 'MENOR_MAXIMO', 'MAIOR_IGUAL_MAXIMO', 'MAIOR_MAXIMO', 'IGUAL_MAXIMO',
     'NEGATIVA', 'ZERADA', 'MAIOR_ZERO', 'NEGATIVA_OU_ZERADA',
   ]).nullish(),
+  /** o `cbbEstoqueDep`: as mesmas quinze comparações, sobre o depósito (ESTOQUE_DEP) */
+  filtroEstoqueDep: z.enum([
+    'TODOS',
+    'MENOR_IGUAL_MINIMO', 'MENOR_MINIMO', 'MAIOR_IGUAL_MINIMO', 'MAIOR_MINIMO', 'IGUAL_MINIMO',
+    'MENOR_IGUAL_MAXIMO', 'MENOR_MAXIMO', 'MAIOR_IGUAL_MAXIMO', 'MAIOR_MAXIMO', 'IGUAL_MAXIMO',
+    'NEGATIVA', 'ZERADA', 'MAIOR_ZERO', 'NEGATIVA_OU_ZERADA',
+  ]).nullish(),
+  /** o `rgDisponivelEm` (Estoque atual): a quantidade e os totais de loja + depósito, só loja ou só depósito */
+  disponivelEm: z.enum(['TODOS', 'ESTOQUE', 'DEPOSITO']).nullish(),
+  /** o `chkExpandirItensImpressao` (lista para conferência, alterações de preço) */
+  expandido: z.preprocess((v) => v === true || v === 'true' || v === '1', z.boolean()).optional(),
   ativo: z.enum(['S', 'N']).nullish(),
   coddpto: z.coerce.number().int().positive().nullish(),
   codgrupo: z.coerce.number().int().positive().nullish(),
@@ -418,7 +429,6 @@ export const produtosRelSchema = z.object({
   codsecao: z.coerce.number().int().positive().nullish(),
   codfor: z.coerce.number().int().positive().nullish(),
   produto: z.string().max(150).nullish(),
-  diasSemVenda: z.coerce.number().int().min(0).max(3650).nullish(),
   /** a janela: do histórico de preço, da venda (estoque × vendas), do giro, da validade (lotes), da perca; o ESTOQUE_POR_DATA usa só o fim */
   dataIni: dataISO.nullish(),
   dataFim: dataISO.nullish(),

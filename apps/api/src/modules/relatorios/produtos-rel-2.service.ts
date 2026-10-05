@@ -4,7 +4,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FUSO_LOJA } from '../../shared/tempo/hoje';
-import type { FiltroEstoque } from './produtos-rel.service';
 import { ConfigService } from '../cadastro/config.service';
 
 type AnyDB = Kysely<any>;
@@ -12,6 +11,28 @@ type Linha = Record<string, unknown>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const soma = (ls: Linha[], c: string) => r2(ls.reduce((s, l) => s + num(l[c]), 0));
+
+/**
+ * O `cmbFiltro` do legado: quinze comparações entre a quantidade em estoque e o mínimo/máximo do produto, na ordem do combo (o
+ * `cbbEstoqueDep` repete as quinze sobre o depósito).
+ */
+export type FiltroEstoque =
+  | 'TODOS'
+  | 'MENOR_IGUAL_MINIMO' | 'MENOR_MINIMO' | 'MAIOR_IGUAL_MINIMO' | 'MAIOR_MINIMO' | 'IGUAL_MINIMO'
+  | 'MENOR_IGUAL_MAXIMO' | 'MENOR_MAXIMO' | 'MAIOR_IGUAL_MAXIMO' | 'MAIOR_MAXIMO' | 'IGUAL_MAXIMO'
+  | 'NEGATIVA' | 'ZERADA' | 'MAIOR_ZERO' | 'NEGATIVA_OU_ZERADA';
+
+/**
+ * O valor gravado no HISTORICO_DINAMICO é texto, em três formatos na produção (05/10/2026, 83.185 alterações de VRVENDA): "3.59"
+ * (a alteração direta), "3,59" (cadastro, precificação, lote: 97%) e "9.999,00" (48). Com vírgula, o ponto é milhar.
+ */
+export function valorDoHistorico(v: unknown): number | null {
+  if (v == null) return null;
+  const t = String(v).trim();
+  if (!t) return null;
+  const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+  return Number.isFinite(n) ? n : null;
+}
 
 /** os relatórios do corte 2 (recon de 25/09/2026, na produção): os oito que o dado prova vivos */
 export type TipoProdutosRel2 =
@@ -23,11 +44,15 @@ export type TipoProdutosRel2 =
   | 'PERCAS' //                 9 Percas
   | 'LISTA_CONFERENCIA' //      1 Lista para conferência
   | 'INATIVOS_AGENDA' //       14 Produtos inativos em agenda de promoções
-  | 'PRODUTOS_FORNECEDOR'; //  17 Produtos por fornecedor
+  | 'PRODUTOS_FORNECEDOR' //   17 Produtos por fornecedor
+  | 'ANALISE' //                0 Relatório para análise (o núcleo genérico)
+  | 'RUPTURA' //                3 Ruptura na loja (loja ≤ 0 E depósito > 0)
+  | 'ESTOQUE_ATUAL' //          4 Estoque atual (com o resumo por departamento)
+  | 'ALTERACOES_PRECO'; //     13 Alterações de preço
 
 export const TIPOS_PRODUTOS_REL_2: readonly TipoProdutosRel2[] = [
   'ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA',
-  'PRODUTOS_FORNECEDOR',
+  'PRODUTOS_FORNECEDOR', 'ANALISE', 'RUPTURA', 'ESTOQUE_ATUAL', 'ALTERACOES_PRECO',
 ];
 
 /** o `cbbAtivo` do legado: "Todos" (sem filtro) e as seis combinações de compra/venda (P:1107-1118) */
@@ -47,6 +72,10 @@ export interface FiltroProdutosRel2 {
   ativoModo?: AtivoModo | null;
   ativo?: 'S' | 'N' | null;
   filtroEstoque?: FiltroEstoque | null;
+  /** o `cbbEstoqueDep`: as mesmas comparações sobre o depósito */
+  filtroEstoqueDep?: FiltroEstoque | null;
+  /** o `rgDisponivelEm` (o FormataEstoque): TODOS/ESTOQUE/DEPOSITO; sem ele, "sem incidência" */
+  disponivelEm?: 'TODOS' | 'ESTOQUE' | 'DEPOSITO' | null;
   /** o `cbbEstoque` × `cbbSinal` × `edtEstoqueQtde`: sem `estoqueEm`, sem filtro (o combo nasce vazio a cada troca de relatório) */
   estoqueEm?: 'TODOS' | 'ESTOQUE' | 'DEPOSITO' | null;
   estoqueSinal?: '>' | '=' | '<' | null;
@@ -63,6 +92,8 @@ export interface ResultadoProdutosRel2 {
   totais: Record<string, number>;
   /** MIX_ESTOQUE_GIROS: "Última execução do giros" (PROCESSOS.GIROS) */
   ultimoGiro?: string | null;
+  /** ESTOQUE_ATUAL: o resumo por departamento (o dbdSubConsulta) */
+  resumo?: Linha[];
 }
 
 /**
@@ -168,15 +199,18 @@ export class ProdutosRel2Service {
     if (f.estoqueEm === 'TODOS') out.push(sql`coalesce(${b('qtde')}, 0) ${sinal} ${n} AND coalesce(${d('qtde')}, 0) ${sinal} ${n}`);
     if (f.estoqueEm === 'ESTOQUE') out.push(sql`coalesce(${b('qtde')}, 0) ${sinal} ${n}`);
     if (f.estoqueEm === 'DEPOSITO') out.push(sql`coalesce(${d('qtde')}, 0) ${sinal} ${n}`);
-    const q = sql`coalesce(${b('qtde')}, 0)`, mi = sql`coalesce(${b('minimo')}, 0)`, ma = sql`coalesce(${b('maximo')}, 0)`;
-    const cmp: Partial<Record<FiltroEstoque, RawBuilder<unknown>>> = {
+    // o cmbFiltro e o cbbEstoqueDep comparam as colunas CRUAS (`B.QTDE <= B.MINIMO`): mínimo/máximo nulo (87.021 linhas de ESTOQUE na
+    // produção) fica de fora — o coalesce(…, 0) de antes as trazia como "igual ao mínimo"
+    const comparacoes = (q: RawBuilder<unknown>, mi: RawBuilder<unknown>, ma: RawBuilder<unknown>): Partial<Record<FiltroEstoque, RawBuilder<unknown>>> => ({
       MENOR_IGUAL_MINIMO: sql`${q} <= ${mi}`, MENOR_MINIMO: sql`${q} < ${mi}`, MAIOR_IGUAL_MINIMO: sql`${q} >= ${mi}`, MAIOR_MINIMO: sql`${q} > ${mi}`,
       IGUAL_MINIMO: sql`${q} = ${mi}`, MENOR_IGUAL_MAXIMO: sql`${q} <= ${ma}`, MENOR_MAXIMO: sql`${q} < ${ma}`, MAIOR_IGUAL_MAXIMO: sql`${q} >= ${ma}`,
       MAIOR_MAXIMO: sql`${q} > ${ma}`, IGUAL_MAXIMO: sql`${q} = ${ma}`, NEGATIVA: sql`${q} < 0`, ZERADA: sql`${q} = 0`, MAIOR_ZERO: sql`${q} > 0`,
-      NEGATIVA_OU_ZERADA: sql`${q} <= 0`,
-    };
-    const c = f.filtroEstoque ? cmp[f.filtroEstoque] : undefined;
+      NEGATIVA_OU_ZERADA: sql`((${q} = 0) OR (${q} < 0))`,
+    });
+    const c = f.filtroEstoque ? comparacoes(b('qtde'), b('minimo'), b('maximo'))[f.filtroEstoque] : undefined;
     if (c) out.push(c);
+    const cd = f.filtroEstoqueDep ? comparacoes(d('qtde'), d('minimo'), d('maximo'))[f.filtroEstoqueDep] : undefined;
+    if (cd) out.push(cd);
     if (f.local?.trim()) out.push(sql`${b('local')} ILIKE ${`%${f.local.trim()}%`}`);
     return out;
   }
@@ -193,7 +227,115 @@ export class ProdutosRel2Service {
       case 'LISTA_CONFERENCIA': return this.listaConferencia(db, f);
       case 'INATIVOS_AGENDA': return this.inativosAgenda(db, f);
       case 'PRODUTOS_FORNECEDOR': return this.produtosFornecedor(db, f);
+      case 'ANALISE': case 'RUPTURA': case 'ESTOQUE_ATUAL': return this.nucleo(db, f);
+      case 'ALTERACOES_PRECO': return this.alteracoesPreco(db, f);
     }
+  }
+
+  /**
+   * 13 ALTERAÇÕES DE PREÇO — o `GetSQLRelAlteracaoPrecos` (P:2133): o HISTORICO_DINAMICO da MULTI_PRECO, campo **exatamente** VRVENDA
+   * (o VRVENDASUG — 15.865 linhas na produção — não é preço de venda), ligado ao produto pela CHAVE IDPRODUTO; MULTI_PRECO, ESTOQUE e
+   * ESTOQUE_DEP da empresa da alteração (para o ativo e os filtros de estoque); as empresas marcadas sobre H.CODEMPRESA; o período por
+   * TRUNC(H.DATA). Ordem `A.DESCRICAO, H.CODEMPRESA, H.CODHISTORICO`. A grade do legado (`TFrmRelAlteracoesPrecoGrid`) agrupa por
+   * código de barras + descrição, com o detalhe empresa, operador, histórico, anterior, atual e data. A variação em reais e em % é do
+   * Apollo (o legado mostra os dois textos), calculada no código porque o texto vem com vírgula.
+   */
+  private async alteracoesPreco(db: AnyDB, f: FiltroProdutosRel2): Promise<ResultadoProdutosRel2> {
+    const emps = await this.empresas(db, f.empresas);
+    const { ini, fim } = this.periodo(f);
+    const onde = [
+      sql`h.tabela = 'MULTI_PRECO'`, sql`h.campo = 'VRVENDA'`, sql`h.codempresa IN (${sql.join(emps)})`,
+      sql`(h.data AT TIME ZONE ${FUSO_LOJA})::date BETWEEN ${ini}::date AND ${fim}::date`,
+      ...this.filtrosCadastro(f, 'a', { secao: false }), ...(await this.filtroAtivo(f, 'a', 'm')), ...this.filtrosEstoque(f),
+    ];
+    const linhas = (await sql<Linha>`
+      SELECT h.codhistorico, h.campo, h.valor_anterior, h.valor_atual, h.tabela, h.data, h.codoperador, h.chave, h.valor_chave,
+             h.codempresa, h.historico, h.origem, o.nome, a.codbarra, a.descricao, a.idproduto
+        FROM historico_dinamico h
+        JOIN produtos a           ON a.idproduto = CASE WHEN h.chave = 'IDPRODUTO' AND h.valor_chave ~ '^[0-9]+$' THEN h.valor_chave::bigint END
+        LEFT JOIN multi_preco m   ON a.idproduto = m.idproduto AND m.idempresa = h.codempresa
+        LEFT JOIN estoque b       ON m.idproduto = b.idproduto AND b.idempresa = h.codempresa
+        LEFT JOIN estoque_dep de  ON m.idproduto = de.idproduto AND de.idempresa = h.codempresa
+        LEFT JOIN operadores o    ON o.codoperador = h.codoperador
+       WHERE ${sql.join(onde, sql` AND `)}
+       ORDER BY a.descricao, h.codempresa, h.codhistorico
+       LIMIT 20001`.execute(db)).rows.map((l) => {
+      const ant = valorDoHistorico(l.valor_anterior), atu = valorDoHistorico(l.valor_atual);
+      const variacao = ant != null && atu != null ? r2(atu - ant) : null;
+      return { ...l, variacao, variacao_pct: variacao != null && ant ? r2((variacao / ant) * 100) : null } as Linha;
+    });
+    return {
+      tipo: f.tipo, linhas,
+      totais: {
+        itens: linhas.length, produtos: new Set(linhas.map((l) => `${l.codbarra}|${l.descricao}`)).size,
+        // quantas alterações BAIXARAM o preço
+        reducoes: linhas.filter((l) => num(l.variacao) < 0).length,
+      },
+    };
+  }
+
+  /**
+   * 0 ANÁLISE, 3 RUPTURA NA LOJA e 4 ESTOQUE ATUAL — o `FDqProdutos` do legado (UDMProdutosRel.dfm) com os filtros do `GeraConsulta`:
+   * PRODUTOS × MULTI_PRECO das empresas marcadas, ESTOQUE (B) e ESTOQUE_DEP (DE) da mesma empresa, as famílias pelo código (sem o
+   * tipo), o fornecedor, a última venda de balcão (PEDIDOS) e a loja. O `FormataEstoque`: na análise e na ruptura o `rgDisponivelEm`
+   * fica invisível ("sem incidência": a QTDE da loja e os totais de loja + depósito, só positivos); no estoque atual vale o rádio.
+   * A RUPTURA força o `cmbFiltro` = 14 (loja zerada ou negativa) e o `cbbEstoqueDep` = 13 (depósito > 0) — neste cliente o
+   * ESTOQUE_DEP é todo zero, então o relatório sai vazio, como no legado. Ordem: análise `M.IDEMPRESA, P.RAZAO, A.DESCRICAO`; ruptura e
+   * estoque atual `M.IDEMPRESA, A.CODFOR, P.RAZAO, A.DESCRICAO`. O estoque atual traz o resumo por departamento (`QrySubConsulta`).
+   */
+  private async nucleo(db: AnyDB, f: FiltroProdutosRel2): Promise<ResultadoProdutosRel2> {
+    const emps = await this.empresas(db, f.empresas);
+    const g: FiltroProdutosRel2 = f.tipo === 'RUPTURA' ? { ...f, filtroEstoque: 'NEGATIVA_OU_ZERADA', filtroEstoqueDep: 'MAIOR_ZERO' } : f;
+    const onde = [sql`m.idempresa IN (${sql.join(emps)})`, ...this.filtrosCadastro(g, 'a', { secao: false }), ...(await this.filtroAtivo(g, 'a', 'm')), ...this.filtrosEstoque(g)];
+    const modo = f.tipo === 'ESTOQUE_ATUAL' ? (f.disponivelEm ?? 'TODOS') : 'SEM_INCIDENCIA';
+    const loja = sql`coalesce(b.qtde, 0)`, dep = sql`coalesce(de.qtde, 0)`, ambos = sql`coalesce((coalesce(b.qtde, 0) + coalesce(de.qtde, 0)), 0)`;
+    const [qtd, base] = modo === 'TODOS' ? [ambos, ambos] : modo === 'ESTOQUE' ? [loja, loja] : modo === 'DEPOSITO' ? [dep, dep] : [loja, ambos];
+    const ordem = f.tipo === 'ANALISE' ? sql`m.idempresa, p.razao, a.descricao` : sql`m.idempresa, a.codfor, p.razao, a.descricao`;
+    const linhas = (await sql<Linha>`
+      SELECT m.idempresa, a.idproduto, a.codbarra, a.descricao, a.unidade, k.ult_entrada,
+             m.vrcusto, m.vrcustoreal, m.markup, m.markupfixo, m.vrvenda, m.vrpromo, m.promocao,
+             ${qtd} AS qtde,
+             CASE WHEN ${base} > 0 THEN ${base} * m.vrcusto ELSE 0 END AS totalcusto,
+             CASE WHEN ${base} > 0 THEN ${base} * m.vrvenda ELSE 0 END AS totalvenda,
+             b.local, b.minimo, b.maximo,
+             coalesce(de.qtde, 0) AS qtde_dep, de.maximo AS maximo_dep, de.minimo AS minimo_dep,
+             coalesce(de.qtde, 0) * m.vrcusto AS totalcustodep, coalesce(de.qtde, 0) * m.vrvenda AS totalvendadep,
+             a.codgrupo, c.descricao AS descgrupo, a.codsubgrupo, d.descricao AS descsubgrupo, a.codfor, p.razao, a.coddpto,
+             e.descricao AS descdepto, d.descricao AS subgrupo, coalesce(m.ativo, 'N') AS ativo, coalesce(m.ativo_compra, 'N') AS ativo_compra,
+             emp.fantasia
+        FROM produtos a
+        LEFT JOIN multi_preco m    ON a.idproduto = m.idproduto
+        LEFT JOIN estoque b        ON m.idproduto = b.idproduto AND m.idempresa = b.idempresa
+        LEFT JOIN estoque_dep de   ON m.idproduto = de.idproduto AND m.idempresa = de.idempresa
+        LEFT JOIN familias_prod c  ON a.codgrupo = c.codfamilia
+        LEFT JOIN familias_prod d  ON a.codsubgrupo = d.codfamilia
+        LEFT JOIN familias_prod e  ON a.coddpto = e.codfamilia
+        LEFT JOIN parceiros p      ON a.codfor = p.codparceiro
+        LEFT JOIN (SELECT codproduto, max(dtvenda) AS ult_entrada FROM pedidos WHERE cancelado = 'N' GROUP BY codproduto) k ON a.idproduto = k.codproduto
+        LEFT JOIN empresas emp     ON emp.idempresa = m.idempresa
+       WHERE ${sql.join(onde, sql` AND `)}
+       ORDER BY ${ordem}
+       LIMIT 20001`.execute(db)).rows.map((l) => {
+      const o: Linha = { ...l };
+      for (const k of ['vrcusto', 'vrcustoreal', 'markup', 'markupfixo', 'vrvenda', 'vrpromo', 'qtde', 'totalcusto', 'totalvenda', 'minimo', 'maximo', 'qtde_dep',
+        'maximo_dep', 'minimo_dep', 'totalcustodep', 'totalvendadep']) if (o[k] != null) o[k] = Number(o[k]);
+      return o;
+    });
+    const out: ResultadoProdutosRel2 = { tipo: f.tipo, linhas, totais: { itens: linhas.length, qtde: soma(linhas, 'qtde'), totalCusto: soma(linhas, 'totalcusto'), totalVenda: soma(linhas, 'totalvenda') } };
+    if (f.tipo === 'ESTOQUE_ATUAL') {
+      // o QrySubConsulta: o mesmo recorte somado por departamento (o sem departamento como −999999 / "PRODUTO COM DEPARTAMENTO NÃO DEFINIDO")
+      const m = new Map<string, Linha>();
+      for (const l of linhas) {
+        const cod = l.coddpto == null ? -999999 : Number(l.coddpto);
+        const desc = (l.descdepto as string | null) ?? 'PRODUTO COM DEPARTAMENTO NÃO DEFINIDO';
+        const k = `${cod}|${desc}`;
+        const a = m.get(k) ?? { coddpto: cod, descdepto: desc, totalvenda: 0, totalcusto: 0, qtde_dep: 0, qtde: 0 };
+        for (const c of ['totalvenda', 'totalcusto', 'qtde_dep', 'qtde']) a[c] = Number(a[c]) + num(l[c]);
+        m.set(k, a);
+      }
+      out.resumo = [...m.values()].sort((x, y) => String(x.descdepto).localeCompare(String(y.descdepto)));
+    }
+    return out;
   }
 
   /**

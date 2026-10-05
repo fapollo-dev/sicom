@@ -1,4 +1,4 @@
-# RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — recon, corte-1 e corte-2
+# RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — recon e cortes 1 a 3
 
 `uProdutosRel.pas` (2.687) + `.dfm` (3.640) + `UDMProdutosRel` (410 + 3.699) + três grades auxiliares
 (`Grid`, `ListaConferenciaGrid`, `PercasGrid`). **~10.900 linhas.** 162 acessos, 19 operadores.
@@ -11,11 +11,11 @@ constavam aqui. A numeração abaixo é o `ItemIndex` (base 0) do Pascal.
 
 | ItemIndex | relatório | substrato na produção (25/09/2026) | Apollo |
 |---|---|---|---|
-| 0 | Relatório para análise | ESTOQUE + MULTI_PRECO | ✅ corte-1 |
+| 0 | Relatório para análise | ESTOQUE + MULTI_PRECO | ✅ corte-3 (o FDqProdutos do legado — §9) |
 | 1 | Lista para conferência | ESTOQUE (emp 1: 10.926 ≠ 0; emp 2: 5.717) | ✅ corte-2 (a folha de contagem com as colunas em branco) |
 | 2 | Receitas | RECEITA_PROD 86 linhas / 10 produtos; a página de receitas **não tem provider** no fonte (resíduo DBX→FireDAC) | 🪦 marginal e quebrado |
-| 3 | Ruptura na loja | ESTOQUE | ✅ corte-1 |
-| 4 | Estoque atual | ESTOQUE | ✅ corte-1 |
+| 3 | Ruptura na loja | ESTOQUE × ESTOQUE_DEP (loja ≤ 0 E depósito > 0) | ✅ corte-3 — sai vazio neste cliente (ESTOQUE_DEP zerado), como no legado |
+| 4 | Estoque atual | ESTOQUE + ESTOQUE_DEP | ✅ corte-3 (rgDisponivelEm + resumo por departamento) |
 | 5 | Análise pedido | PEDIDOS: 53 linhas em 2026 (a metade "venda" morta; a de estoque/custo = item 0) | 🪦 marginal |
 | 6 | Estoque por data | ~~HISTORICO_PROD_DEP 19 linhas~~ → **HISTORICO_PROD 14,7 M**, último de hoje; o último saldo bate com ESTOQUE em 100% | ✅ corte-2 |
 | 7 | Estoque saldo | substrato vivo, **relatório falho** (o HAVING por dia descarta 87% das saídas; saldo inicial fixo no balanço de 2020 com empresa 0; filtros dão ORA-00979) | ⛔ não converter fiel — o 6 dá o saldo na data certo |
@@ -24,7 +24,7 @@ constavam aqui. A numeração abaixo é o `ItemIndex` (base 0) do Pascal.
 | 10 | Venda externa | nenhum produto ATACADO = 'S' (os 1.277 NULL saem "ATACADO") | 🪦 marginal |
 | 11 | Lotes e validades | ~~LOTE_PRODUTO_VALIDADE 1 linha~~ → **NF_PROD_LOTE 132.166 lotes** (2.979 vencem até 31/12/2026) | ✅ corte-2 |
 | 12 | Preço 2 | 10 produtos (47 linhas) | 🪦 marginal |
-| 13 | Alterações de preço | HISTORICO_DINAMICO 97.977 | ✅ corte-1 |
+| 13 | Alterações de preço | HISTORICO_DINAMICO: 83.185 de VRVENDA (05/10/2026) | ✅ corte-3 (o GetSQLRelAlteracaoPrecos) |
 | 14 | Inativos em agenda | ~~0 produtos inativos~~ → o filtro é o **item** da agenda inativo: **953**, 83 em 2026 | ✅ corte-2 |
 | 15 | Estoque atual/vendas período | VENDAS 19 M, ~7 mil/dia | ✅ corte-2 |
 | 16 | Validade de inventário | FAMILIAS_PROD_AREA 0 linhas; 1 produto com seção | 🪦 morto |
@@ -52,41 +52,44 @@ zeros, sem erro nenhum na tela — o pior tipo de defeito.
 giro. São elas que separam "tenho 10" de "tenho 10, mas 8 já estão vendidos e não saíram", e sem `dtvenda`
 não existe ruptura com tempo.
 
-## 3. As quinze comparações do `cmbFiltro` — e a armadilha do mínimo em branco
+## 3. As quinze comparações do `cmbFiltro` (e as do `cbbEstoqueDep`)
 
-As quatro de **sinal** são exatas: negativa, zerada, maior que zero, negativa ou zerada.
+> ⚠️ **Corrigido no corte 3.** O texto antigo dizia que as dez de mínimo/máximo comparam contra `coalesce(minimo, 0)` — **errado**: o
+> legado compara as colunas cruas (`B.QTDE <= B.MINIMO`, P:1128-1142). Mínimo/máximo **nulo** (87.021 linhas de ESTOQUE na
+> produção) não satisfaz nenhuma comparação, então "igual ao mínimo" **não** traz o produto zerado sem mínimo. A 14 é
+> `((B.QTDE = 0) OR (B.QTDE < 0))` — também cru (QTDE nula fica de fora). O `cbbEstoqueDep` repete as quinze sobre `DE.*`.
 
-As dez de **mínimo/máximo** comparam contra `coalesce(minimo, 0)`. Num cadastro sem mínimo elas viram
-comparações contra **zero**: "igual ao mínimo" traz junto todo produto **zerado** com mínimo em branco, porque
-`0 = 0`. Não é defeito da consulta — é o cadastro. Em produção **4 produtos têm mínimo** e **2 têm máximo**,
-em 203.546 linhas. As dez comparações existem e funcionam, mas neste cliente medem quase nada; é por isso que
-a **ruptura** é o corte que interessa.
+## 4. Ruptura na loja = falta na loja com saldo no depósito
 
-## 4. Ruptura é falta COM tempo
+> ⚠️ **Corrigido no corte 3.** O corte 1 inventou um corte "dias sem venda" que não existe no legado. A ruptura (`cbbTipoRelCloseUp`,
+> item 3) **força o `cmbFiltro` = 14 (loja zerada ou negativa) e o `cbbEstoqueDep` = 13 (depósito > 0)** e trava os dois: é a lista
+> do que dá para repor puxando do depósito. Neste cliente o ESTOQUE_DEP é todo zero → **o relatório sai vazio, como no legado**.
+> Layout `prod_Posicao_Estoque_Dep_produtos.fr3` (Qtd. Dep., Qtd. Loja, mínimo/máximo do depósito).
 
-Zerado ou negativo já é falta. O que decide a ação é **há quantos dias não vende** (`estoque.dtvenda`): é a
-diferença entre "acabou porque vende muito" e "acabou e ninguém sentiu falta". O corte em dias é do operador.
+## 5. Alterações de preço (13) — o `GetSQLRelAlteracaoPrecos`
 
-## 5. Alterações de preço — o relatório que sobrou dos doze
+`HISTORICO_DINAMICO` da MULTI_PRECO com **`CAMPO = 'VRVENDA'` exato**, ligado ao produto pela `CHAVE = 'IDPRODUTO'`; MULTI_PRECO,
+ESTOQUE e ESTOQUE_DEP da empresa da alteração (para o ativo e os filtros de estoque — todos habilitados); empresas marcadas sobre
+`H.CODEMPRESA`; `TRUNC(H.DATA)` no período. Ordem `A.DESCRICAO, H.CODEMPRESA, H.CODHISTORICO`. A grade do legado agrupa por código de
+barras + descrição (detalhe: empresa, operador, histórico, anterior, atual, data); o "Expandir itens" vale aqui e na lista de conferência.
 
-Lê o `historico_dinamico`, onde toda mudança de `VRVENDA` fica registrada: quem mudou, quando, de quanto para
-quanto. **97.977 registros em 15.471 produtos**, de 07/08/2020 a 15/09/2026 — o último no dia desta medição.
+**Dois defeitos do corte 1 (medidos na produção em 05/10/2026):**
+1. `UPPER(CAMPO) LIKE '%VRVENDA%'` trazia junto o **VRVENDASUG** — 15.865 linhas (16% a mais), que não é preço de venda;
+2. o valor é **texto** em três formatos: "3.59" (alteração direta), **"3,59" em 97%** (cadastro, precificação, lote) e "9.999,00" (48,
+   com milhar). O `::numeric` do corte 1 dava **erro em qualquer período real**. A variação (R$ e %, um acréscimo do Apollo — o legado
+   mostra os dois textos) agora é calculada no código (`valorDoHistorico`: com vírgula, o ponto é milhar).
 
-É o relatório que responde *"por que este produto está com esse preço"* — e, quando o preço saiu errado, quem
-o colocou lá. A variação vem em reais e em percentual, e a alteração de **custo** não entra: o relatório é de
-preço.
+O layout PERSONALIZADO do cliente (`Alteracoes_preco.fr3`, cód. 638) imprime **VALOR_ANTERIOR também na coluna "Valor novo"** — defeito
+do layout, não do dado (a grade mostra os dois certos).
 
-Alteração vinda de rotina (lote de preço, carga) não tem operador, e a coluna mostra isso em vez de inventar
-um nome.
+## 6. Cobertura (§108 do smoke, 6 checks)
 
-## 6. Cobertura (§108 do smoke, 5 checks)
-
-1. as comparações de sinal exatas, e a armadilha do mínimo em branco explicada com número;
-2. ruptura com e sem corte de dias;
-3. a análise pondo dinheiro na posição (30 × 5,00 = 150,00 parados, margem 50%);
-4. o "ativo" é do **cadastro**, não do estoque — produto inativo com 7 em estoque existe e precisa ser achado
-   antes do inventário;
-5. as alterações de preço, com variação em reais e em percentual, e a alteração de custo ficando de fora.
+1. as comparações cruas (o mínimo nulo fora do "igual ao mínimo");
+2. a ruptura vazia sem depósito; com 12 no depósito, o −5 da loja entra, com o valor de loja + depósito;
+3. a análise: valor parado, ordem empresa › fornecedor › descrição, quantidade da loja e valor "sem incidência";
+4. o "ativo" da MULTI_PRECO;
+5. o estoque atual nos três "Disponível em" e o resumo por departamento;
+6. as alterações de preço: só VRVENDA, os três formatos de texto, empresas, período na data da loja, ordem, operador, produto.
 
 ## 7. Corte-2 (25/09/2026) — os oito vivos do recon
 
@@ -126,9 +129,24 @@ legado abre em "Todos" (config REL_PRODUTOS_DEF_ATIVO_COMPRA_VENDA) e lê a MULT
 processo GIROS do legado refaz todo dia (`GERA_MOVIMENTACAO_DIARIA`, fórmula conferida em 100% das linhas de 5 janelas). Virou rotina
 do `rotinas-do-banco.agendador.ts` (mig 378, smoke §263) — ver `procedures-do-banco.md`.
 
-## 8. O que falta
+## 8. Corte 3 (05/10/2026) — o núcleo `FDqProdutos` para 0, 3 e 4
 
-Salvar/carregar layout; o `rgDisponivelEm` (qual das três
-colunas de saldo o 6 imprime — a API devolve as três).
+`produtos-rel-2.service.ts` `nucleo()` (o corte-1, `produtos-rel.service.ts`, foi aposentado: os treze relatórios estão num serviço só).
+PRODUTOS ⟕ MULTI_PRECO (empresas marcadas) ⟕ ESTOQUE B ⟕ ESTOQUE_DEP DE (mesma empresa) ⟕ FAMILIAS_PROD C/D/E pelo código (sem o tipo)
+⟕ PARCEIROS ⟕ última venda de balcão (PEDIDOS) ⟕ EMPRESAS. O `FormataEstoque`:
+
+| relatório | `rgDisponivelEm` | QTDE | TOTALCUSTO / TOTALVENDA |
+|---|---|---|---|
+| 0 análise | invisível (`StrToEnum(…) > 0` — o índice 0 é a própria análise) → SEM_INCIDENCIA | loja | (loja + depósito) × preço, só se > 0 |
+| 3 ruptura | invisível → SEM_INCIDENCIA | loja | idem |
+| 4 estoque atual | Todos / Estoque / Depósito | a escolhida | a escolhida × preço, só se > 0 |
+
+Ordem: análise (e lista) `M.IDEMPRESA, P.RAZAO, A.DESCRICAO`; os demais `M.IDEMPRESA, A.CODFOR, P.RAZAO, A.DESCRICAO`. O estoque atual
+traz o `QrySubConsulta` (o mesmo recorte por departamento; sem departamento = −999999 "PRODUTO COM DEPARTAMENTO NÃO DEFINIDO").
+Filtros habilitados por relatório = o `cbbTipoRelCloseUp` (a tela mostra só esses).
+
+## 9. O que falta
+
+Salvar/carregar layout; as impressões nos layouts do cliente (os 13 `.fr3`, baixados — próximo corte).
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

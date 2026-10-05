@@ -12,56 +12,65 @@ import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-type TipoC1 = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO';
-type TipoC2 = 'ESTOQUE_VENDAS_PERIODO' | 'ESTOQUE_POR_DATA' | 'MIX_ESTOQUE_LOJA' | 'MIX_ESTOQUE_GIROS' | 'LOTES_VALIDADES' | 'PERCAS' | 'LISTA_CONFERENCIA' | 'INATIVOS_AGENDA' | 'PRODUTOS_FORNECEDOR';
-type Tipo = TipoC1 | TipoC2;
-interface Linha {
-  idproduto: number; codbarra: string; descricao: string; ativo: string; unidade: string;
-  departamento: string | null; grupo: string | null; fornecedor: string | null;
-  qtde: number; minimo: number; maximo: number; local: string | null;
-  reservado_venda: number; pedido_compra: number;
-  ultima_venda: string | null; dias_sem_venda: number | null;
-  vrcusto: number; vrvenda: number; valor_custo: number; valor_venda: number; margem: number | null;
-  // ALTERACOES_PRECO
-  data?: string; valor_anterior?: string; valor_atual?: string; variacao?: number; variacao_pct?: number | null;
-  operador?: string | null; historico?: string | null; origem?: string | null;
-}
-interface Resultado {
-  tipo: TipoC1; linhas: Linha[];
-  totais: { itens: number; qtdeTotal: number; valorCusto: number; valorVenda: number; negativos: number };
-}
+/** os treze relatórios vivos do combo (`cbbTipoRel`); a numeração do comentário é o `ItemIndex` do legado */
+type Tipo =
+  | 'ANALISE' | 'LISTA_CONFERENCIA' | 'RUPTURA' | 'ESTOQUE_ATUAL' | 'ESTOQUE_POR_DATA' | 'PERCAS' | 'LOTES_VALIDADES' | 'ALTERACOES_PRECO'
+  | 'INATIVOS_AGENDA' | 'ESTOQUE_VENDAS_PERIODO' | 'PRODUTOS_FORNECEDOR' | 'MIX_ESTOQUE_LOJA' | 'MIX_ESTOQUE_GIROS';
 type LinhaC2 = Record<string, unknown> & { _id: string };
-interface ResultadoC2 { tipo: TipoC2; linhas: LinhaC2[]; totais: Record<string, number>; ultimoGiro?: string | null }
+interface ResultadoC2 { tipo: Tipo; linhas: LinhaC2[]; totais: Record<string, number>; ultimoGiro?: string | null; resumo?: Array<Record<string, unknown>> }
 
 /** na ordem do combo do legado (`cbbTipoRel`) */
 const TIPOS: Array<{ v: Tipo; rotulo: string; ajuda: string }> = [
-  { v: 'ANALISE', rotulo: 'Relatório para análise', ajuda: 'estoque com custo, preço e margem' },
+  { v: 'ANALISE', rotulo: 'Relatório para análise', ajuda: 'a posição de estoque com preço, mínimo e máximo, por departamento, grupo e subgrupo (a quantidade é a da loja; o valor parado soma loja e depósito, quando positivo)' },
   { v: 'LISTA_CONFERENCIA', rotulo: 'Lista para conferência', ajuda: 'a folha de contagem física por empresa e fornecedor, com as colunas em branco para anotar' },
-  { v: 'RUPTURA', rotulo: 'Ruptura na loja', ajuda: 'o que zerou ou ficou negativo, e há quantos dias não vende' },
-  { v: 'ESTOQUE_ATUAL', rotulo: 'Estoque atual', ajuda: 'quanto tem, contra mínimo e máximo' },
+  { v: 'RUPTURA', rotulo: 'Ruptura na loja', ajuda: 'o que está zerado ou negativo na loja e tem saldo no depósito — o que dá para repor puxando do depósito' },
+  { v: 'ESTOQUE_ATUAL', rotulo: 'Estoque atual', ajuda: 'quantidade e valor em estoque (loja e depósito, só loja ou só depósito), com o resumo por departamento' },
   { v: 'ESTOQUE_POR_DATA', rotulo: 'Estoque por data', ajuda: 'o saldo de cada produto numa data passada (o último movimento do kardex até o dia), a custo e venda atuais' },
   { v: 'PERCAS', rotulo: 'Percas', ajuda: 'o que se perdeu no período, pelo custo gravado na perca, contra as entradas e saídas' },
   { v: 'LOTES_VALIDADES', rotulo: 'Lotes e validades', ajuda: 'os lotes das notas de entrada que vencem no período' },
-  { v: 'ALTERACOES_PRECO', rotulo: 'Alterações de preço', ajuda: 'quem mudou o preço, quando, e de quanto para quanto' },
+  { v: 'ALTERACOES_PRECO', rotulo: 'Alterações de preço', ajuda: 'quem mudou o preço de venda, quando, e de quanto para quanto — por produto' },
   { v: 'INATIVOS_AGENDA', rotulo: 'Produtos inativos em agenda de promoções', ajuda: 'os itens desativados das agendas de promoção, com o preço de venda e o da promoção' },
   { v: 'ESTOQUE_VENDAS_PERIODO', rotulo: 'Estoque atual/vendas período', ajuda: 'o estoque de hoje ao lado do que vendeu no período e dos preços médios praticados' },
   { v: 'PRODUTOS_FORNECEDOR', rotulo: 'Produtos por fornecedor', ajuda: 'cada produto sob o fornecedor da última nota de entrada: custo, quantidade e data da nota, o vendido desde então e o estoque logo depois da entrada' },
   { v: 'MIX_ESTOQUE_LOJA', rotulo: 'Comparativo de mix (estoque × loja)', ajuda: 'o que a empresa em que você está tem em estoque e está sem estoque nas lojas marcadas' },
   { v: 'MIX_ESTOQUE_GIROS', rotulo: 'Comparativo de mix (estoque × giros)', ajuda: 'o que a empresa em que você está tem em estoque e não girou no período nas empresas marcadas' },
 ];
-const C2: readonly Tipo[] = ['ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA', 'PRODUTOS_FORNECEDOR'];
 /** o `cbbAtivo` do legado, na ordem do combo */
 const ATIVO_MODOS: Array<{ v: string; rotulo: string }> = [
   { v: '', rotulo: 'Todos' }, { v: 'COMPRA_S', rotulo: 'Ativos p/ compra' }, { v: 'VENDA_S', rotulo: 'Ativos p/ venda' },
   { v: 'COMPRA_N', rotulo: 'Inativos p/ compra' }, { v: 'VENDA_N', rotulo: 'Inativos p/ venda' },
   { v: 'AMBOS_S', rotulo: 'Ativos p/ compra e venda' }, { v: 'AMBOS_N', rotulo: 'Inativos p/ compra e venda' },
 ];
-const ehC2 = (t: Tipo): t is TipoC2 => C2.includes(t);
 
-type Fmt = 'txt' | 'qtd' | 'moeda' | 'pct' | 'data' | 'marca';
+type Fmt = 'txt' | 'qtd' | 'moeda' | 'pct' | 'data' | 'dh' | 'marca';
 interface ColC2 { c: string; t: string; fmt?: Fmt; w?: number }
-/** as colunas de cada relatório do corte 2 — as da grade/.fr3 do legado */
-const COLS_C2: Record<TipoC2, ColC2[]> = {
+/** as colunas de cada relatório — as da grade/.fr3 do legado */
+const COLS_C2: Record<Tipo, ColC2[]> = {
+  // prod_Posicao_estoque_produtos.fr3 (agrupa por departamento › grupo › subgrupo)
+  ANALISE: [
+    { c: 'idempresa', t: 'Emp.', w: 60 }, { c: 'descdepto', t: 'Departamento', w: 150 }, { c: 'descgrupo', t: 'Grupo', w: 140 }, { c: 'descsubgrupo', t: 'Subgrupo', w: 140 },
+    { c: 'codbarra', t: 'Cód. barras', w: 130 }, { c: 'descricao', t: 'Descrição' }, { c: 'unidade', t: 'UN', w: 60 }, { c: 'vrvenda', t: 'Vlr. venda', fmt: 'moeda' },
+    { c: 'qtde', t: 'Qtd. estoque', fmt: 'qtd' }, { c: 'minimo', t: 'Mínimo', fmt: 'qtd', w: 90 }, { c: 'maximo', t: 'Máximo', fmt: 'qtd', w: 90 }, { c: 'razao', t: 'Fornecedor', w: 200 },
+    { c: 'vrcusto', t: 'Custo', fmt: 'moeda' }, { c: 'totalcusto', t: 'Total custo', fmt: 'moeda' }, { c: 'totalvenda', t: 'Total venda', fmt: 'moeda' },
+  ],
+  // prod_Posicao_Estoque_Dep_produtos.fr3
+  RUPTURA: [
+    { c: 'idempresa', t: 'Emp.', w: 60 }, { c: 'descdepto', t: 'Departamento', w: 150 }, { c: 'codbarra', t: 'Cód. barras', w: 130 }, { c: 'descricao', t: 'Descrição' },
+    { c: 'unidade', t: 'UN', w: 60 }, { c: 'vrvenda', t: 'Vlr. venda', fmt: 'moeda' }, { c: 'qtde_dep', t: 'Qtd. dep.', fmt: 'qtd' }, { c: 'qtde', t: 'Qtd. loja', fmt: 'qtd' },
+    { c: 'minimo_dep', t: 'Mínimo dep.', fmt: 'qtd', w: 100 }, { c: 'maximo_dep', t: 'Máximo dep.', fmt: 'qtd', w: 100 }, { c: 'razao', t: 'Fornecedor', w: 200 },
+  ],
+  // Rel_Posicao_Estoque.fr3 (+ o resumo por departamento)
+  ESTOQUE_ATUAL: [
+    { c: 'coddpto', t: 'Dpt.', w: 70 }, { c: 'idempresa', t: 'Emp.', w: 60 }, { c: 'idproduto', t: 'ID prod.', w: 90 }, { c: 'codbarra', t: 'Cód. barras', w: 130 },
+    { c: 'descricao', t: 'Descrição' }, { c: 'qtde_dep', t: 'Qtd. dep.', fmt: 'qtd' }, { c: 'qtde', t: 'Qtd. est.', fmt: 'qtd' },
+    { c: 'totalcusto', t: 'Vr. custo', fmt: 'moeda' }, { c: 'totalvenda', t: 'Vr. venda', fmt: 'moeda' },
+  ],
+  // Alteracoes_preco.fr3 (agrupa por código de barras); a variação é do Apollo — o legado mostra os dois textos
+  ALTERACOES_PRECO: [
+    { c: 'codbarra', t: 'Cód. barras', w: 130 }, { c: 'descricao', t: 'Descrição' }, { c: 'codempresa', t: 'Empresa', w: 80 }, { c: 'data', t: 'Data', fmt: 'dh', w: 140 },
+    { c: 'valor_anterior', t: 'Valor anterior', w: 110 }, { c: 'valor_atual', t: 'Valor novo', w: 110 }, { c: 'variacao', t: 'Variação', fmt: 'moeda' },
+    { c: 'variacao_pct', t: '%', fmt: 'pct', w: 90 }, { c: 'nome', t: 'Operador', w: 170 }, { c: 'historico', t: 'Histórico', w: 240 },
+  ],
   ESTOQUE_VENDAS_PERIODO: [
     { c: 'idempresa', t: 'Emp.', w: 60 }, { c: 'departamento', t: 'Departamento', w: 150 }, { c: 'codbarra', t: 'Cód. barras', w: 130 },
     { c: 'descricao', t: 'Descrição' }, { c: 'qtde_dep', t: 'Qtde depósito', fmt: 'qtd' }, { c: 'qtde', t: 'Qtde estoque', fmt: 'qtd' },
@@ -115,19 +124,32 @@ const TOTAIS_C2: Record<string, { t: string; fmt: Fmt }> = {
   itens: { t: 'Itens', fmt: 'txt' }, qtde: { t: 'Qtde', fmt: 'qtd' }, qtdeDep: { t: 'Qtde depósito', fmt: 'qtd' }, totalCusto: { t: 'Custo em estoque', fmt: 'moeda' },
   totalVenda: { t: 'Venda em estoque', fmt: 'moeda' }, qtdeVendida: { t: 'Qtde vendida', fmt: 'qtd' }, vendaPeriodo: { t: 'Venda no período', fmt: 'moeda' },
   saldo: { t: 'Saldo', fmt: 'qtd' }, custo: { t: 'Custo', fmt: 'moeda' }, venda: { t: 'Venda', fmt: 'moeda' }, estoque: { t: 'Estoque', fmt: 'qtd' },
-  produtos: { t: 'Produtos', fmt: 'txt' }, fornecedores: { t: 'Fornecedores', fmt: 'txt' }, qtdPercas: { t: 'Perca (qtde)', fmt: 'qtd' }, valorPercas: { t: 'Perca (R$)', fmt: 'moeda' }, entradas: { t: 'Entradas', fmt: 'qtd' },
+  produtos: { t: 'Produtos', fmt: 'txt' }, reducoes: { t: 'Baixaram o preço', fmt: 'txt' }, fornecedores: { t: 'Fornecedores', fmt: 'txt' }, qtdPercas: { t: 'Perca (qtde)', fmt: 'qtd' }, valorPercas: { t: 'Perca (R$)', fmt: 'moeda' }, entradas: { t: 'Entradas', fmt: 'qtd' },
 };
-/** que filtros cada relatório do corte 2 lê (o resto o legado desabilita) */
-const USA: Record<TipoC2, { periodo?: 'ambos' | 'fim'; estoque?: boolean; saldo?: boolean; ativo?: boolean; secao?: boolean; fornecedor?: boolean; lotes?: boolean; empresas?: boolean }> = {
-  ESTOQUE_VENDAS_PERIODO: { periodo: 'ambos', estoque: true, ativo: true, secao: true, fornecedor: true, empresas: true },
+/**
+ * que filtros cada relatório lê — o `cbbTipoRelCloseUp` do legado: `estoque` = cbbEstoque × sinal × qtde, `cmb` = cmbFiltro, `dep` =
+ * cbbEstoqueDep, `local` = edtLocal, `disponivel` = rgDisponivelEm (só o estoque atual: na análise o `StrToEnum(…) > 0` do legado o deixa
+ * invisível), `fixo` = a ruptura, que trava o cmbFiltro em "loja zerada ou negativa" e o cbbEstoqueDep em "depósito > 0".
+ */
+interface Usa {
+  periodo?: 'ambos' | 'fim'; estoque?: boolean; cmb?: boolean; dep?: boolean; local?: boolean; disponivel?: boolean; fixo?: boolean;
+  saldo?: boolean; ativo?: boolean; secao?: boolean; fornecedor?: boolean; lotes?: boolean; empresas?: boolean;
+}
+const NUCLEO: Usa = { estoque: true, cmb: true, dep: true, local: true, ativo: true, fornecedor: true, empresas: true };
+const USA: Record<Tipo, Usa> = {
+  ANALISE: NUCLEO,
+  RUPTURA: { ...NUCLEO, cmb: false, dep: false, fixo: true },
+  ESTOQUE_ATUAL: { ...NUCLEO, disponivel: true },
+  ALTERACOES_PRECO: { ...NUCLEO, periodo: 'ambos' },
+  ESTOQUE_VENDAS_PERIODO: { ...NUCLEO, periodo: 'ambos', secao: true },
   ESTOQUE_POR_DATA: { periodo: 'fim', saldo: true, ativo: true, empresas: true },
   MIX_ESTOQUE_LOJA: { ativo: true, secao: true, fornecedor: true, empresas: true },
   MIX_ESTOQUE_GIROS: { periodo: 'ambos', ativo: true, secao: true, fornecedor: true, empresas: true },
   LOTES_VALIDADES: { periodo: 'ambos', secao: true, fornecedor: true, lotes: true, empresas: true },
   PERCAS: { periodo: 'ambos', fornecedor: true, empresas: true },
-  LISTA_CONFERENCIA: { estoque: true, ativo: true, fornecedor: true, empresas: true },
+  LISTA_CONFERENCIA: NUCLEO,
   INATIVOS_AGENDA: { fornecedor: true },
-  PRODUTOS_FORNECEDOR: { estoque: true, ativo: true, secao: true, fornecedor: true, empresas: true },
+  PRODUTOS_FORNECEDOR: { estoque: true, dep: true, ativo: true, secao: true, fornecedor: true, empresas: true },
 };
 
 /** o `cmbFiltro` do legado, na ordem do combo. */
@@ -152,35 +174,40 @@ const FILTROS: Array<{ v: string; rotulo: string }> = [
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nfmt = (v: unknown, d = 3) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: d });
 const dataBr = (v: unknown) => (v == null ? '—' : String(v).slice(0, 10).split('-').reverse().join('/'));
+const dataHora = (v: unknown) => {
+  if (v == null) return '—';
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+};
 const fmtC2 = (v: unknown, fmt: Fmt = 'txt') => {
   if (fmt === 'moeda') return v == null ? '—' : moeda(v);
   if (fmt === 'qtd') return v == null ? '—' : nfmt(v);
   if (fmt === 'pct') return v == null ? '—' : `${nfmt(v, 2)}%`;
   if (fmt === 'data') return dataBr(v);
+  if (fmt === 'dh') return dataHora(v);
   // TV/RÁDIO/TABLOIDE/INTERNO marcam com 'T'; atualização de grupo e NF cancelada com 'S'
   if (fmt === 'marca') return v === 'T' || v === 'S' ? '✓' : '';
   return v == null ? '' : String(v);
 };
 
 /**
- * RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — corte-1 e corte-2. Dossiê: `uProdutosRel.md`.
+ * RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`). Dossiê: `uProdutosRel.md`.
  *
- * O combo do legado tem 21 relatórios; aqui estão os 12 que o dado da produção prova vivos, na ordem do combo. Cada um mostra só os
- * filtros que o legado deixa habilitados para ele (`USA`); o combo de filtro traz as 15 comparações originais contra mínimo e máximo.
+ * O combo do legado tem 21 relatórios; aqui estão os 13 que o dado da produção prova vivos, na ordem do combo. Cada um mostra só os
+ * filtros que o legado deixa habilitados para ele (`USA`); os combos de filtro trazem as 15 comparações originais contra mínimo e máximo
+ * (da loja e do depósito).
  */
 export function ProdutosRelPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS',
-    coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', produto: '', diasSemVenda: '',
+    tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS', filtroEstoqueDep: 'TODOS', disponivelEm: 'TODOS',
+    coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', produto: '',
     dataIni: `${hojeNaLoja().slice(0, 7)}-01`, dataFim: hojeNaLoja(),
-    // corte 2
     empresas: '', estoqueEm: '', estoqueSinal: '>', estoqueQtde: '0', local: '', lotes: '', ativoModo: '',
   });
-  const [res, setRes] = useState<Resultado | null>(null);
   const [res2, setRes2] = useState<ResultadoC2 | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const usa = ehC2(f.tipo) ? USA[f.tipo] : null;
+  const usa = USA[f.tipo];
 
   const buscar = async (q: URLSearchParams) => {
     const r = await fetch(`${BASE}/relatorios/produtos?${q}`, { headers: apiHeaders() });
@@ -197,30 +224,20 @@ export function ProdutosRelPage() {
     setOcupado(true);
     try {
       const q = new URLSearchParams();
-      if (ehC2(f.tipo)) {
-        const u = USA[f.tipo];
-        q.set('tipo', f.tipo);
-        const set = (k: string, v: string, quando = true) => { if (quando && v.trim() !== '') q.set(k, v.trim()); };
-        set('empresas', f.empresas, !!u.empresas);
-        set('produto', f.produto); set('coddpto', f.coddpto); set('codgrupo', f.codgrupo); set('codsubgrupo', f.codsubgrupo);
-        set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativoModo', f.ativoModo, !!u.ativo);
-        set('dataIni', f.dataIni, u.periodo === 'ambos'); set('dataFim', f.dataFim, !!u.periodo);
-        if (u.estoque) { set('filtroEstoque', f.filtroEstoque); set('estoqueEm', f.estoqueEm); set('local', f.local); }
-        if (u.estoque && f.estoqueEm) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
-        if (u.saldo) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
-        set('lotes', f.lotes, !!u.lotes);
-        const b = (await buscar(q)) as ResultadoC2;
-        setRes2({ ...b, linhas: b.linhas.map((l, i) => ({ ...l, _id: String(i) })) });
-        setRes(null);
-        return;
-      }
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
-      ['empresas', 'estoqueEm', 'estoqueSinal', 'estoqueQtde', 'local', 'lotes', 'codsubgrupo', 'codsecao', 'ativo'].forEach((k) => q.delete(k));
-      if (f.tipo !== 'RUPTURA') q.delete('diasSemVenda');
-      if (f.tipo !== 'ALTERACOES_PRECO') { q.delete('dataIni'); q.delete('dataFim'); q.delete('filtroEstoque'); q.set('filtroEstoque', f.filtroEstoque); }
-      if (f.tipo === 'ALTERACOES_PRECO') { q.delete('filtroEstoque'); q.delete('ativoModo'); }
-      setRes((await buscar(q)) as Resultado);
-      setRes2(null);
+      const u = USA[f.tipo];
+      q.set('tipo', f.tipo);
+      const set = (k: string, v: string, quando = true) => { if (quando && v.trim() !== '') q.set(k, v.trim()); };
+      set('empresas', f.empresas, !!u.empresas);
+      set('produto', f.produto); set('coddpto', f.coddpto); set('codgrupo', f.codgrupo); set('codsubgrupo', f.codsubgrupo);
+      set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativoModo', f.ativoModo, !!u.ativo);
+      set('dataIni', f.dataIni, u.periodo === 'ambos'); set('dataFim', f.dataFim, !!u.periodo);
+      set('filtroEstoque', f.filtroEstoque, !!u.cmb); set('filtroEstoqueDep', f.filtroEstoqueDep, !!u.dep); set('local', f.local, !!u.local);
+      set('disponivelEm', f.disponivelEm, !!u.disponivel);
+      if (u.estoque) set('estoqueEm', f.estoqueEm);
+      if ((u.estoque && f.estoqueEm) || u.saldo) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
+      set('lotes', f.lotes, !!u.lotes);
+      const b = (await buscar(q)) as ResultadoC2;
+      setRes2({ ...b, linhas: b.linhas.map((l, i) => ({ ...l, _id: String(i) })) });
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -242,74 +259,14 @@ export function ProdutosRelPage() {
     imprimirPagina(win, raiz, titulo, undefined, true);
   };
 
-  const cols = useMemo<DataTableColumnDef<Linha>[]>(() => {
-    if (res?.tipo === 'ALTERACOES_PRECO') {
-      return [
-        { field: 'data', headerName: 'Quando', type: 'text', width: 150, isPrimary: true,
-          valueGetter: (l) => String(l.data ?? '').replace('T', ' ').slice(0, 16).split(' ')
-            .map((x, i) => (i === 0 ? x.split('-').reverse().join('/') : x)).join(' ') },
-        { field: 'descricao', headerName: 'Produto', type: 'text' },
-        { field: 'valor_anterior', headerName: 'De', type: 'text', width: 110, valueGetter: (l) => moeda(l.valor_anterior) },
-        { field: 'valor_atual', headerName: 'Para', type: 'text', width: 110, valueGetter: (l) => moeda(l.valor_atual) },
-        {
-          field: 'variacao', headerName: 'Variação', type: 'text', width: 120, valueGetter: () => '',
-          renderCell: ({ row: l }: { row: Linha }) => (
-            <span className={Number(l.variacao) < 0 ? 'text-fg-danger tabular-nums' : 'text-fg-success tabular-nums'}>
-              {moeda(l.variacao)}
-            </span>
-          ),
-        } as DataTableColumnDef<Linha>,
-        { field: 'variacao_pct', headerName: '%', type: 'text', width: 90,
-          valueGetter: (l) => (l.variacao_pct == null ? '—' : `${nfmt(l.variacao_pct, 2)}%`) },
-        { field: 'operador', headerName: 'Quem mudou', type: 'text', width: 170,
-          // alteração vinda de rotina (lote de preço, carga) não tem operador
-          valueGetter: (l) => l.operador ?? '—' },
-        { field: 'origem', headerName: 'Origem', type: 'text', width: 150, valueGetter: (l) => l.origem ?? '—' },
-        { field: 'departamento', headerName: 'Departamento', type: 'text', width: 160 },
-      ];
-    }
-    const base: DataTableColumnDef<Linha>[] = [
-      { field: 'idproduto', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
-      { field: 'descricao', headerName: 'Produto', type: 'text' },
-      { field: 'unidade', headerName: 'Un.', type: 'text', width: 60 },
-      // o estoque negativo em destaque: é o que o operador procura primeiro
-      {
-        field: 'qtde', headerName: 'Estoque', type: 'text', width: 110,
-        valueGetter: () => '',
-        renderCell: ({ row: l }: { row: Linha }) => (
-          <span className={Number(l.qtde) < 0 ? 'font-semibold text-fg-danger tabular-nums' : 'tabular-nums'}>
-            {nfmt(l.qtde)}
-          </span>
-        ),
-      } as DataTableColumnDef<Linha>,
-    ];
-    if (res?.tipo !== 'RUPTURA') {
-      base.push(
-        { field: 'minimo', headerName: 'Mínimo', type: 'text', width: 90, valueGetter: (l) => nfmt(l.minimo) },
-        { field: 'maximo', headerName: 'Máximo', type: 'text', width: 90, valueGetter: (l) => nfmt(l.maximo) },
-      );
-    }
-    if (res?.tipo === 'RUPTURA') {
-      base.push(
-        { field: 'ultima_venda', headerName: 'Última venda', type: 'text', width: 120, valueGetter: (l) => dataBr(l.ultima_venda) },
-        { field: 'dias_sem_venda', headerName: 'Dias sem vender', type: 'text', width: 135, valueGetter: (l) => (l.dias_sem_venda == null ? 'nunca vendeu' : nfmt(l.dias_sem_venda, 0)) },
-      );
-    }
-    if (res?.tipo === 'ANALISE') {
-      base.push(
-        { field: 'vrcusto', headerName: 'Custo', type: 'text', width: 110, valueGetter: (l) => moeda(l.vrcusto) },
-        { field: 'vrvenda', headerName: 'Venda', type: 'text', width: 110, valueGetter: (l) => moeda(l.vrvenda) },
-        { field: 'margem', headerName: 'Margem', type: 'text', width: 100, valueGetter: (l) => (l.margem == null ? '—' : `${nfmt(l.margem, 2)}%`) },
-      );
-    }
-    base.push(
-      { field: 'valor_custo', headerName: 'Valor a custo', type: 'text', width: 130, valueGetter: (l) => moeda(l.valor_custo) },
-      { field: 'departamento', headerName: 'Departamento', type: 'text', width: 160 },
-      { field: 'fornecedor', headerName: 'Fornecedor', type: 'text', width: 180 },
-      { field: 'ativo', headerName: 'Ativo', type: 'text', width: 70, valueGetter: (l) => (l.ativo === 'S' ? 'Sim' : 'Não') },
-    );
-    return base;
-  }, [res?.tipo]);
+  const comboFiltro = (rotulo: string, k: 'filtroEstoque' | 'filtroEstoqueDep', prefixo: string) => (
+    <label className="flex flex-col gap-gp-xs text-body-sm">
+      {rotulo}
+      <select className="rounded border border-border px-1 py-1" value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })}>
+        {FILTROS.map((o) => <option key={o.v} value={o.v}>{o.v === 'TODOS' ? o.rotulo : o.rotulo.replace('Qtd. estoque', prefixo).replace('Qtde. estoque', prefixo)}</option>)}
+      </select>
+    </label>
+  );
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -324,16 +281,20 @@ export function ProdutosRelPage() {
               {TIPOS.map((t) => <option key={t.v} value={t.v}>{t.rotulo}</option>)}
             </select>
           </label>
-          {(!usa || usa.estoque) && (
+          {usa.cmb && comboFiltro('Filtro de estoque', 'filtroEstoque', 'Qtd. estoque')}
+          {usa.dep && comboFiltro('Filtro do depósito', 'filtroEstoqueDep', 'Qtd. depósito')}
+          {usa.fixo && <span className="self-center text-body-sm text-fg-muted">Loja zerada ou negativa e depósito &gt; 0</span>}
+          {usa.disponivel && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
-              Filtro de estoque
-              <select className="rounded border border-border px-1 py-1" value={f.filtroEstoque}
-                onChange={(e) => setF({ ...f, filtroEstoque: e.target.value })}>
-                {FILTROS.map((o) => <option key={o.v} value={o.v}>{o.rotulo}</option>)}
+              Disponível em
+              <select className="rounded border border-border px-1 py-1" value={f.disponivelEm} onChange={(e) => setF({ ...f, disponivelEm: e.target.value })}>
+                <option value="TODOS">Estoque e depósito</option>
+                <option value="ESTOQUE">Estoque</option>
+                <option value="DEPOSITO">Depósito</option>
               </select>
             </label>
           )}
-          {(usa ? usa.ativo : f.tipo !== 'ALTERACOES_PRECO') && (
+          {usa.ativo && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Ativo
               <select className="rounded border border-border px-1 py-1" value={f.ativoModo}
@@ -342,7 +303,7 @@ export function ProdutosRelPage() {
               </select>
             </label>
           )}
-          {usa?.estoque && (
+          {usa.estoque && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Estoque em
               <select className="rounded border border-border px-1 py-1" value={f.estoqueEm}
@@ -354,10 +315,10 @@ export function ProdutosRelPage() {
               </select>
             </label>
           )}
-          {((usa?.estoque && f.estoqueEm) || usa?.saldo) && (
+          {((usa.estoque && f.estoqueEm) || usa.saldo) && (
             <>
               <label className="flex flex-col gap-gp-xs text-body-sm">
-                {usa?.saldo ? 'Saldo' : 'Quantidade'}
+                {usa.saldo ? 'Saldo' : 'Quantidade'}
                 <select className="rounded border border-border px-1 py-1" value={f.estoqueSinal}
                   onChange={(e) => setF({ ...f, estoqueSinal: e.target.value })}>
                   <option value=">">Maior que</option>
@@ -368,63 +329,32 @@ export function ProdutosRelPage() {
               <div className="w-24"><Field label="&Qtde" value={f.estoqueQtde} onChange={(e) => setF({ ...f, estoqueQtde: e.target.value })} /></div>
             </>
           )}
-          {usa?.periodo && (
+          {usa.periodo && (
             <>
               {usa.periodo === 'ambos' && <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>}
               <div className="w-40"><Field label={usa.periodo === 'fim' ? 'Saldo em' : '&até'} type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
             </>
           )}
-          {f.tipo === 'RUPTURA' && (
-            <div className="w-40"><Field label="Sem vender há (dias)" value={f.diasSemVenda} onChange={(e) => setF({ ...f, diasSemVenda: e.target.value })} /></div>
-          )}
-          {f.tipo === 'ALTERACOES_PRECO' && (
-            <>
-              <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-              <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-            </>
-          )}
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
-          <Button label="&Imprimir" variant="soft" disabled={!res && !res2} onClick={imprimir} />
+          <Button label="&Imprimir" variant="soft" disabled={!res2} onClick={imprimir} />
           {/* "Exportar Grid" do legado: o que está na tela, filtrado, para o Excel */}
-          <Button label="E&xportar" variant="soft" disabled={!res && !res2} onClick={() => {
-            if (res2) {
-              exportarGradeCsv(res2.linhas, COLS_C2[res2.tipo].map((c) => ({ titulo: c.t, valor: (l: LinhaC2) => (c.fmt === 'marca' || c.fmt === 'data' ? fmtC2(l[c.c], c.fmt) : (l[c.c] as string | number | null) ?? '') })), `relatorio-produtos-${res2.tipo.toLowerCase()}`);
-              return;
-            }
-            if (!res) return;
-            exportarGradeCsv(res.linhas, [
-              { titulo: 'Código', valor: (l) => l.idproduto },
-              { titulo: 'Cód. barras', valor: (l) => l.codbarra },
-              { titulo: 'Produto', valor: (l) => l.descricao },
-              { titulo: 'Un.', valor: (l) => l.unidade },
-              { titulo: 'Estoque', valor: (l) => l.qtde },
-              { titulo: 'Mínimo', valor: (l) => l.minimo },
-              { titulo: 'Máximo', valor: (l) => l.maximo },
-              { titulo: 'Última venda', valor: (l) => dataBr(l.ultima_venda) },
-              { titulo: 'Dias sem vender', valor: (l) => l.dias_sem_venda ?? '' },
-              { titulo: 'Custo', valor: (l) => l.vrcusto },
-              { titulo: 'Venda', valor: (l) => l.vrvenda },
-              { titulo: 'Margem %', valor: (l) => l.margem ?? '' },
-              { titulo: 'Valor a custo', valor: (l) => l.valor_custo },
-              { titulo: 'Valor a venda', valor: (l) => l.valor_venda },
-              { titulo: 'Departamento', valor: (l) => l.departamento ?? '' },
-              { titulo: 'Fornecedor', valor: (l) => l.fornecedor ?? '' },
-              { titulo: 'Ativo', valor: (l) => (l.ativo === 'S' ? 'Sim' : 'Não') },
-            ], 'relatorio-produtos');
+          <Button label="E&xportar" variant="soft" disabled={!res2} onClick={() => {
+            if (!res2) return;
+            exportarGradeCsv(res2.linhas, COLS_C2[res2.tipo].map((c) => ({ titulo: c.t, valor: (l: LinhaC2) => (c.fmt === 'marca' || c.fmt === 'data' || c.fmt === 'dh' ? fmtC2(l[c.c], c.fmt) : (l[c.c] as string | number | null) ?? '') })), `relatorio-produtos-${res2.tipo.toLowerCase()}`);
           }} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
-          {usa?.empresas && (
+          {usa.empresas && (
             <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} /></div>
           )}
           <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
           <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          {usa && <div className="w-32"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>}
-          {usa?.secao && <div className="w-32"><Field label="Seçã&o" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>}
-          {(!usa || usa.fornecedor) && <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>}
+          <div className="w-32"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+          {usa.secao && <div className="w-32"><Field label="Seçã&o" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>}
+          {usa.fornecedor && <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>}
           <div className="w-56"><Field label="Produto ou &cód. barra" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
-          {usa?.estoque && <div className="w-32"><Field label="&Local" value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} /></div>}
-          {usa?.lotes && <div className="w-56"><Field label="Lo&tes (separe com ;)" value={f.lotes} onChange={(e) => setF({ ...f, lotes: e.target.value })} /></div>}
+          {usa.local && <div className="w-32"><Field label="&Local" value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} /></div>}
+          {usa.lotes && <div className="w-56"><Field label="Lo&tes (separe com ;)" value={f.lotes} onChange={(e) => setF({ ...f, lotes: e.target.value })} /></div>}
         </div>
         <p className="mt-form-gap text-body-sm text-fg-muted">{TIPOS.find((t) => t.v === f.tipo)?.ajuda}</p>
       </section>
@@ -447,32 +377,25 @@ export function ProdutosRelPage() {
           <div id="prod-rel-grade">
             <DataTable persistId={`produtos-rel-${res2.tipo.toLowerCase()}`} savedViewsService={gradeLayoutService} rows={res2.linhas} columns={cols2} getRowId={(l: LinhaC2) => l._id} />
           </div>
+          {res2.resumo && res2.resumo.length > 0 && (
+            <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+              <h3 className="mb-gp-sm text-body-md font-semibold">Resumo de estoque por departamento</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-body-sm tabular-nums">
+                  <thead><tr className="text-fg-muted"><th className="text-left">Departamento</th><th className="text-right">Qtd. dep.</th><th className="text-right">Qtd. est.</th><th className="text-right">Vr. custo</th><th className="text-right">Vr. venda</th></tr></thead>
+                  <tbody>
+                    {res2.resumo.map((r) => (
+                      <tr key={String(r.coddpto)}>
+                        <td>{String(r.descdepto ?? '')}</td><td className="text-right">{nfmt(r.qtde_dep)}</td><td className="text-right">{nfmt(r.qtde)}</td>
+                        <td className="text-right">{moeda(r.totalcusto)}</td><td className="text-right">{moeda(r.totalvenda)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           {res2.tipo === 'LISTA_CONFERENCIA' && <FolhaConferencia linhas={res2.linhas} />}
-        </>
-      )}
-
-      {res && (
-        <>
-          <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
-            <div className="flex flex-wrap items-center gap-gp-lg">
-              <div><div className="text-body-sm text-fg-muted">Itens</div><div className="text-body-lg tabular-nums">{res.totais.itens}</div></div>
-              {res.tipo === 'ALTERACOES_PRECO' ? (
-                <div>
-                  <div className="text-body-sm text-fg-muted">Baixaram o preço</div>
-                  <div className="text-body-lg tabular-nums">{res.totais.negativos}</div>
-                </div>
-              ) : (
-                <>
-                  <div><div className="text-body-sm text-fg-muted">Estoque negativo</div><div className="text-body-lg tabular-nums">{res.totais.negativos}</div></div>
-                  <div><div className="text-body-sm text-fg-muted">Valor a custo</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorCusto)}</div></div>
-                  <div><div className="text-body-sm text-fg-muted">Valor a venda</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorVenda)}</div></div>
-                </>
-              )}
-            </div>
-          </section>
-          <div id="prod-rel-grade">
-            <DataTable persistId="produtos-rel" savedViewsService={gradeLayoutService} rows={res.linhas} columns={cols} getRowId={(l: Linha) => String(l.idproduto)} />
-          </div>
         </>
       )}
     </div>
