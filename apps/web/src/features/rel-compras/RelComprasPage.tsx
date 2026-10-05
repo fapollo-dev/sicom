@@ -5,7 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -45,19 +45,26 @@ export function RelComprasPage() {
   const [f, setF] = useState({
     tipo: 'CATEGORIA' as Tipo, dataIni: diaUm(), dataFim: hoje(),
     campoData: 'CONTABIL', considerar: 'COMPRAS',
-    coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', idproduto: '', codparceiro: '', cfops: '',
+    coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', idproduto: '', codparceiro: '', cfops: '', empresas: '', niveis: '0',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const consulta = () => {
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v).replace(/\s/g, k === 'empresas' ? '' : ' ')); });
+    // o "considerar" só existe no relatório 3; nos outros o legado desabilita o rádio
+    if (f.tipo !== 'COMPRAS_VENDAS') q.delete('considerar');
+    return q.toString();
+  };
+  // o "Imprimir" no layout do cliente (Compras1/Compras2/ComprasVendasPorDepartamento/VendaEComprasDepartamento)
+  const imprimir = () => { imprimirRelatorio(`/relatorios/compras/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
+  const niveisDoTipo = f.tipo === 'CATEGORIA' ? 5 : f.tipo === 'CATEGORIA_ANALITICO' ? 6 : 0;
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
-      // o "considerar" só existe no relatório 3; nos outros o legado desabilita o rádio
-      if (f.tipo !== 'COMPRAS_VENDAS') q.delete('considerar');
-      const r = await fetch(`${BASE}/relatorios/compras?${q}`, { headers: apiHeaders() });
+      const r = await fetch(`${BASE}/relatorios/compras?${consulta()}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
@@ -120,6 +127,7 @@ export function RelComprasPage() {
               <option value="CONTABIL">Contábil</option>
               <option value="EMISSAO">Emissão</option>
               <option value="CHEGADA">Chegada</option>
+              <option value="PROCESSAMENTO">Processamento</option>
             </select>
           </label>
           <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
@@ -136,15 +144,17 @@ export function RelComprasPage() {
             </label>
           )}
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
-          <Button label="&Imprimir" variant="soft" disabled={!res} onClick={() => {
-            if (!res) return;
-            const win = window.open('', '_blank', 'width=1024,height=768');
-            if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-            const raiz = document.getElementById('rel-compras-grade');
-            if (!raiz) { win.close(); return; }
-            // paisagem: a árvore inteira (seção → subgrupo) não cabe em retrato
-            imprimirPagina(win, raiz, 'Relatórios de compras', undefined, true);
-          }} />
+          <div className="w-32"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
+          {niveisDoTipo > 0 && (
+            <label className="flex flex-col gap-gp-xs text-body-sm">
+              Níveis expandidos
+              <select className="rounded border border-border px-1 py-1" value={f.niveis} onChange={(e) => setF({ ...f, niveis: e.target.value })}>
+                <option value="0"></option>
+                {Array.from({ length: niveisDoTipo }, (_, i) => <option key={i} value={String(i + 1)}>{i === 0 ? '1 nível' : `${i + 1} níveis`}</option>)}
+              </select>
+            </label>
+          )}
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
           <div className="w-32"><Field label="Se&ção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>

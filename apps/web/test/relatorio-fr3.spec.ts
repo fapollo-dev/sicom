@@ -637,4 +637,20 @@ describe('relatórios do legado com vários datasets', () => {
     const n1 = texto(paginasDoModelo(modelo('dre-contabil.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(1) }, agora));
     expect(n1).not.toContain('ALUGUEL MARCO'); // 1 nível: os lançamentos ficam recolhidos
   });
+
+  it('relatórios de compras (Compras1 e ComprasVendasPorDepartamento, esquema do TFrmRelMaster): os níveis abrem a árvore de categorias; "apenas vendas" troca os títulos pelo Tabela', () => {
+    const v = (n: number, tab = 0) => [{ IDEmpresas: '1', DataInicial: '2045-03-01T00:00:00', DataFinal: '2045-03-31T00:00:00', NiveisExpandidos: n, Tabela: tab }];
+    const l = (gr: string, sg: string, tot: number) => ({ IDEMPRESA: 1, FANTASIA: 'HIPER', DATA: '2045-03-10T00:00:00', DESC_SECAO: 'MERCEARIA', CODSECAO: 1, DESCRICAO_DEPARTAMENTO: 'BEBIDAS', CODDPTO: 2,
+      DESC_GRUPO: gr, CODGRUPO: 3, DESC_SUBGRUPO: sg, CODSUBGRUPO: 4, TOTAL_COMPRA: tot, TOTAL_PORC: 0 });
+    const linhas = [l('REFRIGERANTES', 'COLA', 100), l('SUCOS', 'LARANJA', 50)];
+    const c0 = texto(paginasDoModelo(modelo('compras1-categoria.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v(0) }, agora));
+    expect(c0).toContain('Periodo: 01/03/2045 até 31/03/2045 Empresa(s): 1');
+    expect(c0).toContain('Total Geral: 150,00');
+    expect(c0).not.toContain('Subgrupo: COLA');
+    const c5 = texto(paginasDoModelo(modelo('compras1-categoria.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v(5) }, agora));
+    expect(c5).toContain('Seção: MERCEARIA Departamento: BEBIDAS Grupo: REFRIGERANTES Subgrupo: COLA 100,00 Grupo: SUCOS Subgrupo: LARANJA 50,00');
+    const ve = texto(paginasDoModelo(modelo('compras-vendas-depto.fr3'), { DBDRelatorio: [{ CODDPTO: 2, DESCRICAO_DEPARTAMENTO: 'BEBIDAS', TOTAL_COMPRA: 200 }], DBDVariaveisAdicionais: v(0, 1) }, agora));
+    expect(ve).toContain('Total Vendas');
+    expect(ve).toContain('2 BEBIDAS 200,00');
+  });
 });

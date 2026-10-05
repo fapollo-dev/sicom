@@ -12213,6 +12213,26 @@ async function main() {
           && dInv.status >= 400,
           { apenasCompras: j3c.totais, dataInvertida: dInv.status });
 
+        // §105.8 — a impressão no layout do cliente (o esquema do TFrmRelMaster) e as lojas recortadas ao operador
+        const stubRc = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+        for (const [i, nome] of ['Compras1 - Compras por categoria.fr3', 'Compras2 - Compras por categoria analitico.fr3', 'ComprasVendasPorDepartamento.fr3', 'VendaEComprasDepartamento.fr3'].entries()) {
+          await pgRc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [991050 + i, nome, stubRc]);
+        }
+        const impRc = async (q: string) => { const r = await fetch(`${base}/${RC}/impressao?${q}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const iCat = await impRc('tipo=CATEGORIA&dataIni=2045-03-01&dataFim=2045-03-31&niveis=2');
+        const iVen = await impRc('tipo=COMPRAS_VENDAS&considerar=VENDAS&dataIni=2045-03-01&dataFim=2045-03-31');
+        const iAmb = await impRc('tipo=COMPRAS_VENDAS&considerar=AMBOS&dataIni=2045-03-01&dataFim=2045-03-31');
+        const foraEscopo = await fetch(`${base}/${RC}?tipo=CATEGORIA&dataIni=2045-03-01&dataFim=2045-03-31&empresas=999`, { headers: H });
+        const proc = await fetch(`${base}/${RC}?tipo=CATEGORIA&campoData=PROCESSAMENTO&dataIni=2045-03-01&dataFim=2045-03-31`, { headers: H });
+        await pgRc.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991050 AND 991053`);
+        const dvVen = (iVen.j.datasets?.DBDRelatorio ?? []).find((l: any) => l.DESCRICAO_DEPARTAMENTO === 'DEPTO RC');
+        check('RELATÓRIO DE COMPRAS §105.8 [a impressão no layout do cliente]: por categoria no Compras1 com o DBDRelatorio na ordem do GetSQL, TOTAL_PORC zerado (o layout calcula) e os níveis pedidos; "apenas vendas" no ComprasVendasPorDepartamento com a venda no TOTAL_COMPRA (o alias do ApenasVendas) e Tabela 1; "ambos" no VendaEComprasDepartamento com as duas colunas e Tabela 2; loja fora do operador → 422; a data de processamento (a 4ª do CmbData) é aceita',
+          iCat.status === 200 && (iCat.j.datasets?.DBDRelatorio ?? []).length > 0 && iCat.j.datasets.DBDRelatorio.every((l: any) => l.TOTAL_PORC === 0) && iCat.j.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 2
+          && iVen.status === 200 && Math.abs(Number(dvVen?.TOTAL_COMPRA) - 200) < 0.005 && dvVen?.TOTAL_VENDA === undefined && iVen.j.datasets?.DBDVariaveisAdicionais?.[0]?.Tabela === 1
+          && iAmb.status === 200 && (iAmb.j.datasets?.DBDRelatorio ?? []).some((l: any) => l.TOTAL_VENDA !== undefined && l.TOTAL_COMPRA !== undefined) && iAmb.j.datasets?.DBDVariaveisAdicionais?.[0]?.Tabela === 2
+          && foraEscopo.status === 422 && proc.status === 200,
+          { iCat: [iCat.status, iCat.j.code, (iCat.j.datasets?.DBDRelatorio ?? []).length], iVen: [iVen.status, iVen.j.code, dvVen], iAmb: [iAmb.status, iAmb.j.code], foraEscopo: foraEscopo.status, proc: proc.status });
+
         await pgRc.query(`DELETE FROM vendas WHERE nropedido IN ('C-1','C-2')`);
         await pgRc.query(`DELETE FROM decomposicao WHERE idproduto=$1`, [pA]);
         await pgRc.query(`DELETE FROM nf_prod WHERE codproduto = ANY($1)`, [[pA, pB]]);

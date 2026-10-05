@@ -3,6 +3,8 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { relatorioMestre } from '../../shared/relatorios/relatorio-mestre';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -13,10 +15,10 @@ export type TipoRelCompras = 'CATEGORIA' | 'CATEGORIA_ANALITICO' | 'COMPRAS_VEND
 /** o `rgConsiderar` do relatório 3 — só ele habilita o rádio (`CmbTipoRelatorioChange:203`). */
 export type ConsiderarRelCompras = 'COMPRAS' | 'VENDAS' | 'AMBOS';
 /** o `CmbData`: qual data da nota filtra o período. */
-export type CampoDataCompras = 'CONTABIL' | 'EMISSAO' | 'CHEGADA';
+export type CampoDataCompras = 'CONTABIL' | 'EMISSAO' | 'CHEGADA' | 'PROCESSAMENTO';
 
 const COLUNA_DATA: Record<CampoDataCompras, string> = {
-  CONTABIL: 'dtcontabil', EMISSAO: 'dtemissao', CHEGADA: 'dtchegada',
+  CONTABIL: 'dtcontabil', EMISSAO: 'dtemissao', CHEGADA: 'dtchegada', PROCESSAMENTO: 'dtprocessamento',
 };
 
 export interface FiltroRelCompras {
@@ -96,8 +98,9 @@ export class RelComprasService {
     const campoData: CampoDataCompras = f.campoData ?? 'CONTABIL';
     const colData = COLUNA_DATA[campoData];
     if (!colData) throw new BusinessRuleError('CAMPO_DATA_INVALIDO', { campoData });
-    // multi-empresa: `GetMultiEmpresa`; em branco, só a loja da sessão
-    const empresas = f.empresas?.length ? f.empresas : [emp];
+    // multi-empresa: `GetMultiEmpresa` — as marcadas, recortadas às lojas do operador; em branco, só a loja da sessão
+    void emp;
+    const empresas = await empresasDoOperador(db, f.empresas ?? null);
 
     const onde = [
       sql`coalesce(n.cancelada, 'N') = 'N'`,
@@ -270,5 +273,46 @@ export class RelComprasService {
       })),
       totais: { compra, venda },
     };
+  }
+
+  /**
+   * O "Imprimir" (`TFrmRelMaster.GeraRelatorio` com a classe de UCompras.pas): `Compras1 - Compras por categoria.fr3`,
+   * `Compras2 - Compras por categoria analitico.fr3` e, no compras × vendas, `ComprasVendasPorDepartamento.fr3` (só compras, ou só vendas —
+   * a venda vem no TOTAL_COMPRA, como o alias do `ApenasVendas`, e o script troca os títulos pelo `Tabela`) ou `VendaEComprasDepartamento.fr3`
+   * (ambos). O `DBDRelatorio` na ordem do `GetSQL` da classe, com TOTAL_PORC zerado como a consulta (o layout calcula), e o
+   * `DBDVariaveisAdicionais` com o `Tabela` = o `rgConsiderar`.
+   */
+  async impressao(f: FiltroRelCompras, niveis?: number | null) {
+    const r = await this.gerar(f);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const txt = (v: unknown) => String(v ?? '');
+    let linhas: Array<Record<string, unknown>> = r.linhas.map((l) => ({ ...l, total_porc: 0 }));
+    let arquivo: string;
+    let tabela = 0;
+    if (f.tipo === 'COMPRAS_VENDAS') {
+      tabela = { COMPRAS: 0, VENDAS: 1, AMBOS: 2 }[r.considerar ?? 'COMPRAS'];
+      arquivo = tabela === 2 ? 'VendaEComprasDepartamento.fr3' : 'ComprasVendasPorDepartamento.fr3';
+      if (tabela === 1) linhas = linhas.map((l) => ({ coddpto: l.coddpto, descricao_departamento: l.descricao_departamento, total_compra: l.total_venda, total_porc: 0 }));
+      if (tabela === 0) linhas = linhas.map((l) => ({ coddpto: l.coddpto, descricao_departamento: l.descricao_departamento, total_compra: l.total_compra, total_porc: 0 }));
+    } else {
+      arquivo = f.tipo === 'CATEGORIA' ? 'Compras1 - Compras por categoria.fr3' : 'Compras2 - Compras por categoria analitico.fr3';
+      // ORDER BY FANTASIA, IDEMPRESA, DTCONTABIL, DESC_SECAO, CODSECAO, DESCRICAO_DEPARTAMENTO, CODDPTO, DESC_GRUPO, CODGRUPO, DESC_SUBGRUPO,
+      // CODSUBGRUPO (, DESCRICAO, IDPRODUTO no analítico)
+      const chaves = ['fantasia', 'idempresa', 'data', 'desc_secao', 'codsecao', 'descricao_departamento', 'coddpto', 'desc_grupo', 'codgrupo', 'desc_subgrupo', 'codsubgrupo',
+        ...(f.tipo === 'CATEGORIA_ANALITICO' ? ['descricao', 'idproduto'] : [])];
+      linhas = [...linhas].sort((a, b) => {
+        for (const k of chaves) {
+          const x = a[k]; const y = b[k];
+          const c = typeof x === 'number' && typeof y === 'number' ? x - y : txt(x).localeCompare(txt(y));
+          if (c) return c;
+        }
+        return 0;
+      });
+    }
+    const empresas = await empresasDoOperador(db, f.empresas ?? null);
+    return relatorioMestre(db, {
+      arquivo, titulo: `Relatórios de compras — ${arquivo.replace(/\.fr3$/i, '')}`, relatorio: linhas,
+      variaveis: { empresas, dataIni: f.dataIni, dataFim: f.dataFim, niveis: niveis ?? 0, tabela },
+    });
   }
 }

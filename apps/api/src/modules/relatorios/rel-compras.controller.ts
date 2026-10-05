@@ -14,13 +14,22 @@ export class RelComprasController {
   @Get()
   @RequerAcesso('FRMRELCOMPRAS', 'FRMRELCOMPRAS')
   gerar(@Query(new ZodValidationPipe(relComprasSchema)) q: RelComprasDto) {
-    return this.svc.gerar({
-      tipo: q.tipo, dataIni: q.dataIni, dataFim: q.dataFim,
-      campoData: q.campoData ?? null, considerar: q.considerar ?? null,
-      coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null,
-      codsubgrupo: q.codsubgrupo ?? null, codsecao: q.codsecao ?? null,
-      idproduto: q.idproduto ?? null, codparceiro: q.codparceiro ?? null,
-      cfops: q.cfops ?? null, empresas: q.empresas ?? null,
-    });
+    return this.svc.gerar(filtro(q));
+  }
+
+  /** o "Imprimir": o layout da classe (Compras1, Compras2, ComprasVendasPorDepartamento, VendaEComprasDepartamento) — esquema do TFrmRelMaster */
+  @Get('impressao')
+  @RequerAcesso('FRMRELCOMPRAS', 'FRMRELCOMPRAS')
+  impressao(@Query(new ZodValidationPipe(relComprasSchema)) q: RelComprasDto) {
+    return this.svc.impressao(filtro(q), q.niveis ?? null);
   }
 }
+
+const filtro = (q: RelComprasDto) => ({
+  tipo: q.tipo, dataIni: q.dataIni, dataFim: q.dataFim,
+  campoData: q.campoData ?? null, considerar: q.considerar ?? null,
+  coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null,
+  codsubgrupo: q.codsubgrupo ?? null, codsecao: q.codsecao ?? null,
+  idproduto: q.idproduto ?? null, codparceiro: q.codparceiro ?? null,
+  cfops: q.cfops ?? null, empresas: q.empresas ?? null,
+});

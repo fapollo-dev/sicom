@@ -280,7 +280,10 @@ export const relComprasSchema = z.object({
   tipo: z.enum(['CATEGORIA', 'CATEGORIA_ANALITICO', 'COMPRAS_VENDAS']),
   dataIni: dataISO,
   dataFim: dataISO,
-  campoData: z.enum(['CONTABIL', 'EMISSAO', 'CHEGADA']).nullish(),
+  /** o `CmbData`: contábil, emissão, chegada e processamento (`MontaFiltroSQL`, URelCompras.pas:332) */
+  campoData: z.enum(['CONTABIL', 'EMISSAO', 'CHEGADA', 'PROCESSAMENTO']).nullish(),
+  /** o `CmbNiveisExpandidos` da impressão */
+  niveis: z.coerce.number().int().min(0).max(9).nullish(),
   /** só o relatório 3 usa; nos outros dois o legado desabilita o rádio (`CmbTipoRelatorioChange:203`). */
   considerar: z.enum(['COMPRAS', 'VENDAS', 'AMBOS']).nullish(),
   coddpto: z.coerce.number().int().positive().nullish(),

@@ -110,3 +110,15 @@ O mesmo truncamento por `IAT` das outras telas de venda: item pesado ('A') arred
 - **níveis expandidos** (`CmbNiveisExpandidos`): o legado escolhe quantos níveis da árvore abrir na impressão;
   a grade mostra todos;
 - o **grid intermediário** (`TFrmRelComprasPorCategoriaGrid`), que no legado é uma prévia antes de imprimir.
+
+## A impressão no layout do cliente (05/10/2026)
+
+`GET relatorios/compras/impressao` — o "Imprimir" do `TFrmRelMaster` com a classe de UCompras.pas (helper `relatorio-mestre`):
+`Compras1 - Compras por categoria.fr3`, `Compras2 - Compras por categoria analitico.fr3` e, no compras × vendas, `ComprasVendasPorDepartamento.fr3`
+(só compras, ou só vendas — a venda vem no TOTAL_COMPRA, o alias do `ApenasVendas`, e o script troca os títulos pelo `Tabela`) ou
+`VendaEComprasDepartamento.fr3` (ambos, Tabela 2). O `DBDRelatorio` na ordem do `GetSQL` da classe (loja, data, seção, departamento, grupo,
+subgrupo — e produto no analítico), com TOTAL_PORC zerado como a consulta; os níveis expandidos do combo (0 a 5/6) vão no
+`DBDVariaveisAdicionais`.
+- **Lojas:** o serviço aceitava qualquer lista de `empresas`; agora passa pelo `empresasDoOperador` (as do operador; fora delas → 422).
+- **A 4ª data do `CmbData`:** "Processamento" (`NF.DTPROCESSAMENTO`) faltava e entrou.
+Smoke §105.8.
