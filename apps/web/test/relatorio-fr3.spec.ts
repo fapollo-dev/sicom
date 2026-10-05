@@ -622,4 +622,19 @@ describe('relatórios do legado com vários datasets', () => {
     }, agora));
     expect(ab).toContain('MARIA');
   });
+
+  it('DRE contábil (DRE Contabil.fr3, esquema do TFrmRelMaster): os níveis da árvore com os totais F (DoublePass), os lançamentos com histórico, data e empresa no nível 3, e a linha da fórmula', () => {
+    const r = (valor: number, data: string, hist: string) => ({ CFGDRE_CODEXPANDIDO: '04.001.0001', CFGDRE_DESCRICAO: 'ALUGUEIS', CFGDRE_TIPO_CALCULO: 'P', CFGDRE_CODEXPANDIDO_NIVEL1: '04', CFGDRE_DESCRICAO_NIVEL1: 'DESPESAS OPERACIONAIS',
+      CFGDRE_TIPO_CALCULO_NIVEL1: 'F', CFGDRE_CODEXPANDIDO_NIVEL2: '04.001', CFGDRE_DESCRICAO_NIVEL2: 'DESPESAS ADM', VALOR: valor, VALOR_NIVEL1: -250, VALOR_NIVEL2: -250, DATA_LANCAMENTO: data, HISTORICO: hist, CODEMPRESA: 1 });
+    const rows = [r(-200, '2030-03-15T00:00:00', 'ALUGUEL MARCO'), r(-50, '2030-03-20T00:00:00', 'ALUGUEL EXTRA'),
+      { ...r(0, '1899-12-30T00:00:00', ''), CFGDRE_CODEXPANDIDO: '08', CFGDRE_DESCRICAO: 'LUCRO BRUTO', CFGDRE_TIPO_CALCULO: 'E', CFGDRE_CODEXPANDIDO_NIVEL1: '08', CFGDRE_DESCRICAO_NIVEL1: 'LUCRO BRUTO', CFGDRE_TIPO_CALCULO_NIVEL1: 'E', CFGDRE_CODEXPANDIDO_NIVEL2: '08', VALOR_NIVEL1: 100, VALOR_NIVEL2: 0 }];
+    const v = (n: number) => [{ IDEmpresas: '1', DataInicial: '2030-01-01T00:00:00', DataFinal: '2030-12-31T00:00:00', NiveisExpandidos: n, Tabela: 0 }];
+    const n3 = texto(paginasDoModelo(modelo('dre-contabil.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(3) }, agora));
+    expect(n3).toContain('Período: 01/01/2030 à 31/12/2030 Empresas: 1');
+    expect(n3).toContain('04 - DESPESAS OPERACIONAIS -250,00 04.001 - DESPESAS ADM -250,00 04.001.0001 - ALUGUEIS -250,00');
+    expect(n3).toContain('ALUGUEL MARCO -200,00 15/03/2030 1 ALUGUEL EXTRA -50,00 20/03/2030 1');
+    expect(n3).toContain('08 - LUCRO BRUTO 100,00');
+    const n1 = texto(paginasDoModelo(modelo('dre-contabil.fr3'), { DBDRelatorio: rows, DBDVariaveisAdicionais: v(1) }, agora));
+    expect(n1).not.toContain('ALUGUEL MARCO'); // 1 nível: os lançamentos ficam recolhidos
+  });
 });

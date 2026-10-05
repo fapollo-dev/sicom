@@ -3331,6 +3331,27 @@ async function main() {
     // RBAC do relatório.
     const dreRbac = await fetch(`${base}/cadastro/dre?dataInicio=2026-01-01&dataFim=2026-12-31`, { headers: H_SEM_ACESSO });
     check('DRE: GET sem grant RBAC → 403', dreRbac.status === 403, { status: dreRbac.status });
+    // 35.2) o relatório como o legado o imprime (TFrmRelDREContabil.AntesImprimir, DRE Contabil.fr3): só as linhas do ÚLTIMO nível da
+    // estrutura (+ as E do nível 1), uma por lançamento vinculado; F por nível; E pela fórmula com o VALOR_NIVEL1 das raízes
+    const natSemVinc = ((await pgDre.query(`SELECT natureza FROM plano_contas WHERE codplanocontas IN (11141, 147)`)).rows as any[]).map((r) => Number(r.natureza));
+    const dreRel = await fetch(`${base}/cadastro/dre/relatorio?dataInicio=2030-01-01&dataFim=2030-12-31`, { headers: H });
+    const dreRelJ = (await dreRel.json().catch(() => ({}))) as any;
+    const fr3Dre = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64');
+    await pgDre.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (990350, 1, 'DRE Contabil.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3Dre]);
+    const dreImp = await fetch(`${base}/cadastro/dre/impressao?dataInicio=2030-01-01&dataFim=2030-12-31&planos=232`, { headers: H });
+    const dreImpJ = (await dreImp.json().catch(() => ({}))) as any;
+    const dreVazio = await fetch(`${base}/cadastro/dre/impressao?dataInicio=2031-01-01&dataFim=2031-12-31&naoExibirZerados=1&planos=232`, { headers: H });
+    const dreVazioJ = (await dreVazio.json().catch(() => ({}))) as any;
+    await pgDre.query(`DELETE FROM relatorios WHERE codrelatorio = 990350`);
+    const bloqueia = natSemVinc.includes(4);
+    const alug = (dreRelJ.relatorio ?? []).find((l: any) => l.CFGDRE_CODEXPANDIDO === '04.001.001');
+    const di = dreImpJ.datasets?.DBDRelatorio ?? [];
+    check('DRE §35.2 [o relatório e a impressão como o legado]: conta de resultado sem vínculo bloqueia ("Existem planos de contas de resultado sem vinculação."), senão o aviso das contas sem vínculo e o relatório — o aluguel (nível 3) com o lançamento a débito −200, o VALOR_NIVEL2 (04.001, F) e o VALOR_NIVEL1 (04, F) = −200; a linha E do nível 1 (08); o filtro de plano de contas (232) leva só o lançamento dele ao DRE Contabil.fr3 com o DBDVariaveisAdicionais (níveis 2); sem lançamento com "Não exibir zerados" sobra só a linha da fórmula (o filtro do legado é VALOR <> 0 OR tipo E)',
+      (bloqueia ? dreRel.status === 422 && dreRelJ.code === 'DRE_CONTAS_SEM_VINCULO' : dreRel.status === 200 && dreRelJ.aviso != null && alug?.VALOR === -200 && alug?.VALOR_NIVEL2 === -200 && alug?.VALOR_NIVEL1 === -200
+        && (dreRelJ.relatorio ?? []).some((l: any) => l.CFGDRE_TIPO_CALCULO === 'E'))
+      && dreImp.status === 200 && di.length === 2 && di.find((l: any) => l.CFGDRE_CODEXPANDIDO === '04.001.001')?.VALOR === -200 && dreImpJ.datasets?.DBDVariaveisAdicionais?.[0]?.NiveisExpandidos === 2
+      && dreVazio.status === 200 && (dreVazioJ.datasets?.DBDRelatorio ?? []).length > 0 && dreVazioJ.datasets.DBDRelatorio.every((l: any) => l.CFGDRE_TIPO_CALCULO === 'E'),
+      { natSemVinc, rel: [dreRel.status, dreRelJ.code, dreRelJ.aviso, alug], imp: [dreImp.status, dreImpJ.code, di.map((l: any) => [l.CFGDRE_CODEXPANDIDO, l.VALOR, l.VALOR_NIVEL1])], vazio: [dreVazio.status, dreVazioJ.message] });
     await pgDre.end();
 
     // 36) CAIXA (sessão + movimento manual) — corte-1. Fluxo: abrir → movimentar → estornar → fechar,

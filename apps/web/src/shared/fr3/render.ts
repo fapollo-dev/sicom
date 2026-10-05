@@ -508,6 +508,8 @@ class Relatorio {
     }
     if (tag === 'TfrxBarCodeView') return this.htmlBarras(no, e);
     if (tag === 'TfrxLineView') {
+      // `Linha.Frame.Width := 0` no script esconde a linha (o DRE Contábil faz isso nas linhas da fórmula)
+      if (e.extras['frame.width'] != null && Number(e.extras['frame.width']) <= 0) return '';
       const x2 = e.Left + e.Width, y2 = e.Top + e.Height;
       const sw = n(no.a['Frame.Width'], 1);
       const c = cor(no.a['Frame.Color'] ?? no.a.Color, '#000000') ?? '#000000';

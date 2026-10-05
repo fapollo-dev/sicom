@@ -133,6 +133,7 @@ import { PlanoContasController } from './plano-contas.controller';
 import { PlanoContasService } from './plano-contas.service';
 import { DreController } from './dre.controller';
 import { DreService } from './dre.service';
+import { DreRelatorioService } from './dre-relatorio.service';
 import { EmpresasCrudController } from './empresas.crud';
 import { EmpresaContabilistaController } from './empresa-contabilista.controller';
 import { OperadoresAggregateController } from './operadores.aggregate';
@@ -304,6 +305,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfContabilizacaoService,
     PlanoContasService,
     DreService,
+    DreRelatorioService,
     RazaoService,
     AjusteEstoqueService,
     InventarioService,

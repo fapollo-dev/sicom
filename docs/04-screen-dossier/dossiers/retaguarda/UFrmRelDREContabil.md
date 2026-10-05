@@ -43,3 +43,22 @@ Veredito: seguro; núcleo fiel (sinal crédito+/débito−, ordem P→F→E, ava
 
 ## 4. Riscos
 Sinal só por natureza do lançamento (crédito+/débito−) — replicar exato; período por DATALAN (não CODPERIODO); config global vs agregação por empresa; expressão `E` só referencia raízes nível-1 (`<cod>`), erro→0; conta vinculada a >1 linha somaria em ambas (validar no editor, corte-2); escala (10.430 vínculos) — corte-1 semeia subset.
+
+## Corte 2 — o relatório e a impressão como o legado (05/10/2026)
+
+`GET cadastro/dre/relatorio` e `GET cadastro/dre/impressao` (`DreRelatorioService`; a árvore do `GET cadastro/dre` continua para a tela).
+O `TFrmRelDREContabil` herda o `TFrmRelMaster`: o "Imprimir" monta o `DBDRelatorio` no `AntesImprimir` e imprime `DRE Contabil.fr3`.
+- **Estrutura achatada** (`GetSQLConfigDRE`): o nível máximo vem da MASCARA_CONFIGURACAO_DRE_CONTABIL (pontos + 1 — `##.###.####` = 3 na
+  produção; sem a config, o maior nível da estrutura); uma linha por conta DO ÚLTIMO NÍVEL com os ancestrais em CFGDRE_*_NIVELn, mais as E do
+  nível 1. Linha P fora do último nível não entra (na produção as 78 P estão no nível 3).
+- **Lançamentos** (`GetSQLLancamentos`): DIÁRIO a crédito (+) e a débito (−) com o vínculo da conta (`dre_conta` = VINCULO_PLC_CFG_DRE), na ordem
+  da conta, da data e da empresa; o "Filtro de plano de contas" leva as analíticas abaixo das contas escolhidas (o CONNECT BY; máx. 1000).
+- **AntesImprimir:** P uma linha por lançamento (sem lançamento: uma linha zerada com a data 0 do Delphi, 30/12/1899); F do penúltimo nível ao
+  1º no VALOR_NIVELn do ancestral F; E com a expressão sobre o VALOR_NIVEL1 das raízes (raiz sem linha no último nível não é substituída e a
+  expressão dá 0, como o `except` do legado); conta sem vínculo: resultado (natureza 4) bloqueia — "Existem planos de contas de resultado sem
+  vinculação.\nVerifique a guia observações." —, as outras só avisam e a tela mostra a lista (a guia Observações); "Não exibir zerados" =
+  `(VALOR <> 0) OR (CFGDRE_TIPO_CALCULO = 'E')` — com linha E o relatório nunca fica vazio.
+- ⚠️ **Lojas:** o fonte pede as lojas (`GetMultiEmpresa`) e o SQL dos lançamentos as ignora (soma o DIÁRIO de todas — 5 lojas com lançamento
+  na produção). Vale a intenção: as lojas escolhidas; todas marcadas dá o consolidado. O checklist de natureza é invisível no legado (todas
+  marcadas): sem filtro.
+- **Motor .fr3:** linha com `Frame.Width := 0` pelo script some (as linhas da fórmula). Smoke §35.2.

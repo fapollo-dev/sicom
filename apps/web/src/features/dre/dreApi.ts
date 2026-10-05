@@ -30,3 +30,16 @@ export async function calcularDre(dataInicio?: string, dataFim?: string): Promis
   }
   return (await res.json()) as { dataInicio: string; dataFim: string; linhas: LinhaDre[] };
 }
+
+/** o relatório como o legado o monta (para o aviso das contas sem vínculo — a guia Observações) */
+export interface RelatorioDre { semVinculo: Array<{ conta: string; natureza: number }>; aviso: string | null; relatorio: Array<Record<string, unknown>> }
+export async function relatorioDre(qs: string): Promise<RelatorioDre> {
+  const res = await fetch(`${BASE}/cadastro/dre/relatorio?${qs}`, { headers: apiHeaders() });
+  handle401(res);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const envelope: ErroResposta = isErroResposta(body) ? body : { statusCode: res.status, code: 'ERRO', message: (body as { message?: string })?.message ?? res.statusText };
+    throw Object.assign(new Error(envelope.code ?? res.statusText), { envelope, status: res.status, body });
+  }
+  return body as RelatorioDre;
+}
