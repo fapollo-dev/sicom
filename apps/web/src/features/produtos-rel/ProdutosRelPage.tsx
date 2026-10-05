@@ -6,7 +6,7 @@ import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
 
@@ -152,6 +152,9 @@ const USA: Record<Tipo, Usa> = {
   PRODUTOS_FORNECEDOR: { estoque: true, dep: true, ativo: true, secao: true, fornecedor: true, empresas: true },
 };
 
+/** o `chkExpandirItensImpressao`: visível só na lista para conferência e nas alterações de preço */
+const EXPANDE: readonly Tipo[] = ['LISTA_CONFERENCIA', 'ALTERACOES_PRECO'];
+
 /** o `cmbFiltro` do legado, na ordem do combo. */
 const FILTROS: Array<{ v: string; rotulo: string }> = [
   { v: 'TODOS', rotulo: 'Todos' },
@@ -203,7 +206,7 @@ export function ProdutosRelPage() {
     tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS', filtroEstoqueDep: 'TODOS', disponivelEm: 'TODOS',
     coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', produto: '',
     dataIni: `${hojeNaLoja().slice(0, 7)}-01`, dataFim: hojeNaLoja(),
-    empresas: '', estoqueEm: '', estoqueSinal: '>', estoqueQtde: '0', local: '', lotes: '', ativoModo: '',
+    empresas: '', estoqueEm: '', estoqueSinal: '>', estoqueQtde: '0', local: '', lotes: '', ativoModo: '', expandido: false,
   });
   const [res2, setRes2] = useState<ResultadoC2 | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -220,23 +223,29 @@ export function ProdutosRelPage() {
     return r.json();
   };
 
+  /** os filtros que o relatório escolhido lê (os desabilitados no legado não vão) */
+  const consulta = () => {
+    const q = new URLSearchParams();
+    const u = USA[f.tipo];
+    q.set('tipo', f.tipo);
+    const set = (k: string, v: string, quando = true) => { if (quando && v.trim() !== '') q.set(k, v.trim()); };
+    set('empresas', f.empresas, !!u.empresas);
+    set('produto', f.produto); set('coddpto', f.coddpto); set('codgrupo', f.codgrupo); set('codsubgrupo', f.codsubgrupo);
+    set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativoModo', f.ativoModo, !!u.ativo);
+    set('dataIni', f.dataIni, u.periodo === 'ambos'); set('dataFim', f.dataFim, !!u.periodo);
+    set('filtroEstoque', f.filtroEstoque, !!u.cmb); set('filtroEstoqueDep', f.filtroEstoqueDep, !!u.dep); set('local', f.local, !!u.local);
+    set('disponivelEm', f.disponivelEm, !!u.disponivel);
+    if (u.estoque) set('estoqueEm', f.estoqueEm);
+    if ((u.estoque && f.estoqueEm) || u.saldo) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
+    set('lotes', f.lotes, !!u.lotes);
+    if (EXPANDE.includes(f.tipo) && f.expandido) q.set('expandido', 'true');
+    return q;
+  };
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      const u = USA[f.tipo];
-      q.set('tipo', f.tipo);
-      const set = (k: string, v: string, quando = true) => { if (quando && v.trim() !== '') q.set(k, v.trim()); };
-      set('empresas', f.empresas, !!u.empresas);
-      set('produto', f.produto); set('coddpto', f.coddpto); set('codgrupo', f.codgrupo); set('codsubgrupo', f.codsubgrupo);
-      set('codsecao', f.codsecao, !!u.secao); set('codfor', f.codfor, !!u.fornecedor); set('ativoModo', f.ativoModo, !!u.ativo);
-      set('dataIni', f.dataIni, u.periodo === 'ambos'); set('dataFim', f.dataFim, !!u.periodo);
-      set('filtroEstoque', f.filtroEstoque, !!u.cmb); set('filtroEstoqueDep', f.filtroEstoqueDep, !!u.dep); set('local', f.local, !!u.local);
-      set('disponivelEm', f.disponivelEm, !!u.disponivel);
-      if (u.estoque) set('estoqueEm', f.estoqueEm);
-      if ((u.estoque && f.estoqueEm) || u.saldo) { set('estoqueSinal', f.estoqueSinal); set('estoqueQtde', f.estoqueQtde); }
-      set('lotes', f.lotes, !!u.lotes);
-      const b = (await buscar(q)) as ResultadoC2;
+      const b = (await buscar(consulta())) as ResultadoC2;
       setRes2({ ...b, linhas: b.linhas.map((l, i) => ({ ...l, _id: String(i) })) });
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
@@ -249,15 +258,8 @@ export function ProdutosRelPage() {
     })) as DataTableColumnDef<LinhaC2>[];
   }, [res2]);
 
-  const imprimir = () => {
-    const win = window.open('', '_blank', 'width=1024,height=768');
-    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
-    // a Lista para conferência imprime a FOLHA DE CONTAGEM (por fornecedor, com as colunas em branco), não a grade
-    const raiz = document.getElementById(res2?.tipo === 'LISTA_CONFERENCIA' ? 'prod-rel-folha' : 'prod-rel-grade');
-    if (!raiz) { win.close(); return; }
-    const titulo = res2 ? (TIPOS.find((t) => t.v === res2.tipo)?.rotulo ?? 'Relatórios de produtos') : 'Relatórios de produtos';
-    imprimirPagina(win, raiz, titulo, undefined, true);
-  };
+  // o "Imprimir" do legado: a mesma consulta no layout do relatório (RELATORIOS do cliente)
+  const imprimir = () => { imprimirRelatorio(`/relatorios/produtos/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
 
   const comboFiltro = (rotulo: string, k: 'filtroEstoque' | 'filtroEstoqueDep', prefixo: string) => (
     <label className="flex flex-col gap-gp-xs text-body-sm">
@@ -336,7 +338,7 @@ export function ProdutosRelPage() {
             </>
           )}
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
-          <Button label="&Imprimir" variant="soft" disabled={!res2} onClick={imprimir} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
           {/* "Exportar Grid" do legado: o que está na tela, filtrado, para o Excel */}
           <Button label="E&xportar" variant="soft" disabled={!res2} onClick={() => {
             if (!res2) return;
@@ -355,6 +357,11 @@ export function ProdutosRelPage() {
           <div className="w-56"><Field label="Produto ou &cód. barra" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
           {usa.local && <div className="w-32"><Field label="&Local" value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} /></div>}
           {usa.lotes && <div className="w-56"><Field label="Lo&tes (separe com ;)" value={f.lotes} onChange={(e) => setF({ ...f, lotes: e.target.value })} /></div>}
+          {EXPANDE.includes(f.tipo) && (
+            <label className="flex items-center gap-gp-xs self-center text-body-sm">
+              <input type="checkbox" checked={f.expandido} onChange={(e) => setF({ ...f, expandido: e.target.checked })} /> Expandir itens na impressão
+            </label>
+          )}
         </div>
         <p className="mt-form-gap text-body-sm text-fg-muted">{TIPOS.find((t) => t.v === f.tipo)?.ajuda}</p>
       </section>
@@ -395,48 +402,8 @@ export function ProdutosRelPage() {
               </div>
             </section>
           )}
-          {res2.tipo === 'LISTA_CONFERENCIA' && <FolhaConferencia linhas={res2.linhas} />}
         </>
       )}
     </div>
   );
 }
-
-/**
- * A FOLHA DE CONTAGEM (`prod_Lista_Conferencia.fr3`): por empresa e fornecedor ("Fornecedor [código] [razão]"), código de barras,
- * descrição, unidade, as quantidades do depósito e da loja e as duas colunas EM BRANCO para anotar a contagem. Só existe na impressão.
- */
-function FolhaConferencia({ linhas }: { linhas: LinhaC2[] }) {
-  const grupos: Array<{ chave: string; titulo: string; itens: LinhaC2[] }> = [];
-  for (const l of linhas) {
-    const chave = `${String(l.idempresa)}|${String(l.codfor ?? '')}`;
-    let g = grupos[grupos.length - 1];
-    if (!g || g.chave !== chave) {
-      g = { chave, titulo: `Empresa ${String(l.idempresa)} ${l.empresa ? `— ${String(l.empresa)}` : ''} · Fornecedor ${String(l.codfor ?? '—')} ${String(l.fornecedor ?? '(sem fornecedor)')}`, itens: [] };
-      grupos.push(g);
-    }
-    g.itens.push(l);
-  }
-  return (
-    <div id="prod-rel-folha" className="hidden">
-      {grupos.map((g) => (
-        <div key={g.chave}>
-          <h3>{g.titulo}</h3>
-          <table>
-            <thead><tr><th>Cód. barras</th><th>Descrição</th><th>UN</th><th className="text-right">Qtd. dep.</th><th className="text-right">Qtd. estoque</th><th>Qtd. cont. dep.</th><th>Qtd. cont. estoque</th></tr></thead>
-            <tbody>
-              {g.itens.map((l) => (
-                <tr key={l._id}>
-                  <td>{String(l.codbarra ?? '')}</td><td>{String(l.descricao ?? '')}</td><td>{String(l.unidade ?? '')}</td>
-                  <td className="text-right tabular-nums">{nfmt(l.qtde_dep)}</td><td className="text-right tabular-nums">{nfmt(l.qtde)}</td>
-                  <td>&nbsp;</td><td>&nbsp;</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
-  );
-}
-

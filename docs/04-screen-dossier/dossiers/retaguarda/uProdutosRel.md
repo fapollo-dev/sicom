@@ -145,8 +145,38 @@ Ordem: análise (e lista) `M.IDEMPRESA, P.RAZAO, A.DESCRICAO`; os demais `M.IDEM
 traz o `QrySubConsulta` (o mesmo recorte por departamento; sem departamento = −999999 "PRODUTO COM DEPARTAMENTO NÃO DEFINIDO").
 Filtros habilitados por relatório = o `cbbTipoRelCloseUp` (a tela mostra só esses).
 
-## 9. O que falta
+## 9. A impressão (corte 4) — os 13 layouts do cliente
 
-Salvar/carregar layout; as impressões nos layouts do cliente (os 13 `.fr3`, baixados — próximo corte).
+`GET relatorios/produtos/impressao` (mesmos filtros + `expandido`) → `{titulo, modelo, datasets, variaveis, textos?}`; a tela imprime pelo
+motor do FastReport (`imprimirRelatorio`). Arquivo e dataset (UserName do TfrxDBDataset do `UDMProdutosRel`/`uProdutosRel`) por relatório:
+
+| relatório | layout (PERSONALIZADO da produção) | dataset |
+|---|---|---|
+| 0 análise | `prod_Posicao_estoque_produtos.fr3` (894) | frxDataSetProdutos + frxDatasetEmpresas |
+| 1 lista | `prod_Lista_Conferencia.fr3` (891) | frxDataSetProdutos (RAZAO = fornecedor) |
+| 3 ruptura | `prod_Posicao_Estoque_Dep_produtos.fr3` (893) | frxDataSetProdutos |
+| 4 estoque atual | `Rel_Posicao_Estoque.fr3` (996) | frxDBDatasetEstoque + **dbdSubConsulta** (a 2ª página: resumo por departamento) |
+| 6 por data | `Rel_Posicao_Estoque_Por_Data.fr3` (999) | frxDBDProd |
+| 9 percas | `Rel_ProdutosPercas.fr3` (1007) | frxDBDPercas |
+| 11 lotes | `Rel_Prod_Lotes_Validades.fr3` (1011) | frxDBDPrdutosLoteVal (ordenado DTVALIDADE;DESCRICAO — o `IndexFieldNames` do script) |
+| 13 alterações | `Alteracoes_preco.fr3` (638) | FrxRelGeral (DATA no fuso da loja; valores como o TEXTO gravado) |
+| 14 inativos | `Relatorio_Produtos_Inativos.fr3` (924) | dbdRelProdAtivo; o memo "Empresas" = "Empresa: <login>" |
+| 15 × vendas | `Rel_Posicao_Estoque_Vendas_Periodo.fr3` (1001) | FrxRelGeral (DESCDEPTO) |
+| 17 por fornecedor | `ProdutosPorFornecedor.fr3` (885) | dbdConsulta + dbdEmpresa (ULT_CODNF = o CODNF, como o legado, sob o título "Ult.NroNF") |
+| 18 / 19 mix | `ProdComparativoMixEstoqueXLoja/XGiros.fr3` (879/878) | dbdConsulta (LOJA_SEM_ESTOQUE / RAZAOSOCIAL) |
+
+Variáveis: FILTRO (texto do cmbFiltro — **o legado concatena um "7" perdido**, `cmbFiltro.Text + '7 '`, que não foi reproduzido), EMPRESAS
+("1,2"), DEP_ESTOQUE, EXPANDIDO, RELATORIO; no 6, **SALDO/CUSTO/VENDA e TOTSALDO/TOTCUSTO/TOTVENDA são expressões** da coluna do
+rgDisponivelEm (`<frxDBDProd."QTDE_ESTOQUE">`, `<SUM(…,MasterData1)>`) — o motor passou a reavaliar a variável-expressão a cada uso; no
+11, FORNECEDOR/DEPTO/GRUPO/SUBGRUPO pelo nome ou "Todos". A lista: o legado mexe no `GroupHeader1` antes de imprimir (DrillDown = não
+expandido) — aqui o mesmo no XML. As alterações: o script do layout faz `GroupHeader1.ExpandDrillDown := <EXPANDIDO> = 'S'` — o motor
+deixava o `ExpandDrillDown="True"` gravado vencer o script (corrigido). Sem registro: só o 9 ("Não foi encontrado movimentação para esse
+período.") e o 11 ("Não foram encontrados lotes…") avisam; os outros imprimem a folha vazia, como o legado.
+
+Cobertura: smoke §108.7; web `relatorio-fr3.spec.ts` (os 13 layouts).
+
+## 10. O que falta
+
+Salvar/carregar layout.
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

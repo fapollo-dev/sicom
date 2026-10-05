@@ -12606,6 +12606,37 @@ async function main() {
           && (altProd.j.linhas ?? []).length === 1,
           { status: alt.status, ordem: al.map((l) => l.codhistorico), v: al.map((l) => l.variacao), totais: alt.j.totais, porProduto: (altProd.j.linhas ?? []).length });
 
+        // §108.7 — o "Imprimir" nos layouts do cliente (stubs com o nome do arquivo na página; o GroupHeader1 da lista é recolhível)
+        const stubPr = (nome: string, extra = '') => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}">${extra}</TfrxReportPage></TfrxReport>`).toString('base64');
+        for (const [i, nome, extra] of [[991101, 'Rel_Posicao_Estoque.fr3', ''], [991102, 'Rel_Posicao_Estoque_Por_Data.fr3', ''],
+          [991103, 'prod_Lista_Conferencia.fr3', '<TfrxGroupHeader Name="GroupHeader1" DrillDown="True" Condition="frxDataSetProdutos.&quot;RAZAO&quot;"/>'],
+          [991104, 'Alteracoes_preco.fr3', ''], [991105, 'prod_Posicao_Estoque_Dep_produtos.fr3', '']] as Array<[number, string, string]>) {
+          await pgPr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3)
+            ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [i, nome, stubPr(nome.replace(/\W/g, '_'), extra)]);
+        }
+        const imp = async (qs: string) => { const r = await fetch(`${base}/${PR}/impressao?${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const impEa = await imp('tipo=ESTOQUE_ATUAL&coddpto=9951');
+        const impPd = await imp('tipo=ESTOQUE_POR_DATA&dataFim=2050-03-31&disponivelEm=ESTOQUE&estoqueSinal=%3C&estoqueQtde=999999');
+        const impLc = await imp('tipo=LISTA_CONFERENCIA&coddpto=9951&expandido=true');
+        const impAp = await imp('tipo=ALTERACOES_PRECO&dataIni=2050-03-01&dataFim=2050-03-31');
+        const impRu = await imp('tipo=RUPTURA&coddpto=9951');
+        const impPe = await imp('tipo=PERCAS&dataIni=2001-01-01&dataFim=2001-01-02');
+        const ea = (impEa.j.datasets?.frxDBDatasetEstoque ?? []) as any[];
+        const ap = (impAp.j.datasets?.FrxRelGeral ?? []) as any[];
+        check('RELATÓRIO DE PRODUTOS §108.7 [o "Imprimir" nos layouts do cliente]: o estoque atual no Rel_Posicao_Estoque.fr3 com o frxDBDatasetEstoque, o resumo no dbdSubConsulta e a empresa do login; o estoque por data com SALDO/CUSTO/VENDA como EXPRESSÕES da coluna escolhida ("Estoque" → QTDE_ESTOQUE) e o DtFinal; a lista com o GroupHeader1 aberto pelo "expandir" e o fornecedor em RAZAO; as alterações com a DATA no fuso da loja e o valor como TEXTO gravado; a ruptura com o FILTRO travado; a perca sem movimento com a mensagem do legado',
+          impEa.status === 200 && String(impEa.j.modelo).includes('Rel_Posicao_Estoque_fr3') && ea.length === 5 && ea.some((r) => r.DESCRICAO === 'EST NEGATIVO' && Number(r.QTDE) === 7)
+            && (impEa.j.datasets?.dbdSubConsulta ?? []).some((r: any) => Number(r.CODDPTO) === 9951) && impEa.j.variaveis?.DEP_ESTOQUE === "'Estoque e Depósito'"
+            && (impEa.j.datasets?.frxDatasetEmpresas ?? []).length === 1
+          && impPd.status === 200 && impPd.j.variaveis?.SALDO === '<frxDBDProd."QTDE_ESTOQUE">' && impPd.j.variaveis?.TOTVENDA === '<SUM(<frxDBDProd."VENDA_ESTOQUE">,MasterData1)>'
+            && impPd.j.variaveis?.DtFinal === "'31/03/2050'"
+          && impLc.status === 200 && String(impLc.j.modelo).includes('DrillDown="False" ExpandDrillDown="True"') && (impLc.j.datasets?.frxDataSetProdutos ?? []).some((r: any) => 'RAZAO' in r)
+          && impAp.status === 200 && ap.length === 3 && ap.some((r) => r.DATA === '2050-03-10T09:00:00' && r.VALOR_ANTERIOR === '10,00') && impAp.j.variaveis?.EXPANDIDO === "'N'"
+          && impRu.status === 200 && impRu.j.variaveis?.FILTRO === "' Qtde. estoque negativa ou zerada '"
+          && impPe.status === 422 && String(impPe.j.message ?? '').includes('Não foi encontrado movimentação'),
+          { ea: [impEa.status, ea.length, impEa.j.variaveis?.DEP_ESTOQUE], pd: [impPd.status, impPd.j.variaveis?.SALDO, impPd.j.variaveis?.DtFinal], lc: [impLc.status, String(impLc.j.modelo).slice(0, 300)],
+            ap: [impAp.status, ap.map((r) => [r.DATA, r.VALOR_ANTERIOR])], ru: [impRu.status, impRu.j.variaveis?.FILTRO], pe: [impPe.status, impPe.j.message] });
+        await pgPr.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991101 AND 991105`);
+
         await pgPr.query(`DELETE FROM historico_dinamico WHERE codhistorico BETWEEN 997001 AND 997007`);
         await pgPr.query(`DELETE FROM estoque_dep WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);

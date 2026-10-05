@@ -861,3 +861,120 @@ describe('rentabilidade por categorias (at&m_rentabilidade_da_familia*.fr3)', ()
     expect(t).toContain('100,00');
   });
 });
+
+describe('relatórios de produtos (FRMPRODUTOSREL) nos layouts do cliente', () => {
+  const emp = [{ ...empresa, ENDERECO: 'AV BRASIL 100', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA' }];
+  const vars = { FILTRO: "' Todos '", EMPRESAS: "'1,2'", DEP_ESTOQUE: "'Estoque e Depósito'", EXPANDIDO: "'N'", RELATORIO: '0' };
+  const prod = (o: Record<string, unknown>) => ({ IDEMPRESA: 1, IDPRODUTO: 10, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', UNIDADE: 'UN', VRVENDA: 25.9, QTDE: 30,
+    MINIMO: 10, MAXIMO: 50, RAZAO: 'CEREALISTA SUL', DESCDEPTO: 'MERCEARIA', DESCGRUPO: 'GRAOS', DESCSUBGRUPO: 'ARROZ', QTDE_DEP: 12, MAXIMO_DEP: 20, CODDPTO: 3,
+    TOTALCUSTO: 150, TOTALVENDA: 777, ...o });
+
+  it('análise (prod_Posicao_estoque_produtos.fr3): departamento › grupo › subgrupo, o filtro e o "disponível em"', () => {
+    const t = texto(paginasDoModelo(modelo('produtos-analise.fr3'), { frxDataSetProdutos: [prod({}), prod({ IDPRODUTO: 11, DESCRICAO: 'FEIJAO 1KG', QTDE: -5 })], frxDatasetEmpresas: emp }, agora, vars));
+    expect(t).toContain('RELATÓRIO POSIÇÃO DE ESTOQUE');
+    expect(t).toContain('Departamento : MERCEARIA');
+    expect(t).toContain('Sub-Grupo : ARROZ');
+    expect(t).toContain('FEIJAO 1KG');
+    expect(t).toContain('CEREALISTA SUL');
+    expect(t).toContain('Filtro : Todos');
+    expect(t).toContain('Disponível em : Estoque e Depósito');
+    expect(t).toContain('HIPER PINHEIRAO');
+  });
+
+  it('ruptura (prod_Posicao_Estoque_Dep_produtos.fr3): quantidade do depósito e da loja', () => {
+    const t = texto(paginasDoModelo(modelo('produtos-ruptura.fr3'), { frxDataSetProdutos: [prod({ QTDE: -5, QTDE_DEP: 12 })], frxDatasetEmpresas: emp }, agora,
+      { ...vars, FILTRO: "' Qtde. estoque negativa ou zerada '" }));
+    expect(t).toContain('RELATÓRIO POSIÇÃO DE ESTOQUE DEPOSITO');
+    expect(t).toContain('Qtd. Loja');
+    expect(t).toContain('-5');
+    expect(t).toContain('12');
+    expect(t).toContain('Filtro : Qtde. estoque negativa ou zerada');
+  });
+
+  it('estoque atual (Rel_Posicao_Estoque.fr3): os totais e a 2ª página com o resumo por departamento (dbdSubConsulta)', () => {
+    const pgs = paginasDoModelo(modelo('produtos-estoque-atual.fr3'), {
+      frxDBDatasetEstoque: [prod({ TOTALCUSTO: 150, TOTALVENDA: 300 }), prod({ IDPRODUTO: 11, DESCRICAO: 'FEIJAO 1KG', QTDE: 7, QTDE_DEP: 0, TOTALCUSTO: 42, TOTALVENDA: 70 })],
+      dbdSubConsulta: [{ CODDPTO: 3, DESCDEPTO: 'MERCEARIA', QTDE: 37, QTDE_DEP: 12, TOTALCUSTO: 192, TOTALVENDA: 370 }],
+    }, agora, vars);
+    const t = texto(pgs);
+    expect(t).toContain('RESUMO DE ESTOQUE POR DEPARTAMENTO');
+    expect(t).toContain('192,00'); // SUM(TOTALCUSTO) do relatório e do resumo
+    expect(t).toContain('370,00');
+    expect(t).toContain('MERCEARIA');
+    expect(pgs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('estoque por data (Rel_Posicao_Estoque_Por_Data.fr3): SALDO/CUSTO/VENDA são EXPRESSÕES reavaliadas a cada registro, e os totais da coluna escolhida', () => {
+    const linhas = [
+      { IDEMPRESA: 1, IDPRODUTO: 10, CODDPTO: 3, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', TOTAL_ESTOQUE: 30, CUSTO_TOTAL: 150, VENDA_TOTAL: 777, QTDE_ESTOQUE: 30, CUSTO_ESTOQUE: 150, VENDA_ESTOQUE: 777 },
+      { IDEMPRESA: 1, IDPRODUTO: 11, CODDPTO: 3, CODBARRA: '7891000100110', DESCRICAO: 'FEIJAO 1KG', TOTAL_ESTOQUE: 8, CUSTO_TOTAL: 48.5, VENDA_TOTAL: 79.2, QTDE_ESTOQUE: 8, CUSTO_ESTOQUE: 48.5, VENDA_ESTOQUE: 79.2 },
+    ];
+    const t = texto(paginasDoModelo(modelo('produtos-estoque-por-data.fr3'), { frxDBDProd: linhas }, agora, {
+      ...vars, DtInicial: "''", DtFinal: "'30/09/2026'", EMPRESAS: "'1'",
+      SALDO: '<frxDBDProd."TOTAL_ESTOQUE">', CUSTO: '<frxDBDProd."CUSTO_TOTAL">', VENDA: '<frxDBDProd."VENDA_TOTAL">',
+      TOTSALDO: '<SUM(<frxDBDProd."TOTAL_ESTOQUE">,MasterData1)>', TOTCUSTO: '<SUM(<frxDBDProd."CUSTO_TOTAL">,MasterData1)>', TOTVENDA: '<SUM(<frxDBDProd."VENDA_TOTAL">,MasterData1)>',
+    }));
+    expect(t).toContain('RELATÓRIO POSIÇÃO DO ESTOQUE POR DATA');
+    expect(t).toContain('até 30/09/2026');
+    expect(t).toContain('48.5'.replace('.', ',')); // o custo do 2º registro, não o do 1º
+    expect(t).toContain('856,20'); // TOTVENDA = 777 + 79,20
+    expect(t).toContain('198,50'); // TOTCUSTO
+    expect(t).toContain('38,00'); // TOTSALDO
+  });
+
+  it('lista para conferência (prod_Lista_Conferencia.fr3): por fornecedor, as colunas de contagem em branco; recolhida sem "expandir"', () => {
+    const lin = [prod({ CODFOR: 7 }), prod({ CODFOR: 7, IDPRODUTO: 11, DESCRICAO: 'FEIJAO 1KG' })];
+    const aberto = modelo('produtos-lista-conferencia.fr3').replace(/(<TfrxGroupHeader Name="GroupHeader1"[^>]*?) DrillDown="True"/, '$1 DrillDown="False"');
+    const t = texto(paginasDoModelo(aberto, { frxDataSetProdutos: lin, frxDatasetEmpresas: emp }, agora, vars));
+    expect(t).toContain('CEREALISTA SUL Fornecedor 7');
+    expect(t).toContain('FEIJAO 1KG');
+    expect(t).toContain('Qtd. Cont. Dep');
+    const fechado = texto(paginasDoModelo(modelo('produtos-lista-conferencia.fr3'), { frxDataSetProdutos: lin, frxDatasetEmpresas: emp }, agora, vars));
+    expect(fechado).toContain('CEREALISTA SUL');
+    expect(fechado).not.toContain('FEIJAO 1KG');
+  });
+
+  it('alterações de preço (Alteracoes_preco.fr3): por código de barras; o EXPANDIDO abre o grupo (o script do layout)', () => {
+    const lin = [
+      { CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', CODEMPRESA: 1, DATA: '2026-09-10T09:00:00', VALOR_ANTERIOR: '10,00', VALOR_ATUAL: '12,50', NOME: 'MARIA', HISTORICO: 'Cadastro de produtos' },
+      { CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', CODEMPRESA: 1, DATA: '2026-09-12T14:30:00', VALOR_ANTERIOR: '12.50', VALOR_ATUAL: '9.90', NOME: 'JOAO', HISTORICO: 'Alteracao do Valor de Venda' },
+    ];
+    const t = texto(paginasDoModelo(modelo('produtos-alteracoes-preco.fr3'), { FrxRelGeral: lin }, agora, { ...vars, EXPANDIDO: "'S'" }));
+    expect(t).toContain('ALTERAÇÕES DE PREÇOS DOS PRODUTOS');
+    expect(t).toContain('Empresas: 1,2');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('Cadastro de produtos');
+    expect(t).toContain('12.50'); // o texto como foi gravado (o %2.2n do layout não formata texto)
+    expect(t).toContain('10,00 10,00'); // o layout do cliente imprime VALOR_ANTERIOR também na coluna "Valor novo" (defeito do .fr3)
+    expect(t).toContain('JOAO');
+    const fechado = texto(paginasDoModelo(modelo('produtos-alteracoes-preco.fr3'), { FrxRelGeral: lin }, agora, vars));
+    expect(fechado).toContain('ARROZ 5KG');
+    expect(fechado).not.toContain('JOAO');
+  });
+
+  it('percas, lotes, inativos, vendas no período, por fornecedor e os dois comparativos de mix', () => {
+    const percas = texto(paginasDoModelo(modelo('produtos-percas.fr3'), { frxDBDPercas: [{ IDPRODUTO: 10, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', ENTRADAS: 100, SAIDAS: 80, QTD_PERCAS: 5, VALOR_PERCAS: 25, PERC_PERCAS: 5 }] }, agora, vars));
+    expect(percas).toContain('RELATÓRIO DE PERCAS');
+    expect(percas).toContain('5,00 %');
+    const lotes = texto(paginasDoModelo(modelo('produtos-lotes-validades.fr3'), { frxDBDPrdutosLoteVal: [{ IDEMPRESA: 1, IDPRODUTO: 10, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', UNIDADE: 'UN', FATORCX: 1, LOTE: 'L123', DTVALIDADE: '2026-12-31', FORNECEDOR: 'CEREALISTA SUL', ESTOQUE_ATUAL: 30 }] }, agora,
+      { ...vars, FORNECEDOR: "'Todos'", DEPTO: "'MERCEARIA'", GRUPO: "'Todos'", SUBGRUPO: "'Todos'" }));
+    expect(lotes).toContain('L123');
+    expect(lotes).toContain('31/12/2026');
+    expect(lotes).toContain('MERCEARIA');
+    const inat = texto(paginasDoModelo(modelo('produtos-inativos-agenda.fr3'), { dbdRelProdAtivo: [{ CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', UNIDADE: 'UN', DEPTO: 'MERCEARIA', VRVENDA: 25.9, VLRPROMOCAO: 22.9, CODAGENDA: 77, NOMEPROMO: 'SEMANA DO ARROZ', TV: 'T', ATUALIZACAO_GRUPO: 'N', RADIO: 'N', TABLOIDE: 'N', INTERNO: 'N' }] }, agora, vars, { Empresas: 'Empresa: 1' }));
+    expect(inat).toContain('SEMANA DO ARROZ');
+    expect(inat).toContain('Empresa: 1');
+    expect(inat).toContain('Qtde. Registros: 1');
+    const vp = texto(paginasDoModelo(modelo('produtos-estoque-vendas-periodo.fr3'), { FrxRelGeral: [{ ...prod({}), QTDE_VENDIDA: 40, VRCUSTO_UNI: 4.9, VRVENDA_UNI: 9.9, VRCUSTO: 5, VRVENDA: 10 }] }, agora, vars));
+    expect(vp).toContain('ESTOUE ATUAL/VENDAS NO PERÍODO');
+    expect(vp).toContain('40,00');
+    const pf = texto(paginasDoModelo(modelo('produtos-por-fornecedor.fr3'), { dbdConsulta: [{ FANTASIA: 'CEREALISTA SUL', CODPRODNOTA: 'A-77', DESCRICAO: 'ARROZ TIPO 1 5KG', ULT_CODNF: 15433, ULT_DATA: '2026-09-02', ULT_QTDE: 50, QTD_VENDIDA: 20, ESTOQUE_ATUAL: 30, ESTOQUE_DT_ENTRADA: 50, VRCUSTO: 21.5, FATOREMBAL: 1 }], dbdEmpresa: emp }, agora, vars));
+    expect(pf).toContain('Fornecedor : CEREALISTA SUL');
+    expect(pf).toContain('A-77');
+    expect(pf).toContain('Empresa(s): HIPER PINHEIRAO');
+    const ml = texto(paginasDoModelo(modelo('produtos-mix-estoque-loja.fr3'), { dbdConsulta: [{ IDPRODUTO: 10, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', QTDE: 30, LOJA_SEM_ESTOQUE: '2, 51' }] }, agora, vars));
+    expect(ml).toContain('2, 51');
+    const mg = texto(paginasDoModelo(modelo('produtos-mix-estoque-giros.fr3'), { dbdConsulta: [{ IDEMPRESA: 2, RAZAOSOCIAL: 'PINHEIRAO LOJA 2', IDPRODUTO: 10, CODBARRA: '7891000100103', DESCRICAO: 'ARROZ 5KG', TOTAL_ESTOQUE: 30 }] }, agora, vars));
+    expect(mg).toContain('Empresa : 2 - PINHEIRAO LOJA 2');
+  });
+});

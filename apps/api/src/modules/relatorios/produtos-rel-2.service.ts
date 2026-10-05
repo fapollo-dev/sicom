@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FUSO_LOJA } from '../../shared/tempo/hoje';
 import { ConfigService } from '../cadastro/config.service';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { dataLocal, empresaParaRelatorio, textoVariavel, type RegistroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 type Linha = Record<string, unknown>;
@@ -32,6 +34,50 @@ export function valorDoHistorico(v: unknown): number | null {
   if (!t) return null;
   const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
   return Number.isFinite(n) ? n : null;
+}
+
+/** os textos do `cmbFiltro` (uProdutosRel.dfm:394-411), como a variável FILTRO os imprime */
+const TEXTO_FILTRO: Record<FiltroEstoque, string> = {
+  TODOS: 'Todos', MENOR_IGUAL_MINIMO: 'Qtd. estoque <= Mínimo', MENOR_MINIMO: 'Qtd. estoque <  Mínimo', MAIOR_IGUAL_MINIMO: 'Qtd. estoque >=  Mínimo',
+  MAIOR_MINIMO: 'Qtd. estoque >  Mínimo', IGUAL_MINIMO: 'Qtd. estoque =  Mínimo', MENOR_IGUAL_MAXIMO: 'Qtd. estoque <= Máximo', MENOR_MAXIMO: 'Qtd. estoque <  Máximo',
+  MAIOR_IGUAL_MAXIMO: 'Qtd. estoque >=  Máximo', MAIOR_MAXIMO: 'Qtd. estoque >  Máximo', IGUAL_MAXIMO: 'Qtd. estoque =  Máximo', NEGATIVA: 'Qtde. estoque negativa',
+  ZERADA: 'Qtde. estoque zerada', MAIOR_ZERO: 'Qtde. estoque > zero', NEGATIVA_OU_ZERADA: 'Qtde. estoque negativa ou zerada',
+};
+
+/**
+ * A impressão de cada relatório (`btnImprimirClick`, P:280-688): o arquivo e o dataset (pelo UserName do TfrxDBDataset) que o layout lê,
+ * e os campos renomeados para os do legado quando a consulta do Apollo usa outro nome.
+ */
+const IMPRESSAO: Record<TipoProdutosRel2, { arquivo: string; ds: string; renomear?: Record<string, string> }> = {
+  ANALISE: { arquivo: 'prod_Posicao_estoque_produtos.fr3', ds: 'frxDataSetProdutos' },
+  LISTA_CONFERENCIA: { arquivo: 'prod_Lista_Conferencia.fr3', ds: 'frxDataSetProdutos', renomear: { fornecedor: 'razao' } },
+  RUPTURA: { arquivo: 'prod_Posicao_Estoque_Dep_produtos.fr3', ds: 'frxDataSetProdutos' },
+  ESTOQUE_ATUAL: { arquivo: 'Rel_Posicao_Estoque.fr3', ds: 'frxDBDatasetEstoque' },
+  ESTOQUE_POR_DATA: { arquivo: 'Rel_Posicao_Estoque_Por_Data.fr3', ds: 'frxDBDProd' },
+  PERCAS: { arquivo: 'Rel_ProdutosPercas.fr3', ds: 'frxDBDPercas' },
+  LOTES_VALIDADES: { arquivo: 'Rel_Prod_Lotes_Validades.fr3', ds: 'frxDBDPrdutosLoteVal' },
+  ALTERACOES_PRECO: { arquivo: 'Alteracoes_preco.fr3', ds: 'FrxRelGeral', renomear: { data_loja: 'data' } },
+  INATIVOS_AGENDA: { arquivo: 'Relatorio_Produtos_Inativos.fr3', ds: 'dbdRelProdAtivo' },
+  ESTOQUE_VENDAS_PERIODO: { arquivo: 'Rel_Posicao_Estoque_Vendas_Periodo.fr3', ds: 'FrxRelGeral', renomear: { departamento: 'descdepto' } },
+  PRODUTOS_FORNECEDOR: { arquivo: 'ProdutosPorFornecedor.fr3', ds: 'dbdConsulta' },
+  MIX_ESTOQUE_LOJA: { arquivo: 'ProdComparativoMixEstoqueXLoja.fr3', ds: 'dbdConsulta', renomear: { lojas_sem_estoque: 'loja_sem_estoque' } },
+  MIX_ESTOQUE_GIROS: { arquivo: 'ProdComparativoMixEstoqueXGiros.fr3', ds: 'dbdConsulta', renomear: { razao_social: 'razaosocial' } },
+};
+
+/** o texto que é texto no dataset do legado mesmo quando só tem dígitos (o `%2.2n` do layout não o formata) */
+const TEXTO_NO_FR3 = new Set(['codbarra', 'codprodnota', 'lote', 'valor_anterior', 'valor_atual', 'valor_chave', 'local', 'cnpj']);
+
+/** a linha da consulta como o dataset do Delphi a expõe: chaves em maiúsculas, números como número */
+function paraFr3(l: Linha, renomear: Record<string, string> = {}): RegistroFr3 {
+  const out: RegistroFr3 = {};
+  const alvos = new Set(Object.values(renomear));
+  for (const [k0, v] of Object.entries(l)) {
+    // o campo que um renomeado substitui (o DATA timestamptz dá lugar ao DATA no fuso da loja) sai
+    if (k0 === '_id' || (alvos.has(k0) && !(k0 in renomear))) continue;
+    const k = renomear[k0] ?? k0;
+    out[k.toUpperCase()] = typeof v === 'string' && !TEXTO_NO_FR3.has(k) && /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v instanceof Date ? dataLocal(v) : v;
+  }
+  return out;
 }
 
 /** os relatórios do corte 2 (recon de 25/09/2026, na produção): os oito que o dado prova vivos */
@@ -233,6 +279,76 @@ export class ProdutosRel2Service {
   }
 
   /**
+   * O "Imprimir" (`btnImprimirClick`): a mesma consulta no layout do cliente (RELATORIOS), com as variáveis que o legado atribui —
+   * FILTRO (o texto do cmbFiltro; o legado concatena um "7" perdido no fim, `cmbFiltro.Text + '7 '`, que aqui não vai), EMPRESAS (as
+   * marcadas, "1,2"), DEP_ESTOQUE (o rgDisponivelEm), EXPANDIDO; no 6 as expressões SALDO/CUSTO/VENDA e os totais da coluna escolhida;
+   * no 11 os nomes de fornecedor/departamento/grupo/subgrupo ("Todos" sem filtro). Sem registro, só o 9 e o 11 avisam (como no legado);
+   * os outros imprimem a folha vazia.
+   */
+  async impressao(f: FiltroProdutosRel2, o: { expandido?: boolean } = {}) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.gerar(f);
+    if (!r.linhas.length && f.tipo === 'PERCAS') throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foi encontrado movimentação para esse período.');
+    if (!r.linhas.length && f.tipo === 'LOTES_VALIDADES') throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados lotes de produtos para esta busca. Refaça a pesquisa.');
+    const imp = IMPRESSAO[f.tipo];
+    let linhas = r.linhas;
+    // o script do layout dos lotes ordena o dataset (`IndexFieldNames(MasterData1.DataSet, 'DTVALIDADE;DESCRICAO', '')`)
+    if (f.tipo === 'LOTES_VALIDADES') linhas = [...linhas].sort((a, b) => String(a.dtvalidade ?? '').localeCompare(String(b.dtvalidade ?? '')) || String(a.descricao ?? '').localeCompare(String(b.descricao ?? '')));
+    const emps = f.tipo === 'INATIVOS_AGENDA' ? [this.emp()] : await this.empresas(db, f.empresas);
+    const empresa = await empresaParaRelatorio(db, this.emp());
+    const filtro: FiltroEstoque = f.tipo === 'RUPTURA' ? 'NEGATIVA_OU_ZERADA' : (f.filtroEstoque ?? 'TODOS');
+    const disp = f.disponivelEm ?? 'TODOS';
+    const variaveis: Record<string, string> = {
+      FILTRO: textoVariavel(` ${TEXTO_FILTRO[filtro]} `),
+      EMPRESAS: textoVariavel(emps.join(',')),
+      DEP_ESTOQUE: textoVariavel(disp === 'TODOS' ? 'Estoque e Depósito' : disp === 'ESTOQUE' ? ' Estoque  ' : ' Deposito '),
+      EXPANDIDO: textoVariavel(o.expandido ? 'S' : 'N'),
+      RELATORIO: '0',
+    };
+    if (f.tipo === 'ESTOQUE_POR_DATA') {
+      // o edtDataIni do 6 é limpo pelo cbbTipoRelCloseUp: DtInicial vai vazia
+      variaveis.DtInicial = textoVariavel('');
+      variaveis.DtFinal = textoVariavel(f.dataFim ? f.dataFim.split('-').reverse().join('/') : '');
+      const [q, c, v] = disp === 'ESTOQUE' ? ['QTDE_ESTOQUE', 'CUSTO_ESTOQUE', 'VENDA_ESTOQUE'] : disp === 'DEPOSITO' ? ['QTDE_DEPOSITO', 'CUSTO_DEPOSITO', 'VENDA_DEPOSITO'] : ['TOTAL_ESTOQUE', 'CUSTO_TOTAL', 'VENDA_TOTAL'];
+      Object.assign(variaveis, {
+        SALDO: `<frxDBDProd."${q}">`, CUSTO: `<frxDBDProd."${c}">`, VENDA: `<frxDBDProd."${v}">`,
+        TOTSALDO: `<SUM(<frxDBDProd."${q}">,MasterData1)>`, TOTCUSTO: `<SUM(<frxDBDProd."${c}">,MasterData1)>`, TOTVENDA: `<SUM(<frxDBDProd."${v}">,MasterData1)>`,
+      });
+    }
+    if (f.tipo === 'LOTES_VALIDADES') {
+      const nome = async (tab: 'parceiros' | 'familias_prod', cod: number | null | undefined) => {
+        if (!cod) return 'Todos';
+        const q = tab === 'parceiros'
+          ? sql<{ n: string }>`SELECT razao AS n FROM parceiros WHERE codparceiro = ${cod}`
+          : sql<{ n: string }>`SELECT descricao AS n FROM familias_prod WHERE codfamilia = ${cod}`;
+        return (await q.execute(db)).rows[0]?.n ?? '';
+      };
+      variaveis.FORNECEDOR = textoVariavel(await nome('parceiros', f.codfor));
+      variaveis.DEPTO = textoVariavel(await nome('familias_prod', f.coddpto));
+      variaveis.GRUPO = textoVariavel(await nome('familias_prod', f.codgrupo));
+      variaveis.SUBGRUPO = textoVariavel(await nome('familias_prod', f.codsubgrupo));
+    }
+    let modelo = await modeloFr3(db, imp.arquivo);
+    if (f.tipo === 'LISTA_CONFERENCIA') {
+      // `GroupHeader.DrillDown := not chkExpandirItensImpressao.Checked; ExpandDrillDown := Checked` (o legado mexe no objeto antes de imprimir)
+      modelo = modelo.replace(/<TfrxGroupHeader Name="GroupHeader1"([^>]*?)(\/?)>/, (_m, at: string, fim: string) =>
+        `<TfrxGroupHeader Name="GroupHeader1"${at.replace(/ (DrillDown|ExpandDrillDown)="[^"]*"/g, '')} DrillDown="${o.expandido ? 'False' : 'True'}" ExpandDrillDown="${o.expandido ? 'True' : 'False'}"${fim}>`);
+    }
+    const datasets: Record<string, RegistroFr3[]> = {
+      [imp.ds]: linhas.map((l) => paraFr3(l, imp.renomear)),
+      frxDatasetEmpresas: [empresa], frxDataSetEmpresas: [empresa], dbdEmpresa: [empresa],
+    };
+    if (f.tipo === 'ESTOQUE_ATUAL') datasets.dbdSubConsulta = (r.resumo ?? []).map((l) => paraFr3(l));
+    const titulo = { ANALISE: 'Relatório para análise', LISTA_CONFERENCIA: 'Lista para conferência', RUPTURA: 'Ruptura na loja', ESTOQUE_ATUAL: 'Estoque atual',
+      ESTOQUE_POR_DATA: 'Estoque por data', PERCAS: 'Percas', LOTES_VALIDADES: 'Lotes e validades', ALTERACOES_PRECO: 'Alterações de preço',
+      INATIVOS_AGENDA: 'Produtos inativos em agenda de promoções', ESTOQUE_VENDAS_PERIODO: 'Estoque atual/vendas período', PRODUTOS_FORNECEDOR: 'Produtos por fornecedor',
+      MIX_ESTOQUE_LOJA: 'Comparativo de mix (estoque × loja)', MIX_ESTOQUE_GIROS: 'Comparativo de mix (estoque × giros)' }[f.tipo];
+    // o 14 escreve no memo "Empresas" a empresa do login (`TfrxMemoView(FindObject('Empresas')).Memo.Text := 'Empresa: ' + CODEMPRESA`)
+    const textos = f.tipo === 'INATIVOS_AGENDA' ? { Empresas: `Empresa: ${this.emp()}` } : undefined;
+    return { titulo, modelo, datasets, variaveis, ...(textos ? { textos } : {}) };
+  }
+
+  /**
    * 13 ALTERAÇÕES DE PREÇO — o `GetSQLRelAlteracaoPrecos` (P:2133): o HISTORICO_DINAMICO da MULTI_PRECO, campo **exatamente** VRVENDA
    * (o VRVENDASUG — 15.865 linhas na produção — não é preço de venda), ligado ao produto pela CHAVE IDPRODUTO; MULTI_PRECO, ESTOQUE e
    * ESTOQUE_DEP da empresa da alteração (para o ativo e os filtros de estoque); as empresas marcadas sobre H.CODEMPRESA; o período por
@@ -250,7 +366,8 @@ export class ProdutosRel2Service {
     ];
     const linhas = (await sql<Linha>`
       SELECT h.codhistorico, h.campo, h.valor_anterior, h.valor_atual, h.tabela, h.data, h.codoperador, h.chave, h.valor_chave,
-             h.codempresa, h.historico, h.origem, o.nome, a.codbarra, a.descricao, a.idproduto
+             h.codempresa, h.historico, h.origem, o.nome, a.codbarra, a.descricao, a.idproduto,
+             to_char(h.data AT TIME ZONE ${FUSO_LOJA}, 'YYYY-MM-DD"T"HH24:MI:SS') AS data_loja
         FROM historico_dinamico h
         JOIN produtos a           ON a.idproduto = CASE WHEN h.chave = 'IDPRODUTO' AND h.valor_chave ~ '^[0-9]+$' THEN h.valor_chave::bigint END
         LEFT JOIN multi_preco m   ON a.idproduto = m.idproduto AND m.idempresa = h.codempresa

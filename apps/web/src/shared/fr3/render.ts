@@ -122,6 +122,9 @@ class Relatorio {
   /** as TStringList do script (`TStringList.Create`): a variável guarda o identificador da lista */
   private readonly listas = new Map<string, string[]>();
   private readonly variaveis = new Map<string, Valor>();
+  /** a variável cujo valor é uma expressão de campo ou de agregada (`<frxDBDProd."TOTAL_ESTOQUE">`, `<SUM(<…>,MasterData1)>`): o
+   * FastReport a reavalia a cada uso, no registro corrente — o "Estoque por data" troca assim a coluna que o layout imprime */
+  private readonly variaveisExpr = new Map<string, Expr>();
   private readonly exprs = new Map<string, Expr | null>();
   private readonly unico: Registro[] | null;
   private readonly conjuntos = new Map<string, Registro[]>();
@@ -208,9 +211,30 @@ class Relatorio {
     };
     // variáveis do relatório (<Variables>): o valor é uma expressão ('S' entre aspas)
     for (const v of this.raiz.filhos.filter((x) => x.tag === 'Variables').flatMap((x) => x.filhos)) {
-      if (v.a.Name) this.variaveis.set(v.a.Name.toLowerCase(), this.avaliarTexto(v.a.Value ?? ''));
+      if (v.a.Name) this.definirVariavel(v.a.Name, v.a.Value ?? '');
     }
-    for (const [k, v] of Object.entries(variaveisExtras)) this.variaveis.set(k.toLowerCase(), this.avaliarTexto(v));
+    for (const [k, v] of Object.entries(variaveisExtras)) this.definirVariavel(k, v);
+  }
+
+  private definirVariavel(nome: string, src: string): void {
+    const k = nome.toLowerCase();
+    if (/<[^<>]*\."[^"]+">/.test(src) || /\b(sum|avg|min|max|count)\s*\(/i.test(src)) {
+      // `<SUM(…)>`: o par de sinais de fora só embrulha a agregada
+      const m = /^\s*<\s*((?:sum|avg|min|max|count)\s*\(.*\))\s*>\s*$/is.exec(src);
+      try { this.variaveisExpr.set(k, compilarExpr(m ? m[1] : src)); this.variaveis.delete(k); return; } catch { /* texto */ }
+    }
+    this.variaveisExpr.delete(k);
+    this.variaveis.set(k, this.avaliarTexto(src));
+  }
+
+  private temVariavel(k: string): boolean {
+    return this.variaveisExpr.has(k) || this.variaveis.has(k);
+  }
+
+  private valorVariavel(k: string): Valor {
+    const e = this.variaveisExpr.get(k);
+    if (e) { try { return avaliar(e, this.amb, this.funcoes); } catch { return null; } }
+    return this.variaveis.get(k) ?? null;
   }
 
   private avaliarTexto(src: string): Valor {
@@ -262,7 +286,7 @@ class Relatorio {
     if (k === 'line#' || k === 'line') return this.linhaBanda;
     if (k === 'date') return this.funcoes.date([], this.amb);
     if (k === 'time') return this.funcoes.time([], this.amb);
-    if (this.variaveis.has(k)) return this.variaveis.get(k)!;
+    if (this.temVariavel(k)) return this.valorVariavel(k);
     // `[<TotalNF>]`: a variável do script (o `var TotalNF: Real;` acumulado nos eventos)
     if (this.locais.has(k)) return this.locais.get(k)!;
     return null;
@@ -294,7 +318,7 @@ class Relatorio {
     const [o, ...resto] = this.resolver(caminho);
     // um nome solto que é variável do relatório vence o objeto de mesmo nome (o `[DATA]` do FechamentoCaixa.fr3 × a página "Data"): o
     // `DoGetValue` do FastReport olha as Variables antes do script
-    if (!resto.length && this.variaveis.has(o.toLowerCase())) return this.variaveis.get(o.toLowerCase())!;
+    if (!resto.length && this.temVariavel(o.toLowerCase())) return this.valorVariavel(o.toLowerCase());
     const e = this.estados.get(o.toLowerCase());
     if (!e && resto.length === 1 && resto[0].toLowerCase() === 'count' && this.lista(o)) return this.lista(o)!.length;
     if (!e) return this.locais.get(o.toLowerCase()) ?? this.variavel(o);
@@ -810,7 +834,12 @@ class Relatorio {
           // o grupo recolhível (DrillDown): fechado, mostra só o próprio cabeçalho — o de dentro (grupos, linhas e o rodapé, sem
           // ShowFooterIfDrillDown) roda os eventos e as agregadas mas não sai na folha; `GroupHeaderN.ExpandDrillDown := True` (o script dos
           // "níveis expandidos") ou o atributo abrem
-          const aberto = (h: No) => h.a.DrillDown !== 'True' || h.a.ExpandDrillDown === 'True' || !!this.estado(h)?.extras.expanddrilldown;
+          // o que o script atribuiu (`GroupHeader1.ExpandDrillDown := <EXPANDIDO> = 'S'`) vence o valor gravado no arquivo
+          const aberto = (h: No) => {
+            if (h.a.DrillDown !== 'True') return true;
+            const x = this.estado(h)?.extras.expanddrilldown;
+            return x != null ? !!x : h.a.ExpandDrillDown === 'True';
+          };
           const oculto = (nivel: number) => grupos.slice(0, nivel).some((g) => !aberto(g.h));
           const rodar = (bd: No) => { this.banda(bd, n(bd.a.Left)); };
           // fecha os grupos do mais interno até `ate`, com o cursor na última linha do grupo (o FastReport volta um registro)
