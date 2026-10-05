@@ -144,19 +144,8 @@ export const inserirLinhaLancProv = (t: TurnoRef, linha: { operacao: string; val
   req<{ linhas: LinhaLancProv[]; total: number }>(`${P}/turno/lancamento-provisorio/linhas`, { method: 'POST', body: JSON.stringify({ ...t, ...linha }) });
 export const excluirLinhaLancProv = (t: TurnoRef, codcxvendas: number) =>
   req<{ linhas: LinhaLancProv[]; total: number }>(`${P}/turno/lancamento-provisorio/linhas/excluir`, { method: 'POST', body: JSON.stringify({ ...t, codcxvendas }) });
-export interface RelatorioFechamento {
-  data: string;
-  empresa: { razao: string | null; fantasia: string | null; cnpj: string | null; insc: string | null; fone: string | null };
-  grupos: Array<{
-    codoperadora: number; nome: string; nropdv: number; obs: string | null;
-    linhas: Array<{ chave: string | null; recurso: string; venda: number; caixa: number; div: number }>;
-    totalVenda: number; totalCaixa: number; divergencia: number; sangria: number; suprimento: number; desconto: number; cancelamentos: number;
-  }>;
-  totais: Array<{ recurso: string; venda: number; caixa: number; div: number }>;
-  total: { venda: number; caixa: number; divergencia: number; sangria: number; suprimento: number; desconto: number; cancelamentos: number };
-}
-export const relatorioFechamento = (data: string, turnos: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) =>
-  req<RelatorioFechamento>(`${P}/relatorio`, { method: 'POST', body: JSON.stringify({ data, turnos }) });
+/** o relatório "Fechamento de caixa" (MontaRel) no FechamentoCaixa.fr3 do cliente: o `imprimirRelatorio` faz o POST com este corpo */
+export const rotaRelatorioFechamento = `${P}/relatorio/impressao`;
 export const observacaoTurno = (t: TurnoRef) => req<{ obs: string | null; existe: boolean }>(`${P}/turno/observacao?${qs(t)}`);
 export const gravarObservacaoTurno = (t: TurnoRef, obs: string) =>
   req<{ obs: string | null; existe: boolean }>(`${P}/turno/observacao`, { method: 'PUT', body: JSON.stringify({ ...t, obs }) });

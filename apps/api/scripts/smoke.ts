@@ -21408,7 +21408,28 @@ async function main() {
           && r2.j.grupos[0].linhas.find((l: any) => l.recurso === 'DINHEIRO' && l.chave === CHB)?.div === -50 && r2.j.totais.find((t: any) => t.recurso === 'DINHEIRO')?.venda === 1814.26
           && semPdv.status === 422 && semPdv.j.code === 'FECHAMENTO_RELATORIO_PDV' && rbac.status === 403,
           { r1: [r1.status, r1.j.data, g], totais: r1.j.totais, total: r1.j.total, r2: r2.j.grupos?.[0]?.linhas, semPdv: [semPdv.status, semPdv.j.code], rbac: rbac.status });
+
+        // §186.2 o mesmo relatório no FechamentoCaixa.fr3 do cliente (cdsRelCaixa / cdsCxTotais do MontaRel)
+        const fr3 = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxReportTitle Name="T" Height="20"><TfrxMemoView Name="M" Width="300" Height="20" Text="x"/></TfrxReportTitle></TfrxReportPage></TfrxReport>').toString('base64');
+        await pgCC.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991861, 1, 'FechamentoCaixa.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [fr3]);
+        const imp = async (turnos: unknown[], headers = H) => {
+          const r = await fetch(`${base}/cobranca/fechamento-caixa/relatorio/impressao`, { method: 'POST', headers, body: JSON.stringify({ data: DIA, turnos }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const i2 = await imp([{ nropdv: 79, codoperadora: 7, chave: CHA }, { nropdv: 79, codoperadora: 7, chave: CHB }]);
+        const iRbac = await imp([{ nropdv: 79, codoperadora: 7, chave: CHA }], H_SEM_ACESSO);
+        const dd = i2.j.datasets?.frxDBDatasetDoc ?? [];
+        const tt = i2.j.datasets?.frxDBDatasetTotais ?? [];
+        const dA = (rec: string) => dd.find((d: any) => d.RECURSO_VENDA === rec && d.CHAVE === CHA);
+        check('FECHAMENTO §186.2 [o relatório no FechamentoCaixa.fr3]: o frxDBDatasetDoc é o cdsRelCaixa — uma linha por turno × recurso (9 do turno A + o DINHEIRO do turno B), com OPERADORA_NROPDV = 779, OPERADORA_NROPDV_CHAVE = 779+chave (o grupo do layout da produção), o NROPDV texto, a venda/caixa/divergência do JSON, a tesouraria zerada, a obs e o desconto/cancelamentos do operador + PDV em toda linha; a sangria do turno A (1.753,70) numa linha só; o frxDBDatasetTotais soma por recurso (DINHEIRO 1.814,26) com CODOPERADORA 1; DATA e os textos do legado (Memo24/Memo39); sem FECHAMENTOCAIXA1 → 403',
+          i2.status === 200 && dd.length === 10 && dd.every((d: any) => d.OPERADORA_NROPDV === 779 && d.NROPDV === '79' && d.VALOR_TES === 0 && d.CX_OBS === 'QUEBRA SMOKE 186' && d.TOTAL_CANCELAMENTOS === 314.86 && d.ORDEM === 1)
+          && dA('DINHEIRO')?.VALOR_VENDA === 1764.26 && dA('DINHEIRO')?.VALOR_CAIXA === 1753.7 && dA('DINHEIRO')?.DIV_VENDA_CAIXA === -10.56 && dA('DINHEIRO')?.OPERADORA_NROPDV_CHAVE === `779${CHA}`
+          && dd.find((d: any) => d.CHAVE === CHB)?.DIV_VENDA_CAIXA === -50 && dd.reduce((s2: number, d: any) => s2 + d.VALOR_SANGRIA, 0) === 1753.7 && dd.filter((d: any) => d.VALOR_SANGRIA > 0).length === 1
+          && tt.length === 9 && tt.every((t: any) => t.CODOPERADORA === 1) && tt.find((t: any) => t.RECURSO_VENDA === 'DINHEIRO')?.VALOR_VENDA === 1814.26
+          && i2.j.variaveis?.DATA === "'19/03/2038'" && i2.j.textos?.Memo24 === 'Vendas' && 'RAZAOSOCIAL' in (i2.j.datasets?.frxDBDataset2?.[0] ?? {}) && iRbac.status === 403,
+          { i2: [i2.status, i2.j.code, dd.map((d: any) => [d.CHAVE, d.RECURSO_VENDA, d.VALOR_VENDA, d.VALOR_CAIXA, d.DIV_VENDA_CAIXA, d.VALOR_SANGRIA]), tt.map((t: any) => [t.RECURSO_VENDA, t.VALOR_VENDA])], iRbac: iRbac.status });
       } finally {
+        await pgCC.query(`DELETE FROM relatorios WHERE codrelatorio = 991861`).catch(() => undefined);
         await pgCC.query(`DELETE FROM caixa WHERE chave = $1`, [CHA]).catch(() => undefined);
         await pgCC.query(`DELETE FROM caixa_obs WHERE obs = 'QUEBRA SMOKE 186'`).catch(() => undefined);
         await pgCC.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9918601`).catch(() => undefined);

@@ -8,12 +8,11 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
-import { imprimirRelatorioFechamento } from './imprimirFechamento';
 import { imprimirRelatorio as imprimirFr3 } from '../../shared/fr3/imprimirRelatorio';
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, cancelamentosTurno, descontosTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, relatorioFechamento, rotaImpressaoTurno, salvarRascunho,
+  abrirTurno, cancelamentosTurno, descontosTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, rotaImpressaoTurno, rotaRelatorioFechamento, salvarRascunho,
   type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -267,12 +266,6 @@ export function FechamentoCaixaPage() {
     void navigator.clipboard?.writeText(det.turno.chave).then(() => mensagem.sucesso('Chave copiada!')).catch(() => undefined);
   };
 
-  // IMPRIMIR (o menu do legado): a janela abre no clique e o dado chega depois (popup-blocker)
-  const imprimirComDado = async (carregarDado: (win: Window) => Promise<boolean>) => {
-    const win = window.open('', '_blank');
-    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
-    try { if (!(await carregarDado(win))) win.close(); } catch (e) { win.close(); mensagem.erro(e); }
-  };
   // comprovante de quebra e histórico no layout .fr3 do cliente (a API devolve a mensagem do legado quando não há linha)
   const imprimirQuebra = () => { if (ref) imprimirFr3(rotaImpressaoTurno('quebra', ref)).catch((e) => mensagem.erro(e)); };
   const imprimirHist = () => { if (ref) imprimirFr3(rotaImpressaoTurno('historico', ref)).catch((e) => mensagem.erro(e)); };
@@ -289,11 +282,10 @@ export function FechamentoCaixaPage() {
 
   // o relatório "Fechamento de caixa" (MontaRel): do turno aberto na tela ou dos marcados na lista
   const chaveTurno = (t: TurnoResumo) => `${t.nropdv}|${t.codoperadora}|${t.chave ?? ''}|${t.situacao}`;
-  const imprimirRelatorio = (lista: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) => void imprimirComDado(async (win) => {
-    if (!lista.length) return false;
-    imprimirRelatorioFechamento(win, await relatorioFechamento(ref?.data ?? data, lista));
-    return true;
-  });
+  const imprimirRelatorio = (lista: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) => {
+    if (!lista.length) return;
+    imprimirFr3(rotaRelatorioFechamento, { data: ref?.data ?? data, turnos: lista }).catch((e) => mensagem.erro(e));
+  };
   const imprimirMarcados = () => imprimirRelatorio((turnos ?? []).filter((t) => marcadosRel.has(chaveTurno(t))).map((t) => ({ nropdv: t.nropdv, codoperadora: t.codoperadora, chave: t.chave })));
   // o "Relatório de análise" (Totalizado/Descritivo) no layout do cliente: a grade do turno reordenada por operação
   const imprimirRelAnalise = (modo: 'totalizado' | 'descritivo') => {

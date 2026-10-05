@@ -279,6 +279,9 @@ class Relatorio {
       return h;
     }
     const [o, ...resto] = this.resolver(caminho);
+    // um nome solto que é variável do relatório vence o objeto de mesmo nome (o `[DATA]` do FechamentoCaixa.fr3 × a página "Data"): o
+    // `DoGetValue` do FastReport olha as Variables antes do script
+    if (!resto.length && this.variaveis.has(o.toLowerCase())) return this.variaveis.get(o.toLowerCase())!;
     const e = this.estados.get(o.toLowerCase());
     if (!e && resto.length === 1 && resto[0].toLowerCase() === 'count' && this.lista(o)) return this.lista(o)!.length;
     if (!e) return this.locais.get(o.toLowerCase()) ?? this.variavel(o);
@@ -706,8 +709,13 @@ class Relatorio {
                 for (let j = nivel; j < grupos.length; j++) {
                   const g = grupos[j];
                   g.valor = valores[j];
-                  // onde cada banda de dados estava quando o grupo começou: a agregada do rodapé soma dali em diante
-                  if (g.f) this.inicioGrupo.set(g.f, new Map([...this.impressas].map(([nome, l]) => [nome, l.length])));
+                  // onde cada banda de dados estava quando o grupo começou: a agregada do rodapé soma dali em diante — só as bandas que imprimem
+                  // dentro do grupo (a desta página e os seus detalhes); a de outra página (o MasterData2 somado no sub-relatório de totais do
+                  // FechamentoCaixa.fr3) acumula desde o começo, como o FastReport, que só zera a agregada depois de imprimir o rodapé
+                  if (g.f) {
+                    const doGrupo = new Set([nomeBanda, ...detalhesDe(b).map((d) => (d.a.Name ?? '').toLowerCase())]);
+                    this.inicioGrupo.set(g.f, new Map([...this.impressas].filter(([nome]) => doGrupo.has(nome)).map(([nome, l]) => [nome, l.length])));
+                  }
                   if (g.h.a.StartNewPage === 'True' && k > 0) novaPagina();
                   if (!cabe(n(g.h.a.Height) + n(b.a.Height))) novaPagina();
                   mostrar(g.h);

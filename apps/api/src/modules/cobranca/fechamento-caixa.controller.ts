@@ -83,6 +83,14 @@ export class FechamentoCaixaController {
     return this.svc.relatorioFechamento(body);
   }
 
+  /** o relatório "Fechamento de caixa" no FechamentoCaixa.fr3 do cliente (o mesmo corpo e o mesmo RBAC) */
+  @Post('relatorio/impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'FECHAMENTOCAIXA1')
+  impressaoRelatorio(@Body(new ZodValidationPipe(relatorioFechamentoSchema)) body: RelatorioFechamentoDto) {
+    return this.svc.impressaoFechamento(body);
+  }
+
   /** a observação de divergência do turno (F5 dos caixas em aberto — sem RBAC próprio: vale o do diálogo) */
   @Get('turno/observacao')
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')

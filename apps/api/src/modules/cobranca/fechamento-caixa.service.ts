@@ -1210,6 +1210,13 @@ export class FechamentoCaixaService {
   async relatorioFechamento(dto: RelatorioFechamentoDto) {
     const db = this.dbp.forTenantRead() as AnyDB;
     const emp = this.emp();
+    const lista = await this.apurarRelatorio(db, dto);
+    return this.relatorioJson(db, emp, dto, lista);
+  }
+
+  /** o cálculo do MontaRel: os grupos operador + PDV com as linhas por turno × recurso (cada linha com a sua chave e a sangria do turno) */
+  private async apurarRelatorio(db: AnyDB, dto: RelatorioFechamentoDto) {
+    const emp = this.emp();
     const tz = (await this.cfg(db, 'FUSO_HORARIO_ACESSO', emp)) ?? 'America/Sao_Paulo';
     const porData = (await this.cfg(db, 'FECHAMENTO_CAIXA_SOMENTE_CHAVE', emp)) === 'N';
     const turnos = dto.turnos.map((t) => ({ pdv: t.nropdv, op: t.codoperadora, chave: t.chave ? String(t.chave).trim() || null : null }));
@@ -1223,7 +1230,7 @@ export class FechamentoCaixaService {
     const doTurno = (colChave: string, colData: string, c: Ctx) =>
       c.chave ? sql`${sql.ref(colChave)} = ${c.chave} ${porData ? sql`AND ${this.noDia(colData, c)}` : sql``}` : sql`${sql.ref(colChave)} IS NULL AND ${this.noDia(colData, c)}`;
 
-    type Linha = { chave: string | null; recurso: string; venda: number; vendaDiv: number; caixa: number; div: number; casou: boolean };
+    type Linha = { chave: string | null; recurso: string; venda: number; vendaDiv: number; caixa: number; div: number; casou: boolean; sangria: number; suprimento: number };
     type Grupo = { codoperadora: number; nome: string; nropdv: number; obs: string | null; linhas: Linha[]; sangria: number; suprimento: number; desconto: number; cancelamentos: number };
     const grupos = new Map<string, Grupo>();
     for (const t of turnos) {
@@ -1256,10 +1263,15 @@ export class FechamentoCaixaService {
         g = { codoperadora: t.op, nome, nropdv: t.pdv, obs, linhas: [], sangria: 0, suprimento: 0, desconto: 0, cancelamentos: 0 };
         grupos.set(k, g);
       }
+      const antes = g.linhas.length;
+      let sanTurno = 0;
+      let supTurno = 0;
       for (const v of vendas) {
         if (v.recurso === 'SANGRIA' || v.recurso === 'SUPRIMENTO') {
           g.sangria = r2(g.sangria + num(v.sangria));
           g.suprimento = r2(g.suprimento + num(v.suprimento));
+          sanTurno = r2(sanTurno + num(v.sangria));
+          supTurno = r2(supTurno + num(v.suprimento));
           continue;
         }
         const cx = caixa.get(v.recurso);
@@ -1269,8 +1281,11 @@ export class FechamentoCaixaService {
         const caixaV = casou ? r2(cx!) : 0;
         let div = casou ? r2(caixaV - num(v.venda_div)) : 0;
         if (venda > 0 && caixaV === 0 && div === 0) div = r2(-venda);
-        g.linhas.push({ chave: t.chave, recurso: v.recurso, venda, vendaDiv: r2(num(v.venda_div)), caixa: caixaV, div, casou });
+        g.linhas.push({ chave: t.chave, recurso: v.recurso, venda, vendaDiv: r2(num(v.venda_div)), caixa: caixaV, div, casou, sangria: 0, suprimento: 0 });
       }
+      // no cdsRelCaixa a SANGRIA/SUPRIMENTO soma na linha corrente (`MontaRel :801-807`): aqui, na primeira linha do turno (ou na última do grupo)
+      const alvo = g.linhas.length > antes ? g.linhas[antes] : g.linhas[g.linhas.length - 1];
+      if (alvo) { alvo.sangria = r2(alvo.sangria + sanTurno); alvo.suprimento = r2(alvo.suprimento + supTurno); }
     }
     // desconto das vendas e cancelamentos da CAIXA_PDV por operador + PDV, de todos os turnos escolhidos (QryDescontos/QryCancelamentos)
     for (const g of grupos.values()) {
@@ -1286,9 +1301,13 @@ export class FechamentoCaixaService {
       }
     }
     const lista = [...grupos.values()].sort((a, b) => String(a.nropdv).localeCompare(String(b.nropdv)) || a.codoperadora - b.codoperadora);
+    for (const g of lista) g.linhas.sort((a, b) => String(a.chave ?? '').localeCompare(String(b.chave ?? '')) || a.recurso.localeCompare(b.recurso));
+    return lista;
+  }
+
+  private async relatorioJson(db: AnyDB, emp: number, dto: RelatorioFechamentoDto, lista: Awaited<ReturnType<FechamentoCaixaService['apurarRelatorio']>>) {
     const porRecurso = new Map<string, { recurso: string; venda: number; caixa: number; div: number }>();
     const saida = lista.map((g) => {
-      g.linhas.sort((a, b) => String(a.chave ?? '').localeCompare(String(b.chave ?? '')) || a.recurso.localeCompare(b.recurso));
       for (const l of g.linhas) {
         const t = porRecurso.get(l.recurso) ?? { recurso: l.recurso, venda: 0, caixa: 0, div: 0 };
         t.venda = r2(t.venda + l.venda); t.caixa = r2(t.caixa + l.caixa); t.div = r2(t.div + l.div);
@@ -1313,6 +1332,56 @@ export class FechamentoCaixaService {
         venda: soma((g) => g.totalVenda), caixa: soma((g) => g.totalCaixa), divergencia: soma((g) => g.divergencia),
         sangria: soma((g) => g.sangria), suprimento: soma((g) => g.suprimento), desconto: soma((g) => g.desconto), cancelamentos: soma((g) => g.cancelamentos),
       },
+    };
+  }
+
+  /**
+   * O RELATÓRIO "FECHAMENTO DE CAIXA" no FechamentoCaixa.fr3 do cliente (`ImprimirFechamento`, uFechamentoCaixa.pas:1408-1439): o
+   * `cdsRelCaixa` do MontaRel no `frxDBDatasetDoc` — uma linha por turno × recurso com OPERADORA_NROPDV(_CHAVE), RECURSO_VENDA/CAIXA/TES,
+   * VALOR_VENDA/CAIXA, DIV_VENDA_CAIXA, a tesouraria zerada (morta), CX_OBS, ORDEM 1, TOTAL_DESCONTO/TOTAL_CANCELAMENTOS do operador + PDV
+   * em toda linha (o `Locate('PDV;OPERADOR')`) e a sangria/suprimento do turno —, o `cdsCxTotais` (por recurso, CODOPERADORA 1) no
+   * `frxDBDatasetTotais`, a empresa no `frxDBDataset2` e DATA = o dia. O layout da produção agrupa por OPERADORA_NROPDV_CHAVE (o de 2020,
+   * por OPERADORA_NROPDV): a ordem vai por NROPDV;CODOPERADORA;CHAVE;ORDEM;RECURSO_VENDA para o grupo não se partir. Os textos que o legado
+   * troca (Memo24 'Vendas', Memo39 'Divergência Vendas p/ Caixa') vão como o legado; o Memo37 fica "Sangria:" (o legado o trocava por
+   * "Divergência Vendas p/ Tesouraria" — o defeito registrado no corte 4).
+   */
+  async impressaoFechamento(dto: RelatorioFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = this.emp();
+    const lista = await this.apurarRelatorio(db, dto);
+    const doc: Array<Record<string, unknown>> = [];
+    for (const g of lista) {
+      for (const l of g.linhas) {
+        doc.push({
+          codoperadora: g.codoperadora, nome: g.nome, recurso_venda: l.recurso, valor_venda: l.venda, chave: l.chave ?? '', nropdv: String(g.nropdv),
+          operadora_nropdv: Number(`${g.codoperadora}${g.nropdv}`), operadora_nropdv_chave: `${g.codoperadora}${g.nropdv}${l.chave ?? ''}`,
+          recurso_caixa: l.recurso, valor_caixa: l.caixa, div_venda_caixa: l.div, recurso_tes: l.recurso, valor_tes: 0, div_tes_caixa: 0, div_tes_venda: 0,
+          cx_obs: g.obs ?? '', ordem: 1, total_desconto: g.desconto, total_cancelamentos: g.cancelamentos, valor_sangria: l.sangria, valor_suprimento: l.suprimento,
+        });
+      }
+    }
+    if (!doc.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Nenhum movimento encontrado para os caixas escolhidos.');
+    const totais = new Map<string, Record<string, unknown>>();
+    for (const d of doc) {
+      const t = totais.get(String(d.recurso_venda));
+      if (!t) {
+        totais.set(String(d.recurso_venda), { codoperadora: 1, nome: d.nome, recurso_venda: d.recurso_venda, valor_venda: d.valor_venda, recurso_caixa: d.recurso_caixa,
+          valor_caixa: d.valor_caixa, div_venda_caixa: d.div_venda_caixa, recurso_tes: d.recurso_tes, valor_tes: 0, div_tes_caixa: 0, div_tes_venda: 0, ordem: 1,
+          valor_suprimento: d.valor_suprimento, valor_sangria: d.valor_sangria });
+      } else {
+        for (const k of ['valor_venda', 'valor_caixa', 'div_venda_caixa', 'valor_suprimento', 'valor_sangria']) t[k] = r2(num(t[k]) + num(d[k]));
+      }
+    }
+    return {
+      titulo: 'Fechamento de Caixa',
+      modelo: await modeloFr3(db, 'FechamentoCaixa.fr3'),
+      datasets: {
+        frxDBDatasetDoc: doc.map((d) => registroFr3(d)),
+        frxDBDatasetTotais: [...totais.values()].sort((a, b) => String(a.recurso_venda).localeCompare(String(b.recurso_venda))).map((t) => registroFr3(t)),
+        frxDBDataset2: [await empresaParaRelatorio(db, emp)],
+      },
+      variaveis: { DATA: textoVariavel(dto.data.split('-').reverse().join('/')) },
+      textos: { Memo24: 'Vendas', Memo39: 'Divergência Vendas p/ Caixa' },
     };
   }
 

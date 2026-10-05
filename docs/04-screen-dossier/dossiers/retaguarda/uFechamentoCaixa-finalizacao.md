@@ -535,6 +535,23 @@ As impressões do corte 4 saíam em HTML próprio (`imprimirPagina`); agora saem
   as variáveis DtInicial = DtFinal = o dia do caixa, Empresa = a razão social (o layout de sangria lê `[Dtfinal]`: a variável não diferencia
   caixa). Imprimir **não** cria o cartão da refechada. Correção de paridade: a grade de cheques volta à ordem do legado (`ORDER BY NROCHEQUE`).
   Recarga, correspondente e voucher: mortos (fora). Smoke §294.
-- **Resta** (corte C): o relatório "Fechamento de caixa" (`MontaRel`, FechamentoCaixa.fr3).
+- **Corte C — o relatório "Fechamento de caixa"** (`POST relatorio/impressao`, o mesmo corpo e o RBAC FECHAMENTOCAIXA1 do JSON): o
+  FechamentoCaixa.fr3 da produção com o `cdsRelCaixa` do MontaRel no `frxDBDatasetDoc` (uma linha por turno × recurso: OPERADORA_NROPDV,
+  OPERADORA_NROPDV_CHAVE, NROPDV texto, RECURSO_VENDA/CAIXA/TES, VALOR_VENDA/CAIXA, DIV_VENDA_CAIXA, a tesouraria zerada — morta —, CX_OBS,
+  ORDEM 1, TOTAL_DESCONTO/TOTAL_CANCELAMENTOS do operador + PDV em toda linha e a sangria/suprimento do turno numa linha), o `cdsCxTotais`
+  (por recurso, CODOPERADORA 1) no `frxDBDatasetTotais`, a empresa no `frxDBDataset2`, `DATA` e os textos que o legado troca (Memo24
+  'Vendas', Memo39 'Divergência Vendas p/ Caixa'; o Memo37 fica "Sangria:", a divergência consciente do corte 4).
+  - **Achado do layout vivo:** o FechamentoCaixa.fr3 PERSONALIZADO da produção agrupa por **OPERADORA_NROPDV_CHAVE** (um grupo por turno,
+    com "Chave> …" no cabeçalho); a spec leu o de 2020 (OPERADORA_NROPDV, turnos somados). O dado decide: os turnos saem em grupos
+    separados no layout do cliente, e a ordem vai por NROPDV;CODOPERADORA;CHAVE;ORDEM;RECURSO_VENDA para o grupo não se partir. O JSON
+    (`POST relatorio`) segue somando por operador + PDV.
+  - Como o legado (script do layout): o "Cancelamentos" da página de totais é o `TotalCancelamento` acumulado por grupo — com dois turnos
+    do mesmo operador + PDV, o total do par entra duas vezes; a página de totais só sai com mais de um grupo (`ReportSummary1.Visible`).
+  - **Motor .fr3:** variável do relatório vence objeto de mesmo nome (`[DATA]` × a página "Data" — o `DoGetValue` olha as Variables antes);
+    a agregada de um rodapé de grupo só reinicia para as bandas do próprio grupo (o `SUM(MasterData2)` do sub-relatório de totais acumula
+    desde o começo, como o FastReport).
+  - A web não tem mais HTML próprio no fechamento (`imprimirFechamento.ts` removido). Smoke §186.2.
+- **Fora, registrado:** FechamentoCaixaAnalitico/Sintetico, fec_Fechamendo_de_caixa, fec_Fechamento_de_caixa_agrupado e
+  fec_Fechamento_de_caixa_totalizado estão na RELATORIOS mas nenhuma unit do fonte os carrega.
 Smoke §293; renderização dos 4 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
 

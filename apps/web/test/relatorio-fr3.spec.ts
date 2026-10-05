@@ -500,4 +500,24 @@ describe('relatórios do legado com vários datasets', () => {
     expect(san).toContain('Periodo: 12/05/2064 até 12/05/2064'); // o layout lê [Dtfinal]: a variável do FastReport não diferencia caixa
     expect(san).toContain('40,00 12/05/2064 11:00:00 82 MARIA DINHEIRO SANGRIA 294');
   });
+
+  it('fechamento de caixa (FechamentoCaixa.fr3 da produção): um grupo por operador + PDV + CHAVE, o rodapé com a sangria negativa e os totais por recurso no sub-relatório (com mais de um grupo); [DATA] é a variável, não a página "Data"', () => {
+    const linha = (chave: string, rec: string, venda: number, caixa: number, div: number, san = 0) => ({ CODOPERADORA: 7, NOME: 'MARIA', RECURSO_VENDA: rec, VALOR_VENDA: venda, CHAVE: chave, NROPDV: '79',
+      OPERADORA_NROPDV: 779, OPERADORA_NROPDV_CHAVE: `779${chave}`, RECURSO_CAIXA: rec, VALOR_CAIXA: caixa, DIV_VENDA_CAIXA: div, RECURSO_TES: rec, VALOR_TES: 0, DIV_TES_CAIXA: 0, DIV_TES_VENDA: 0,
+      CX_OBS: 'QUEBRA', ORDEM: 1, TOTAL_DESCONTO: 0, TOTAL_CANCELAMENTOS: 314.86, VALOR_SANGRIA: san, VALOR_SUPRIMENTO: 0 });
+    const doc = [linha('A', 'CARTOES', 5383.03, 5383.03, 0, 1753.7), linha('A', 'DINHEIRO', 1764.26, 1753.7, -10.56), linha('B', 'DINHEIRO', 50, 0, -50)];
+    const tot = [{ CODOPERADORA: 1, NOME: 'MARIA', RECURSO_VENDA: 'CARTOES', VALOR_VENDA: 5383.03, RECURSO_CAIXA: 'CARTOES', VALOR_CAIXA: 5383.03, DIV_VENDA_CAIXA: 0 },
+      { CODOPERADORA: 1, NOME: 'MARIA', RECURSO_VENDA: 'DINHEIRO', VALOR_VENDA: 1814.26, RECURSO_CAIXA: 'DINHEIRO', VALOR_CAIXA: 1753.7, DIV_VENDA_CAIXA: -60.56 }];
+    const t = texto(paginasDoModelo(modelo('fechamento-caixa.fr3'), { frxDBDatasetDoc: doc, frxDBDatasetTotais: tot, frxDBDataset2: [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', FANTASIA: 'HIPER', CNPJ: '1', INSC: '2', FONE1: '3' }] },
+      agora, { DATA: "'19/03/2038'" }, { Memo24: 'Vendas', Memo39: 'Divergência Vendas p/ Caixa' }));
+    expect(t).toContain('Caixa(s) do dia: 19/03/2038');
+    expect(t).toContain('Operador(a): 7 - MARIA - PDV: 79 - Chave&gt; A');
+    expect(t).toContain('Operador(a): 7 - MARIA - PDV: 79 - Chave&gt; B');
+    expect(t).toContain('7.147,29 -10,56 Divergência Vendas p/ Caixa 7.136,73'); // Σvenda, Σ(caixa − venda), Σcaixa do turno A
+    expect(t).toContain('-1.753,70 Sangria:');
+    expect(t).toContain('Totais');
+    expect(t).toContain('1.814,26 DINHEIRO 1.753,70 -60,56');
+    expect(t).toContain('Cancelamentos: 629,72'); // o TotalCancelamento do script soma o do operador + PDV de cada grupo, como o legado
+    expect(t.match(/-1\.753,70 Sangria:/g)?.length).toBe(2); // o SUM(MasterData2) do sub-relatório de totais acumula desde o começo
+  });
 });
