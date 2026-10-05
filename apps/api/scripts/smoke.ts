@@ -12020,8 +12020,9 @@ async function main() {
       }
     }
 
-    // ===== §102) LANÇAMENTOS CONTÁBEIS (FRMRELLANCAMENTOSCONTABEIS) — o razão POR LANÇAMENTO, com a origem
-    // pelo NOME e a ponte para o documento que o gerou. 377 acessos, 19 operadores. ====
+    // ===== §102) LANÇAMENTOS CONTÁBEIS (FRMRELLANCAMENTOSCONTABEIS, UFrmRelLancamentosContabeis.pas) — o razão POR LANÇAMENTO no
+    // SQL_DIARIO do legado: árvore de datas, origens/empresas, "só de um lado", filtro auxiliar, totais, diferenças por lote, detalhar e
+    // a importação de lançamentos. 377 acessos, 19 operadores. ====
     {
       const LC = 'contabil/lancamentos';
       const pgLc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
@@ -12030,52 +12031,94 @@ async function main() {
           VALUES (1,22,'LANC-R1','2042-08-10','2042-08-01',900.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
         const rcbbx = Number((await pgLc.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
           VALUES ($1,1,'2042-08-10',900.00,0,0,'I') RETURNING codrcbbx`, [rcb])).rows[0].codrcbbx);
-        // três lançamentos: uma partida balanceada (origem 12/NF) e um par single-legged (origem 16/baixa AR)
-        await pgLc.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa, codhist, deschist, documento, complemento) VALUES
-          (990701,'2042-08-05',148,11141,1500.00,12,777,6,1,1,'INTEGRACAO NF 777','777','NF 777'),
-          (990702,'2042-08-10',183,NULL,   900.00,16,$1,2009,1,92,'RECEBIMENTO DE TITULO','LANC-R1','L1'),
-          (990703,'2042-08-10',NULL,211,   900.00,16,$1,2009,1,93,'RECEBIMENTO DE TITULO','LANC-R1','L1')`, [rcbbx]);
+        await pgLc.query(`INSERT INTO lote_contabil (codlotecontabil, desclote, datalote, codorigem, codempresa) VALUES (990799, 'LOTE 102', '2042-08-10', 16, 1) ON CONFLICT DO NOTHING`);
+        // uma partida balanceada (12/NF), a baixa de A RECEBER partida em duas linhas de um lado só (16, no lote 990799) — o DOCUMENTO da
+        // baixa é o título —, um cadastro de A PAGAR (13) com o título no COMPLEMENTO e uma origem sem detalhe (66)
+        await pgLc.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa, codhist, deschist, documento, complemento, codlote) VALUES
+          (990701,'2042-08-05',148,11141,1500.00,12,990777,6,1,1,'INTEGRACAO NF 777','777','NF 777',NULL),
+          (990702,'2042-08-10',183,NULL,   900.00,16,$1,2009,1,92,'RECEBIMENTO DE TITULO',$2,'L1',990799),
+          (990703,'2042-08-10',NULL,211,   900.00,16,$1,2009,1,93,'RECEBIMENTO DE TITULO',$2,'L1',990799),
+          (990704,'2042-08-12',148,211,     40.00,13,555,NULL,1,NULL,'CADASTRO CP','X','4321',NULL),
+          (990705,'2042-08-12',148,211,     10.00,66,NULL,NULL,1,NULL,'IMPORTADO','Importação',NULL,NULL)`, [rcbbx, String(rcb)]);
+        const lc = async (qs: string) => { const r = await fetch(`${base}/${LC}${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const P = '?dataIni=2042-08-01&dataFim=2042-08-31';
 
-        const r = await fetch(`${base}/${LC}?dataIni=2042-08-01&dataFim=2042-08-31`, { headers: H });
-        const j = (await r.json().catch(() => ({}))) as any;
-        const nf = (j.linhas ?? []).find((l: any) => Number(l.coddiario) === 990701);
-        check('LANÇAMENTOS §102.1 [a origem pelo NOME]: cada linha do razão vem com as duas contas (reduzida, expandida e descrição do plano), o histórico e — o que a mig 209 trouxe — a **origem por extenso**: `INTEGRAÇÃO DE NOTAS FISCAIS` em vez de `12`. São 35 origens no de-para do cliente, que a carga descartava',
-          r.status === 200 && !!nf && String(nf.origem).includes('NOTAS FISCAIS')
-          && nf.deschist === 'INTEGRACAO NF 777' && Number(nf.contadebito) === 148,
-          { nf });
+        const all = await lc(P);
+        const nf = (all.j.linhas ?? []).find((l: any) => l.coddiario === 990701);
+        check('LANÇAMENTOS §102.1 [o SQL_DIARIO do legado]: cada linha com a conta REDUZIDA (CONTADEBITO/CONTACREDITO) e o código interno (COD_INTERNO_*), a expandida e a descrição dos dois lados, o histórico e a origem POR EXTENSO; os totais do menu somam o valor no débito quando há conta de débito e no crédito quando há de crédito: 1.500 + 900 + 40 + 10 = 2.450 de cada lado (as duas linhas da baixa são de um lado só cada)',
+          all.status === 200 && Number(all.j.totais?.registros) === 5 && !!nf && String(nf.origem).includes('NOTAS FISCAIS') && nf.contadebito === '148'
+            && nf.cod_interno_debito === 148 && nf.deschist === 'INTEGRACAO NF 777' && 'codiexpandido_cre' in nf && 'desc_conta_debito' in nf
+            && Math.abs(Number(all.j.totais?.debito) - 2450) < 0.005 && Math.abs(Number(all.j.totais?.credito) - 2450) < 0.005,
+          { st: all.status, totais: all.j.totais, nf });
 
-        check('LANÇAMENTOS §102.2 [débito e crédito somam SEPARADO]: parte das origens grava linha de UM LADO SÓ (a integração contábil: 893, 2004, 2009, 910), então somar tudo junto não diz nada. Aqui o total de débito (1.500 + 900 = 2.400) e o de crédito (1.500 + 900 = 2.400) saem separados, e a diferença entre eles mede quanto está partido',
-          Math.abs(Number(j.totais?.debito) - 2400) < 0.005
-          && Math.abs(Number(j.totais?.credito) - 2400) < 0.005
-          && Number(j.totais?.linhas) === 3,
-          { totais: j.totais });
+        const soBaixa = await lc(`${P}&origens=16`);
+        const nenhuma = await lc(`${P}&nenhumaOrigem=true`);
+        const emp2 = await lc(`${P}&empresas=2`);
+        const umLado = await lc(`${P}&somenteUmLado=true`);
+        check('LANÇAMENTOS §102.2 [origens, empresas e "só de um lado"]: só a origem 16 → as 2 linhas da baixa; nenhuma origem marcada → nada (o `AND 1 = 2` do legado); a empresa 2 → nada; o "somente partidas dobradas" do legado isola, apesar do nome, as linhas de UM LADO SÓ → as 2 da baixa',
+          (soBaixa.j.linhas ?? []).length === 2 && (nenhuma.j.linhas ?? []).length === 0 && (emp2.j.linhas ?? []).length === 0
+            && (umLado.j.linhas ?? []).length === 2 && (umLado.j.linhas ?? []).every((l: any) => l.contadebito === null || l.contacredito === null),
+          { soBaixa: soBaixa.j.linhas?.length, nenhuma: nenhuma.j.linhas?.length, emp2: emp2.j.linhas?.length, umLado: umLado.j.linhas?.length });
 
-        const single = (await (await fetch(`${base}/${LC}?dataIni=2042-08-01&dataFim=2042-08-31&somenteSingle=true`, { headers: H })).json().catch(() => ({}))) as any;
-        const porOrigem = Object.fromEntries((j.porOrigem ?? []).map((o: any) => [o.codorigem, o]));
-        check('LANÇAMENTOS §102.3: o filtro "só de um lado" isola as linhas single-legged (as duas da baixa AR) e o resumo por origem agrupa pelo nome — é assim que se enxerga de onde veio o movimento do período',
-          (single.linhas ?? []).length === 2
-          && (single.linhas ?? []).every((l: any) => l.contadebito === null || l.contacredito === null)
-          && Number(porOrigem[16]?.linhas) === 2 && String(porOrigem[12]?.origem).includes('NOTAS FISCAIS'),
-          { single: single.linhas?.length, porOrigem: j.porOrigem });
+        const red = String((await pgLc.query(`SELECT codireduzido FROM plano_contas WHERE codplanocontas = 11141`)).rows[0]?.codireduzido ?? '');
+        const auxConta = await lc(`${P}&campo=contadebito&operador=%3D&valor=${encodeURIComponent(red)}`);
+        const auxHist = await lc(`${P}&campo=deschist&operador=contem&valor=RECEBIMENTO`);
+        const auxValor = await lc(`${P}&campo=valor&operador=entre&valor=20&valor2=1000`);
+        const auxRuim = await lc(`${P}&campo=senha&operador=%3D&valor=1`);
+        check('LANÇAMENTOS §102.3 [o filtro auxiliar sobre as colunas do SQL_DIARIO]: a conta procura "tanto no crédito quanto no débito" — CONTADEBITO = (o reduzido da conta 11141) acha a NF, que tem a 11141 no CRÉDITO; "Em Qualquer Lugar" no histórico → as 2 da baixa; valor "Entre" 20 e 1.000 → 900, 900 e 40; campo que não é coluna do SQL → recusado',
+          red !== '' && (auxConta.j.linhas ?? []).map((l: any) => l.coddiario).join() === '990701' && (auxHist.j.linhas ?? []).length === 2
+            && (auxValor.j.linhas ?? []).map((l: any) => l.coddiario).join() === '990702,990703,990704' && auxRuim.status === 422,
+          { red, conta: auxConta.j.linhas?.map((l: any) => l.coddiario), hist: auxHist.j.linhas?.length, valor: auxValor.j.linhas?.map((l: any) => l.coddiario), ruim: auxRuim.status });
 
-        const pon = await fetch(`${base}/${LC}/990702/origem`, { headers: H });
-        const pj = (await pon.json().catch(() => ({}))) as any;
-        const pon2 = (await (await fetch(`${base}/${LC}/990701/origem`, { headers: H })).json().catch(() => ({}))) as any;
-        check('LANÇAMENTOS §102.4 [a ponte para o documento — o "Detalhar" do legado, `:422`]: dado um lançamento, achar o papel que o gerou. Na baixa de A RECEBER o IDORIGEM é o CODRCBBX, e é preciso ir na `areceber_bx` buscar o título; na nota o IDORIGEM já É o documento. O que não tem ponte devolve o idorigem cru em vez de apontar para o lugar errado',
-          pon.status === 200 && pj.tipo === 'ARECEBER' && Number(pj.documento) === rcb
-          && String(pj.origem).includes('BAIXA DE CONTAS A RECEBER')
-          && pon2.tipo === 'NF' && Number(pon2.documento) === 777,
-          { baixa: pj, nota: pon2 });
+        const dBx = await lc('/990702/origem');
+        const dCp = await lc('/990704/origem');
+        const dNf = await lc('/990701/origem');
+        const dImp = await lc('/990705/origem');
+        check('LANÇAMENTOS §102.4 [o "Detalhar" pelo TTipoOrigemContabil]: a BAIXA de A RECEBER abre o título do DOCUMENTO; o cadastro de A PAGAR, o do COMPLEMENTO (4321); a NF pelo IDORIGEM — a 990777 não existe → "Não foi possível encontrar o detalhe."; a importação (66) não tem detalhe',
+          dBx.status === 200 && dBx.j.tipo === 'ARECEBER' && dBx.j.codigo === rcb && dBx.j.rota === `/cadastro/areceber?codigo=${rcb}`
+            && dCp.j.tipo === 'APAGAR' && dCp.j.codigo === 4321 && dNf.status === 422 && dNf.j.message === 'Não foi possível encontrar o detalhe.'
+            && dImp.status === 422,
+          { bx: dBx.j, cp: dCp.j, nf: [dNf.status, dNf.j.message], imp: dImp.status });
 
-        const ori = (await (await fetch(`${base}/${LC}/origens`, { headers: H })).json().catch(() => ([]))) as any[];
-        check('LANÇAMENTOS §102.5: o combo de origens traz as 35 do cliente com a contagem de lançamentos de cada uma na empresa — inclusive as de STATUS=N, que são de uma geração anterior da integração e não recebem lançamento novo, mas o razão histórico referencia',
-          Array.isArray(ori) && ori.length === 35
-          // ≥ 2 e não == 2: a origem 16 também recebe os lançamentos do auto-disparo da baixa AR (§44)
-          && Number((ori.find((o: any) => Number(o.codorigem) === 16) ?? {}).lancamentos) >= 2
-          && ori.some((o: any) => Number(o.codorigem) === 51 && String(o.descorigem).includes('CARTÕES')),
-          { total: ori.length, amostra: ori.slice(0, 3) });
+        const ori = await lc('/origens');
+        const nAtivas = Number((await pgLc.query(`SELECT count(*)::int n FROM origem_contabil WHERE status = 'S'`)).rows[0].n);
+        const emps = await lc('/empresas');
+        await pgLc.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codorigem, codempresa) VALUES (990706, (now() AT TIME ZONE 'America/Sao_Paulo')::date, 148, 211, 1, 66, 1)`);
+        const arv = await lc('/arvore');
+        await pgLc.query(`DELETE FROM diario WHERE coddiario = 990706`);
+        check('LANÇAMENTOS §102.5 [as listas da tela e a árvore de datas]: as origens são só as ativas (STATUS = S), na ordem do código; as empresas, todas as do cadastro (o legado não recorta pelas do operador); a árvore cobre o ano anterior e o atual e marca o dia com lançamento (hoje)',
+          Array.isArray(ori.j) && ori.j.length === nAtivas && ori.j.every((o: any, k: number, a: any[]) => k === 0 || a[k - 1].codorigem < o.codorigem)
+            && Array.isArray(emps.j) && emps.j.includes(1)
+            && Array.isArray(arv.j.anos) && arv.j.anos.length === 2 && arv.j.anos[1] === Number(String(arv.j.hoje).slice(0, 4)) && (arv.j.datas ?? []).includes(arv.j.hoje),
+          { origens: [ori.j?.length, nAtivas], emps: emps.j, arv: [arv.j.anos, arv.j.hoje, (arv.j.datas ?? []).length] });
 
-        await pgLc.query(`DELETE FROM diario WHERE coddiario IN (990701,990702,990703)`);
+        // o lote 990799: débito 900 contra crédito 900 fecha; um débito avulso de 50 no mesmo lote o abre
+        await pgLc.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codorigem, codempresa, codlote) VALUES (990707, '2042-08-10', 183, NULL, 50, 16, 1, 990799)`);
+        const dif = await lc(`/diferencas?dataIni=2042-08-01&dataFim=2042-08-31`);
+        const doLote = await lc(`${P}&lote=990799&nenhumaOrigem=true`);
+        await pgLc.query(`DELETE FROM diario WHERE coddiario = 990707`);
+        const semDif = await lc(`/diferencas?dataIni=2042-08-01&dataFim=2042-08-31`);
+        const d0 = (dif.j ?? [])[0] ?? {};
+        check('LANÇAMENTOS §102.6 [as diferenças entre débito e crédito]: por lote e dia, as linhas só de débito (950) contra as só de crédito (900) do lote 990799 → diferença 50; escolhido o lote, a grade lista os 3 lançamentos dele e os filtros de origem saem (mesmo com "nenhuma origem"); sem diferença: "Não foram encontradas diferenças no período selecionado."',
+          dif.status === 200 && d0.codlote === 990799 && d0.datalan === '2042-08-10' && d0.valor_debito === 950 && d0.valor_credito === 900 && d0.diferenca === 50
+            && (doLote.j.linhas ?? []).length === 3 && semDif.status === 422 && semDif.j.message === 'Não foram encontradas diferenças no período selecionado.',
+          { dif: dif.j, lote: doLote.j.linhas?.length, semDif: [semDif.status, semDif.j.message] });
+
+        const imp = async (conteudo: string) => { const r = await fetch(`${base}/${LC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({ conteudo }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const ok = await imp('1,05/08/2042,148,211,123.45,X,"IMPORTADO TESTE"\r\n05/08/2042,211,0,10,Y,"SO DEBITO"\r\n');
+        const ruim = await imp('1,06/08/2042,148,211,1,X,"OK"\n1,06/08/2042,99999999,211,1,X,"CONTA RUIM"');
+        const gravados = (await pgLc.query(`SELECT codempresa, contadebito, contacredito, valor, documento, deschist, codorigem FROM diario WHERE codorigem = 66 AND datalan BETWEEN '2042-08-05' AND '2042-08-06' ORDER BY valor DESC`)).rows as any[];
+        const empMin = Number((await pgLc.query(`SELECT min(idempresa) m FROM empresas`)).rows[0].m);
+        check('LANÇAMENTOS §102.7 [a importação de lançamentos (TIntegracaoImportacao)]: cada linha "[empresa,]data,débito,crédito,valor,(ignorado),"histórico"" vira um lançamento de origem 66 com DOCUMENTO "Importação"; a empresa é opcional (sem ela, a menor do cadastro), a conta vem pelo código REDUZIDO (0 = sem aquele lado) e o valor com ponto ou vírgula; uma conta que não existe → "A conta contábil para o código 99999999 não foi encontrada." e NADA do arquivo é gravado',
+          ok.status === 200 && ok.j.importados === 2 && gravados.length === 2
+            && gravados[0].codempresa === 1 && Number(gravados[0].valor) === 123.45 && gravados[0].deschist === 'IMPORTADO TESTE' && gravados[0].documento === 'Importação'
+            && gravados[1].codempresa === empMin && gravados[1].contacredito === null && gravados[1].deschist === 'SO DEBITO'
+            && ruim.status === 422 && ruim.j.message === 'A conta contábil para o código 99999999 não foi encontrada.',
+          { ok: [ok.status, ok.j], gravados, ruim: [ruim.status, ruim.j.message] });
+
+        await pgLc.query(`DELETE FROM diario WHERE codorigem = 66 AND datalan BETWEEN '2042-08-05' AND '2042-08-06'`);
+        await pgLc.query(`DELETE FROM diario WHERE coddiario BETWEEN 990701 AND 990707`);
+        await pgLc.query(`DELETE FROM lote_contabil WHERE codlotecontabil = 990799`);
         await pgLc.query(`DELETE FROM areceber_bx WHERE codrcbbx=$1`, [rcbbx]);
         await pgLc.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcb]);
       } finally {

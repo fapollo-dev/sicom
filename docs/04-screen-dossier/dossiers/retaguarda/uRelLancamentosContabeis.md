@@ -1,61 +1,79 @@
-# LANÇAMENTOS CONTÁBEIS (`FRMRELLANCAMENTOSCONTABEIS`) — recon e corte-1
+# LANÇAMENTOS CONTÁBEIS (`FRMRELLANCAMENTOSCONTABEIS`) — completa (corte 2, 05/10/2026)
 
-`UFrmRelLancamentosContabeis.pas` (1.416 linhas). **377 acessos, 19 operadores.**
+`UFrmRelLancamentosContabeis.pas` (1.416 linhas) + `UFrmDiferencasDebitoCredito` + `TIntegracaoImportacao` (UIntegracaoContabil.pas).
+**377 acessos, 19 operadores.**
 
 ## 1. O que a tela é
 
-O razão **por lançamento**: cada linha do `DIARIO` com as duas contas (reduzida, expandida e descrição do
-plano), o histórico, o documento, a operação e — o que dá sentido à tela — **a origem pelo nome**, vinda de
-`ORIGEM_CONTABIL`.
+O razão **por lançamento**: o `SQL_DIARIO` (`:30`) — cada linha do `DIARIO` com as duas contas (a **reduzida** como CONTADEBITO /
+CONTACREDITO, a expandida, a descrição e o código interno como COD_INTERNO_*), o histórico (`DESCHIST`), o documento, o complemento,
+a origem pelo nome (`ORIGEM_CONTABIL`), a operação, o centro de custo e a empresa, em `ORDER BY TRUNC(DATALAN), CODDIARIO`.
 
-⚠️ **não confundir com o Livro Razão** (`FRMRELRAZAOCONTABIL`, já migrado): aquele é por conta, com saldo
-acumulado; este é a lista dos lançamentos, com filtro por origem e a ponte para o documento que os gerou.
+⚠️ não confundir com o **Livro Razão** (`FRMRELRAZAOCONTABIL`): aquele é por conta, com saldo acumulado.
 
-## 2. ⚠️ Duas coisas que a carga descartava
+> ⚠️ **O corte 1 (09/2026) era uma versão "inspirada"**: período livre, uma origem só, conta/operação/documento como filtros próprios, só
+> a loja do login, e o "Detalhar" resolvido por outro caminho (pela `ARECEBER_BX`/`APAGAR_BX`). O corte 2 refez a tela pelo fonte.
 
-**`DIARIO.DESCHIST`** — o texto do histórico de cada lançamento, preenchido em **1.750.513 de 1.750.577**
-linhas (**99,99%**). Sem ele o razão mostra número e não conta história: é a coluna que o contador lê.
-(`DIARIO.TIPODOC` veio junto — 36.414 linhas, 2%.)
+## 2. O período: a árvore de datas (`CriaArvore`, `LocalizaDataArvore`)
 
-**`ORIGEM_CONTABIL`** — o de-para dos códigos de origem, **35 linhas**. Os três cortes da integração contábil
-vinham usando os números crus (12, 15, 16, 51, 61, 62, 13, 14, 19, 63, 64, 65); agora toda tela contábil pode
-mostrar "INTEGRAÇÃO DE BAIXA DE CARTÕES" em vez de "51".
+Ano anterior e ano atual, cada um com os 12 meses e todos os dias. O nó com lançamento sai em **verde**, o sem em **vermelho**
+(`DtvDatasCustomDrawItem`; a consulta é `SELECT DISTINCT DATALAN FROM DIARIO` no intervalo, **sem filtro de empresa**). A tela abre no
+dia de hoje e **cada nó escolhido já filtra** (`MtbDatasAfterScroll → BtnFiltrar.Click`): o dia, o mês inteiro ou o ano inteiro
+(`GetFiltroData`). "Atualizar datas" refaz tudo.
 
-As origens com `STATUS = 'N'` (2, 4, 5, 6, 8, 9, 10, 11, 50) são de uma **geração anterior** da integração —
-baixa total e parcial separadas, venda de PDV solta, Redução Z. Não recebem lançamento novo, mas o razão
-histórico as referencia, então vêm junto.
+## 3. Os filtros
 
-⛔ `DIARIO.CODPERIODO` **não** entra: 0 de 1.750.577 preenchidas. Coluna morta, como a `CODCC` da mig 199.
+- **Origens** (`AdicionaOrigens`): só as de `STATUS = 'S'`, na ordem do código, todas marcadas; **Empresas** (`AdicionaEmpresas`): **todas
+  as do cadastro** — o legado não recorta pelas do operador. Marcar/desmarcar todos. Nenhuma marcada = nada (`AND 1 = 2`); todas = sem filtro.
+- **"Somente partidas dobradas"** (`GetFiltroPartidaDobrada`): apesar do nome, isola as linhas de **UM LADO SÓ** (débito sem crédito ou
+  crédito sem débito) — o rótulo do legado foi mantido, com a explicação ao lado.
+- **Filtro auxiliar** (`grpFiltroAuxiliar`, `GetFiltroAuxiliar`): qualquer coluna do `SQL_DIARIO` × as operações do `TPesquisaRelatorio`
+  (texto: igual, diferente, começado com, terminado com, em qualquer lugar, contido em; número/data: igual, diferente, entre, maior,
+  menor, contido em) sobre a **coluna de saída** (`SELECT * FROM (SQL_DIARIO) WHERE …`). A conta (reduzida, expandida ou descrição) é
+  procurada **"tanto no crédito quanto no débito"**. A semântica do valor é a do construtor de relatórios (helper comum
+  `shared/relatorios/condicao-pesquisa.ts`).
 
-## 3. Débito e crédito somam separado
+## 4. O menu
 
-Não é capricho: parte das origens grava **linha de um lado só** — 893 (baixa de cartão), 2004 e 2009 (baixas
-de AP/AR), 910 (convênio), como o corte-2 da integração contábil mostrou. Somar tudo junto não diz nada; a
-diferença entre os dois totais é a medida de quanto do período está partido. A tela tem o filtro
-"só de um lado" para isolá-los.
+- **Detalhar** (botão e duplo clique, `BtnDetalharDiarioClick`): pelo `TTipoOrigemContabil` — NF (12) pelo IDORIGEM; título de A PAGAR /
+  A RECEBER: a **baixa** (15/16) pelo DOCUMENTO, o cadastro/juro/acréscimo/desconto (13/14, 53-58) pelo COMPLEMENTO — o que estiver
+  preenchido, senão o IDORIGEM (texto que não é número vira 0, `StrToIntDef`); cheque (52/59/60), cartão (51/61/62) e adiantamento (63)
+  pelo COMPLEMENTO ou IDORIGEM; movimento de caixa (64) e redução Z (18) pelo IDORIGEM; convênio (65) pelo DOCUMENTO no a receber
+  (TIPODOC 'CONTA A RECEBER') ou no a pagar. O resto: "Não foi possível encontrar o detalhe.". (As funções `GetRcb`/`GetApg` do fonte,
+  que o corte 1 usou, **estão declaradas mas não são chamadas**.) A tela abre o documento numa aba; cheque e redução Z não têm tela no
+  Apollo e mostram o número.
+- **Totais débito/crédito** (`MniTotaisDebitoCreditoClick`): o valor entra no crédito quando há conta de crédito e no débito quando há
+  de débito, sobre as linhas carregadas.
+- **Diferenças débito × crédito** (`TFrmDiferencasDebitoCredito`): por lote e dia, a soma das linhas só de débito contra a das só de
+  crédito, onde não fecham, no período do nó (sem filtro de empresa). "Selecionar lote" lista os lançamentos do lote — o filtro de lote
+  **substitui** origens, empresas e "um lado só" (`OutrosFiltros := ' AND D.CODLOTE = …'`). Sem diferença: "Não foram encontradas
+  diferenças no período selecionado.".
+- **Exportar Excel** (a grade) e **Exportar CSV** (o conjunto inteiro, `GET_DIARIO`): CSV com `;` e BOM.
+- **Importar arquivo** (`TIntegracaoImportacao.ImportaLancamentoDiario`): cada linha `[empresa,]data,débito,crédito,valor,(ignorado),"histórico"`
+  — empresa opcional (sem ela, a menor do cadastro), contas pelo código **reduzido** (vazio/0 = sem o lado), valor com ponto ou vírgula
+  — vira um lançamento de origem **66** com DOCUMENTO "Importação", o operador e a hora; tudo ou nada ("A conta contábil para o código X
+  não foi encontrada.").
+- **Salvar/restaurar a configuração da grade**: o layout salvo da grade do Apollo (por operador).
 
-## 4. A ponte para o documento
+## 5. O que não veio, com o motivo
 
-`BtnDetalharDiarioClick` (`:422-437`) é o que faz o contador usar a tela: dado um lançamento, achar o papel.
-O legado resolve dois casos — `ARECEBER_BX` → `CODRCB` e `APAGAR_BX` → `CODAPG`, porque nessas origens o
-`IDORIGEM` é o código da BAIXA, não do título.
+- **Exportar TXT** (`CriarTxt`, com as perguntas "códigos auxiliares?" e "ignorar débito = crédito?" e a máscara CODIEXPANDIDO_FORS): a
+  função está em `FuncoesApollo`, que **não está no repositório** (procurado em todo o material, 05/10/2026). Sem o fonte o leiaute do
+  arquivo seria inventado — fica bloqueado até o material aparecer.
+- **Limite**: o legado carrega tudo (`fmAll`); aqui a consulta para em 50.000 lançamentos e avisa (o ano inteiro de todas as empresas
+  passa de 250 mil). Dia e mês, o uso normal da árvore, ficam muito abaixo.
 
-Aqui a resolução cobre o que o Apollo grava hoje: 15 e 16 pela baixa, 12/13/14 direto (o `IDORIGEM` já é o
-documento), 64 e 51/61/62 identificados sem rota. **O que não tem ponte devolve o `IDORIGEM` cru** em vez de
-apontar para o lugar errado.
+## 6. Dado (medido em 09/09/2026)
 
-## 5. O que fica
+`DIARIO.DESCHIST` em 99,99% das 1.750.577 linhas e `ORIGEM_CONTABIL` (35 linhas) vieram na mig 209. `CODCC` e `CODPERIODO` estão
+vazias na produção. 4 lançamentos no futuro (2 de 2026, 2 de 07/2027) — ruído de digitação.
 
-A árvore de datas (ano → mês → dia) que a tela usa para navegar, o "filtro auxiliar" salvo por usuário, a
-importação de arquivo e as exportações TXT/Excel — o CSV já existe pelo construtor de relatórios.
+## 7. Cobertura (smoke §102, 7 checks)
 
-## 6. Achado de dado: 4 lançamentos no FUTURO em produção (medido em 09/09/2026)
-
-| origem | linhas | datas |
-|---|---|---|
-| 13 (cadastro de CP) | 2 | 25/09 e 22/10/2026 |
-| 15 (baixa de CP) | 2 | **02/07/2027** |
-
-São 4 em 1.750.633 — ruído de digitação, não problema sistêmico. Mas **um lançamento datado em 2027 entra na
-apuração de 2027**, então vale o cliente saber. (Para comparação, há 346 contas a pagar vencendo além de 12
-meses, o que é normal.)
+1. o SQL_DIARIO (conta reduzida × código interno, descrições, origem por extenso) e os totais D×C;
+2. origens, "nenhuma", empresas e "só de um lado";
+3. o filtro auxiliar (a conta nos dois lados, "em qualquer lugar", "entre", campo inválido);
+4. o Detalhar (baixa pelo DOCUMENTO, cadastro pelo COMPLEMENTO, NF inexistente, origem sem detalhe);
+5. as origens ativas em ordem, todas as empresas, a árvore com o dia de hoje marcado;
+6. as diferenças por lote e o filtro do lote que derruba os outros;
+7. a importação (empresa opcional, conta reduzida, valor, tudo ou nada).

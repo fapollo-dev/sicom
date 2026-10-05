@@ -218,15 +218,29 @@ export const relCartoesSchema = z
 export type RelCartoesDto = z.infer<typeof relCartoesSchema>;
 
 /** LANÇAMENTOS CONTÁBEIS (`FRMRELLANCAMENTOSCONTABEIS`) — os filtros do razão por lançamento. */
+const listaIds = z.preprocess(
+  (v) => (v == null || v === '' ? undefined : Array.isArray(v) ? v : String(v).split(',').map((x) => x.trim()).filter(Boolean)),
+  z.array(z.coerce.number().int().nonnegative()).max(200).optional(),
+);
+/**
+ * LANÇAMENTOS CONTÁBEIS (`FRMRELLANCAMENTOSCONTABEIS`): o período do nó da árvore (dia, mês ou ano), as origens e as empresas marcadas
+ * (ausente = todas, `nenhuma` = nenhuma: o `AND 1 = 2` do legado), o "só de um lado", o filtro auxiliar (campo × operação × valor) e o
+ * lote escolhido nas diferenças débito × crédito (com ele, os filtros de origem/empresa/lado saem, como no legado).
+ */
 export const lancamentosContabeisSchema = z
   .object({
     dataIni: dataISO,
     dataFim: dataISO,
-    codorigem: z.coerce.number().int().nonnegative().nullish(),
-    conta: z.coerce.number().int().positive().nullish(),
-    codoperacao: z.coerce.number().int().positive().nullish(),
-    documento: z.string().max(60).nullish(),
-    somenteSingle: boolQuery.optional(),
+    origens: listaIds,
+    nenhumaOrigem: boolQuery.optional(),
+    empresas: listaIds,
+    nenhumaEmpresa: boolQuery.optional(),
+    somenteUmLado: boolQuery.optional(),
+    lote: z.coerce.number().int().positive().nullish(),
+    campo: z.string().max(40).nullish(),
+    operador: z.enum(['=', '<>', '>', '<', 'contem', 'comeca', 'termina', 'em', 'entre']).nullish(),
+    valor: z.string().max(500).nullish(),
+    valor2: z.string().max(500).nullish(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type LancamentosContabeisDto = z.infer<typeof lancamentosContabeisSchema>;
