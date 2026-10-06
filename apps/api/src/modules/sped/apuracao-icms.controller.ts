@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { apuracaoIcmsProcessarSchema, apuracaoIcmsObterSchema, type ApuracaoIcmsProcessarDto, type ApuracaoIcmsObterDto } from '@apollo/shared';
 import { ApuracaoIcmsService } from './apuracao-icms.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -28,5 +28,12 @@ export class ApuracaoIcmsController {
   @RequerAcesso('FRMRELREGISTROS_ES', 'BTNCONSULTA')
   obter(@Body(new ZodValidationPipe(apuracaoIcmsObterSchema)) dto: ApuracaoIcmsObterDto) {
     return this.svc.obter(dto);
+  }
+
+  /** o livro de apuração no layout do cliente (`Notas_fiscais_Registro_Apuracao.fr3`), com o número do livro e a folha */
+  @Get(':cod/impressao')
+  @RequerAcesso('FRMRELREGISTROS_ES', 'FRMRELREGISTROS_ES')
+  impressao(@Param('cod', ParseIntPipe) cod: number, @Query('livro') livro?: string, @Query('folha') folha?: string) {
+    return this.svc.impressao(cod, livro, folha);
   }
 }

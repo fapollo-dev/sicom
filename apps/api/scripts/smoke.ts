@@ -15794,6 +15794,30 @@ async function main() {
           { semFlag: [ap2.status, ap2J.reprocessada, ap2J.cabecalho?.debitosaida], comFlag: ap3J.cabecalho,
             semReenviar: [ap4.status, ap4J.cabecalho?.outroscreditos, ap4J.cabecalho?.deducoes, ap4J.cabecalho?.saldoant, ap4J.code], linhas });
 
+        // 85.3b) o LIVRO impresso (Notas_fiscais_Registro_Apuracao.fr3): o detalhe (frxDBDatasetTemp), as saídas e as entradas com as
+        // linhas 5000/6000/7000 e 1000/2000/3000 do SetaCFOP, a empresa e o quadro do E110 por variáveis; e os totalizadores da tela
+        const stubLivro = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="LivroApuracao"/></TfrxReport>').toString('base64');
+        await pgAp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992945, 1, 'Notas_fiscais_Registro_Apuracao.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubLivro]);
+        const livroR = await fetch(`${base}/${AP}/${Number(cab.codapuracaoicms)}/impressao?livro=3`, { headers: H });
+        const livroJ = (await livroR.json().catch(() => ({}))) as any;
+        await pgAp.query(`DELETE FROM relatorios WHERE codrelatorio = 992945`);
+        const lS = (livroJ.datasets?.frxDBDatasetCFOP ?? []).map((r: any) => Number(r.CFOP));
+        const lE = (livroJ.datasets?.frxDBDatasetCFOPE ?? []).map((r: any) => Number(r.CFOP));
+        const obterSet = (await (await fetch(`${base}/${AP}/obter`, { method: 'POST', headers: H, body: JSON.stringify({ codapuracaoicms: Number(cab.codapuracaoicms) }) })).json().catch(() => ({}))) as any;
+        check('APURAÇÃO ICMS §85.3b: o livro impresso traz o detalhe inteiro (10 linhas) no frxDBDatasetTemp, as saídas e as entradas com as linhas do SetaCFOP (5000/6000/7000 · 1000/2000/3000) em ordem de CFOP, a empresa, LIVRO 3 e FOLHA 1, e o quadro do E110 (débitos 73,40 · subtotal de créditos 15 + 10 = 25,00 · total de créditos 7 + 15 + 10 = 32,00) · os totalizadores da tela: entradas 140,00, saídas 764,00 e o % compra/venda',
+          livroR.status === 200 && String(livroJ.modelo ?? '').includes('LivroApuracao')
+          && (livroJ.datasets?.frxDBDatasetTemp ?? []).length === 10
+          && JSON.stringify(lS) === JSON.stringify([...lS].sort((a: number, b: number) => a - b)) && [5000, 6000, 7000].every((n) => lS.includes(n)) && lS.includes(5403)
+          && [1000, 2000, 3000].every((n) => lE.includes(n)) && lE.includes(1102) && lE.includes(1401) && !lE.includes(5102)
+          && (livroJ.datasets?.frxDBDataset2 ?? []).length === 1
+          && livroJ.variaveis?.LIVRO === "'3'" && livroJ.variaveis?.FOLHA === "'1'"
+          && Number(livroJ.variaveis?.DEBITOS) === 73.4 && Number(livroJ.variaveis?.SUBTOTALCREDITOS) === 25 && Number(livroJ.variaveis?.TOTALCREDITOS) === 32
+          && String(livroJ.variaveis?.MES ?? '').includes('MES OU PERÍODO: 01/09/2035 até 30/09/2035')
+          && Number(obterSet.totais?.entradas) === 140 && Number(obterSet.totais?.saidas) === 764
+          && Math.abs(Number(obterSet.totais?.perc_compra_saida) - (140 / 764) * 100) < 0.0001,
+          { st: livroR.status, n: livroJ.datasets?.frxDBDatasetTemp?.length, lS, lE, vars: livroJ.variaveis, totais: obterSet.totais });
+
         // saldo CREDOR: um período só com entrada ⇒ credor a transportar, devedor e a recolher zerados
         const apCred = await apPost({ dataini: '2035-09-05', datafin: '2035-09-05' });
         const apCredJ = (await apCred.json().catch(() => ({}))) as any;

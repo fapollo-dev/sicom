@@ -1186,3 +1186,42 @@ describe('boleto (BoletoFR.fr3, datasets do ACBr) e duplicata (dup_Duplicata001_
     expect(numeroExtenso(1000000, true)).toBe('um milhão de reais');
   });
 });
+
+describe('livro de apuração do ICMS (Notas_fiscais_Registro_Apuracao.fr3, FRMRELREGISTROS_ES)', () => {
+  const d = (TIPO: string, CFOP: number, TOTALNF: number, BASE: number, VALOR_ICMS: number, ISENTAS_NAOTRIB: number, OUTRAS: number) =>
+    ({ TIPO, CFOP, ESPECIE: 'NF', CODIGO: `${CFOP}NF`, CST: 0, ICMS: 18, ICMS_EFETIVO: 100, TOTALNF, BASE, VALOR_ICMS, ISENTAS_NAOTRIB, OUTRAS });
+  const seta = (n: number) => ({ TIPO: '000', CFOP: n * 1000, ESPECIE: '000', CODIGO: '000', CST: 0, ICMS: 0, ICMS_EFETIVO: 0, TOTALNF: 0, BASE: 0, VALOR_ICMS: 0, ISENTAS_NAOTRIB: 0, OUTRAS: 0 });
+  const det = [d('E', 1102, 1000, 800, 96, 200, 0), d('E', 1102, 500, 500, 60, 0, 0), d('E', 1403, 300, 0, 0, 0, 300), d('S', 5102, 2000, 2000, 360, 0, 0), d('S', 5405, 700, 0, 0, 0, 700)];
+  const ds = {
+    frxDBDatasetTemp: det,
+    frxDBDatasetCFOP: [seta(5), det[3], det[4], seta(6), seta(7)],
+    frxDBDatasetCFOPE: [seta(1), det[0], det[1], det[2], seta(2), seta(3)],
+    frxDBDataset2: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', CNPJ: '37.954.975/0001-69', INSC: '0037992540050' }],
+  };
+  const vars = { LIVRO: "'3'", FOLHA: "'1'", MES: "'MES OU PERÍODO: 01/01/2026 até 31/01/2026'", DEBITOS: '360', OUTROSDEBITOS: '0', ESTORNOCREDITOS: '0',
+    TOTALDEBITOS: '360', CREDITOS: '156', OUTROSCREDITOS: '10', ESTORNODEBITOS: '0', SUBTOTALCREDITOS: '166', SALDOCREDPERANT: '7', TOTALCREDITOS: '173',
+    SALDODEVEDOR: '187', DEDUCOES: '0', ARECOLHER: '187', SALDOCREDPERSEG: '0' };
+
+  it('os rodapés por CFOP somam o detalhe, o sub-relatório dá os subtotais por dígito e a última página traz o quadro do E110', () => {
+    const pgs = paginasDoModelo(modelo('registro-apuracao.fr3'), ds, agora, vars);
+    const t = texto(pgs);
+    expect(t).toContain('LIVRO REGISTRO DE APURAÇÃO DO ICMS');
+    expect(t).toContain('JF SUPERMERCADOS LTDA');
+    expect(t).toContain('MES OU PERÍODO: 01/01/2026 até 31/01/2026');
+    expect(t).toContain('1.500,00'); // 1102: 1000 + 500 de valor contábil
+    expect(t).toContain('1.300,00'); // 1102: base 800 + 500
+    expect(t).toContain('156,00');   // 1102: ICMS 96 + 60
+    expect(t).toContain('2.000,00'); // 5102
+    expect(t).toContain('1.800,00'); // subtotal das entradas do dígito 1 (1500 + 300)
+    expect(t).toContain('2.700,00'); // subtotal das saídas do dígito 5 (2000 + 700)
+    expect(t).toContain('001 - POR SAIDAS / PRESTACOES COM CREDITO DE IMPOSTO');
+    expect(t).toContain('360,00');
+    expect(t).toContain('173,00');
+    expect(t).toContain('187,00');
+    // o script do cabeçalho troca o título das colunas por tipo (o arquivo mistura UTF-8 e latin-1, como a API decodifica)
+    expect(t).toContain('Operação com crédito de imposto');
+    expect(t).toContain('Operação com débito de imposto');
+    // Memo31OnBeforePrint: `Pagina: Integer` recebe a FOLHA ('1') — a local tipada converte, e a folha da página do E110 é 1 (não '11')
+    expect(texto([pgs[pgs.length - 1]])).toMatch(/FOLHA\.+: 1 /);
+  });
+});

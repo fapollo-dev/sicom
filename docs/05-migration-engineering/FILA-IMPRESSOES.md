@@ -14,7 +14,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 1.415 | `FRMVALORTICKETMEDIO` | Rel_TicketMedio | ⛔ os dois layouts (DEFAULT e PERSONALIZADO) leem MEDIA_QTDE_PRODUTOS_CUPOM, que o SQL de 2020 não tem — binário novo; vigia do V$SQL ligado |
 | 877 | `FRMCONFBOLETO` | BoletoFR, Dup_Duplicata* | ✅ 06/10 (boleto com os datasets do ACBr, duplicata com o extenso; as instruções com vírgula) |
 | 735 | `FRMADIANTAMENTOFORNECEDOR` | ReciboAdiantamentoParceiro | ✅ 06/10 (o NumeroExtenso no motor) |
-| 355 | `FRMRELREGISTROS_ES` | Notas_Fiscais_Registro_Apuracao/Entrada/Saida | ⏳ |
+| 355 | `FRMRELREGISTROS_ES` | Notas_Fiscais_Registro_Apuracao/Entrada/Saida | ⏳ Apuração ✅ 06/10 (e a apuração refeita pela regra do binário novo, `7a44529`); falta o modo Registro de entradas (140) |
 | 236 | `FRMPRECIFICACAONF` | PrecificacaoNF | ⏳ |
 | 141 | `FRMRELINVENTARIOROTATIVO` | InvRotDetalhado/Produtos/Resumido | ⏳ |
 | 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ⏳ |

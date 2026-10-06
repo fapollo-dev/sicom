@@ -300,3 +300,26 @@ A auditoria de fidelidade (ao converter a impressão do livro) comparou o SQL do
 O que o Apollo tinha antes (corte de 08/2026, "pelo dado" mas sem o SQL do fonte): ICMS = `NP.ICMS` sem zeragem nenhuma, efetivo
 `ICMS × BCR/100`, ISENTAS/OUTRAS sem as despesas acessórias e com IPI/frete como VALOR (são percentuais), TOTALNF sem FCP-ST, o gate de
 CFOP no cupom, sem o `INNER JOIN` do endereço e sem o `ARREDONDA` no grão.
+
+## §9. A impressão do livro de apuração (06/10/2026)
+
+`btnImprimirClick` (:426) com `Relatorios\Notas_fiscais_Registro_Apuracao.fr3` (PERSONALIZADO 848); API
+`fiscal/apuracao-icms/:cod/impressao?livro=&folha=`, botão "Imprimir livro" com "Nrº Livro" e "Nrº Folha" na tela.
+
+- **frxDBDatasetTemp** = o detalhe da apuração (o `cdsTemp`, índice TIPO;CFOP): o GroupHeader por TIPO troca os títulos ("Operação com
+  crédito/débito de imposto", "ENTRADAS"/"SAIDAS") e o rodapé por CFOP soma valor contábil, base, imposto, isentas e outras.
+- **frxDBDatasetCFOP / frxDBDatasetCFOPE** = as saídas e as entradas com as linhas 5000/6000/7000 e 1000/2000/3000 zeradas do
+  `SetaCFOP` (:1729), para cada grupo de primeiro dígito ("5.00 Do Estado", "6.00 De Outros Estados", "7.00 Do Exterior") sair mesmo
+  vazio; o sub-relatório visível é o do tipo (o script do GroupFooter1).
+- **Variáveis**: LIVRO e FOLHA (vazias → '1'), MES, e o quadro do E110 — DEBITOS/OUTROSDEBITOS/ESTORNOCREDITOS/TOTALDEBITOS,
+  CREDITOS/OUTROSCREDITOS/ESTORNODEBITOS/SUBTOTALCREDITOS (crédito de entrada + outros + estorno de débitos)/SALDOCREDPERANT/
+  TOTALCREDITOS (com o saldo anterior), SALDODEVEDOR/DEDUCOES/ARECOLHER/SALDOCREDPERSEG (os campos do `JvDBCalcEdit*` de cada um).
+- Para a apuração já gravada, o legado refaz as saídas e as entradas do sub-relatório com o SQL do fonte (`PopulaDadosApuracaoICMS`);
+  aqui saem do detalhe gravado — o mesmo que o processamento usa (§8 mostra que o SQL do fonte já não é o que a produção roda).
+- **Totalizadores da aba "Resultado CFOP"** (`GetSqTotalizaCfop`, :1375): Entrada, Devolução fornecedor, Saída NF, Devolução cliente e
+  o percentual compra/venda — vieram para a tela (o Apollo não os tinha).
+- **O motor**: o script da folha (`Memo31OnBeforePrint`, `var Pagina: Integer; Pagina := <FOLHA>`) concatenava "1" + 1 = "11" — o
+  interpretador ignorava as declarações `var`. Agora as locais têm o tipo declarado: nascem zeradas a cada chamada e a atribuição
+  converte (Integer arredonda, String vira texto).
+
+Cobertura: smoke §85.3b (os quatro datasets, o SetaCFOP, as variáveis, os totalizadores); teste de renderização do layout 848.

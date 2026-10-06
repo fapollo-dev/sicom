@@ -32,7 +32,11 @@ export type Stmt =
   | { k: 'caso'; e: Expr; ramos: Array<{ vals: Expr[]; corpo: Stmt }>; senao?: Stmt }
   | { k: 'nada' };
 
-export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt; parametros?: Map<string, string[]> }
+export interface Programa {
+  procedimentos: Map<string, Stmt>; principal: Stmt; parametros?: Map<string, string[]>;
+  /** as variáveis locais de cada procedimento com o tipo declarado (`var Pagina: Integer;`) */
+  locais?: Map<string, Array<{ nome: string; tipo: string }>>;
+}
 
 /** o que o avaliador pede ao mundo de fora (o registro corrente, as variáveis, os objetos do relatório). */
 export interface Ambiente {
@@ -129,6 +133,7 @@ class Parser {
   programa(): Programa {
     const procedimentos = new Map<string, Stmt>();
     const parametros = new Map<string, string[]>();
+    const locais = new Map<string, Array<{ nome: string; tipo: string }>>();
     let principal: Stmt = { k: 'nada' };
     while (!this.fim()) {
       if (this.eh('procedure') || this.eh('function')) {
@@ -150,7 +155,7 @@ class Parser {
         parametros.set(nome.toLowerCase(), params);
         if (this.aceita(':')) this.p++; // tipo de retorno de function
         this.aceita(';');
-        this.pulaDeclaracoes();
+        locais.set(nome.toLowerCase(), this.declaracoes());
         const corpo = this.bloco();
         this.aceita(';');
         procedimentos.set(nome.toLowerCase(), corpo);
@@ -160,7 +165,31 @@ class Parser {
       if (this.eh('begin')) { principal = this.bloco(); this.aceita('.'); continue; }
       this.p++; // o que não entendemos fora de bloco é ignorado
     }
-    return { procedimentos, principal, parametros };
+    return { procedimentos, principal, parametros, locais };
+  }
+
+  /** `var A, B: Integer; C: String;` — os nomes com o tipo (as seções `const` são puladas) */
+  private declaracoes(): Array<{ nome: string; tipo: string }> {
+    const out: Array<{ nome: string; tipo: string }> = [];
+    while (this.eh('var') || this.eh('const')) {
+      const ehVar = this.eh('var');
+      this.p++;
+      let grupo: string[] = [];
+      while (!this.fim() && !this.eh('begin') && !this.eh('procedure') && !this.eh('function') && !this.eh('var') && !this.eh('const')) {
+        if (ehVar && this.eh(':')) {
+          this.p++;
+          const tipo = this.t.t === 'id' ? this.t.v.toLowerCase() : '';
+          for (const n of grupo) out.push({ nome: n, tipo });
+          grupo = [];
+        } else if (ehVar && this.t.t === 'id' && !this.eh(',') ) {
+          // só os nomes antes do ':' (o tipo já foi consumido acima)
+          grupo.push(this.t.v);
+        }
+        if (this.eh(';')) grupo = [];
+        this.p++;
+      }
+    }
+    return out;
   }
 
   private pulaDeclaracoes(): void {
@@ -420,10 +449,57 @@ export function avaliar(e: Expr, amb: Ambiente, funcoes: Record<string, (args: V
   }
 }
 
+/** o valor inicial da variável pelo tipo declarado (o FastScript zera Integer/Double, String vazia, Boolean falso) */
+function valorDoTipo(tipo: string): Valor {
+  if (/^(integer|int64|byte|word|cardinal|longint|longword|smallint|shortint|double|extended|real|single|currency|comp)$/.test(tipo)) return 0;
+  if (/^(string|ansistring|widestring|shortstring|char|widechar)$/.test(tipo)) return '';
+  if (tipo === 'boolean') return false;
+  return null;
+}
+
+/** a atribuição a uma variável tipada converte (o `Pagina := <FOLHA>` com FOLHA = '1' guarda o número 1, e `Pagina + 1` dá 2) */
+function converterAoTipo(tipo: string, v: Valor): Valor {
+  if (/^(integer|int64|byte|word|cardinal|longint|longword|smallint|shortint)$/.test(tipo)) {
+    const n = typeof v === 'string' ? Number(v.trim().replace(',', '.') || 0) : Number(v ?? 0);
+    return Number.isFinite(n) ? Math.round(n) : v;
+  }
+  if (/^(double|extended|real|single|currency|comp)$/.test(tipo)) {
+    const n = typeof v === 'string' ? Number(v.trim().replace(',', '.') || 0) : Number(v ?? 0);
+    return Number.isFinite(n) ? n : v;
+  }
+  if (/^(string|ansistring|widestring|shortstring|char|widechar)$/.test(tipo)) return texto(v);
+  if (tipo === 'boolean') return booleano(v);
+  return v;
+}
+
+/** os tipos das locais do procedimento em execução (o topo é o atual) */
+const pilhaDeLocais: Array<Map<string, string>> = [];
+
+/**
+ * Roda um procedimento do script com as variáveis locais dele: cada uma nasce com o valor do tipo a cada chamada e o valor que o
+ * mesmo nome tinha fora volta no fim — sem isso a local vira global e guarda o valor da chamada anterior.
+ */
+export function executarComLocais(prog: Programa, nome: string, corpo: Stmt, amb: Ambiente,
+  funcoes: Record<string, (args: Valor[], amb: Ambiente) => Valor>, prof = 0): void {
+  const locais = prog.locais?.get(nome.toLowerCase()) ?? [];
+  const antes = locais.map((l) => { try { return amb.ler([l.nome]); } catch { return null; } });
+  locais.forEach((l) => amb.gravar([l.nome], valorDoTipo(l.tipo)));
+  pilhaDeLocais.push(new Map(locais.map((l) => [l.nome.toLowerCase(), l.tipo])));
+  try { executar(corpo, amb, funcoes, prog, prof); } finally {
+    pilhaDeLocais.pop();
+    locais.forEach((l, i) => amb.gravar([l.nome], antes[i]));
+  }
+}
+
 export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: Valor[], amb: Ambiente) => Valor>, prog: Programa, prof = 0): void {
   if (prof > 50) return;
   switch (s.k) {
-    case 'atrib': amb.gravar(s.alvo, avaliar(s.e, amb, funcoes)); return;
+    case 'atrib': {
+      const v = avaliar(s.e, amb, funcoes);
+      const tipo = s.alvo.length === 1 ? pilhaDeLocais[pilhaDeLocais.length - 1]?.get(s.alvo[0].toLowerCase()) : undefined;
+      amb.gravar(s.alvo, tipo ? converterAoTipo(tipo, v) : v);
+      return;
+    }
     case 'se': {
       if (booleano(avaliar(s.c, amb, funcoes))) executar(s.entao, amb, funcoes, prog, prof + 1);
       else if (s.senao) executar(s.senao, amb, funcoes, prog, prof + 1);
@@ -442,7 +518,7 @@ export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: 
           const v = a.k === 'id' && a.caminho.length === 1 && amb.ehObjeto?.(a.caminho[0]) ? a.caminho[0] : avaliar(a, amb, funcoes);
           amb.gravar([nm], v);
         });
-        try { executar(p, amb, funcoes, prog, prof + 1); } finally { params.forEach((nm, i) => amb.gravar([nm], antes[i])); }
+        try { executarComLocais(prog, s.nome, p, amb, funcoes, prof + 1); } finally { params.forEach((nm, i) => amb.gravar([nm], antes[i])); }
       } else amb.procedimento?.(s.nome.toLowerCase(), s.args);
       return;
     }

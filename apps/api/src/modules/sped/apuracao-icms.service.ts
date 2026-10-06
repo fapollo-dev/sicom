@@ -5,6 +5,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { dataBr, dataLocal, empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -304,7 +306,71 @@ export class ApuracaoIcmsService {
       ? await db.selectFrom('apuracao_icms_detalhes').selectAll().where('codapuracaoicms', '=', cod)
           .orderBy('tipo').orderBy('codigo').limit(limiteDetalhe).execute()
       : [];
-    return { cabecalho: cab, cfops, contagem, detalhe };
+    // os totalizadores da tela (`GetSqTotalizaCfop`, :1375): entradas, devoluções de fornecedor, saídas e devoluções de cliente
+    // pelo VRCONTABIL do resumo por CFOP; % compra × saída = entradas ÷ saídas × 100
+    const tot = (await sql<Record<string, unknown>>`
+      SELECT coalesce(sum(CASE WHEN substr(cfop::text,1,1) IN ('1','2','3') AND cfop NOT IN (1202,2202,1411,2411) THEN vrcontabil END),0) AS entradas,
+             coalesce(sum(CASE WHEN cfop IN (5202,6202,5411,6411) THEN vrcontabil END),0) AS devfor,
+             coalesce(sum(CASE WHEN substr(cfop::text,1,1) IN ('5','6','7') AND cfop NOT IN (5202,6202,5411,6411) THEN vrcontabil END),0) AS saidas,
+             coalesce(sum(CASE WHEN cfop IN (1202,2202,1411,2411) THEN vrcontabil END),0) AS devcli
+        FROM icms_cfop WHERE codapuracaoicms = ${cod}`.execute(db)).rows[0] ?? {};
+    const totais = {
+      entradas: num(tot.entradas), saidas: num(tot.saidas), devfor: num(tot.devfor), devcli: num(tot.devcli),
+      perc_compra_saida: num(tot.saidas) !== 0 ? (num(tot.entradas) / num(tot.saidas)) * 100 : 0,
+    };
+    return { cabecalho: cab, cfops, contagem, detalhe, totais };
+  }
+
+  /**
+   * IMPRESSÃO do livro de apuração (`btnImprimirClick`, :426) — `Relatorios\Notas_fiscais_Registro_Apuracao.fr3`:
+   *  - frxDBDatasetTemp = o detalhe da apuração (o `cdsTemp`, índice TIPO;CFOP) — os rodapés por CFOP somam as cinco colunas;
+   *  - frxDBDatasetCFOP / frxDBDatasetCFOPE = as saídas / as entradas, com as linhas 5000/6000/7000 e 1000/2000/3000 zeradas que o
+   *    `SetaCFOP` (:1729) acrescenta para cada grupo de primeiro dígito sair mesmo vazio (os subtotais do sub-relatório);
+   *  - frxDBDataset2 = a empresa; as variáveis LIVRO e FOLHA (vazias → '1'), MES e o quadro do E110 (DEBITOS…SALDOCREDPERSEG, com
+   *    SUBTOTALCREDITOS = crédito de entrada + outros créditos + estorno de débitos).
+   * O legado, para uma apuração já gravada, refaz as saídas e as entradas do sub-relatório com o SQL do fonte (`PopulaDadosApuracaoICMS`);
+   * aqui elas saem do detalhe gravado — o mesmo que o processamento usa, e sem o SQL antigo que a produção já não roda.
+   */
+  async impressao(cod: number, livro?: string, folha?: string) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cab = (await db.selectFrom('apuracao_icms').selectAll().where('codapuracaoicms', '=', cod).where('idempresa', '=', emp)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!cab) throw new BusinessRuleError('APURACAO_NAO_ENCONTRADA', { codapuracaoicms: cod });
+    const det = (await sql<Record<string, unknown>>`
+      SELECT tipo, cfop, especie, codigo, cst, icms, icms_efetivo, base, valor_icms, isentas_naotrib, outras, totalnf, classfiscal
+        FROM apuracao_icms_detalhes WHERE codapuracaoicms = ${cod}
+       ORDER BY tipo, cfop, codapuracaoicmsdetalhes`.execute(db)).rows;
+    const nums = new Set(['cfop', 'cst', 'icms', 'icms_efetivo', 'base', 'valor_icms', 'isentas_naotrib', 'outras', 'totalnf']);
+    const linhas = det.map((r) => registroFr3(r, nums));
+    // o SetaCFOP: CFOP = dígito × 1000 e os demais campos '000' (0 nos numéricos)
+    const seta = (d: number) => ({ TIPO: '000', CFOP: d * 1000, ESPECIE: '000', CODIGO: '000', CST: 0, ICMS: 0, ICMS_EFETIVO: 0, BASE: 0,
+      VALOR_ICMS: 0, ISENTAS_NAOTRIB: 0, OUTRAS: 0, TOTALNF: 0, CLASSFISCAL: '000' });
+    const porCfop = (rs: Record<string, unknown>[]) => rs.map((r, i) => ({ r, i }))
+      .sort((a, b) => Number(a.r.CFOP) - Number(b.r.CFOP) || a.i - b.i).map((x) => x.r);
+    const saidas = porCfop([...linhas.filter((r) => r.TIPO === 'S'), seta(5), seta(6), seta(7)]);
+    const entradas = porCfop([...linhas.filter((r) => r.TIPO === 'E'), seta(1), seta(2), seta(3)]);
+    const v = (k: string) => num(cab[k]);
+    const valores: Record<string, number> = {
+      DEBITOS: v('debitosaida'), OUTROSDEBITOS: v('outrosdebitos'), ESTORNOCREDITOS: v('estornocreditos'),
+      TOTALDEBITOS: r2(v('debitosaida') + v('outrosdebitos') + v('estornocreditos')),
+      CREDITOS: v('creditoentrada'), OUTROSCREDITOS: v('outroscreditos'), ESTORNODEBITOS: v('estornodebitos'),
+      SUBTOTALCREDITOS: r2(v('creditoentrada') + v('outroscreditos') + v('estornodebitos')),
+      SALDOCREDPERANT: v('saldoant'),
+      TOTALCREDITOS: r2(v('saldoant') + v('creditoentrada') + v('outroscreditos') + v('estornodebitos')),
+      SALDODEVEDOR: v('saldodevedor'), DEDUCOES: v('deducoes'), ARECOLHER: v('arecolher'), SALDOCREDPERSEG: v('saldocredorseguinte'),
+    };
+    const br = (d: unknown) => dataBr(d instanceof Date ? dataLocal(d).slice(0, 10) : String(d ?? '').slice(0, 10));
+    return {
+      titulo: `Livro de apuração do ICMS ${br(cab.dataini)} a ${br(cab.datafin)}`,
+      modelo: await modeloFr3(db, 'Notas_fiscais_Registro_Apuracao.fr3'),
+      datasets: { frxDBDatasetTemp: linhas, frxDBDatasetCFOP: saidas, frxDBDatasetCFOPE: entradas, frxDBDataset2: [await empresaParaRelatorio(db, emp)] },
+      variaveis: {
+        LIVRO: textoVariavel(String(livro ?? '').trim() || '1'), FOLHA: textoVariavel(String(folha ?? '').trim() || '1'),
+        MES: textoVariavel(`MES OU PERÍODO: ${br(cab.dataini)} até ${br(cab.datafin)}`),
+        ...Object.fromEntries(Object.entries(valores).map(([k, n]) => [k, String(n)])),
+      },
+    };
   }
 
   /** consulta de uma apuração gravada — por código ou por período (o `PopulaDadosApuracaoICMS`). */

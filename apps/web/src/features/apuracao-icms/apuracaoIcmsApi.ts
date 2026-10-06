@@ -35,6 +35,7 @@ export interface Apuracao {
   cfops: LinhaCfop[];
   contagem: { linhas: number; cupons: number; notas_saida: number; notas_entrada: number };
   detalhe: Array<Record<string, unknown>>;
+  totais?: { entradas: number; saidas: number; devfor: number; devcli: number; perc_compra_saida: number };
   reprocessada?: boolean;
   aviso_contingencia?: number;
 }

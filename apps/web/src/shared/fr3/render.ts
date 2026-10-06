@@ -21,7 +21,7 @@
  * `DataSet` (o prefixo do form — "frmNF.dbdItensNota" — cai); os outros ficam no primeiro registro, como o cursor parado de um
  * TDataSet que o relatório não percorre. `[TotalPages#]` faz duas passadas (o DoublePass do FastReport).
  */
-import { avaliar, compilarExpr, compilarScript, executar, numero, texto, type Ambiente, type Expr, type Programa, type Valor } from './expr';
+import { avaliar, compilarExpr, compilarScript, executar, executarComLocais, numero, texto, type Ambiente, type Expr, type Programa, type Valor } from './expr';
 import { aplicarDisplayFormat, formatDateTime, formatDelphi, formatFloat, type Separadores } from './formato';
 import { desenhar } from './barras';
 import { definicaoGrafico, svgGrafico, type Ponto } from './grafico';
@@ -467,7 +467,7 @@ class Relatorio {
     if (!corpo) return;
     const antes = this.remetente;
     this.remetente = no.a.Name ?? '';
-    try { executar(corpo, this.amb, this.funcoes, this.prog); } catch { /* erro de script: segue como o preview */ }
+    try { executarComLocais(this.prog, proc, corpo, this.amb, this.funcoes); } catch { /* erro de script: segue como o preview */ }
     this.remetente = antes;
   }
 

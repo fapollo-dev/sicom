@@ -4,6 +4,8 @@ import { DateField } from '../../shared/ui/DateField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { Field } from '../../shared/ui/Field';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { processarApuracao, obterApuracao, type Apuracao } from './apuracaoIcmsApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,6 +37,9 @@ export function ApuracaoIcmsPage() {
   const [deducoes, setDeducoes] = useState<number | undefined>();
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Apuracao | null>(null);
+  // edtNR / edtFolha do legado: o número do livro e a folha que o livro impresso leva (vazios → 1)
+  const [livro, setLivro] = useState('');
+  const [folha, setFolha] = useState('');
 
   const ajustes = () => ({
     outroscreditos: outrosCreditos, estornodebitos: estornoDebitos,
@@ -72,6 +77,14 @@ export function ApuracaoIcmsPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  /** [F11] - Imprimir livro: o Notas_fiscais_Registro_Apuracao.fr3 da apuração carregada */
+  const imprimir = async () => {
+    const cod = res?.cabecalho?.codapuracaoicms;
+    if (!cod) { window.alert('Apure ou consulte o período antes de imprimir o livro.'); return; }
+    const q = new URLSearchParams({ livro: livro.trim() || '1', folha: folha.trim() || '1' });
+    try { await imprimirRelatorio(`/fiscal/apuracao-icms/${cod}/impressao?${q.toString()}`); } catch (e) { mensagem.erro(e); }
+  };
+
   const c = res?.cabecalho ?? null;
   const totalCredito = c ? Number(c.saldoant) + Number(c.creditoentrada) + Number(c.outroscreditos) + Number(c.estornodebitos) : 0;
   const totalDebito = c ? Number(c.debitosaida) + Number(c.outrosdebitos) + Number(c.estornocreditos) : 0;
@@ -95,6 +108,9 @@ export function ApuracaoIcmsPage() {
           <Button label="&Apurar" variant="soft" disabled={busy} onClick={() => void processar(false)} />
           <Button label="&Reprocessar" variant="ghost" disabled={busy} onClick={() => void reprocessar()} />
           <Button label="&Consultar gravada" variant="ghost" disabled={busy} onClick={() => void consultar()} />
+          <div className="w-24"><Field label="Nrº &Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
+          <div className="w-24"><Field label="Nrº &Folha" value={folha} inputMode="numeric" onChange={(e) => setFolha(e.target.value.replace(/\D/g, ''))} /></div>
+          <Button label="&Imprimir livro" variant="ghost" disabled={busy || !c} onClick={() => void imprimir()} />
         </div>
         <div className="text-body-xs text-fg-muted">
           O saldo credor do mês anterior entra como saldo anterior (busca pelo mês fechado). Reprocessar um mês
@@ -159,6 +175,17 @@ export function ApuracaoIcmsPage() {
               denegada, NFe sem chave ou inutilizada, item cancelado e cupom cancelado ou inutilizado.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* os totalizadores da aba "Resultado CFOP" (GetSqTotalizaCfop) */}
+      {c && res?.totais && (
+        <div className="flex flex-wrap gap-gp-md rounded-radius-md border border-border bg-bg-surface p-pad-md text-body-sm">
+          <div><div className="text-fg-muted">Entrada</div><div className="font-semibold tabular-nums">{brl(res.totais.entradas)}</div></div>
+          <div><div className="text-fg-muted">Devolução fornecedor</div><div className="font-semibold tabular-nums">{brl(res.totais.devfor)}</div></div>
+          <div><div className="text-fg-muted">Saída NF</div><div className="font-semibold tabular-nums">{brl(res.totais.saidas)}</div></div>
+          <div><div className="text-fg-muted">Devolução cliente</div><div className="font-semibold tabular-nums">{brl(res.totais.devcli)}</div></div>
+          <div><div className="text-fg-muted">Percentual compra / venda</div><div className="font-semibold tabular-nums">{Number(res.totais.perc_compra_saida).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %</div></div>
         </div>
       )}
 
