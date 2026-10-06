@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -8,6 +8,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
+import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import {
   listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento, chavearConta,
   type ContaCC, type PainelSaldo, type MovALiberar, type Detalhamento, type DetMov, type FiltroDet,
@@ -153,6 +154,11 @@ export function ControleContasPage() {
   // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
   const transferencia = (m: { nrodocumento?: string | null; idlote?: number | null }) => m.nrodocumento === 'TRANSFERENCIA' && Number(m.idlote ?? 0) > 0;
   const removivel = (m: { nrodocumento?: string | null; idlote?: number | null }) => transferencia(m) || !Number(m.idlote ?? 0);
+  // F3 = o "F(3) - Mostrar Filtro por Cheque" do Detalhamento (FormKeyDown do UconsMovBancaria — `FRMCONSMOVBANCARIAS`): mostra o painel
+  // e foca o número do cheque (edtFiltroCheque, NRODOCUMENTO like). Aqui o filtro do documento fica sempre à vista: o F3 o foca — o F3
+  // seguinte do legado, que esconde o painel (sem limpar o filtro), não tem o que esconder
+  const documentoRef = useRef<HTMLDivElement>(null);
+  useShortcut('f3', () => focarMnemonico(documentoRef.current?.querySelector<HTMLInputElement>('input')), { when: pode('habiltiar_detalhar_conta') });
 
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
@@ -275,7 +281,7 @@ export function ControleContasPage() {
               options={[{ value: 'emissao', label: 'Emissão' }, { value: 'vencimento', label: 'Vencimento' }, { value: 'liberacao', label: 'Liberação' }]} /></div>
             <div className="w-44"><SelectField label="Movimentos" value={filtroDet.liberado} onChange={(v) => setFiltroDet({ ...filtroDet, liberado: v as FiltroDet['liberado'] })}
               options={[{ value: 'TODOS', label: 'Todos' }, { value: 'LIBERADOS', label: 'Liberados' }, { value: 'NAO', label: 'Não liberados' }]} /></div>
-            <div className="w-40"><Field label="Documento" value={filtroDet.documento} onChange={(e) => setFiltroDet({ ...filtroDet, documento: e.target.value })} /></div>
+            <div ref={documentoRef} className="w-40"><Field label="Documento [F3]" value={filtroDet.documento} onChange={(e) => setFiltroDet({ ...filtroDet, documento: e.target.value })} /></div>
             <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisarDet()} />
           </div>
           {det && (

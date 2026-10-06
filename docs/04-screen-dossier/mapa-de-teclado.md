@@ -72,6 +72,20 @@ Apollo (a tecla entra quando a ação entrar); **dev** = ferramenta de desenvolv
 | `FRMRENTABILIDADECATEGORIAS` | Rentabilidade | F9 gera — **com a permissão do botão** (no legado o F9 chama o click direto e passa por cima do Tag) | — |
 | `FRMRELATORIOCAIXA` · `FRMRELATORIO` · `FRMCADUSUARIOS` · `FRMCONSULTORIAATM` | | — | F1 caminho do arquivo · Enter na grade de campos · F2 perfil por cima · (Esc da base, F10 dev) |
 
+Corte 3 (06/10/2026): as janelas chamadas por outra tela (0 acesso no `MENUEXPRESS`) cuja página no Apollo citava a unit, não o form.
+Cada uma registra as teclas num filho do `Modal` (o escopo da janela). Teste: `apps/web/test/teclasJanelasNf.spec.tsx`.
+
+| form | no Apollo | teclas | lacuna (por quê) |
+|---|---|---|---|
+| `FRMITENSNF` | item da NF (`NfItemModal`) | Esc = Cancelar · F6 fator de embalagem · F9 abre a lista do CFOP · **sem `inherited`**: Ctrl+E e Alt+← não passam da janela · letras &Ok/&Cancelar | F2 cadastro do produto por cima (aqui é tela: sair dela perderia a nota) · F5 indexador do item · F7 PLU × EAN · F8 situação do item · F10 estoque por empresa · F11 declaração de importação |
+| `FRMESTOQUENF` | processar a nota (`NfProcessarModal`) | F7 preço / F8 custo de todos pelo item corrente invertido (era ouvinte cru) · &Processar/&Cancelar | F4/F5/F6 estoque depósito/loja/produção · F9 valor a pagar · F10 código de barras · Alt+D formas de pagamento (o faturamento não está na janela) |
+| `FRMFINANCEIRONOTAFISCAL` | parcelas da nota processada (aba Financeiro) | F9 código de barras da 1ª parcela (com a cobrança aberta; fora dela o F9 é o da nota, que a abre) · Enter/Tab do código de barras (o `FormShortCut`, o mesmo do uNF) | F8 valor a faturar (a base vem do servidor) |
+| `FRMPRECIFICACAOPRODUTO` | item do pedido de compra (`PedidoCompraItemModal`) | F3 quantidade (1ª loja aberta) · F5 desconto R$ · F9 confirma · F11 sugerida → praticada + margem · letras [F9] - &Confirma/&Sair | F2 "Custo Embalagem" (aqui o custo é unitário) |
+| `FRMCONSMOVBANCARIAS` | detalhamento do controle de contas | F3 foca o filtro do documento (o "Filtro por Cheque" fica sempre à vista) | — |
+| `FRMLANCAMENTOCONTABILNF` · `FRMSINCRONIZACFOPNOTAFISCAL` | aba Lançamentos contábeis · sincronizar CFOP | só o Enter na grade (o Apollo não avança em grade) · letras do .dfm | — |
+| `FRMCONSULTASITUACAODOCUMENTO` · `FRMANALISAITEMNF` · `FRMCONFIGURA` | | — | as janelas não existem (a situação é uma lista; a análise é um botão da nota); F5 da grade do ConfigDB.xml |
+| `FRMNFCE` | | — | é a Consulta NFC-e (⛔ PDV na fila), não o Fechamento de Sangria (`FRMFECHAMENTOSANGRIA`, sem unit no `Retaguarda.dpr`) |
+
 **Menu "Outros" fora.** Os `ShortCut` dos itens do `ppmBotaoOutros` (Ctrl+L clonar, Ctrl+E etiquetas, Ctrl+N espelho… da NF;
 Ctrl+I da cotação) não disparam no legado: o menu só é `DropDown` de um `TJvArrowButton` sem foco, e na VCL o atalho de popup só vale
 pelo `PopupMenu` do controle focado (`TWinControl.IsMenuKey`). Ligá-los mataria o Ctrl+E da base na NF.
@@ -82,8 +96,8 @@ pelo `PopupMenu` do controle focado (`TWinControl.IsMenuKey`). Ligá-los mataria
 **Fora do Apollo.** Das 178 telas com teclas próprias, 118 não têm tela ligada pelo nome do form. Pelo `MENUEXPRESS` da produção:
 as de menu com uso (agenda de atendimento, cheques, inventário, controle de funcionários, transferência, apuração ST/CIAP, mapa de
 carga…, de 92 acessos para baixo) entram com a conversão de cada uma; as de 0 acesso são janelas chamadas por outra tela — as que
-já têm equivalente no Apollo (itens da NF, financeiro da NF, estoque da NF, lançamento contábil da NF, precificação do item do
-pedido, sincronizar CFOP, situação do documento) são o corte 3.
+já têm equivalente no Apollo estão no corte 3 (abaixo). Atenção ao contar acesso por form: o `MENUEXPRESS` tem uma linha por
+operador e menu — `max(MENU)` num `GROUP BY FORMULARIO` mistura nomes (o FRMNFCE pareceu "Fechamento de Sangria"; é a Consulta NFC-e).
 
 ## Mnemônicos (`&`)
 

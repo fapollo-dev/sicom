@@ -9,6 +9,10 @@ import { sincronizarNf, type ParDeSincronizacao } from './nfProcessamentoApi';
  * SINCRONIZAR CFOP / ALÍQUOTA / CST dos itens (menu da NF, uNF.pas:16401 → uSincronizaCFOPNotaFiscal): as três grades com os valores
  * distintos dos itens, o "novo" começando igual ao "atual". No OK o servidor valida o CFOP no cadastro, aplica cada de-para uma vez
  * por item e marca todos os itens como sincronizados — "a execução é irreversível", e o imposto não é recalculado.
+ *
+ * As teclas da janela (`FRMSINCRONIZACFOPNOTAFISCAL`): o FormKeyDown/FormKeyPress do uSincronizaCFOPNotaFiscal só segura o Enter na grade
+ * (não vira Tab) — o mesmo da base no Apollo, que não avança em grade; o resto é o `inherited`. Os botões levam as letras do .dfm:
+ * "&Sincronizar" (o btnOK) e "Ca&ncelar".
  */
 interface Props {
   codnf: number;
@@ -78,7 +82,7 @@ export function NfSincronizarModal({ codnf, itens, onFechar, onSincronizado }: P
 
   return (
     <Modal open onClose={onFechar} title="Sincronizar CFOP, alíquota e CST dos itens"
-      primaryAction={{ label: '&OK', onClick: () => void confirmar(), disabled: executando }} secondaryAction={{ label: 'Cancelar', onClick: onFechar }}>
+      primaryAction={{ label: '&Sincronizar', onClick: () => void confirmar(), disabled: executando }} secondaryAction={{ label: 'Ca&ncelar', onClick: onFechar }}>
       <div className="flex flex-col gap-form-gap">
         <div className="flex flex-wrap gap-gp-md">
           {grade('CFOP', 'cfop', (a) => entrada('cfop', a, 4))}

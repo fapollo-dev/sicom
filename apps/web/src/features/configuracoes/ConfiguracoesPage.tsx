@@ -21,6 +21,10 @@ const SEM_OVERRIDE = '__PADRAO__'; // sentinela do select = "usar o valor padrã
  * O "valor efetivo" é o que a NF/processos veem (mesmo resolver). Escopos Usuario/Modulo ficam para a
  * tela avançada; aqui edita-se o escopo Empresa (o mais comum).
  * Como no legado, a tela abre com a SENHA ADMINISTRATIVA da empresa (não é permissão de PERMISSOES).
+ *
+ * As teclas (`FRMCONFIGURA`, um `TForm` — sem as teclas do `TfrmMaster`): Esc = Sair (o `actEsc`) e Enter vira Tab fora da grade (o
+ * FormKeyPress) — os mesmos da base no Apollo. LACUNA: F5 mostra a coluna "Tipo Controle" e destrava o nome da configuração na grade
+ * do ConfigDB.xml (aqui não há a grade nem se renomeia a chave); o F9/F10 da grade (o filtro do FramePesquisaDataSet) também.
  */
 export function ConfiguracoesPage() {
   const mensagem = useMensagem();

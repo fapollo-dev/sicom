@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { Modal } from '../../shared/ui/Modal';
+import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import type { PedidoCompraItemDto } from '@apollo/shared';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -14,7 +15,7 @@ import { herdarItemPedido, precificarItemPedido } from './pedidoCompraApi';
  * Modal de ADICIONAR/EDITAR um ITEM do pedido de compra (detalhe 1:N — PEDIDOCOMPRA_I). Espelha o
  * NfItemModal, porém MUITO mais simples: produto + quantidade (FATOREMBALAGEM) + custo unitário
  * negociado (VRCUSTO) + descontos + obs. VLREMBALAGEM (= qtd × custo) é DERIVADO no servidor — aqui
- * é só exibido em leitura enquanto edita. Form LOCAL; só ao "Salvar" o item sobe ao pai (useFieldArray).
+ * é só exibido em leitura enquanto edita. Form LOCAL; só ao "Confirma" o item sobe ao pai (useFieldArray).
  */
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -58,6 +59,8 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
   const [calculando, setCalculando] = useState(false);
   // mig 307: de onde veio o custo e o fator herdados (para a tela dizer)
   const [origem, setOrigem] = useState<{ custo: string; fator: string } | null>(null);
+  const qtdeRef = useRef<HTMLDivElement>(null);
+  const descontoRef = useRef<HTMLDivElement>(null);
   const set = <K extends keyof PedidoCompraItemDto>(k: K, v: PedidoCompraItemDto[K]) =>
     setItem((i) => ({ ...i, [k]: v }));
 
@@ -90,24 +93,28 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
     }
   };
 
-  /** o PREÇO DO ITEM (o modal `uPrecificacaoProdutos` do legado), calculado no servidor com os parâmetros da loja. */
-  const precificar = async () => {
+  /**
+   * o PREÇO DO ITEM (o modal `uPrecificacaoProdutos` do legado), calculado no servidor com os parâmetros da loja. `vendaForcada` é a
+   * venda do F11 (a sugerida), no lugar da digitada.
+   */
+  const precificar = async (vendaForcada?: number) => {
     if (calculando) return;
     if (item.idproduto == null) return setErro('Selecione o produto antes de precificar.');
     if (!(Number(item.vrcusto) >= 0)) return setErro('Informe o custo antes de precificar.');
     setCalculando(true);
     setErro(undefined);
+    const digitada = vendaForcada ?? (Number(item.vrvenda) || 0);
     try {
       const r = await precificarItemPedido({
         idproduto: Number(item.idproduto), vrcusto: Number(item.vrcusto) || 0,
-        markup: Number(item.markup) || 0, vrvenda: Number(item.vrvenda) || 0,
+        markup: Number(item.markup) || 0, vrvenda: digitada,
         icme: item.icme != null ? Number(item.icme) : undefined,
         icm_efetivo: item.icm_efetivo != null ? Number(item.icm_efetivo) : undefined,
         fcp_saida: item.fcp_saida != null ? Number(item.fcp_saida) : undefined,
       });
       // PRATICADO: sem venda digitada, a sugerida — e a escada é refeita sobre ela
-      const venda = Number(item.vrvenda) > 0 ? Number(item.vrvenda) : r.vrvendasug;
-      const r2 = venda !== (Number(item.vrvenda) || 0)
+      const venda = digitada > 0 ? digitada : r.vrvendasug;
+      const r2 = venda !== digitada
         ? await precificarItemPedido({ idproduto: Number(item.idproduto), vrcusto: Number(item.vrcusto) || 0, markup: Number(item.markup) || 0, vrvenda: venda,
           icme: item.icme != null ? Number(item.icme) : undefined, icm_efetivo: item.icm_efetivo != null ? Number(item.icm_efetivo) : undefined,
           fcp_saida: item.fcp_saida != null ? Number(item.fcp_saida) : undefined })
@@ -139,9 +146,11 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
       onClose={onFechar}
       size="lg"
       title={inicial ? 'Editar item do pedido' : 'Adicionar item do pedido'}
-      primaryAction={{ label: 'Salvar', onClick: salvar }}
-      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
+      primaryAction={{ label: '[F9] - &Confirma', onClick: salvar }}
+      secondaryAction={{ label: '&Sair', onClick: onFechar }}
     >
+      <TeclasDoItemPedido qtde={qtdeRef} desconto={descontoRef} confirmar={salvar}
+        vendaSugerida={Number(item.vrvendasug) > 0 && !calculando ? () => void precificar(Number(item.vrvendasug)) : null} />
       <div className="flex flex-col gap-form-gap">
         {erro && <small className="text-fg-danger">{erro}</small>}
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
@@ -160,7 +169,7 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
             )}
           </div>
           {multiLoja ? (
-            <div className="sm:col-span-2 flex flex-col gap-gp-xs">
+            <div ref={qtdeRef} className="sm:col-span-2 flex flex-col gap-gp-xs">
               <span className="text-body-sm font-semibold text-fg-default">Quantidade por loja (embalagens) — o item é a soma: {somaLojas.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</span>
               <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-4">
                 {lojas.map((l) => (
@@ -180,13 +189,15 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
               )}
             </div>
           ) : (
-            <NumberField
-              label="&Qtde (embalagens)"
-              value={item.qtde as number | undefined}
-              onChange={(v) => set('qtde', v as number)}
-              decimais={3}
-              min={0}
-            />
+            <div ref={qtdeRef}>
+              <NumberField
+                label="&Qtde (embalagens) [F3]"
+                value={item.qtde as number | undefined}
+                onChange={(v) => set('qtde', v as number)}
+                decimais={3}
+                min={0}
+              />
+            </div>
           )}
           <NumberField
             label="&Fator/emb."
@@ -196,11 +207,13 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
             min={0}
           />
           <CurrencyField
-            label="&Custo unit."
+            label="Custo unit."
             value={item.vrcusto as number | undefined}
             onChange={(v) => set('vrcusto', v as number)}
           />
-          <CurrencyField label="&Desconto" value={item.desconto as number | undefined} onChange={(v) => set('desconto', v)} />
+          <div ref={descontoRef}>
+            <CurrencyField label="&Desconto [F5]" value={item.desconto as number | undefined} onChange={(v) => set('desconto', v)} />
+          </div>
           <NumberField
             label="Desconto (&%)"
             value={item.descontop as number | undefined}
@@ -224,11 +237,11 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
         <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Composição do custo e impostos</legend>
           <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-4">
-            <NumberField label="&IPI" value={item.ipi as number | undefined} onChange={(v) => set('ipi', v)} decimais={2} min={0} endAddon="%" />
-            <NumberField label="&Frete" value={item.frete as number | undefined} onChange={(v) => set('frete', v)} decimais={2} min={0} endAddon="%" />
-            <NumberField label="Se&guro" value={item.seguro as number | undefined} onChange={(v) => set('seguro', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="IPI" value={item.ipi as number | undefined} onChange={(v) => set('ipi', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="Frete" value={item.frete as number | undefined} onChange={(v) => set('frete', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="Seguro" value={item.seguro as number | undefined} onChange={(v) => set('seguro', v)} decimais={2} min={0} endAddon="%" />
             <CurrencyField label="Desp. &acessória" value={item.despacessorio as number | undefined} onChange={(v) => set('despacessorio', v)} />
-            <CurrencyField label="ICMS-&ST" value={item.icmst as number | undefined} onChange={(v) => set('icmst', v)} />
+            <CurrencyField label="ICMS-ST" value={item.icmst as number | undefined} onChange={(v) => set('icmst', v)} />
             <NumberField label="ICMS &entrada" value={item.icme as number | undefined} onChange={(v) => set('icme', v)} decimais={2} min={0} endAddon="%" />
             <NumberField label="ICMS e&fetivo" value={item.icm_efetivo as number | undefined} onChange={(v) => set('icm_efetivo', v)} decimais={2} min={0} endAddon="%" />
             <NumberField label="FCP saída" value={item.fcp_saida as number | undefined} onChange={(v) => set('fcp_saida', v)} decimais={2} min={0} endAddon="%" />
@@ -248,14 +261,15 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
             <CurrencyField label="&Venda (praticada)" value={item.vrvenda as number | undefined} onChange={(v) => set('vrvenda', v)} />
           </div>
           <div className="mt-form-gap flex flex-wrap items-center gap-gp-sm">
-            <Button label="&Calcular preço" variant="soft" disabled={calculando} onClick={() => void precificar()} />
+            {/* sem letra: o Alt+C da janela é o "[F9] - &Confirma" do legado */}
+            <Button label="Calcular preço" variant="soft" disabled={calculando} onClick={() => void precificar()} />
           </div>
           {item.vrcustoliquido != null && (
             <div className="mt-form-gap grid grid-cols-2 gap-x-gp-md gap-y-gp-xs text-body-sm tabular-nums sm:grid-cols-4">
               <span>Créditos: R$ {fmtBRL((Number(item.creditoicm) || 0) + (Number((item as Record<string, unknown>).creditopiscofins) || 0))}</span>
               <span>Custo líq.: R$ {fmtBRL(Number(item.vrcustoliquido) || 0)}</span>
               <span>PMZ: R$ {fmtBRL(Number(item.pmz) || 0)}</span>
-              <span>Sugerida: R$ {fmtBRL(Number(item.vrvendasug) || 0)}</span>
+              <span>Sugerida [F11]: R$ {fmtBRL(Number(item.vrvendasug) || 0)}</span>
               <span>Débitos: R$ {fmtBRL((Number(item.debitoicm) || 0) + (Number((item as Record<string, unknown>).debitopiscofins) || 0))}</span>
               <span>Venda líq.: R$ {fmtBRL(Number(item.vendaliq) || 0)}</span>
               <span>Lucro bruto: R$ {fmtBRL(Number(item.lucrobrutov) || 0)} ({fmtBRL(Number(item.lucrobrutop) || 0)}%)</span>
@@ -275,4 +289,25 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
       </div>
     </Modal>
   );
+}
+
+/**
+ * AS TECLAS DA JANELA (`FRMPRECIFICACAOPRODUTO`, FormKeyDown do uPrecificacaoProdutos — com o `inherited`, menos no Esc): Esc = Sair (o
+ * `onClose` do Modal) · F3 a quantidade (a 1ª loja da grade) · F5 o desconto em R$ · F9 confirma · F11 a venda sugerida vira a praticada
+ * e a margem é refeita. LACUNA: F2 foca o "Custo Embalagem" (VLREMBALAGEMB) — aqui o custo se digita por unidade e o da embalagem é
+ * derivado (fator × custo), sem campo.
+ */
+function TeclasDoItemPedido({ qtde, desconto, confirmar, vendaSugerida }: {
+  qtde: RefObject<HTMLDivElement | null>; desconto: RefObject<HTMLDivElement | null>; confirmar: () => void; vendaSugerida: (() => void) | null;
+}) {
+  // F3 = GrdQtde.SetFocus na 1ª linha, coluna da quantidade (FormKeyDown do uPrecificacaoProdutos) — o "[F3] - &Qtde"; loja fechada
+  // não se edita, vai a 1ª aberta
+  useShortcut('f3', () => focarMnemonico(Array.from(qtde.current?.querySelectorAll<HTMLInputElement>('input') ?? []).find((i) => !i.disabled)));
+  // F5 = edtDescV.SetFocus (FormKeyDown do uPrecificacaoProdutos) — o DESCONTO em valor
+  useShortcut('f5', () => focarMnemonico(desconto.current?.querySelector<HTMLInputElement>('input')));
+  // F9 = btnOkClick (FormKeyDown do uPrecificacaoProdutos) — o "[F9] - &Confirma"
+  useShortcut('f9', () => confirmar());
+  // F11 = edtVenda := DbtVendaSugestao; MargemPrecificacao (FormKeyDown do uPrecificacaoProdutos) — com a sugerida já calculada
+  useShortcut('f11', () => vendaSugerida?.(), { when: !!vendaSugerida });
+  return null;
 }

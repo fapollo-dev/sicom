@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '../../shared/ui/Modal';
+import { useShortcut } from '../../shared/keyboard';
 import { useMensagem } from '../../shared/mensagem';
 import { opcoesDoProcessarNf, pedeLiberacaoEstoqueNegativo, processarNf, type ModoPrecoProcessar, type OpcoesDoProcessar } from './nfProcessamentoApi';
 import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal';
@@ -9,6 +10,12 @@ import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal
  * BLOQUEAR_ATUALIZA_PRECO_ONLINE_NF), Individual ou Sincronizar empresas — e, por item, "Atualizar preço de venda? [F7]" (padrão: o
  * ATUALIZA_VENDA_NF do CFOP) e "Altera custo" (padrão marcado). [F7] marca/desmarca todos os preços. O servidor move o estoque, atualiza
  * os produtos e o preço como o legado (UpdateProdutos).
+ *
+ * AS TECLAS DA JANELA (`FRMESTOQUENF`, FormKeyDown do uEstoqueNF): F7 marca/desmarca o preço de venda de todos os itens e F8 o
+ * "Altera custo" — o valor sai do item corrente invertido (`vStatus := not cdsItensNotaALTERAPRECO`) e vai para todos. LACUNAS — as
+ * colunas e o faturamento não existem nesta janela: F4/F5/F6 estoque depósito/loja/produção (o servidor decide o destino do estoque) ·
+ * F9 "Valor a pagar" e F10 o código de barras do boleto (as parcelas se geram na aba Financeiro da nota, antes do processar) · Alt+D a
+ * grade das formas de pagamento (aba futura).
  */
 interface Props {
   codnf: number;
@@ -39,17 +46,6 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
     }).catch((e) => mensagem.erro(e));
     return () => { vivo = false; };
   }, [codnf]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const tecla = (e: KeyboardEvent) => {
-      if (e.key !== 'F7' || !opcoes) return;
-      e.preventDefault();
-      const todos = opcoes.itens.every((i) => preco[i.codnfprod]);
-      setPreco(Object.fromEntries(opcoes.itens.map((i) => [i.codnfprod, !todos])));
-    };
-    window.addEventListener('keydown', tecla);
-    return () => window.removeEventListener('keydown', tecla);
-  }, [opcoes, preco]);
 
   const [negativos, setNegativos] = useState<Array<{ nroitem: number; codproduto: number; saldo: number }> | null>(null);
   const confirmar = async (cred?: { login: string; senha: string }) => {
@@ -84,8 +80,10 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
 
   return (
     <Modal open onClose={onFechar} size="lg" title="Processar nota fiscal"
-      primaryAction={{ label: executando ? 'Processando…' : 'Processar', onClick: () => void confirmar() }}
-      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}>
+      primaryAction={{ label: executando ? 'Processando…' : '&Processar', onClick: () => void confirmar() }}
+      secondaryAction={{ label: '&Cancelar', onClick: onFechar }}>
+      {/* com a liberação do estoque negativo aberta por cima, as teclas são dela */}
+      {opcoes && !negativos && <TeclasDoProcessar itens={opcoes.itens} preco={preco} setPreco={setPreco} custo={custo} setCusto={setCusto} precoHabilitado={modo !== 'nenhum'} />}
       {negativos && <LiberacaoEstoqueNegativoModal itens={negativos} onFechar={() => setNegativos(null)} onConfirmar={(c) => void confirmar(c)} />}
       {!opcoes ? <small className="text-fg-muted">Carregando…</small> : (
         <div className="flex flex-col gap-form-gap">
@@ -108,7 +106,7 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
                 <tr className="text-left text-fg-muted">
                   <th className="py-pad-xs pr-pad-sm">Item</th><th className="pr-pad-sm">Produto</th><th className="pr-pad-sm text-right">Qtde</th>
                   <th className="pr-pad-sm text-right">Venda da nota</th><th className="pr-pad-sm text-right">Venda da loja</th>
-                  <th className="pr-pad-sm">Atualizar preço de venda? [F7]</th><th>Altera custo</th>
+                  <th className="pr-pad-sm">Atualizar preço de venda? [F7]</th><th>Altera custo? [F8]</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,8 +117,8 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
                     <td className="pr-pad-sm text-right">{fmt(i.quantidade)}</td>
                     <td className="pr-pad-sm text-right">{fmt(i.vrvenda)}</td>
                     <td className={`pr-pad-sm text-right ${Number(i.vrvenda).toFixed(2) !== Number(i.vrvenda_loja).toFixed(2) ? 'text-warning' : ''}`}>{fmt(i.vrvenda_loja)}</td>
-                    <td className="pr-pad-sm"><input type="checkbox" checked={!!preco[i.codnfprod]} disabled={modo === 'nenhum'} onChange={(e) => setPreco((p) => ({ ...p, [i.codnfprod]: e.target.checked }))} /></td>
-                    <td><input type="checkbox" checked={!!custo[i.codnfprod]} onChange={(e) => setCusto((c) => ({ ...c, [i.codnfprod]: e.target.checked }))} /></td>
+                    <td className="pr-pad-sm"><input type="checkbox" data-item={i.codnfprod} checked={!!preco[i.codnfprod]} disabled={modo === 'nenhum'} onChange={(e) => setPreco((p) => ({ ...p, [i.codnfprod]: e.target.checked }))} /></td>
+                    <td><input type="checkbox" data-item={i.codnfprod} checked={!!custo[i.codnfprod]} onChange={(e) => setCusto((c) => ({ ...c, [i.codnfprod]: e.target.checked }))} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -130,4 +128,30 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
       )}
     </Modal>
   );
+}
+
+type Marcas = Record<number, boolean>;
+/**
+ * F7 = MarcarDesmParaAlterarPreco e F8 = MarcarDesmParaAlterarCusto (FormKeyDown do uEstoqueNF), registradas por um filho do Modal (o
+ * escopo da janela). O "item corrente" é a linha com o foco; sem foco numa linha, o 1º item. O F7 respeita o habilitado da coluna (os
+ * checkboxes do preço travam em "Não atualizar").
+ */
+function TeclasDoProcessar({ itens, preco, setPreco, custo, setCusto, precoHabilitado }: {
+  itens: Array<{ codnfprod: number }>; preco: Marcas; setPreco: (m: Marcas) => void; custo: Marcas; setCusto: (m: Marcas) => void; precoHabilitado: boolean;
+}) {
+  const corrente = (e: KeyboardEvent) => {
+    const foco = Number((e.target as HTMLElement | null)?.closest?.('tr')?.querySelector?.('[data-item]')?.getAttribute('data-item'));
+    return itens.find((i) => i.codnfprod === foco)?.codnfprod ?? itens[0]?.codnfprod;
+  };
+  const inverter = (marcas: Marcas, set: (m: Marcas) => void) => (e: KeyboardEvent) => {
+    const cod = corrente(e);
+    if (cod == null) return false;
+    const status = !marcas[cod];
+    set(Object.fromEntries(itens.map((i) => [i.codnfprod, status])));
+  };
+  // F7 = MarcarDesmParaAlterarPreco, com a coluna "Atualizar preço de venda? [F7]" (FormKeyDown do uEstoqueNF)
+  useShortcut('f7', inverter(preco, setPreco), { when: precoHabilitado });
+  // F8 = MarcarDesmParaAlterarCusto, com a coluna "Altera custo? [F8]" (FormKeyDown do uEstoqueNF)
+  useShortcut('f8', inverter(custo, setCusto));
+  return null;
 }

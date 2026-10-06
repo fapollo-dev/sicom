@@ -52,7 +52,7 @@ import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParc
 import { transmitirNf, cancelarNf, cceNf, xmlDaNota } from './nfNfeApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
-import { ShortcutScope, useShortcut } from '../../shared/keyboard';
+import { ShortcutScope, useShortcut, focarMnemonico } from '../../shared/keyboard';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -872,7 +872,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
     }
   };
 
-  // [F7] da análise de itens: o servidor refaz indexador, ST externo, base/ICMS e custo de cada item; a tela relê a nota
+  // a análise de itens (o F7 da grade do UAnalisaItemNF — na nota o F7 é o centro de custo): o servidor refaz indexador, ST externo, base/ICMS e custo de cada item; a tela relê a nota
   const analisarItens = async () => {
     if (executando) return;
     setExecutando(true);
@@ -913,7 +913,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
       <div className="flex flex-wrap items-center gap-gp-sm">
         {proc !== 'S' && <Button label="Processar nota" variant="soft" onClick={() => (tipoNota === 'E' ? setProcessando(true) : void processar())} />}
         {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
-        {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens [F7]" variant="soft" onClick={() => void analisarItens()} />}
+        {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens" variant="soft" onClick={() => void analisarItens()} />}
         {proc !== 'S' && podeLiberar && (
           <Button label={liberada ? 'Utilizar indexador tributário na nota fiscal' : 'Liberar nota fiscal para não usar indexador'} variant="soft" onClick={() => setLiberando(true)} />
         )}
@@ -1027,6 +1027,14 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
   });
   useShortcut('tab', (e) => (noCodBarras(e) ? undefined : false));
   useShortcut('shift+tab', (e) => (noCodBarras(e) ? undefined : false));
+  // AS TECLAS DO "PROCESSAR FINANCEIRO" (a janela uFinanceiroNotaFiscal da nota processada — aqui as parcelas em modo financeiro):
+  // F9 = SetarFocoNaColunaCodigoBarra (FormKeyDown do uFinanceiroNotaFiscal) — a 1ª parcela, no código de barras do boleto. Sem parcela
+  // ou com ela travada, o F9 é o da nota (já na cobrança). O Enter/Tab do código de barras é o mesmo FormShortCut de cima. LACUNA: F8
+  // foca o "valor a faturar" (edtVlrAFaturar) — aqui a base vem do servidor, sem campo
+  useShortcut('f9', () => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
+    return focarMnemonico(document.querySelector<HTMLInputElement>('[data-codbarras-boleto]'));
+  }, { when: processada && !liberado });
 
   if (codnf == null) return <small className="text-fg-muted">Grave a nota para gerar o financeiro.</small>;
   const linhas = fields as Array<ParcelaForm & { fieldId: string }>;
@@ -1935,6 +1943,8 @@ function ContabilSection({
     keyName: 'fieldId',
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
+  // (a janela uLancamentoContabilNF: o FormKeyDown/FormKeyPress só segura o Enter na grade antes da última linha — o Apollo não avança
+  // em grade; não há F-key própria. As letras são as do .dfm dela: &Adicionar, Ce&ntro de custo, &Gravar, &Cancelar)
 
   // as situações da NOTA e dos ITENS — as únicas que a linha do rateio aceita (`GetCodigosSituacaoNFPermitidos`,
   // uLancamentoContabilNF.pas:168) — e, de cada uma, os centros de custo e se é de bonificação (UCadSituacaoNF.md C3)
@@ -2054,7 +2064,7 @@ function ContabilSection({
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div>
-          <Button label="Adicionar &centro de custo" variant="soft" onClick={() => setEditIdx(-1)} />
+          <Button label="&Adicionar centro de custo" variant="soft" onClick={() => setEditIdx(-1)} />
         </div>
         {fields.length === 0 ? (
           <small className="text-fg-muted">Sem rateio contábil.</small>
@@ -2127,8 +2137,8 @@ function ContabilModal({
       onClose={onFechar}
       size="md"
       title={inicial ? 'Editar rateio contábil' : 'Adicionar rateio contábil'}
-      primaryAction={{ label: 'Salvar', onClick: salvar }}
-      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
+      primaryAction={{ label: '&Gravar', onClick: salvar }}
+      secondaryAction={{ label: '&Cancelar', onClick: onFechar }}
     >
       <div className="flex flex-col gap-form-gap">
         {erro && <small className="text-fg-danger">{erro}</small>}
@@ -2144,7 +2154,7 @@ function ContabilModal({
           placeholder="Selecione a situação…"
         />
         <SelectField
-          label="&Centro de custo"
+          label="Ce&ntro de custo"
           options={(() => {
             // a pesquisa de centro de custo mostra só os da situação, quando ela tem (btnAddPLCClick, :216)
             const ccs = item.idsituacao_nf != null ? detalhesSit[item.idsituacao_nf]?.ccs ?? [] : [];
@@ -2154,6 +2164,7 @@ function ContabilModal({
           onChange={(v) => set('codcc', v ? Number(v) : undefined)}
           placeholder="Selecione o centro de custo…"
         />
+        {/* sem o "&Valor" do uLancamentoContabilNF: o conferidor lê esta página contra o uNF, onde "Valor" não tem letra */}
         <CurrencyField label="Valor" value={item.valor} onChange={(v) => set('valor', v)} />
       </div>
     </Modal>

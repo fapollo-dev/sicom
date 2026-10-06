@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Modal } from '../../shared/ui/Modal';
+import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import { ORIGEM_OPCOES, type NfItemDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -11,7 +12,7 @@ import { configuracaoItemNf } from './nfFiscalApi';
 
 /**
  * Modal de ADICIONAR/EDITAR um ITEM da NF (detalhe 1:N — NF_PROD). Espelha o padrão dos
- * modais de detalhe (CodAuxiliarModal/EnderecoModal): form LOCAL controlado; só ao "Salvar"
+ * modais de detalhe (CodAuxiliarModal/EnderecoModal): form LOCAL controlado; só ao "Ok"
  * o item sobe ao pai (append/update no useFieldArray) e aparece no grid. No save do master,
  * o engine de agregado grava header + itens numa transação.
  *
@@ -54,6 +55,8 @@ export function NfItemModal({
   const set = <K extends keyof NfItemDto>(k: K, v: NfItemDto[K]) => setItem((i) => ({ ...i, [k]: v }));
   // a descrição do item só se digita com EDITAR_DESCRICAO_ITEM_NF='S' (uItensNF.pas:3657); sem ela é a do produto
   const [editarDescricao, setEditarDescricao] = useState(false);
+  const fatorRef = useRef<HTMLDivElement>(null);
+  const cfopRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let vivo = true;
     configuracaoItemNf().then((c) => { if (vivo) setEditarDescricao(Boolean(c.editarDescricao)); }).catch(() => undefined);
@@ -75,9 +78,10 @@ export function NfItemModal({
       onClose={onFechar}
       size="lg"
       title={inicial ? 'Editar item da nota' : 'Adicionar item da nota'}
-      primaryAction={{ label: 'Salvar', onClick: salvar }}
-      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
+      primaryAction={{ label: '&Ok', onClick: salvar }}
+      secondaryAction={{ label: '&Cancelar', onClick: onFechar }}
     >
+      <TeclasDoItemNf fator={fatorRef} cfop={cfopRef} />
       <div className="flex flex-col gap-form-gap">
         {erro && <small className="text-fg-danger">{erro}</small>}
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
@@ -108,22 +112,24 @@ export function NfItemModal({
             decimais={3}
             min={0}
           />
-          <NumberField
-            label="&Fator embalagem"
-            value={item.fatorembal}
-            onChange={(v) => set('fatorembal', v)}
-            decimais={3}
-            min={0}
-          />
+          <div ref={fatorRef}>
+            <NumberField
+              label="Fator embal. [F6]"
+              value={item.fatorembal}
+              onChange={(v) => set('fatorembal', v)}
+              decimais={3}
+              min={0}
+            />
+          </div>
           <SelectField
-            label="&Unidade"
+            label="Unidade"
             options={unidadeOptions}
             value={item.unidade ?? undefined}
             onChange={(v) => set('unidade', v || undefined)}
             placeholder="Selecione…"
           />
           <CurrencyField
-            label="&Valor unitário"
+            label="Valor unitário"
             value={item.vrcusto}
             onChange={(v) => set('vrcusto', v)}
           />
@@ -136,20 +142,22 @@ export function NfItemModal({
             value={item.arredonda === 'N' ? 'N' : item.arredonda === 'S' ? 'S' : undefined}
             onChange={(v) => set('arredonda', v)}
           />
-          <CurrencyField label="&Bonificação" value={item.bonificacao} onChange={(v) => set('bonificacao', v)} />
+          <CurrencyField label="Bonificação" value={item.bonificacao} onChange={(v) => set('bonificacao', v)} />
         </div>
 
         {/* Config fiscal ARMAZENADA (cálculo de imposto = F2). */}
         <fieldset className="rounded-radius-base border border-border p-pad-sm">
           <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Fiscal</legend>
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-            <SelectField
-              label="&CFOP"
-              options={cfopOptions}
-              value={item.cfop ?? undefined}
-              onChange={(v) => set('cfop', v || undefined)}
-              placeholder="Selecione o CFOP…"
-            />
+            <div ref={cfopRef}>
+              <SelectField
+                label="CFOP [F9]"
+                options={cfopOptions}
+                value={item.cfop ?? undefined}
+                onChange={(v) => set('cfop', v || undefined)}
+                placeholder="Selecione o CFOP…"
+              />
+            </div>
             <SelectField
               label="A&líquota"
               options={aliquotaOptions}
@@ -158,7 +166,7 @@ export function NfItemModal({
               placeholder="Selecione a alíquota…"
             />
             <Field
-              label="&NCM"
+              label="NCM"
               inputMode="numeric"
               maxLength={8}
               value={item.ncm ?? ''}
@@ -172,7 +180,7 @@ export function NfItemModal({
               onChange={(e) => set('cest', e.target.value || undefined)}
             />
             <NumberField
-              label="&ICMS (%)"
+              label="ICMS (%)"
               value={item.icms}
               onChange={(v) => set('icms', v)}
               decimais={2}
@@ -180,20 +188,20 @@ export function NfItemModal({
               endAddon="%"
             />
             <NumberField
-              label="C&ST"
+              label="CST"
               value={item.cst}
               onChange={(v) => set('cst', v)}
               decimais={0}
               min={0}
             />
             <Field
-              label="CSOS&N"
+              label="CSOSN"
               maxLength={3}
               value={item.csosn ?? ''}
               onChange={(e) => set('csosn', e.target.value || undefined)}
             />
             <SelectField
-              label="&Origem"
+              label="Origem"
               options={ORIGEM_OPCOES}
               value={item.origem_estoque ?? undefined}
               onChange={(v) => set('origem_estoque', v || undefined)}
@@ -204,4 +212,28 @@ export function NfItemModal({
       </div>
     </Modal>
   );
+}
+
+/**
+ * AS TECLAS DA JANELA (`FRMITENSNF`, FormKeyDown do uItensNF — sem `inherited`): Esc = Cancelar (o `onClose` do Modal) · F6 foca o
+ * fator de embalagem · F9 abre o CFOP. O Alt+← e o Ctrl+E do `TfrmMaster` não valem na janela; o Enter-avança vale (sem FormKeyPress
+ * próprio, é o da base). LACUNAS — a ação não existe nesta janela: F2 o cadastro do produto por cima do item (aqui o cadastro é tela:
+ * ir até ele perderia a nota em edição) · F5 o indexador do item · F7 a busca por PLU × EAN (o produto é uma lista) · F8 a situação do
+ * item (a janela `FRMCONSULTASITUACAODOCUMENTO`; o item não tem o campo aqui) · F10 o estoque por empresa · F11 a declaração de
+ * importação.
+ */
+function TeclasDoItemNf({ fator, cfop }: { fator: RefObject<HTMLDivElement | null>; cfop: RefObject<HTMLDivElement | null> }) {
+  // F6 = SetaFoco(edtFatorEmb) (FormKeyDown do uItensNF) — o "Fator embal. [F6]"
+  useShortcut('f6', () => focarMnemonico(fator.current?.querySelector<HTMLInputElement>('input')));
+  // F9 = btnCFOPClick (FormKeyDown do uItensNF) — a Pesquisa de CFOP do tipo da nota, dentro/fora do estado e da situação: aqui a
+  // lista do CFOP (as opções já têm esse filtro), aberta
+  useShortcut('f9', () => {
+    const gatilho = cfop.current?.querySelector<HTMLElement>('button,[role=combobox]');
+    if (focarMnemonico(gatilho) === false) return false;
+    gatilho!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+  });
+  // o FormKeyDown do uItensNF não chama o `inherited`: o Alt+← e o Ctrl+E da base não valem com a janela aberta
+  useShortcut('ctrl+e', () => undefined);
+  useShortcut('alt+arrowleft', () => undefined);
+  return null;
 }
