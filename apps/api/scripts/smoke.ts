@@ -12984,6 +12984,22 @@ async function main() {
           fora.status === 422 && String(foraJ.code) === 'COTACAO_PRAZO_ENCERRADO',
           { resp: foraJ });
 
+        // o IMPRIMIR (`mniImprimirClick`): a cotação como está na tela no cot_pree_da_cotacao.fr3 — o cabeçalho e os itens aninhados
+        const stubCt = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="CotPree"/></TfrxReport>').toString('base64');
+        await pgCt.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992951, 1, 'cot_pree_da_cotacao.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubCt]);
+        const ctImp = await fetch(`${base}/${CT}/impressao`, { method: 'POST', headers: H, body: JSON.stringify({
+          cabecalho: { descricao: 'COTACAO SMOKE', data: '2026-10-05', datavalidade: '2026-10-20' },
+          itens: [{ codbarra: '7891', descricao: 'ARROZ', unidade: 'FD', quantidade: 10, valor: 22.5 }, { codbarra: '7892', descricao: 'FEIJAO', unidade: 'FD', quantidade: 20, valor: 7.125 }] }) });
+        const ctImpJ = (await ctImp.json().catch(() => ({}))) as any;
+        await pgCt.query(`DELETE FROM relatorios WHERE codrelatorio = 992951`);
+        check('COTAÇÃO FORN [o Imprimir]: o cot_pree_da_cotacao.fr3 recebe o cabeçalho (descrição, data, validade) e os itens aninhados nele com o valor digitado',
+          ctImp.status === 200 && String(ctImpJ.modelo ?? '').includes('CotPree')
+          && ctImpJ.datasets?.frxDBCotacao_Forn?.[0]?.DESCRICAO === 'COTACAO SMOKE' && ctImpJ.datasets?.frxDBCotacao_Forn?.[0]?.DATAVALIDADE === '2026-10-20T00:00:00'
+          && (ctImpJ.datasets?.frxDBCotacao_Forn_Itens ?? []).length === 2 && Number(ctImpJ.datasets.frxDBCotacao_Forn_Itens[1].VALOR) === 7.125
+          && ctImpJ.datasets.frxDBCotacao_Forn_Itens.every((x: any) => x.__MESTRE === 0),
+          { st: ctImp.status, ds: ctImpJ.datasets });
+
         await pgCt.query(`DELETE FROM cotacao_forn_itens WHERE codctcforn=$1`, [cj.codctcforn]);
         await pgCt.query(`DELETE FROM cotacao_forn WHERE codctc=99701`);
         await pgCt.query(`DELETE FROM cotacao_prod WHERE codctc=99701`);

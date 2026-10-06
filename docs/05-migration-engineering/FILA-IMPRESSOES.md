@@ -17,7 +17,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 355 | `FRMRELREGISTROS_ES` | Notas_Fiscais_Registro_Apuracao/Entrada/Saida | ✅ 06/10 — Apuração (e a apuração refeita pela regra do binário novo, `7a44529`) e o modo Registro de entradas/saídas, que não existia |
 | 236 | `FRMPRECIFICACAONF` | PrecificacaoNF | ✅ 06/10 (a grade como está, com o editado) |
 | 141 | `FRMRELINVENTARIOROTATIVO` | InvRotDetalhado/Produtos/Resumido | ✅ 06/10 (o relatório inteiro — as 5 opções, a grade e a impressão — não existia) |
-| 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ⏳ |
+| 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ✅ 06/10 (a tela como está; a ordem dos itens do fonte) |
 | 121 | `FRMTROCAMERCADORIAFOR` | extr - Troca | ⏳ |
 | 120 | `FRMRELINTERSECCAOPRODUTOS` | extr - Interseccao produtos qtde cupom/vendida | ⏳ |
 | 116 | `FRMDIGITACAOPEDIDOS` | PedidoRetaguarda[A4][_Transferencia] | ⏳ |

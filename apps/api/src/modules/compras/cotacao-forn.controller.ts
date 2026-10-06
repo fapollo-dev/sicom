@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { cotacaoFornLoginSchema, cotacaoFornPreencherSchema, cotacaoFornCriarSchema,
-  type CotacaoFornLoginDto, type CotacaoFornPreencherDto, type CotacaoFornCriarDto } from '@apollo/shared';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { cotacaoFornLoginSchema, cotacaoFornPreencherSchema, cotacaoFornCriarSchema, cotacaoFornImpressaoSchema,
+  type CotacaoFornLoginDto, type CotacaoFornPreencherDto, type CotacaoFornCriarDto, type CotacaoFornImpressaoDto } from '@apollo/shared';
 import { CotacaoFornService } from './cotacao-forn.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -20,6 +20,14 @@ export class CotacaoFornController {
       comoParceiro: b.comoParceiro, login: b.login ?? null,
       codparceiro: b.codparceiro ?? null, senha: b.senha,
     });
+  }
+
+  /** o "Imprimir" do menu: a cotação como está na tela no cot_pree_da_cotacao.fr3 do cliente */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADCOTACAOFORN', 'FRMCADCOTACAOFORN')
+  impressao(@Body(new ZodValidationPipe(cotacaoFornImpressaoSchema)) b: CotacaoFornImpressaoDto) {
+    return this.svc.impressao(b);
   }
 
   @Get(':codctcforn')

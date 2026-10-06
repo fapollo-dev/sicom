@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -132,6 +133,18 @@ export function CotacaoFornPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [edit]);
 
+  /** IMPRIMIR (`mniImprimirClick`): a cotação como está na tela — com o valor digitado e ainda não gravado */
+  const imprimir = async () => {
+    if (!cab) return;
+    try {
+      await imprimirRelatorio('/compras/cotacao-forn/impressao', {
+        cabecalho: { descricao: cab.descricao ?? null, data: cab.data ?? null, datavalidade: cab.datavalidade ?? null },
+        itens: itens.map((i) => ({ codbarra: i.codbarra, descricao: i.descricao, unidade: i.unidade, quantidade: i.quantidade,
+          valor: Number(String(edit[i.codctcfit]?.valor ?? i.valor ?? 0).replace(',', '.')) || 0 })),
+      });
+    } catch (e) { mensagem.erro(e); }
+  };
+
   return (
     <div className="flex flex-col gap-gp-md">
       <PageHeader title="Preencher cotação" />
@@ -183,6 +196,7 @@ export function CotacaoFornPage() {
                   <div><div className="text-fg-muted">Itens</div><div className="text-body-lg tabular-nums">{itens.length}</div></div>
                   <div className="w-72"><Field label="&Observação" value={obs} onChange={(e) => setObs(e.target.value)} /></div>
                   <Button label="&Gravar preços" disabled={ocupado || itens.length === 0} onClick={() => void gravar()} />
+                  <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />
                 </div>
                 <p className="mt-form-gap text-body-sm text-fg-muted">
                   O <strong>total</strong> de cada item é o preço multiplicado pelo fator de embalagem. O

@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import type { CotacaoFornImpressaoDto } from '@apollo/shared';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -125,7 +127,8 @@ export class CotacaoFornService {
         JOIN cotacao_prod cp  ON cp.codcpr = i.codcpr
         LEFT JOIN produtos pr ON pr.idproduto = cp.idproduto
        WHERE i.codctcforn = ${codctcforn}
-       ORDER BY coalesce(cp.descricao, pr.descricao)
+       -- a ordem do qryCotacao_Forn_Itens: a descrição do PRODUTO (não a da linha da cotação)
+       ORDER BY pr.descricao, i.codctcfit
     `.execute(db)).rows;
 
     return { cabecalho: cab, itens };
@@ -200,6 +203,27 @@ export class CotacaoFornService {
    * Um fornecedor preenche cada cotação **uma vez** (`VerificarExistenciaFornCotacao:565`). Criar a segunda
    * é recusado — no legado com a mensagem "já foi preenchida pelo fornecedor".
    */
+  /**
+   * IMPRESSÃO — `Relatorios\cot_pree_da_cotacao.fr3` com o `frxDBCotacao_Forn` (o cabeçalho: a DESCRICAO da cotação, a DATA do
+   * preenchimento, a validade) e o `frxDBCotacao_Forn_Itens` aninhado (código de barras, descrição, unidade, quantidade, valor); o total
+   * do rodapé é o SUM(VALOR) do layout.
+   */
+  async impressao(dto: CotacaoFornImpressaoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const d = (v?: string | null) => (v ? String(v).slice(0, 10) + 'T00:00:00' : null);
+    return {
+      titulo: 'Preenchimento da cotação',
+      modelo: await modeloFr3(db, 'cot_pree_da_cotacao.fr3'),
+      datasets: {
+        frxDBCotacao_Forn: [{ DESCRICAO: dto.cabecalho.descricao ?? '', DATA: d(dto.cabecalho.data), DATAVALIDADE: d(dto.cabecalho.datavalidade) }],
+        frxDBCotacao_Forn_Itens: dto.itens.map((it) => ({
+          CODBARRA: it.codbarra ?? '', DESCRICAO: it.descricao ?? '', UNIDADE: it.unidade ?? '',
+          QUANTIDADE: Number(it.quantidade ?? 0), VALOR: Number(it.valor ?? 0), __MESTRE: 0,
+        })),
+      },
+    };
+  }
+
   async criar(dto: { codctc: number; codparceiro: number; datavalidade?: string | null; obs?: string | null }): Promise<{ codctcforn: number }> {
     this.emp();
     const db = this.dbp.forTenant() as AnyDB;

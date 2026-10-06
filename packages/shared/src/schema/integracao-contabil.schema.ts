@@ -522,6 +522,19 @@ export const cotacaoFornPreencherSchema = z.object({
 });
 export type CotacaoFornPreencherDto = z.infer<typeof cotacaoFornPreencherSchema>;
 
+/**
+ * IMPRIMIR a cotação (`mniImprimirClick`, uCadCotacaoForn.pas:415): o `cot_pree_da_cotacao.fr3` lê o `cdsCotacao_Forn` e os itens
+ * aninhados como estão na tela (os valores digitados e não gravados entram) — a página manda o cabeçalho e os itens.
+ */
+export const cotacaoFornImpressaoSchema = z.object({
+  cabecalho: z.object({ descricao: z.string().max(200).nullish(), data: z.string().max(30).nullish(), datavalidade: z.string().max(30).nullish() }),
+  itens: z.array(z.object({
+    codbarra: z.string().max(30).nullish(), descricao: z.string().max(200).nullish(), unidade: z.string().max(10).nullish(),
+    quantidade: z.coerce.number().finite().nullish(), valor: z.coerce.number().finite().nullish(),
+  })).max(5000),
+});
+export type CotacaoFornImpressaoDto = z.infer<typeof cotacaoFornImpressaoSchema>;
+
 export const cotacaoFornCriarSchema = z.object({
   codctc: z.coerce.number().int().positive(),
   codparceiro: z.coerce.number().int().positive(),

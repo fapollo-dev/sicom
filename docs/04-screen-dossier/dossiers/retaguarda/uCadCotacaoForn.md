@@ -65,3 +65,12 @@ fornecedor informa o fator ao preencher.
   (comparar fornecedores e marcar o `GANHADOR`), que é outra tela;
 - o **envio por e-mail** da cotação (`DTENVIOEMAIL`) e a **lista de fornecedores** (`CODCTC_LISTAF`);
 - a impressão da cotação para o fornecedor preencher no papel.
+
+## A impressão (06/10/2026)
+
+`mniImprimirClick` (uCadCotacaoForn.pas:415): `Relatorios\cot_pree_da_cotacao.fr3` (PERSONALIZADO 700) com o `frxDBCotacao_Forn`
+(o `cdsCotacao_Forn`: a DESCRICAO da cotação, a DATA — a do preenchimento, a primeira das duas DATA do `sqqCotacao_Forn` — e a validade)
+e o `frxDBCotacao_Forn_Itens` aninhado (código de barras, descrição, unidade, quantidade e o VALOR em `%2.4n`, total = SUM(VALOR)). O
+dataset é o da tela, então o valor digitado e ainda não gravado entra: a página manda o cabeçalho e os itens (API
+`POST compras/cotacao-forn/impressao`, botão "Imprimir"). Os itens passaram a vir na ordem do `qryCotacao_Forn_Itens`
+(`ORDER BY P.DESCRICAO`, a do produto — o Apollo ordenava pela descrição da linha da cotação).

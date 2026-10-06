@@ -1338,3 +1338,22 @@ describe('inventário rotativo (InvRotDetalhado/InvRotResumido/InvRotProdutos.fr
     expect(t).toContain('09/02/2026');
   });
 });
+
+describe('preenchimento da cotação (cot_pree_da_cotacao.fr3, FRMCADCOTACAOFORN)', () => {
+  it('o cabeçalho, os itens aninhados com o valor em 4 casas e o total', () => {
+    const t = texto(paginasDoModelo(modelo('cotacao-forn.fr3'), {
+      frxDBCotacao_Forn: [{ DESCRICAO: 'COTACAO MERCEARIA OUT', DATA: '2026-10-05T00:00:00', DATAVALIDADE: '2026-10-20T00:00:00' }],
+      frxDBCotacao_Forn_Itens: [
+        { CODBARRA: '7891000', DESCRICAO: 'ARROZ 5KG', UNIDADE: 'FD', QUANTIDADE: 10, VALOR: 22.5, __MESTRE: 0 },
+        { CODBARRA: '7892000', DESCRICAO: 'FEIJAO 1KG', UNIDADE: 'FD', QUANTIDADE: 20, VALOR: 7.125, __MESTRE: 0 },
+      ],
+    }, agora));
+    expect(t).toContain('PREENCHIMENTO DA COTAÇÃO');
+    expect(t).toContain('COTACAO MERCEARIA OUT');
+    expect(t).toContain('05/10/2026');
+    expect(t).toContain('20/10/2026');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('22,5000');
+    expect(t).toContain('29,63');      // SUM(VALOR) sem formato do layout: 22,5 + 7,125
+  });
+});
