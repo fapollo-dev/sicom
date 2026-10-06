@@ -262,3 +262,41 @@ casos em 2026 com uma NFC-e inutilizada ao lado da autorizada —, então vence 
 cancelada**, e `statusnfe` só vira 'P' nesse caso (o legado exige `STATUSNFE='P'` **e** `PROC='S'`). Conferido
 na semana de 01 a 07/07/2026: **53.015 itens e ICMS R$ 9.179,50, idênticos ao `GetSQLNFC`**; 91 itens sem NFC-e
 casada ficam de fora, como no legado. A mesma derivação alimenta a perna do cupom da apuração de IBS/CBS.
+
+## §8. A regra do binário que a produção roda — provada contra o gravado (06/10/2026)
+
+A auditoria de fidelidade (ao converter a impressão do livro) comparou o SQL do fonte com o `APURACAO_ICMS_DETALHES` que o legado
+**gravou** na produção (só leitura; `tools/cutover/conferir-apuracao-icms.py`). A produção tem apurações até jan/2026 (2282/2283).
+
+- O SQL do fonte (`FDqCFOP_ICMS` + o marcador FILTRO NF de cada perna) reproduz as **saídas** e a **NFC-e** (jan/2026: 50.122 cupons
+  e R$ 1.381.934,76 contra 50.127 e R$ 1.381.951,71 — cupons transmitidos depois), mas não as **entradas**: crédito de 8.132,02 contra
+  **12.877,83** gravados (= o `CREDITOENTRADA` do cabeçalho).
+- Documento a documento, a diferença tem padrão: o 1910/CST 10 com alíquota STB e ICMS destacado credita; o 1401 com ICMS no item
+  credita; a alíquota gravada é o `ICME` (não o `ICMS`), o efetivo gravado é o `BCR` (100, 38,89…), e o TOTALNF soma o frete pelo
+  **`VRFRETE`** (R$ 11,50 = `FRETE_NOTA`), não o percentual `FRETE` × valor (o 142012 tem `FRETE` = 100).
+- A regra reconstruída (H6) bate **todas as colunas** em 1.650 de 1.658 linhas de dez/2025 e jan/2026, nas duas empresas, e soma
+  exatamente o crédito e o débito gravados (12.877,83 · 10.790,64 · 16.718,21; saídas 248,25 · 175,42 · 70,41). As 8 que sobram são
+  notas alteradas depois da apuração (o 143558 tem dois `BCR` hoje e uma linha gravada com a média). Em nov/2025 sobram notas inteiras
+  fora da gravada — há uma apuração parcial 26/11–01/12 (2242).
+
+| coluna | fonte (2020) | binário novo (o Apollo, desde 06/10/2026) |
+|---|---|---|
+| BASE / VALOR_ICMS | só alíquota **T**; zera cupom, x401/x403/x933/x556, x101/x102 CST 40/90 | zera alíquota **I/N**, cupom, x403/x933/x556, x101/x102 CST 40/90 (o **x401 credita**) |
+| ICMS (alíquota) | `ICME` só na T, com as mesmas zeragens | `ICME`; zera cupom, x933/x556, x101/x102 CST 40/90 e alíquota I/N (o x403 **não** zera) |
+| ICMS_EFETIVO | `ICME × BCR / 100` | **`BCR`** arredondado (mesmas zeragens da alíquota, sem a I/N); entra no agrupamento |
+| frete (OUTRAS da S, TOTALNF) | `FRETE`% × valor | **`VRFRETE`** (valor) |
+| ISENTAS, OUTRAS, TOTALNF, ARREDONDA no grão | — | iguais ao fonte (o `ARREDONDA` separa linhas: 1.658 linhas × 1.644 chaves) |
+
+- O x403 zerou o valor em todas as apurações desde set/2025; em 2082/2143 (meados de 2025) ele contava — outra versão do binário. O
+  Apollo segue a mais recente.
+- **REDUÇÃO Z** (`REDUCAOZ`, espécie 'MR'): a tabela tem **0 linhas** na produção — perna morta, não portada.
+- **NFC-e**: o `GetSQLNFC` não junta a tabela CFOP — o `NAO_GERA_APURACAO_ICMS` não vale para o cupom (o Apollo aplicava). A em
+  contingência ('G') entra só com `CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL` = 'S' (a view `GET_CONFIG_NFCE_CONTIGENCIA`; na produção
+  'N'). `CLASSFISCAL` do cupom é nulo em 100% do gravado.
+- **Nota sem endereço** fica fora (`INNER JOIN PARCEIROS_END PE ON PE.CODEND = N.CODPARCEIRO_END`).
+- O `ICMS_CFOP` gravado é exatamente a soma do detalhe por CFOP (conferido nos 27 CFOPs de jan/2026) — o `resumoCfop` já fazia assim.
+- Sem prova de mudança, o SEGURO segue percentual (o fonte).
+
+O que o Apollo tinha antes (corte de 08/2026, "pelo dado" mas sem o SQL do fonte): ICMS = `NP.ICMS` sem zeragem nenhuma, efetivo
+`ICMS × BCR/100`, ISENTAS/OUTRAS sem as despesas acessórias e com IPI/frete como VALOR (são percentuais), TOTALNF sem FCP-ST, o gate de
+CFOP no cupom, sem o `INNER JOIN` do endereço e sem o `ARREDONDA` no grão.

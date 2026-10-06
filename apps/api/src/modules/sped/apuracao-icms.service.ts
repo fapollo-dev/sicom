@@ -4,6 +4,7 @@ import type { ApuracaoIcmsProcessarDto, ApuracaoIcmsObterDto } from '@apollo/sha
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -14,13 +15,10 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * `uDMRelRegistros_ES.pas`), que **produz** a `APURACAO_ICMS` que o SPED (E110) consome. Dossiê:
  * `docs/04-screen-dossier/dossiers/retaguarda/uRelRegistros_ES-apuracao-icms.md`.
  *
- * TRÊS PERNAS, porque é o que o dado exige (golden): **NFC-e de saída** carrega 99,8% do detalhe
- * (1.139.084 linhas, Σ ICMS 443.501,98) contra NF de saída (2.249 / 28.604,65) e NF de entrada (14.560 /
- * 230.401,27). Sem a perna do cupom o débito de saída sairia ~94% menor — errado, não parcial.
- *
- * Os cinco filtros das notas são regra (uRelRegistros_ES.pas:1915-1935): data **CONTÁBIL** (não a de emissão),
- * `PROC='S'`, `CANCELADA='N'`, denegada (`STATUSNFE='D'`) fora e NFe sem chave ou inutilizada (`'I'`) fora — mais o
- * gate `COALESCE(CFOP.NAO_GERA_APURACAO_ICMS,'N')='N'`.
+ * DUAS ESPÉCIES nas saídas (NF e NFC-e) e as NF de entrada; a terceira perna do fonte, a REDUÇÃO Z (`REDUCAOZ`/`REDUCAOZ_ALIQ`,
+ * espécie 'MR'), é morta: a tabela tem 0 linhas na produção (06/10/2026). Os filtros das notas são os do marcador FILTRO NF do fonte
+ * (data CONTÁBIL, `PROC='S'`, `CANCELADA='N'`, NRONF ≠ '0', denegada fora; na saída, NF-e com chave e não inutilizada) e as regras
+ * de cada coluna são as do binário que a produção roda (ver `detalheNotas`).
  *
  * O cabeçalho é o E110 (uDMRelRegistros_ES.pas:762-794 + os agregados do `.dfm`):
  *   TOTALCREDITO = saldoant + creditoentrada + outroscreditos + estornodebitos
@@ -40,94 +38,72 @@ export class ApuracaoIcmsService {
     return e;
   }
 
-  /** o gate de CFOP das três consultas — CFOP marcado fica fora da apuração. */
-  private cfopEntra(alias: string) {
-    return sql<boolean>`exists (select 1 from cfop c where c.codcfop = lpad(${sql.ref(alias)}::text, 4, '0')
-                                 and coalesce(c.nao_gera_apuracao_icms, 'N') = 'N')`;
-  }
-
   /**
-   * O detalhe das NOTAS (entrada ou saída), por documento × CST. `CODIGO = CODNF||'NF'` e `ESPECIE='NF'`, como no
-   * legado. `BASE`/`VALOR_ICMS` somam o item; `ISENTAS_NAOTRIB` e `OUTRAS` saem do que não tem base tributada
-   * (CST 40/41/50 = isenta/não-tributada/suspensão · o resto sem base = outras), a mesma separação do livro.
+   * O detalhe das NOTAS (entrada ou saída) — o `FDqCFOP_ICMS` (uDMRelRegistros_ES.dfm) com o marcador FILTRO NF de cada perna
+   * (uRelRegistros_ES.pas:1975 saída, :2121 entrada), **na versão do binário que a produção roda**. O fonte é de mai/2020 e a
+   * produção grava outra coisa; a regra abaixo foi reconstruída do dado e conferida linha a linha contra o `APURACAO_ICMS_DETALHES`
+   * gravado (dez/2025 e jan/2026, as duas empresas): todas as colunas batem em 1.650 de 1.658 linhas, o ICMS soma exatamente o
+   * crédito e o débito gravados (12.877,83 · 10.790,64 · 16.718,21), e as 8 que sobram são notas alteradas depois da apuração.
+   * O que mudou do fonte para o binário novo (dossiê §8):
+   *  - BASE/VALOR do ICMS: zera com CFOP de cupom (`PROC_CUPOM`), x403/x933/x556 e x101/x102 com CST 40/90, e com a alíquota
+   *    **I/N** — no fonte só a alíquota "T" contava e o x401 também zerava (o crédito do 1401/1910 com ST entra);
+   *  - a alíquota (ICMS) é o `ICME` e o ICMS_EFETIVO é o **`BCR`** arredondado — e o x403 não os zera (só cupom, x933/x556, x101/x102);
+   *  - o FRETE soma o **valor** (`VRFRETE`, coluna que o fonte não tem), não mais o percentual `FRETE` × valor.
+   * O grão é (documento, CFOP, CST, alíquota, efetivo, ARREDONDA): o `ARREDONDA` do item separa linhas, como no `GROUP BY` do fonte.
+   * Nota sem endereço (`INNER JOIN PARCEIROS_END`) e CFOP marcado (`NAO_GERA_APURACAO_ICMS`) ficam fora.
    */
   private async detalheNotas(trx: AnyDB, emp: number, tipo: 'E' | 'S', dataini: string, datafin: string, cod: number) {
-    // o VALOR do item é `VRCUSTO` LÍQUIDO do desconto percentual — não `vrvenda` (fold auditoria [ALTA]): no dado
-    // real da NF o `VRVENDA` é **zero** (em 2023-10: Σ qtde×vrvenda 1.255.631,33 contra Σ qtde×vrcusto
-    // 1.564.040,40, com 669 de 4.851 itens com vrvenda zerado), e a fórmula do `.dfm` é
-    // `(NP.VRCUSTO − VRCUSTO*DESCONTO/100) * QUANTIDADE`.
-    const valorItem = sql`((coalesce(i.vrcusto,0) - coalesce(i.vrcusto,0) * coalesce(i.desconto,0) / 100) * coalesce(i.quantidade,0))`;
-    // ISENTAS × OUTRAS não se separam por CST, e sim pela PRIMEIRA LETRA DA ALÍQUOTA (fold auditoria [ALTA]):
-    // 'I'/'N' → isentas/não-tributadas · 'S' (substituída) → outras, somando ST e IPI. Golden: item CST 40 com
-    // `ALIQUOTA='STB'` sai em OUTRAS, não em isentas; e CST 41/60/70/10 aparecem em OUTRAS no golden.
-    const letra = sql`upper(substr(coalesce(i.aliquota,''),1,1))`;
-    // TOTALNF é derivado dos ITENS DO GRUPO (não `max(n.totalnf)`, que repetiria a nota inteira em cada CFOP e
-    // inflava o "valor contábil" do livro em ~30-60% dos documentos com mais de um grupo — fold auditoria [ALTA]).
-    const totalGrupo = sql`(${valorItem} + coalesce(i.vricmst,0) + coalesce(i.ipi,0) + coalesce(i.frete,0)
-                            + coalesce(i.seguro,0) + coalesce(i.vroutrasdesp,0))`;
-    return trx
-      .insertInto('apuracao_icms_detalhes')
-      .columns(['codapuracaoicms', 'tipo', 'especie', 'codigo', 'cfop', 'cst', 'base', 'valor_icms',
-                'isentas_naotrib', 'outras', 'totalnf', 'icms', 'icms_efetivo', 'classfiscal'])
-      .expression((eb: any) =>
-        eb
-          .selectFrom('nf as n')
-          .innerJoin('nf_prod as i', 'i.codnf', 'n.codnf')
-          .leftJoin('parceiros as p', 'p.codparceiro', 'n.codparceiro')
-          .select([
-            sql`${cod}`.as('codapuracaoicms'),
-            sql`${tipo}`.as('tipo'),
-            sql`'NF'`.as('especie'),
-            sql`n.codnf::text || 'NF'`.as('codigo'),
-            sql`nullif(i.cfop,'')::int`.as('cfop'),
-            sql`i.cst`.as('cst'),
-            sql`sum(coalesce(i.vrbasecalculo,0))`.as('base'),
-            sql`sum(coalesce(i.vricm,0))`.as('valor_icms'),
-            sql`sum(case when ${letra} in ('I','N') then ${valorItem} else 0 end)`.as('isentas_naotrib'),
-            sql`sum(case when ${letra} = 'S' then ${valorItem} + coalesce(i.vricmst,0) + coalesce(i.ipi,0) else 0 end)`.as('outras'),
-            sql`sum(${totalGrupo})`.as('totalnf'),
-            sql`coalesce(i.icms,0)`.as('icms'),
-            // ICMS_EFETIVO = a alíquota aplicada sobre a base REDUZIDA (o golden traz 3 linhas do mesmo
-            // (codigo,cfop,cst) distinguidas só por ele) — aqui: alíquota × base/(qtde×custo) quando há redução.
-            // ICMS_EFETIVO = ICME × BCR/100 (a alíquota sobre a base REDUZIDA) — a coluna `BCR` é a % da base
-            // reduzida (mig 026), e o golden confirma a fórmula (apuração 1485: BCR 63,58/63,57/74,84 → efetivo
-            // 67,33). Sem BCR (nulo/0) o efetivo é a própria alíquota.
-            sql`coalesce(i.icms,0) * coalesce(nullif(i.bcr,0), 100) / 100`.as('icms_efetivo'),
-            sql`max(p.classfiscal)`.as('classfiscal'),
-          ])
-          .where('n.idempresa', '=', emp)
-          .where('n.tipo', '=', tipo)
-          .where(sql`n.dtcontabil`, '>=', dataini) // a data é a CONTÁBIL
-          .where(sql`n.dtcontabil`, '<=', datafin)
-          .where(sql`coalesce(n.proc,'N')`, '=', 'S')
-          .where(sql`coalesce(n.cancelada,'N')`, '=', 'N')
-          .where(sql`coalesce(n.nronf,'0')`, '<>', '0')
-          .where(sql<boolean>`coalesce(n.statusnfe,'X') <> 'D'`) // denegada fora
-          .where(sql<boolean>`(n.modelo <> 55 or (n.chavenfe is not null and coalesce(n.statusnfe,'P') <> 'I'))`)
-          .where(this.cfopEntra('i.cfop'))
-          // o GRÃO do legado inclui as duas alíquotas (ICMS e ICMS_EFETIVO), não só (documento, cfop, cst)
-          // o GRÃO do legado inclui as DUAS alíquotas: golden 1485 tem três linhas do mesmo (codigo,cfop,cst)
-          // distinguidas só pelo ICMS_EFETIVO (75,97 / 67,33 / 90,92).
-          .groupBy(['n.codnf', 'i.cfop', 'i.cst', 'i.icms', 'i.bcr']),
-      )
-      .executeTakeFirst();
+    // o valor do item: custo líquido do desconto percentual × quantidade, com os CASTs do legado
+    const val = sql`((i.vrcusto - cast((i.vrcusto * cast(coalesce(i.desconto, 0) as numeric(15,6))) / 100 as numeric(15,6))) * cast(i.quantidade as numeric(13,3)))`;
+    // IPI e SEGURO são PERCENTUAIS sobre o valor do item (no IPI do valor contábil o valor não é arredondado antes)
+    const pct = (col: string) => sql`((cast(coalesce(${sql.ref(`i.${col}`)}, 0) as numeric(13,3)) * cast(${val} as numeric(15,2))) / 100)`;
+    const ipi = sql`((cast(coalesce(i.ipi, 0) as numeric(13,3)) * ${val}) / 100)`;
+    const letra = sql`substr(i.aliquota, 1, 1)`;
+    const c3 = sql`substr(i.cfop, 2, 3)`;
+    const zeraValor = sql`(c.proc_cupom = 'S' or ${c3} in ('403','933','556') or (${c3} in ('102','101') and i.cst in (40, 90)))`;
+    const zeraAliquota = sql`(c.proc_cupom = 'S' or ${c3} in ('933','556') or (${c3} in ('102','101') and i.cst in (40, 90)))`;
+    const aliquota = sql`case when ${zeraAliquota} then 0 when ${letra} in ('I','N') then 0 else i.icme end`;
+    const efetivo = sql`case when ${zeraAliquota} then 0 else round(i.bcr, 2) end`;
+    const filtroTipo = tipo === 'S'
+      // a saída exige a NF-e com chave e não inutilizada (o modelo ≠ 55 passa)
+      ? sql`and n.tipo = 'S' and ((n.modelo = 55 and n.chavenfe is not null and coalesce(n.statusnfe, 'P') <> 'I') or n.modelo <> 55)`
+      : sql`and n.tipo = 'E'`;
+    await sql`
+      INSERT INTO apuracao_icms_detalhes (codapuracaoicms, tipo, especie, codigo, cfop, cst, base, valor_icms, isentas_naotrib, outras,
+                                          totalnf, icms, icms_efetivo, classfiscal)
+      SELECT ${cod}, ${tipo}, 'NF', n.codnf::text || 'NF', nullif(i.cfop, '')::int, i.cst,
+             round(sum(case when ${zeraValor} then 0 when ${letra} in ('I','N') then 0 else coalesce(i.vrbasecalculo, 0) end), 2),
+             round(sum(case when ${zeraValor} then 0 when ${letra} in ('I','N') then 0 else coalesce(i.vricm, 0) end), 2),
+             round(sum(case when c.proc_cupom = 'S' then 0 when ${letra} in ('I','N') then ${val} + coalesce(i.depsacess, 0) else 0 end), 2),
+             round(sum(case when c.proc_cupom = 'S' then ${val} + coalesce(i.vricmst, 0) + ${pct('ipi')} + coalesce(i.depsacess, 0)
+                            when ${letra} = 'S' then ${val} + coalesce(i.vricmst, 0) + ${ipi} + coalesce(i.depsacess, 0) + coalesce(i.vrfrete, 0) + ${pct('seguro')}
+                            else 0 end + coalesce(i.fcp_valor_st, 0)), 2),
+             round(sum(${val} + coalesce(i.vricmst, 0) + ${ipi} + coalesce(i.depsacess, 0) + coalesce(i.vrfrete, 0) + ${pct('seguro')} + coalesce(i.fcp_valor_st, 0)), 2),
+             ${aliquota}, ${efetivo}, max(p.classfiscal)
+        FROM nf_prod i
+        JOIN cfop c ON c.codcfop = i.cfop AND coalesce(c.nao_gera_apuracao_icms, 'N') = 'N'
+        LEFT JOIN nf n ON n.codnf = i.codnf
+        JOIN parceiros_end pe ON pe.codend = n.codparceiro_end
+        LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+       WHERE n.nronf <> '0' AND n.nronf IS NOT NULL AND (n.statusnfe <> 'D' OR n.statusnfe IS NULL)
+         AND n.dtcontabil BETWEEN ${dataini}::date AND ${datafin}::date AND n.idempresa = ${emp}
+         AND n.proc = 'S' AND n.cancelada = 'N' ${filtroTipo}
+       GROUP BY n.codnf, i.cfop, i.cst, ${aliquota}, ${efetivo}, i.arredonda`.execute(trx);
   }
 
   /**
-   * O detalhe dos CUPONS (NFC-e de saída) — a perna que carrega 99,8% do detalhe. Grão: documento (`nropedido`) ×
-   * CST, com `CODIGO = <nropedido>||'NFC'` e `ESPECIE='NFC'`, espelhando o `CODNF||'NF'` das notas. Item cancelado
-   * e cupom cancelado ficam fora (é venda que não existe fiscalmente).
+   * O detalhe dos CUPONS (NFC-e de saída) — o `GetSQLNFC` (uRelRegistros_ES.pas:1798-1823), que a produção reproduz (jan/2026:
+   * 50.122 linhas e R$ 1.381.934,76 contra 50.127 e R$ 1.381.951,71 gravados — a diferença são cupons transmitidos depois).
+   * BASE = Σ ICMS_BASE_CALCULO · VALOR = Σ ICMS_VALOR · ICMS = ICMS_EFETIVO = ICMS_ALIQUOTA · ISENTAS = OUTRAS = 0 (literal) ·
+   * CODIGO = CODNFC||'NFC'. Entra a NFC-e autorizada (`STATUSNFE='P'`) com chave, e a em contingência (`'G'`) só quando a
+   * configuração `CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL` é 'S' (a view GET_CONFIG_NFCE_CONTIGENCIA); item cancelado fora.
+   * **Sem o filtro de CFOP**: o `GetSQLNFC` não junta a tabela CFOP (o `NAO_GERA_APURACAO_ICMS` vale só para as notas).
    */
   private async detalheCupons(trx: AnyDB, emp: number, dataini: string, datafin: string, cod: number) {
-    // o legado apura o cupom a partir dos itens da NFC-e (`GetSQLNFC`, uRelRegistros_ES.pas:1798-1812):
-    //   BASE = SUM(ICMS_BASE_CALCULO) · ICMS = ICMS_EFETIVO = ICMS_ALIQUOTA · **ISENTAS = OUTRAS = 0 (literal)**
-    //   CODIGO = CODNFC||'NFC' · filtro: STATUSNFE='P', PROC='S', CHAVENFE não nula, cupom e item não cancelados
-    // (folds auditoria [ALTA]: nós inventávamos isentas/outras no cupom, usávamos `qtde*vrvenda` como base — que
-    // ignora REDUÇÃO (golden: cupom 2022377 base 22,11 contra item 37,90) — e o `nropedido` como identificador,
-    // que casa com 0 de 1.400.580 linhas do golden.)
+    const contingencia = String((await configNaTrx(trx, 'CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL',
+      { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 'N').toUpperCase() === 'S';
     const valorItem = sql`(coalesce(v.qtde,0) * coalesce(v.vrvenda,0))`;
-    // TOTALNF do cupom segue o CASE do IAT e desconta promoção/departamento/parcelas negativas, somando as
-    // positivas — a mesma fórmula da view get_hist_vendas (mig 161) e do legado (:1803-1811).
+    // TOTALNF do cupom segue o CASE do IAT e desconta promoção/departamento/parcelas negativas, somando as positivas
     const totalIat = sql`(case when v.iat = 'A' then cast(${valorItem} as numeric(18,2))
                                else cast(trunc(${valorItem} * 100) as numeric(18,2)) / 100 end
                           + (case when coalesce(v.desc_acre_medio,0) > 0 then coalesce(v.desc_acre_medio,0) else 0 end)
@@ -135,44 +111,19 @@ export class ApuracaoIcmsService {
                           - (coalesce(v.desc_promocao,0) + coalesce(v.desc_departamento,0)
                              + (case when coalesce(v.desc_acre_medio,0) < 0 then coalesce(v.desc_acre_medio,0) * -1 else 0 end)
                              + (case when coalesce(v.desc_acre_item,0)  < 0 then coalesce(v.desc_acre_item,0)  * -1 else 0 end)))`;
-    return trx
-      .insertInto('apuracao_icms_detalhes')
-      .columns(['codapuracaoicms', 'tipo', 'especie', 'codigo', 'cfop', 'cst', 'base', 'valor_icms',
-                'isentas_naotrib', 'outras', 'totalnf', 'icms', 'icms_efetivo'])
-      .expression((eb: any) =>
-        eb
-          .selectFrom('vendas as v')
-          .select([
-            sql`${cod}`.as('codapuracaoicms'),
-            sql`'S'`.as('tipo'),
-            sql`'NFC'`.as('especie'),
-            // CODNFC quando a carga trouxer; sem ele, o nropedido (documentado na mig 165)
-            sql`coalesce(v.codnfc::text, v.nropedido) || 'NFC'`.as('codigo'),
-            sql`v.cfop`.as('cfop'),
-            sql`nullif(v.icms_cst,'')::int`.as('cst'),
-            // base = a do item (pode ser REDUZIDA); fallback só enquanto a carga não preencher
-            sql`sum(coalesce(v.icms_base_calculo, case when coalesce(v.icms_valor,0) <> 0 then ${valorItem} else 0 end))`.as('base'),
-            sql`sum(coalesce(v.icms_valor,0))`.as('valor_icms'),
-            sql`0`.as('isentas_naotrib'), // literal no legado
-            sql`0`.as('outras'),          // literal no legado
-            sql`sum(${totalIat})`.as('totalnf'),
-            sql`coalesce(v.icms_aliquota,0)`.as('icms'),
-            sql`coalesce(v.icms_aliquota,0)`.as('icms_efetivo'),
-          ])
-          .where('v.idempresa', '=', emp)
-          .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '>=', dataini)
-          .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '<=', datafin)
-          .where(sql`coalesce(v.cancelado,'N')`, '=', 'N')
-          .where(sql<boolean>`coalesce(v.tipocanc,'N') <> 'C'`)
-          // ⚠️ o legado exige **STATUSNFE='P'** (autorizada). O `<> 'C'` de antes admitia 40.035 NFC-e
-          // **inutilizadas ('I')** com chave, além de 'U'/'G'/'R'/vazio — a perna de NF já excluía a inutilizada.
-          .where(sql`coalesce(v.statusnfe,'')`, '=', 'P')
-          // cupom em CONTINGÊNCIA não entra (é o que o aviso do legado anuncia); sem chave não há documento fiscal
-          .where(sql<boolean>`v.chavenfe is not null`)
-          .where(this.cfopEntra('v.cfop'))
-          .groupBy(['v.codnfc', 'v.nropedido', 'v.cfop', 'v.icms_cst', 'v.icms_aliquota']),
-      )
-      .executeTakeFirst();
+    await sql`
+      INSERT INTO apuracao_icms_detalhes (codapuracaoicms, tipo, especie, codigo, cfop, cst, base, valor_icms, isentas_naotrib, outras,
+                                          totalnf, icms, icms_efetivo)
+      SELECT ${cod}, 'S', 'NFC', coalesce(v.codnfc::text, v.nropedido) || 'NFC', v.cfop, nullif(v.icms_cst, '')::int,
+             sum(coalesce(v.icms_base_calculo, 0)), sum(coalesce(v.icms_valor, 0)), 0, 0, sum(${totalIat}),
+             v.icms_aliquota, v.icms_aliquota
+        FROM vendas v
+       WHERE v.idempresa = ${emp}
+         AND cast(v.dtvenda at time zone 'America/Sao_Paulo' as date) BETWEEN ${dataini}::date AND ${datafin}::date
+         AND coalesce(v.cancelado, 'N') = 'N'
+         AND v.chavenfe IS NOT NULL
+         AND (coalesce(v.statusnfe, '') = 'P' OR (${contingencia} AND coalesce(v.statusnfe, '') = 'G'))
+       GROUP BY v.codnfc, v.nropedido, v.cfop, v.icms_cst, v.icms_aliquota`.execute(trx);
   }
 
   /** o resumo por CFOP (o quadro do livro): `ICMS_CFOP` — vrcontabil/basecalculo/imposto/isentas/outras. */

@@ -14429,10 +14429,11 @@ async function main() {
         const nfIcms = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDF01', codparceiro: 22, dtemissao: '2026-11-05', dtcontabil: '2026-11-05', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', icms: 18 }] }));
         // o SPED do legado usa o ICME (a alíquota efetiva) e só leva a NF-e 55 COM chave (adqNF, UdmSpedFiscal.dfm:2662)
         await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, icme=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
-        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900011000900011' WHERE codnf=$1`, [nfIcms]);
+        // a apuração do legado junta o endereço da nota (INNER JOIN PARCEIROS_END) — o do seed de cada parceiro
+        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900011000900011', codparceiro_end=6 WHERE codnf=$1`, [nfIcms]);
         const nfSaiF = await novaNf(baseNf({ tipo: 'S', nronf: 'SPEDF02', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-11-06', dtcontabil: '2026-11-06', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01', icms: 30 }] }));
         await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=30, icms=30, icme=30, vrcusto=10, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfSaiF]);
-        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900021000900021' WHERE codnf=$1`, [nfSaiF]);
+        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900021000900021', codparceiro_end=4 WHERE codnf=$1`, [nfSaiF]);
         const efdF = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
         const efdFJ = (await efdF.json().catch(() => ({}))) as any;
         const linF = String(efdFJ.arquivo ?? '').split('\r\n');
@@ -14502,8 +14503,8 @@ async function main() {
         // §90b) CORTE-2 do épico da apuração: quando existe apuração GRAVADA do período, o E110 sai DELA — com os
         // ajustes manuais, os estornos, o saldo credor anterior e as deduções, que a derivação do bloco C nunca
         // teve (é o que o legado faz: ele LÊ a APURACAO_ICMS, não recalcula do bloco C).
-        // primeiro SEM chave nas notas: as duas são modelo 55, e o legado exige chave (NFe não transmitida não
-        // entra na apuração) ⇒ a apuração fecha em zero. Depois damos a chave e reprocessamos.
+        // primeiro SEM chave nas notas: as duas são modelo 55, e o legado exige a chave só na SAÍDA (NF-e própria não
+        // transmitida não entra) ⇒ débito zero e o crédito da entrada. Depois damos a chave e reprocessamos.
         await pgFi.query(`UPDATE nf SET chavenfe = NULL WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]);
         const apSemChave = (await (await fetch(`${base}/fiscal/apuracao-icms/processar`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2026-11-01', datafin: '2026-11-30' }) })).json().catch(() => ({}))) as any;
         await pgFi.query(`UPDATE nf SET chavenfe='3526110000000000000000000000000000000' || lpad(codnf::text, 7, '0'), statusnfe='P' WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]);
@@ -14518,8 +14519,9 @@ async function main() {
         const apGravada = (await pgFi.query(`SELECT debitosaida, creditoentrada, saldodevedor, arecolher, saldocredorseguinte FROM apuracao_icms WHERE idempresa=1 AND dataini='2026-11-01' AND datafin='2026-11-30'`)).rows[0] as any;
         // a apuração apura débito 30 (a NF de saída) e crédito 18 (a de entrada) das MESMAS notas; com os ajustes:
         // crédito total = 18 + 5 + 2 = 25 · débito total = 30 + 3 + 1 = 34 ⇒ devedor 9,00 · a recolher 9 − 4 = 5,00
-        check('SPED §90b (corte-2 da apuração): NFe modelo 55 SEM CHAVE não entra na apuração (a primeira passada fecha em zero) · com a chave e a apuração GRAVADA, o E110 sai DELA — os ajustes e estornos aparecem nos campos próprios (VL_AJ_DEBITOS 3, VL_ESTORNOS_CRED 1, VL_AJ_CREDITOS 5, VL_ESTORNOS_DEB 2 — e os VL_TOT_AJ_* em ZERO, senão o ajuste conta duas vezes e o saldo apurado não fecha: foi o nosso validador que pegou), as deduções em VL_TOT_DED (4) e o VL_ICMS_RECOLHER é o da apuração (5,00, não os 12,00 da derivação do bloco C) · o E116 acompanha · o aviso do retorno diz que veio da apuração',
-          Number(apSemChave?.cabecalho?.debitosaida) === 0 && Number(apSemChave?.cabecalho?.creditoentrada) === 0
+        check('SPED §90b (corte-2 da apuração): NF-e de SAÍDA modelo 55 SEM CHAVE não entra na apuração (a primeira passada tem débito zero; a entrada sem chave credita, como no legado) · com a chave e a apuração GRAVADA, o E110 sai DELA — os ajustes e estornos aparecem nos campos próprios (VL_AJ_DEBITOS 3, VL_ESTORNOS_CRED 1, VL_AJ_CREDITOS 5, VL_ESTORNOS_DEB 2 — e os VL_TOT_AJ_* em ZERO, senão o ajuste conta duas vezes e o saldo apurado não fecha: foi o nosso validador que pegou), as deduções em VL_TOT_DED (4) e o VL_ICMS_RECOLHER é o da apuração (5,00, não os 12,00 da derivação do bloco C) · o E116 acompanha · o aviso do retorno diz que veio da apuração',
+          // o legado só exige a chave na NF-e de SAÍDA (o marcador FILTRO NF da entrada não tem a regra do modelo 55)
+          Number(apSemChave?.cabecalho?.debitosaida) === 0 && Number(apSemChave?.cabecalho?.creditoentrada) === 18
           && efdAp.status === 200 && Number(apGravada?.debitosaida) === 30 && Number(apGravada?.creditoentrada) === 18
           && Number(apGravada?.saldodevedor) === 9 && Number(apGravada?.arecolher) === 5
           && e110Ap === '|E110|30,00|3,00|0,00|1,00|18,00|5,00|0,00|2,00|0,00|9,00|4,00|5,00|0,00|0,00|'
@@ -15653,42 +15655,56 @@ async function main() {
       const AP = 'fiscal/apuracao-icms';
       const pgAp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        // setup: um produto, uma NF de SAÍDA (2 CSTs), uma NF de ENTRADA de fornecedor SN, cupons NFC-e, e um CFOP
-        // marcado com NAO_GERA_APURACAO_ICMS='S' para provar o gate.
+        // setup: um produto, uma NF de SAÍDA, duas NF de ENTRADA (uma de fornecedor SN), cupons NFC-e, e um CFOP
+        // marcado com NAO_GERA_APURACAO_ICMS='S' para provar o gate. A regra das notas é a do binário que a produção roda
+        // (reconstruída do APURACAO_ICMS_DETALHES gravado — dossiê §8): alíquota = ICME, efetivo = BCR, a alíquota I/N zera,
+        // o x403 zera o valor, o frete entra pelo VRFRETE (valor) e a nota sem endereço (INNER JOIN PARCEIROS_END) fica fora.
         await pgAp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
           (990850,'7899000990850','PROD APURACAO','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
-        await pgAp.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('5102','VENDA'),('1102','COMPRA'),('5929','CUPOM'),('5910','BONIFICACAO')
+        await pgAp.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('5102','VENDA'),('1102','COMPRA'),('5929','CUPOM'),('5910','BONIFICACAO'),('5403','VENDA ST'),('1401','COMPRA ST')
           ON CONFLICT (codcfop) DO NOTHING`);
         await pgAp.query(`UPDATE cfop SET nao_gera_apuracao_icms='S' WHERE codcfop='5910'`);
-        // fornecedor Simples Nacional (decide o split do crédito) e um cliente normal
+        // fornecedor Simples Nacional (decide o split do crédito) e um cliente normal — cada um com o endereço da nota
         await pgAp.query(`UPDATE parceiros SET classfiscal='SN' WHERE codparceiro=22`);
-        // NF de SAÍDA: 2 itens tributados (CST 0) + 1 isento (CST 40) → 2 linhas de detalhe
-        const nfS = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'S',55,'1','990850','2035-09-10','2035-09-10',20,'S','N','P','35260900000000000000000000000000000000990850',300.00,5102) RETURNING codnf`)).rows[0] as any;
-        // ⚠️ o valor do item vem de VRCUSTO líquido do DESCONTO% (no dado real o VRVENDA das notas é ZERO), e
-        // isentas × outras se separam pela PRIMEIRA LETRA da alíquota — não por CST.
-        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, desconto, vrvenda, cfop, aliquota, icms, bcr, cst, vrbasecalculo, vricm, vricmst, ipi) VALUES
-          ($1, 1, 990850, 10, 1, 'UN', 20.00,  0, 0, '5102', 'T01', 18, NULL, 0, 200.00, 36.00, 0, 0),
-          ($1, 2, 990850,  5, 1, 'UN', 20.00, 10, 0, '5102', 'IST',  0, NULL,40,   0.00,  0.00, 0, 0),
-          ($1, 3, 990850,  2, 1, 'UN', 50.00,  0, 0, '5403', 'STB',  0, NULL,60,   0.00,  0.00, 8.00, 0),
-          ($1, 4, 990850, 10, 1, 'UN', 20.00,  0, 0, '5102', 'T01', 18, 60.00, 0, 80.00, 14.40, 0, 0)`, [nfS.codnf]);
+        await pgAp.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, uf) VALUES (990850, 20, 'RUA APURACAO', 'MG'), (990851, 22, 'RUA SN', 'MG')
+          ON CONFLICT (codend) DO NOTHING`);
+        // NF de SAÍDA: tributado (BCR 100 e 60), isento (x102 com CST 40), ST (x403) e STB com ICMS destacado (conta no binário novo)
+        const nfS = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'S',55,'1','990850','2035-09-10','2035-09-10',20,990850,'S','N','P','35260900000000000000000000000000000000990850',300.00,5102) RETURNING codnf`)).rows[0] as any;
+        // o valor do item vem de VRCUSTO líquido do DESCONTO% (no dado real o VRVENDA das notas é ZERO); IPI e SEGURO são %
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, desconto, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm, vricmst, ipi, vrfrete) VALUES
+          ($1, 1, 990850, 10, 1, 'UN', 20.00,  0, 0, '5102', 'T01', 18, 18, 100, 0, 200.00, 36.00, 0, 0, 0),
+          ($1, 2, 990850,  5, 1, 'UN', 20.00, 10, 0, '5102', 'IST',  0, 18, 100,40,   0.00,  0.00, 0, 0, 0),
+          ($1, 3, 990850,  2, 1, 'UN', 50.00,  0, 0, '5403', 'STB',  0,  0, 100,60,   0.00,  0.00, 8.00, 0, 0),
+          ($1, 4, 990850, 10, 1, 'UN', 20.00,  0, 0, '5102', 'T01', 18, 18, 60.00, 0, 80.00, 14.40, 0, 0, 0),
+          ($1, 5, 990850,  1, 1, 'UN', 50.00,  0, 0, '5102', 'STB',  0, 12, 100,10,   0.00,  5.00, 0, 10, 3.00)`, [nfS.codnf]);
         // NF de ENTRADA de fornecedor SN (crédito que vai para a coluna SN)
-        const nfE = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'E',55,'1','990851','2035-09-05','2035-09-05',22,'S','N','P','35260900000000000000000000000000000000990851',100.00,1102) RETURNING codnf`)).rows[0] as any;
-        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
-          ($1, 1, 990850, 10, 1, 'UN', 10.00, 0, '1102', 'T01', 12, 0, 100.00, 12.00)`, [nfE.codnf]);
+        const nfE = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'E',55,'1','990851','2035-09-05','2035-09-05',22,990851,'S','N','P','35260900000000000000000000000000000000990851',100.00,1102) RETURNING codnf`)).rows[0] as any;
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm) VALUES
+          ($1, 1, 990850, 10, 1, 'UN', 10.00, 0, '1102', 'T01', 12, 12, 100, 0, 100.00, 12.00)`, [nfE.codnf]);
+        // NF de ENTRADA 1401 com ICMS no item: o binário novo credita (o fonte de 2020 zerava o x401)
+        const nfE2 = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'E',55,'1','990855','2035-09-06','2035-09-06',20,990850,'S','N','P','35260900000000000000000000000000000000990855',40.00,1401) RETURNING codnf`)).rows[0] as any;
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm) VALUES
+          ($1, 1, 990850, 4, 1, 'UN', 10.00, 0, '1401', 'T03', 18, 0, 100, 60, 0, 3.00)`, [nfE2.codnf]);
+        // NF de ENTRADA SEM endereço: o INNER JOIN PARCEIROS_END do legado a deixa fora
+        const nfSemEnd = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'E',55,'1','990856','2035-09-07','2035-09-07',20,'S','N','P','35260900000000000000000000000000000000990856',40.00,1102) RETURNING codnf`)).rows[0] as any;
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm) VALUES
+          ($1, 1, 990850, 4, 1, 'UN', 10.00, 0, '1102', 'T01', 12, 12, 100, 0, 40.00, 4.80)`, [nfSemEnd.codnf]);
         // NF de saída com CFOP MARCADO (não entra na apuração)
-        const nfBonif = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'S',55,'1','990852','2035-09-11','2035-09-11',20,'S','N','P','35260900000000000000000000000000000000990852',50.00,5910) RETURNING codnf`)).rows[0] as any;
-        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
-          ($1, 1, 990850, 5, 1, 'UN', 10.00, '5910', 'T01', 18, 0, 50.00, 9.00)`, [nfBonif.codnf]);
+        const nfBonif = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'S',55,'1','990852','2035-09-11','2035-09-11',20,990850,'S','N','P','35260900000000000000000000000000000000990852',50.00,5910) RETURNING codnf`)).rows[0] as any;
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm) VALUES
+          ($1, 1, 990850, 5, 1, 'UN', 10.00, '5910', 'T01', 18, 18, 100, 0, 50.00, 9.00)`, [nfBonif.codnf]);
         // NF de saída NÃO PROCESSADA e NF CANCELADA (as duas ficam fora)
-        await pgAp.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop) VALUES
-          (990853,1,'S',55,'1','990853','2035-09-12','2035-09-12',20,'N','N','P','35260900000000000000000000000000000000990853',10.00,5102),
-          (990854,1,'S',55,'1','990854','2035-09-13','2035-09-13',20,'S','S','P','35260900000000000000000000000000000000990854',10.00,5102)`);
-        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
-          (990853, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 0, 10.00, 1.80),
-          (990854, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 0, 10.00, 1.80)`);
+        await pgAp.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, statusnfe, chavenfe, totalnf, cfop) VALUES
+          (990853,1,'S',55,'1','990853','2035-09-12','2035-09-12',20,990850,'N','N','P','35260900000000000000000000000000000000990853',10.00,5102),
+          (990854,1,'S',55,'1','990854','2035-09-13','2035-09-13',20,990850,'S','S','P','35260900000000000000000000000000000000990854',10.00,5102)`);
+        await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, icme, bcr, cst, vrbasecalculo, vricm) VALUES
+          (990853, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 18, 100, 0, 10.00, 1.80),
+          (990854, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 18, 100, 0, 10.00, 1.80)`);
         // CUPONS NFC-e: 2 cupons tributados + 1 item cancelado (fora) + 1 cupom cancelado na SEFAZ (fora)
         // o cupom traz BASE (pode ser REDUZIDA), ALÍQUOTA e o CODNFC (o identificador do documento no legado);
         // 9007 é INUTILIZADA ('I') com chave — o legado exige STATUSNFE='P', então fica fora.
@@ -15710,51 +15726,51 @@ async function main() {
         const ap1 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30' });
         const ap1J = (await ap1.json().catch(() => ({}))) as any;
         const cab = ap1J.cabecalho ?? {};
-        // débito de saída = NF (36,00) + cupons (9+9 = 18,00) = 54,00 · crédito de entrada = 12,00, TODO na coluna SN
-        // (fornecedor 22 é 'SN') · saldo anterior 7,00 ⇒ crédito total 19,00; devedor 35,00; a recolher 35,00
-        check('APURAÇÃO ICMS §85.1: as TRÊS pernas com os campos REAIS — NF de saída soma o ICMS dos itens (36,00 + 14,40 com base reduzida por BCR = 50,40) e os cupons AUTORIZADOS somam 18,00 ⇒ débito 68,40 · a NF de entrada de fornecedor SN entra toda na coluna SN (12,00) · ficam FORA: CFOP marcado, nota não processada, nota cancelada, item cancelado, cupom cancelado na SEFAZ, **cupom INUTILIZADO** e o de contingência · SALDOANT vem do mês anterior (7,00) ⇒ crédito 19,00, devedor 49,40, a recolher 49,40 · o aviso de contingência conta o cupom com STATUSNFE=G e chave (1)',
-          ap1.status === 200 && Number(cab.debitosaida) === 68.4 && Number(cab.creditoentrada) === 12
+        // débito de saída = NF (36,00 + 14,40 + 5,00 do STB com ICMS) + cupons (9+9) = 73,40 · crédito de entrada = 12,00 (SN) +
+        // 3,00 (o 1401) = 15,00 · saldo anterior 7,00 ⇒ crédito total 22,00; devedor 51,40; a recolher 51,40
+        check('APURAÇÃO ICMS §85.1: NF de saída soma o ICMS dos itens com a regra do binário novo (36,00 + 14,40 + 5,00 do item STB com ICMS destacado = 55,40) e os cupons AUTORIZADOS 18,00 ⇒ débito 73,40 · entradas: 12,00 do fornecedor SN (coluna SN) + 3,00 do 1401 com ICMS no item (o fonte de 2020 zerava o x401) = 15,00 · ficam FORA: CFOP marcado, nota não processada, nota cancelada, **nota sem endereço**, item cancelado, cupom cancelado na SEFAZ, cupom INUTILIZADO e o de contingência · SALDOANT 7,00 ⇒ crédito 22,00, devedor 51,40, a recolher 51,40 · aviso de contingência = 1',
+          ap1.status === 200 && Number(cab.debitosaida) === 73.4 && Number(cab.creditoentrada) === 15
           && Number(cab.creditoentrada_sn) === 12 && Number(cab.saldoant) === 7
-          && Number(cab.saldodevedor) === 49.4 && Number(cab.saldocredorseguinte) === 0 && Number(cab.arecolher) === 49.4
-          && Number(ap1J.contagem?.cupons) === 3 && Number(ap1J.contagem?.notas_entrada) === 1
+          && Number(cab.saldodevedor) === 51.4 && Number(cab.saldocredorseguinte) === 0 && Number(cab.arecolher) === 51.4
+          && Number(ap1J.contagem?.cupons) === 3 && Number(ap1J.contagem?.notas_entrada) === 2
           && ap1J.reprocessada === false && Number(ap1J.aviso_contingencia) === 1,
           { status: ap1.status, cab, contagem: ap1J.contagem, contingencia: ap1J.aviso_contingencia });
 
-        // 85.1b) o DETALHE campo a campo — foi aqui que a auditoria pegou 6 achados ALTA:
-        //  · valor do item = VRCUSTO líquido do DESCONTO% (não vrvenda, que é 0 no dado real);
-        //  · ISENTAS × OUTRAS pela PRIMEIRA LETRA da alíquota ('I'/'N' → isentas · 'S' → outras + ST + IPI);
-        //  · TOTALNF derivado dos itens DO GRUPO (não o total da nota repetido);
-        //  · o grão inclui as duas alíquotas (ICMS e ICMS_EFETIVO = ICME × BCR/100);
+        // 85.1b) o DETALHE campo a campo — a regra do binário novo, provada contra o APURACAO_ICMS_DETALHES gravado:
+        //  · alíquota = ICME e efetivo = BCR (arredondado), que separa linhas; x102 com CST 40 zera os dois;
+        //  · ISENTAS pela alíquota I/N (custo líquido do desconto); OUTRAS da alíquota S = valor + ST + IPI% + VRFRETE + SEGURO%;
+        //  · o item STB com ICMS destacado conta no valor (o fonte só contava a alíquota T); o x403 zera o valor;
         //  · no CUPOM: base = a do item (reduzida), isentas/outras = 0 LITERAL, código = CODNFC||'NFC'.
         const det = (await pgAp.query(`SELECT tipo, especie, codigo, cfop, cst, base, valor_icms, isentas_naotrib, outras, totalnf, icms, icms_efetivo
           FROM apuracao_icms_detalhes WHERE codapuracaoicms=$1 ORDER BY especie, codigo, cfop, cst, icms`, [Number(cab.codapuracaoicms)])).rows as any[];
         const dNf = (cfop: number, cst: number, ef?: number) => det.find((d) => d.especie === 'NF' && Number(d.cfop) === cfop && Number(d.cst) === cst && (ef == null || Number(d.icms_efetivo) === ef));
         const dCup = (cod: string) => det.find((d) => d.especie === 'NFC' && d.codigo === cod);
-        check('APURAÇÃO ICMS §85.1b (o detalhe, campo a campo): NF — o item isento (alíquota IST, VRCUSTO 20 com 10% de desconto) vai para ISENTAS com 90,00 e não para outras · o item de alíquota "STB" vai para OUTRAS com o ST somado (100,00 + 8,00) · o TOTALNF de cada grupo vem dos ITENS (não os 300,00 da nota) · a linha com BCR 60% tem ICMS 18 e ICMS_EFETIVO 10,80 · CUPOM — base é a do item (50,00 e 30,00, reduzidas), isentas e outras são 0 LITERAL, alíquota vai em ICMS e ICMS_EFETIVO, e o código é CODNFC||"NFC"',
+        check('APURAÇÃO ICMS §85.1b (o detalhe, campo a campo): o isento (IST, x102 CST 40, custo 20 com 10% de desconto) vai para ISENTAS com 90,00 e tem alíquota e efetivo 0 · o ST x403 (STB) vai para OUTRAS com o ST somado (108,00) e valor 0 · o tributado tem alíquota = ICME (18) e efetivo = BCR (100), e o de BCR 60 é outra linha (base 80, ICMS 14,40) · o STB com ICMS destacado conta 5,00 e soma em OUTRAS e no TOTALNF valor 50 + IPI 10% + VRFRETE 3,00 = 58,00 · a entrada 1401 credita 3,00 · CUPOM: base do item, isentas/outras 0, alíquota em ICMS e efetivo, código CODNFC||"NFC"',
           Number(dNf(5102, 40)?.isentas_naotrib) === 90 && Number(dNf(5102, 40)?.outras) === 0
-          && Number(dNf(5403, 60)?.outras) === 108 && Number(dNf(5403, 60)?.isentas_naotrib) === 0
-          && Number(dNf(5102, 0, 18)?.totalnf) === 200 && Number(dNf(5102, 40)?.totalnf) === 90
-          && Number(dNf(5102, 0, 18)?.base) === 200 && Number(dNf(5102, 0, 18)?.icms) === 18
-          // a MESMA (nota, cfop, cst, alíquota) com BCR 60% é linha SEPARADA, com efetivo 10,80 e base 80,00 — é o
-          // grão do legado (o golden traz 3 linhas do mesmo trio distinguidas só pelo ICMS_EFETIVO)
-          && Number(dNf(5102, 0, 10.8)?.base) === 80 && Number(dNf(5102, 0, 10.8)?.icms) === 18
+          && Number(dNf(5102, 40)?.icms) === 0 && Number(dNf(5102, 40)?.icms_efetivo) === 0 && Number(dNf(5102, 40)?.totalnf) === 90
+          && Number(dNf(5403, 60)?.outras) === 108 && Number(dNf(5403, 60)?.isentas_naotrib) === 0 && Number(dNf(5403, 60)?.valor_icms) === 0
+          && Number(dNf(5102, 0, 100)?.totalnf) === 200 && Number(dNf(5102, 0, 100)?.base) === 200 && Number(dNf(5102, 0, 100)?.icms) === 18
+          && Number(dNf(5102, 0, 60)?.base) === 80 && Number(dNf(5102, 0, 60)?.valor_icms) === 14.4 && Number(dNf(5102, 0, 60)?.icms) === 18
+          && Number(dNf(5102, 10)?.valor_icms) === 5 && Number(dNf(5102, 10)?.icms) === 12
+          && Number(dNf(5102, 10)?.outras) === 58 && Number(dNf(5102, 10)?.totalnf) === 58
+          && Number(dNf(1401, 60)?.valor_icms) === 3
           && dCup('700001NFC') != null && Number(dCup('700001NFC')?.base) === 50
           && Number(dCup('700001NFC')?.icms) === 18 && Number(dCup('700001NFC')?.icms_efetivo) === 18
           && Number(dCup('700001NFC')?.isentas_naotrib) === 0 && Number(dCup('700001NFC')?.outras) === 0
           && Number(dCup('700002NFC')?.base) === 30 && dCup('700007NFC') == null && dCup('700006NFC') == null,
-          { nf: det.filter((d) => d.especie === 'NF').map((d) => [d.codigo, d.cfop, d.cst, d.icms, d.icms_efetivo, d.base, d.isentas_naotrib, d.outras, d.totalnf]),
+          { nf: det.filter((d) => d.especie === 'NF').map((d) => [d.codigo, d.cfop, d.cst, d.icms, d.icms_efetivo, d.base, d.valor_icms, d.isentas_naotrib, d.outras, d.totalnf]),
             nfc: det.filter((d) => d.especie === 'NFC').map((d) => [d.codigo, d.base, d.icms, d.isentas_naotrib, d.outras, d.totalnf]) });
 
         // o resumo por CFOP: o 5910 (marcado) não aparece; 5102 e 5929 nas saídas e 1102 na entrada
         const cfopsSaida = (ap1J.cfops ?? []).filter((c: any) => c.tipo === 'S').map((c: any) => Number(c.cfop)).sort();
         const cfopEntrada = (ap1J.cfops ?? []).filter((c: any) => c.tipo === 'E');
-        check('APURAÇÃO ICMS §85.2: o resumo por CFOP (ICMS_CFOP) traz 5102/5403/5929 na saída e 1102 na entrada, sem o CFOP marcado (5910); o imposto e o VALOR CONTÁBIL somam o detalhe (5102: imposto 50,40 e contábil 490,00 = soma dos totalnf dos três grupos daquele CFOP, não o total da nota repetido)',
+        check('APURAÇÃO ICMS §85.2: o resumo por CFOP (ICMS_CFOP) traz 5102/5403/5929 na saída e 1102/1401 na entrada, sem o CFOP marcado (5910); o imposto e o VALOR CONTÁBIL somam o detalhe (5102: imposto 55,40 e contábil 548,00 = 200 + 90 + 200 + 58 dos quatro grupos, não o total da nota repetido)',
           JSON.stringify(cfopsSaida) === JSON.stringify([5102, 5403, 5929])
-          && cfopEntrada.length === 1 && Number(cfopEntrada[0].cfop) === 1102 && Number(cfopEntrada[0].imposto) === 12
-          && Number((ap1J.cfops ?? []).find((c: any) => Number(c.cfop) === 5102 && c.tipo === 'S')?.imposto) === 50.4
+          && cfopEntrada.length === 2 && Number(cfopEntrada.find((c: any) => Number(c.cfop) === 1102)?.imposto) === 12
+          && Number(cfopEntrada.find((c: any) => Number(c.cfop) === 1401)?.imposto) === 3
+          && Number((ap1J.cfops ?? []).find((c: any) => Number(c.cfop) === 5102 && c.tipo === 'S')?.imposto) === 55.4
           && Number((ap1J.cfops ?? []).find((c: any) => Number(c.cfop) === 5929)?.imposto) === 18
-          // o VRCONTABIL do livro é Σ do TOTALNF do detalhe — com o totalnf certo, o 5102 soma 290,00 (200+90)
-          && Number((ap1J.cfops ?? []).find((c: any) => Number(c.cfop) === 5102 && c.tipo === 'S')?.vrcontabil) === 490,
+          && Number((ap1J.cfops ?? []).find((c: any) => Number(c.cfop) === 5102 && c.tipo === 'S')?.vrcontabil) === 548,
           { saida: cfopsSaida, entrada: cfopEntrada, cfops: ap1J.cfops });
 
         // reprocesso: sem a flag devolve o gravado; com a flag refaz sem duplicar (e os ajustes manuais entram no E110)
@@ -15766,15 +15782,15 @@ async function main() {
         const ap4 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30', reprocessar: true });
         const ap4J = (await ap4.json().catch(() => ({}))) as any;
         const linhas = Number((await pgAp.query(`SELECT count(*)::int n FROM apuracao_icms_detalhes WHERE codapuracaoicms=$1`, [Number(cab.codapuracaoicms)])).rows[0].n);
-        check('APURAÇÃO ICMS §85.3: chamar de novo SEM reprocessar devolve a apuração gravada (reprocessada:false, mesmos números) · COM reprocessar refaz sem duplicar o detalhe (8 linhas) e aplica os ajustes (outros créditos 10 → crédito 29,00, devedor 39,40; deduções 5 → a recolher 34,40) · e reprocessar DE NOVO sem reenviar os ajustes **preserva** os gravados e o saldo anterior — no legado eles vivem em datasets filhos e o registro é editado, não recriado',
-          ap2.status === 200 && ap2J.reprocessada === false && Number(ap2J.cabecalho?.debitosaida) === 68.4
+        check('APURAÇÃO ICMS §85.3: chamar de novo SEM reprocessar devolve a apuração gravada (reprocessada:false, mesmos números) · COM reprocessar refaz sem duplicar o detalhe (10 linhas) e aplica os ajustes (outros créditos 10 → crédito 32,00, devedor 41,40; deduções 5 → a recolher 36,40) · e reprocessar DE NOVO sem reenviar os ajustes **preserva** os gravados e o saldo anterior — no legado eles vivem em datasets filhos e o registro é editado, não recriado',
+          ap2.status === 200 && ap2J.reprocessada === false && Number(ap2J.cabecalho?.debitosaida) === 73.4
           && ap3.status === 200 && ap3J.reprocessada === true
-          && Number(ap3J.cabecalho?.outroscreditos) === 10 && Number(ap3J.cabecalho?.saldodevedor) === 39.4
-          && Number(ap3J.cabecalho?.arecolher) === 34.4
+          && Number(ap3J.cabecalho?.outroscreditos) === 10 && Number(ap3J.cabecalho?.saldodevedor) === 41.4
+          && Number(ap3J.cabecalho?.arecolher) === 36.4
           && Number(ap3J.cabecalho?.deducoes) === 5
           && Number(ap4J.cabecalho?.outroscreditos) === 10 && Number(ap4J.cabecalho?.deducoes) === 5
           && Number(ap4J.cabecalho?.saldoant) === 7
-          && linhas === 8,
+          && linhas === 10,
           { semFlag: [ap2.status, ap2J.reprocessada, ap2J.cabecalho?.debitosaida], comFlag: ap3J.cabecalho,
             semReenviar: [ap4.status, ap4J.cabecalho?.outroscreditos, ap4J.cabecalho?.deducoes, ap4J.cabecalho?.saldoant, ap4J.code], linhas });
 
@@ -15796,8 +15812,9 @@ async function main() {
         // cleanup
         await pgAp.query(`DELETE FROM apuracao_icms WHERE idempresa=1 AND dataini >= '2035-08-01'`);
         await pgAp.query(`DELETE FROM vendas WHERE nropedido LIKE '011009261%'`);
-        await pgAp.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf]);
-        await pgAp.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf]);
+        await pgAp.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf, nfE2.codnf, nfSemEnd.codnf]);
+        await pgAp.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf, nfE2.codnf, nfSemEnd.codnf]);
+        await pgAp.query(`DELETE FROM parceiros_end WHERE codend IN (990850, 990851)`);
         await pgAp.query(`UPDATE cfop SET nao_gera_apuracao_icms=NULL WHERE codcfop='5910'`);
         await pgAp.query(`UPDATE parceiros SET classfiscal=NULL WHERE codparceiro=22`); // reverte a mutação do setup
         await pgAp.query(`DELETE FROM produtos WHERE idproduto=990850`);
