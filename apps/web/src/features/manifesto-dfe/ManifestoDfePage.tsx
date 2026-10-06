@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -28,6 +29,15 @@ const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d
 const atras = (dias: number) => { const d = new Date(Date.now() - dias * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 type Linha = Record<string, unknown>;
+
+/** o operador está digitando num campo de texto — a letra é do campo, não da tela */
+const digitando = (e: KeyboardEvent) => {
+  const el = e.target as HTMLElement | null;
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+  return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset'].includes((el as HTMLInputElement).type);
+};
+
 interface ParcelaEd { nrparcela: string; valor: string; dtvenc: string }
 interface Sugestao {
   chavenfe: string; nronf: string; razao: string | null; totalnf: number; fonte: 'FINANCEIRO' | 'XML' | 'TOTAL';
@@ -203,6 +213,19 @@ export function ManifestoDfePage() {
       setPrev(null);
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+
+  // F2 = btnBuscarNotasClick, o "[F2] - Consultar NF-e" na SEFAZ, se o botão estiver habilitado (FormKeyDown do UManifestoDFe)
+  useShortcut('f2', () => void sincronizar(), { when: !busy });
+  // F3 = btnPesquisaAvancadaClick, o "[F3] - Pesquisar NF's", se o botão estiver habilitado (FormKeyDown do UManifestoDFe)
+  useShortcut('f3', () => void consultar(), { when: !busy });
+  // T = MarcarDesmarcarTodos (FormKeyDown do UManifestoDFe): a 1ª nota marcada desmarca todas, senão marca todas; com a grade
+  // vazia não faz nada. O legado reage ao T em qualquer controle — aqui, não enquanto se digita num campo
+  const marcarDesmarcarTodos = (e: KeyboardEvent) => {
+    if (!linhas.length || digitando(e)) return false;
+    setSel(sel.has(String(linhas[0].chave)) ? new Set() : new Set(linhas.map((l) => String(l.chave))));
+  };
+  useShortcut('t', marcarDesmarcarTodos);
+  useShortcut('shift+t', marcarDesmarcarTodos);
 
   const baixarXml = async (chave: string) => {
     try {

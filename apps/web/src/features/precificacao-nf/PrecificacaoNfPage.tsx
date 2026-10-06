@@ -12,6 +12,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useConfirmarSaida } from '../../shared/navegacao/useConfirmarSaida';
 import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -58,6 +59,13 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 /** markup PERCENTUAL sobre o custo — `CalcularMargem`, modo custo bruto (`uDMPrecificacaoNF:377`). */
 const pctDe = (venda: number, custo: number) => (custo > 0 ? r2(((venda - custo) * 100) / custo) : 0);
 const hoje = () => hojeNaLoja();
+/** o `IsGridFocused` do legado: o foco está na grade (linha ou marcação), não num campo de digitar — nem no preço/markup da célula */
+const gradeFocada = (e: KeyboardEvent) => {
+  const el = e.target as HTMLElement | null;
+  if (!el?.closest('[role="grid"]')) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return false;
+  return !(el.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes((el as HTMLInputElement).type));
+};
 const dias = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 export function PrecificacaoNfPage() {
@@ -195,6 +203,27 @@ export function PrecificacaoNfPage() {
     () => (res && sel.size > 0 ? res.linhas.find((l) => sel.has(l.codnfprod)) ?? null : null),
     [res, sel],
   );
+
+  // AS TECLAS DO PAINEL DE ATALHOS (FormKeyDown do uPrecificacaoNF): o alvo é o item do painel (a linha marcada; com várias, a 1ª)
+  // F2 = o cadastro do produto, com a grade aberta (`if cdsPrecificacaoNF.Active`)
+  useShortcut('f2', () => { navegar(`/cadastro/produtos?id=${atalhoItem?.idproduto ?? ''}`); }, { when: !!atalhoItem });
+  // F4 = a precificação por custo do produto (TfrmPrificacaoCusto)
+  useShortcut('f4', () => { navegar(`/estoque/precificacao?idproduto=${atalhoItem?.idproduto ?? ''}`); }, { when: !!atalhoItem });
+  // F5 = a nota fiscal do item (TfrmNF), `if CODNF > 0`
+  useShortcut('f5', () => { navegar(`/fiscal/notas/entrada?codigo=${atalhoItem?.codnf ?? ''}`); }, { when: Number(atalhoItem?.codnf) > 0 });
+  // F6 = o financeiro da nota (TFrmFinanceiroNotaFiscalVisualizacao), `if CODNF > 0`
+  useShortcut('f6', () => { navegar(`/cadastro/apagar?codnf=${atalhoItem?.codnf ?? ''}`); }, { when: Number(atalhoItem?.codnf) > 0 });
+  // T com a grade focada (`(key = 84) and IsGridFocused`): a 1ª linha marcada desmarca, senão marca todas — a linha com o preço
+  // alterado (VRVENDA <> PRECO_VENDA) fica sempre marcada
+  const marcarDesmarcar = (e: KeyboardEvent) => {
+    if (!res?.linhas.length || !gradeFocada(e)) return false;
+    const marcar = !sel.has(res.linhas[0].codnfprod);
+    setSel(new Set(res.linhas
+      .filter((l) => marcar || (edit[l.codnfprod]?.vrvenda ?? Number(l.vrvenda)) !== Number(l.vrvenda))
+      .map((l) => l.codnfprod)));
+  };
+  useShortcut('t', marcarDesmarcar);
+  useShortcut('shift+t', marcarDesmarcar);
 
   /**
    * O botão Etiquetas (`btnEtiquetasClick:296`): abre a tela de etiquetas com os marcados — PRECO_VENDA (o preço da grade,

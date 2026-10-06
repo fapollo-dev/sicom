@@ -51,6 +51,7 @@ import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParc
 import { transmitirNf, cancelarNf, cceNf, xmlDaNota } from './nfNfeApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -249,6 +250,26 @@ function NfForm({
     cancelada === 'S' || statusnfe === 'P' || statusnfe === 'D' || statusnfe === 'C';
   const liberado = editavel && !travado;
 
+  // AS TECLAS DA NOTA (FormKeyDown do uNF): ir para uma aba. Sem nota na tela, o legado avisa (`cdsNotaCODNF.IsNull`); com uma
+  // janela aberta por cima (o item, a decomposição…), a tecla é dela — trocar a aba fecharia a janela
+  const mensagem = useMensagem();
+  const [irCobranca, setIrCobranca] = useState(0);
+  const semNota = () => !editavel && (form.getValues() as { codnf?: number }).codnf == null;
+  const janelaAberta = () => !!document.querySelector('[role="dialog"], [role="alertdialog"]');
+  // F7 = IrParaCentroDeCusto: a aba dos lançamentos contábeis (o rateio por centro de custo)
+  useShortcut('f7', () => {
+    if (janelaAberta()) return false;
+    if (semNota()) { mensagem.erro('Selecione uma nota fiscal!'); return; }
+    setAba('contabil');
+  });
+  // F9 = IrParaFinanceiro: a aba Financeiro na sub-aba "Dados da cobrança" (tabFinanceiro.show; tsDadosCobranca.show)
+  useShortcut('f9', () => {
+    if (janelaAberta()) return false;
+    if (semNota()) { mensagem.erro('Selecione uma nota fiscal!'); return; }
+    setAba('fin');
+    setIrCobranca((n) => n + 1);
+  });
+
   // strip de abas do legado (2 linhas → flex-wrap). Abas de fase futura entram como `disabled`.
   const mainTabs: TabDef[] = [
     { id: 'calc', label: 'Cálculo de impostos' },
@@ -293,7 +314,7 @@ function NfForm({
         <TabPanel>
           {aba === 'calc' && <CalcTab form={form} liberado={liberado} />}
           {aba === 'itens' && <ItensSection form={form} editavel={liberado} opts={optsNf} />}
-          {aba === 'fin' && <FinTab form={form} liberado={liberado} tipo={tipo} />}
+          {aba === 'fin' && <FinTab form={form} liberado={liberado} tipo={tipo} irParaCobranca={irCobranca} />}
           {aba === 'ref' && <ReferenciasSection form={form} editavel={liberado} />}
           {aba === 'dados' && <DadosGeraisTab form={form} editavel={liberado} />}
           {aba === 'transp' && <TransporteSection form={form} editavel={liberado} transpOptions={opts.transpOptions} />}
@@ -584,8 +605,10 @@ function CalcTab({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado
 
 // ───────────────────────────── Aba: Financeiro (sub-abas do legado) ─────────────────────────────
 
-function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; liberado: boolean; tipo: NfTipo }) {
+function FinTab({ form, liberado, tipo, irParaCobranca }: { form: UseFormReturn<CriarNfDto>; liberado: boolean; tipo: NfTipo; irParaCobranca?: number }) {
   const [sub, setSub] = useState('cobranca');
+  // o F9 da nota com a aba já aberta: volta à sub-aba "Dados da cobrança"
+  useEffect(() => { if (irParaCobranca) setSub('cobranca'); }, [irParaCobranca]);
   const subTabs: TabDef[] = [
     { id: 'cobranca', label: 'Dados da cobrança' },
     { id: 'docs', label: 'Documentos financeiros' },
@@ -990,6 +1013,17 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
     setTipoCalc(cfg.tipoCalc);
   }, [cfg]);
 
+  // o código de barras do boleto da parcela (edtCodigoBarraFin, FormShortCut do uNF): o Enter vai para a próxima parcela
+  // (`cdsFaturamento.Next`) e o Tab não sai do campo (`Msg.CharCode := 0`)
+  const noCodBarras = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.matches?.('[data-codbarras-boleto]');
+  useShortcut('enter', (e) => {
+    if (!noCodBarras(e)) return false;
+    const campos = Array.from(document.querySelectorAll<HTMLInputElement>('[data-codbarras-boleto]'));
+    campos.slice(campos.indexOf(e.target as HTMLInputElement) + 1).find((c) => !c.disabled)?.focus();
+  });
+  useShortcut('tab', (e) => (noCodBarras(e) ? undefined : false));
+  useShortcut('shift+tab', (e) => (noCodBarras(e) ? undefined : false));
+
   if (codnf == null) return <small className="text-fg-muted">Grave a nota para gerar o financeiro.</small>;
   const linhas = fields as Array<ParcelaForm & { fieldId: string }>;
   const soma = Math.round(linhas.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100;
@@ -1121,7 +1155,7 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
                     <td className="py-1 pr-2"><input className={cel} maxLength={20} value={p.modalidade ?? ''} disabled={!ed} onChange={(e) => editar(i, 'modalidade', e.target.value)} /></td>
                     <td className="py-1 pr-2"><input className={`${cel} text-right tabular-nums`} inputMode="decimal" value={p.valor ?? ''} disabled={!ed}
                       onChange={(e) => editar(i, 'valor', e.target.value.replace(',', '.'))} /></td>
-                    <td className="py-1 pr-2"><input className={cel} maxLength={48} value={p.codbarrasboleto ?? ''} disabled={!ed} onChange={(e) => editar(i, 'codbarrasboleto', e.target.value)} /></td>
+                    <td className="py-1 pr-2"><input className={cel} maxLength={48} value={p.codbarrasboleto ?? ''} disabled={!ed} data-codbarras-boleto data-enter="nativo" onChange={(e) => editar(i, 'codbarrasboleto', e.target.value)} /></td>
                     <td className="py-1 text-fg-muted">
                       {p.liberado === 'S' ? 'faturada' : ed ? <button type="button" aria-label="Excluir parcela" onClick={() => remove(i)}><Trash2 size={14} /></button> : null}
                     </td>

@@ -8,6 +8,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -35,6 +36,14 @@ interface Item {
 }
 interface Nf { codnf: number; nronf?: string; serie?: string; fornecedor?: string; chavenfe?: string; totalnf?: number }
 interface Totais { itens: number; aprovados: number; pendentes: number; conferidos: number; divergentes: number }
+
+/** o operador está digitando num campo de texto — a letra é do campo, não da tela */
+const digitando = (e: KeyboardEvent) => {
+  const el = e.target as HTMLElement | null;
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+  return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset'].includes((el as HTMLInputElement).type);
+};
 
 const APROVADO = (i: Item) => String(i.produc_status ?? '').trim().toUpperCase() === 'APROVADO';
 
@@ -75,6 +84,16 @@ export function ConferenciaNotaPage() {
 
   const toggle = (id: number) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const todos = () => setSel((s) => (s.size === itens.length ? new Set() : new Set(itens.map((i) => i.codnfprod))));
+  // T marca e D desmarca todos os itens, se o cdsClient estiver aberto (FormKeyPress do uConferenciaNota, maiúscula ou minúscula);
+  // o legado reage à letra em qualquer controle — aqui, não enquanto se digita num campo
+  const marcarTodos = (marcar: boolean) => (e: KeyboardEvent) => {
+    if (!itens.length || digitando(e)) return false;
+    setSel(marcar ? new Set(itens.map((i) => i.codnfprod)) : new Set());
+  };
+  useShortcut('t', marcarTodos(true));
+  useShortcut('shift+t', marcarTodos(true));
+  useShortcut('d', marcarTodos(false));
+  useShortcut('shift+d', marcarTodos(false));
 
   const aprovar = async () => {
     if (busy || !sel.size) return;

@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -88,6 +89,10 @@ export function RelPedidosCompraPage() {
 
   // o "Imprimir" (F11) do legado: as parcelas no .fr3 do agrupamento (RELATORIOS do cliente)
   const imprimir = () => { imprimirRelatorio(`/relatorios/pedidos-compra/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
+  // F10 = btnPesquisar.Click, o "[F10] - Consulta" (FormKeyDown do uRelPedidosCompra)
+  useShortcut('f10', () => void gerar(), { when: !ocupado });
+  // F11 = btnImprimir.Click, o "[F11] - Imprimir" (FormKeyDown do uRelPedidosCompra) — com o Imprimir habilitado
+  useShortcut('f11', imprimir, { when: !!res && res.grupos.length > 0 });
 
   const cols = useMemo<DataTableColumnDef<Pedido>[]>(() => [
     { field: 'nropedido', headerName: 'Pedido', type: 'number', width: 90, isPrimary: true },

@@ -32,6 +32,7 @@ import type { PendenciasFornecedor } from './pedidoCompraApi';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
 import { NumberField } from '../../shared/ui/NumberField';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => hojeNaLoja();
@@ -491,6 +492,13 @@ function ItensSection({
       setImportando(false);
     }
   };
+
+  // F7 = btnAdicionarIClick, o "F7 - A&dicionar" (FormKeyDown do uPedidoCompra): só com o pedido em inclusão/edição
+  // (`if not (State in [dsInsert, dsEdit]) then exit`) e com a opção do botão; com uma janela aberta por cima, a tecla é dela
+  useShortcut('f7', () => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
+    setEditIdx(-1);
+  }, { when: editavel && pode('BTNADICIONARI') && editIdx == null });
 
   const onConfirmar = (item: PedidoCompraItemDto) => {
     if (editIdx == null) return;

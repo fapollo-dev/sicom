@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 /** EXPORTAÇÃO DE NF-e (`FRMEXPORTANFE`). Dossiê: `uExportaNFe.md`. */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -32,6 +33,8 @@ export function ExportaNfePage() {
     setOcupado(true);
     try { setXml(null); setNotas((await pedir<{ notas: Nota[] }>(`${BASE}/fiscal/nf-exportacao?${new URLSearchParams(f)}`)).notas); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+  // F3 = btnPesquisarNotasFiscaisClick, o "[F3] - Pesquisar notas fiscais" (FormKeyDown do uExportaNFe)
+  useShortcut('f3', () => void buscar(), { when: !ocupado });
   const verXml = async (codnf: number) => { try { setXml(await pedir(`${BASE}/fiscal/nf-exportacao/${codnf}/xml`)); } catch (e) { mensagem.erro(e); } };
   const copiar = async () => { if (!xml) return; try { await navigator.clipboard.writeText(xml.xml); mensagem.sucesso('XML copiado.'); } catch { mensagem.erro(new Error('Não foi possível copiar.')); } };
   return (

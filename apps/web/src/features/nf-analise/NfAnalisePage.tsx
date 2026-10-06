@@ -9,6 +9,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -100,6 +101,8 @@ export function NfAnalisePage() {
   const imprimir = () => {
     imprimirRelatorio('/fiscal/nf-analise/impressao', corpo()).catch((e) => mensagem.erro(e));
   };
+  // F11 = btnImprimir.Click (FormKeyDown do UNFAnalise); o F10 de lá é o CopyQuery (desenvolvedor)
+  useShortcut('f11', imprimir, { when: !!res });
 
   const cols = useMemo<DataTableColumnDef<Record<string, unknown>>[]>(() => {
     if (consulta) {

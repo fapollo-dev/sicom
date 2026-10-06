@@ -9,6 +9,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { useShortcut } from '../../shared/keyboard';
 
 /**
  * FATURAMENTO DA NOTA (`FRMFATURAMENTO2`).
@@ -150,15 +151,10 @@ export function FaturamentoPage() {
       await buscar();
     } catch (e) { mensagem.erro(e); }
   };
-  useEffect(() => {
-    const tecla = (ev: KeyboardEvent) => {
-      if (previa) return;
-      if (ev.key === 'F2') { ev.preventDefault(); void abrirProcessar(); }
-      if (ev.key === 'F4') { ev.preventDefault(); void bonificar(); }
-    };
-    window.addEventListener('keydown', tecla);
-    return () => window.removeEventListener('keydown', tecla);
-  });
+  // F2 = btnProcessarClick (FormKeyDown do uFaturamento2) — com o pré-lançamento aberto, a tecla é dele
+  useShortcut('f2', () => { if (previa) return false; void abrirProcessar(); });
+  // F4 = btnBonificarClick (FormKeyDown do uFaturamento2)
+  useShortcut('f4', () => { if (previa) return false; void bonificar(); });
 
   return (
     <div className="flex flex-col gap-gp-md">
