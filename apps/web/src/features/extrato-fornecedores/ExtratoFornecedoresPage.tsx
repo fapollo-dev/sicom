@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import {
-  DATAS_EXTRATO_FOR, isErroResposta, MODELOS_EXTRATO_FOR, type ErroResposta,
+  DATAS_EXTRATO_FOR, isErroResposta, MODELOS_EXTRATO_FOR, PARCEIRO_MODOS_EXTRATO_FOR, type ErroResposta,
 } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
@@ -9,6 +9,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * EXTRATO DE FORNECEDORES (`FRMEXTRATOFORNECEDORES`).
@@ -28,10 +29,13 @@ const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 interface Linha {
   codapg: number; duplicata: string | null; nronf: string | null; dtcompra: string | null;
   dtcontabil: string | null; data_referencia: string | null; dtvenc: string | null; dtpgto: string | null;
-  razao: string; valor: number; juros: number; acre_desc: number; valor_pg: number;
-  quitada: string; idlote: number | null;
+  razao: string | null; valor: number; juros: number; acre_desc: number; valor_pg: number;
+  quitada: string; idlote: number | null; dtcompra2?: string | null;
+  // o modelo de cheques próprios
+  dtemissao?: string | null; nrocheque?: string | null; banco?: string | null;
 }
 interface Resultado {
+  modelo?: string;
   linhas: Linha[];
   totais: { titulos: number; valor: number; pago: number; juros: number; acreDesc: number; aberto: number };
 }
@@ -39,20 +43,25 @@ interface Resultado {
 export function ExtratoFornecedoresPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    dataIni: diaUm(), dataFim: hoje(), base: 'VENCIMENTO', modelo: 'PERIODO', situacao: 'TODOS', parceiro: '',
+    dataIni: diaUm(), dataFim: hoje(), base: 'VENCIMENTO', modelo: 'PERIODO', situacao: 'TODOS', parceiro: '', parceiroModo: 'CONTEM', empresas: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const porPeriodo = f.modelo === 'PERIODO';
 
+  const params = () => {
+    const q = new URLSearchParams({ dataIni: f.dataIni, modelo: f.modelo, base: f.base, situacao: f.situacao, parceiroModo: f.parceiroModo });
+    if (porPeriodo) q.set('dataFim', f.dataFim);
+    if (f.parceiro) q.set('parceiro', f.parceiro);
+    if (f.empresas) q.set('empresas', f.empresas);
+    return q;
+  };
+
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, modelo: f.modelo, base: f.base, situacao: f.situacao });
-      if (porPeriodo) q.set('dataFim', f.dataFim);
-      if (f.parceiro) q.set('parceiro', f.parceiro);
-      const r = await fetch(`${BASE}/relatorios/extrato-fornecedores?${q}`, { headers: apiHeaders() });
+      const r = await fetch(`${BASE}/relatorios/extrato-fornecedores?${params()}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
@@ -83,7 +92,8 @@ export function ExtratoFornecedoresPage() {
           </label>
           <div className="w-40"><Field label={porPeriodo ? '&De' : '&Data' } type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           {porPeriodo && <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>}
-          {f.modelo !== 'SALDO' && f.modelo !== 'SALDO2' && (
+          {/* o rgModeloClick: nos modelos 3 e 5 o rgDatas e o rgFiltro ficam desabilitados (o valor escolhido continua valendo) */}
+          {f.modelo !== 'SALDO' && f.modelo !== 'SALDO2' && f.modelo !== 'CHEQUES' && (
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Data de referência
               <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
@@ -99,8 +109,18 @@ export function ExtratoFornecedoresPage() {
               <option value="TODOS">Todos</option><option value="ABERTO">Somente em aberto</option><option value="BAIXADO">Somente baixados</option>
             </select>
           </label>
-          <div className="w-56"><Field label="&Fornecedor" value={f.parceiro} onChange={(e) => setF({ ...f, parceiro: e.target.value })} /></div>
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Fornecedor
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={f.parceiroModo} onChange={(e) => setF({ ...f, parceiroModo: e.target.value })}>
+              {PARCEIRO_MODOS_EXTRATO_FOR.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </label>
+          <div className="w-56"><Field label="&Razão" value={f.parceiro} onChange={(e) => setF({ ...f, parceiro: e.target.value })} /></div>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/relatorios/extrato-fornecedores/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,
@@ -148,7 +168,13 @@ export function ExtratoFornecedoresPage() {
               </tr>
             </thead>
             <tbody>
-              {res.linhas.map((l, i) => (
+              {res.modelo === 'CHEQUES' ? res.linhas.map((l, i) => (
+                <tr key={`ch-${i}`} className="border-b border-border">
+                  <td className="p-pad-xs">{l.razao}</td><td className="p-pad-xs">{l.nrocheque}</td><td className="p-pad-xs">{l.banco}</td>
+                  <td className="p-pad-xs">{dataBr(l.dtemissao)}</td><td className="p-pad-xs">{dataBr(l.dtvenc)}</td>
+                  <td className="p-pad-xs tabular-nums">{moeda(l.valor)}</td><td /><td /><td /><td />
+                </tr>
+              )) : res.linhas.map((l, i) => (
                 <tr key={`${l.codapg}-${i}`} className="border-b border-border">
                   <td className="p-pad-xs">{l.razao}</td>
                   <td className="p-pad-xs">{l.duplicata}</td>

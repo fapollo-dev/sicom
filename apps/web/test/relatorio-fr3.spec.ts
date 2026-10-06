@@ -1587,3 +1587,19 @@ describe('relatório financeiro (RelatorioFinanceiroGeral.fr3, FRMRELFINANCEIRO)
     expect(t).toContain('460,00');
   });
 });
+
+describe('extrato de fornecedores (extratoFornecedores3.fr3, FRMEXTRATOFORNECEDORES)', () => {
+  it('um grupo por fornecedor, as linhas e os totais quitado/aberto do script', () => {
+    const l = (RAZAO: string, DUPLICATA: string, VALOR: number, QUITADA: string, VALOR_PG = 0) =>
+      ({ DUPLICATA, NRONF: '1234', DTCOMPRA: '2040-01-05', DTVENC: QUITADA === 'S' ? '2040-03-10' : '2040-02-20', RAZAO, VALOR, JUROS: 0, ACRE_DESC: 0, VALOR_PG, QUITADA });
+    const t = texto(paginasDoModelo(modelo('extrato-fornecedores3.fr3'), {
+      frxDBDataset1: [l('ATACADO NORTE', 'EF-PAGO', 1000, 'S', 1020), l('ATACADO NORTE', 'EF-ABERTO', 300, 'N')],
+      frxDBDataset2: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', FANTASIA: 'JF', CNPJ: '37.954.975/0001-69', INSC: '0037', ENDERECO: 'AV SACRAMENTO', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', FONE1: '3432' }],
+    }, agora, { DATA: "'01/02/2040'" }));
+    expect(t).toContain('ATACADO NORTE');
+    expect(t).toContain('EF-PAGO');
+    expect(t).toContain('EF-ABERTO');
+    expect(t).toContain('1.000,00');
+    expect(t).toContain('300,00');
+  });
+});

@@ -16,4 +16,11 @@ export class ExtratoFornecedoresController {
   gerar(@Query(new ZodValidationPipe(extratoFornecedoresSchema)) q: ExtratoFornecedoresDto) {
     return this.svc.gerar(q);
   }
+
+  /** o Imprimir nos layouts do cliente (ExtratoFornecedores1/2/3.fr3, pelo modelo) */
+  @Get('impressao')
+  @RequerAcesso('FRMEXTRATOFORNECEDORES', 'FRMEXTRATOFORNECEDORES')
+  impressao(@Query(new ZodValidationPipe(extratoFornecedoresSchema)) q: ExtratoFornecedoresDto) {
+    return this.svc.impressao(q);
+  }
 }

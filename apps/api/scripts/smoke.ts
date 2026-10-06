@@ -17011,6 +17011,52 @@ async function main() {
           && semFim.status === 400 && semGrant.status === 403,
           { aberto: soAberto.linhas?.length, semParceiro: semParceiro.linhas?.length, semFim: semFim.status, rbac: semGrant.status });
 
+        // §118.4 — a fidelidade de 06/10: as datas sem TRUNC, os operadores do parceiro, as lojas, os modelos 4 e 5 e a impressão
+        const tinhaRel2Ef = Number((await pgEf.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Ef) await pgEf.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const t3 = Number((await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, duplicata, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 2, 3, 'EF-HORA', '2040-01-09 10:00:00-03', '2040-02-28 15:00:00-03', 77.00, 'N', 'DP') RETURNING codapg`)).rows[0].codapg);
+        const t4 = Number((await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, duplicata, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (2, 2, 4, 'EF-LOJA2', '2040-01-10', '2040-02-10', 55.00, 'N', 'DP') RETURNING codapg`)).rows[0].codapg);
+        const chq = Number((await pgEf.query(`INSERT INTO chq_proprio (codchqproprio, valor, dtemissao, dtvenc, nrocheque, codparceiro, baixado, idempresa) VALUES (991184, 450.00, '2040-01-10', '2040-02-10', '118401', 2, 'N', 1) RETURNING codchqproprio`)).rows[0].codchqproprio);
+        const razao2 = String((await pgEf.query(`SELECT razao FROM parceiros WHERE codparceiro = 2`)).rows[0]?.razao ?? '');
+        const ef = async (qs: string) => (await (await fetch(`${base}/${EF}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const tem = (r: any, c: number) => (r.linhas ?? []).some((l: any) => Number(l.codapg) === c);
+        const per = await ef('dataIni=2040-02-01&dataFim=2040-02-28&modelo=PERIODO&base=VENCIMENTO');
+        const ate = await ef('dataIni=2040-02-28&modelo=ATE&base=VENCIMENTO');
+        const desde = await ef('dataIni=2040-02-28&modelo=DESDE&base=VENCIMENTO');
+        const igual = await ef(`dataIni=2040-01-01&dataFim=2040-12-31&modelo=PERIODO&parceiro=${encodeURIComponent(razao2)}&parceiroModo=IGUAL`);
+        const dif = await ef(`dataIni=2040-01-01&dataFim=2040-12-31&modelo=PERIODO&parceiro=${encodeURIComponent(razao2)}&parceiroModo=DIFERENTE`);
+        const lojasEf = await ef('dataIni=2040-01-01&dataFim=2040-12-31&modelo=PERIODO&empresas=1,2');
+        const saldo = await ef('dataIni=2040-01-09&modelo=SALDO');
+        const saldo2 = await ef('dataIni=2040-01-09&modelo=SALDO2');
+        const cheques = await ef('dataIni=2040-01-31&modelo=CHEQUES');
+        check('EXTRATO FORNECEDORES §118.4 [as datas como o legado, os operadores do parceiro, as lojas e os modelos 4 e 5]: o legado compara SEM TRUNC — o título que vence 28/02 às 15:00 fica FORA do período até 28/02 e do "até 28/02" (é depois da meia-noite) e entra no "a partir de 28/02"; o parceiro pelo operador do SetaFiltro (igual acha, diferente não); as lojas marcadas trazem a loja 2; o SALDO trunca a compra (comprado 09/01 10:00 entra no saldo de 09/01; ⚠️ no modelo 5, sem TRUNC, o legado o deixaria fora — mas `apagar.dtcompra` é date no Apollo, a hora não veio na carga); o modelo 4 lista o cheque próprio emitido até a data e não baixado',
+          !tem(per, t3) && !tem(ate, t3) && tem(desde, t3) && tem(per, t2)
+          && tem(igual, t2) && !tem(dif, t2) && !tem(per, t4) && tem(lojasEf, t4)
+          && tem(saldo, t3) && tem(saldo2, t2)
+          && (cheques.linhas ?? []).some((l: any) => String(l.nrocheque) === '118401' && Math.abs(Number(l.valor) - 450) < 0.005) && cheques.modelo === 'CHEQUES',
+          { per: tem(per, t3), ate: tem(ate, t3), desde: tem(desde, t3), igual: tem(igual, t2), dif: tem(dif, t2), lojas: tem(lojasEf, t4), saldo: tem(saldo, t3), saldo2: [tem(saldo2, t3), tem(saldo2, t2)], cheques: cheques.linhas });
+
+        await pgEf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992964, 1, 'extratoFornecedores3.fr3', 'x', 'PERSONALIZADO', $1), (992965, 1, 'ExtratoFornecedores2.fr3', 'x', 'PERSONALIZADO', $2), (992966, 1, 'ExtratoFornecedores1.fr3', 'x', 'PERSONALIZADO', $3)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`,
+          ['Ext3', 'Ext2', 'Ext1'].map((n) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}_stub"/></TfrxReport>`).toString('base64')));
+        const i3 = (await (await fetch(`${base}/${EF}/impressao?dataIni=2040-02-01&dataFim=2040-02-28&modelo=PERIODO&base=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const i2 = (await (await fetch(`${base}/${EF}/impressao?dataIni=2040-01-31&modelo=SALDO2`, { headers: H })).json().catch(() => ({}))) as any;
+        const i1 = (await (await fetch(`${base}/${EF}/impressao?dataIni=2040-01-31&modelo=CHEQUES`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgEf.query(`DELETE FROM relatorios WHERE codrelatorio IN (992964, 992965, 992966)`);
+        const d3 = (i3.datasets?.frxDBDataset1 ?? []) as any[];
+        const d3t1 = d3.find((x) => x.DUPLICATA === 'EF-PAGO');
+        check('EXTRATO FORNECEDORES §118.5 [o Imprimir nos três layouts]: modelos 0-3 → o extratoFornecedores3.fr3 do cliente (o nome em minúscula na RELATORIOS) com o cdsExtrato no frxDBDataset1 (DTVENC = a coluna que vira pagamento no quitado), a empresa no frxDBDataset2 e DATA; o modelo 5 → ExtratoFornecedores2.fr3 (frxDBExtrato2, com a data contábil/compra e o DTPGTO); o de cheques → ExtratoFornecedores1.fr3 (frxDBDataset3)',
+          String(i3.modelo).includes('Ext3_stub') && !!d3t1 && String(d3t1.DTVENC).slice(0, 10) === '2040-03-10' && i3.variaveis?.DATA === "'01/02/2040'" && (i3.datasets?.frxDBDataset2 ?? []).length === 1
+          && String(i2.modelo).includes('Ext2_stub') && (i2.datasets?.frxDBExtrato2 ?? []).some((x: any) => x.DUPLICATA === 'EF-ABERTO')
+          && String(i1.modelo).includes('Ext1_stub') && (i1.datasets?.frxDBDataset3 ?? []).some((x: any) => String(x.NROCHEQUE) === '118401'),
+          { i3: [i3.modelo?.slice?.(0, 80), d3.length, d3t1?.DTVENC, i3.variaveis], i2: (i2.datasets?.frxDBExtrato2 ?? []).length, i1: (i1.datasets?.frxDBDataset3 ?? []).length });
+        await pgEf.query(`DELETE FROM chq_proprio WHERE codchqproprio = $1`, [chq]);
+        await pgEf.query(`DELETE FROM apagar WHERE codapg IN ($1,$2)`, [t3, t4]);
+        if (!tinhaRel2Ef) await pgEf.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+
         await pgEf.query(`DELETE FROM apagar_bx WHERE codapg IN ($1,$2)`, [t1, t2]);
         await pgEf.query(`DELETE FROM apagar WHERE codapg IN ($1,$2)`, [t1, t2]);
       } finally {
