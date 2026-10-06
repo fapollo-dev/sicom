@@ -13962,6 +13962,27 @@ async function main() {
           && linCor.markup_autorizado === true,
           { proc: linCor?.proc, statusnfe: linCor?.statusnfe, autorizado: linCor?.markup_autorizado, pmz: linCor?.pmz });
 
+        // 104.18) o IMPRIMIR: a grade como está na tela (preço e markup editados e não aplicados) no PrecificacaoNF.fr3 —
+        // MEDIAMARGEM = AVG(MARKUP) do dataset, DtInicial = a emissão do registro corrente, DtFinal = agora; grade vazia → 400
+        const stubPn = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="PrecNF"/></TfrxReport>').toString('base64');
+        await pgPn.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992947, 1, 'PrecificacaoNF.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubPn]);
+        const pnImp = await fetch(`${base}/${PN}/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ dtemissao: '2026-09-02', linhas: [
+          { idempresa: 1, codprodnota: '049800035324', descricao: 'CHANTILLY', quantidade: 12, vrcusto: 4.5, ultcusto: 4.3, vrvenda: 6.49, pmz: 5.1, vrvendasug: 6.79, markup: 50, preco_venda: 6.75 },
+          { idempresa: 1, codprodnota: '7891000', descricao: 'ACHOCOLATADO', quantidade: 6, vrcusto: 4.5, ultcusto: null, vrvenda: 5.49, pmz: 5.1, vrvendasug: 5.85, markup: 25, preco_venda: 5.85 },
+        ] }) });
+        const pnImpJ = (await pnImp.json().catch(() => ({}))) as any;
+        const pnVazio = await fetch(`${base}/${PN}/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ linhas: [] }) });
+        await pgPn.query(`DELETE FROM relatorios WHERE codrelatorio = 992947`);
+        const pnL = pnImpJ.datasets?.frxDBDataset1 ?? [];
+        check('PRECIFICAÇÃO NF §104.18 [o Imprimir]: o PrecificacaoNF.fr3 recebe a grade como a tela mostra (o preço editado 6,75 no PRECO_VENDA, o markup 50), o código da nota como texto, MEDIAMARGEM = média do markup (37,5) em todas as linhas, DtInicial = a emissão do registro corrente (02/09/2026) e DtFinal = agora; grade vazia → 400',
+          pnImp.status === 200 && String(pnImpJ.modelo ?? '').includes('PrecNF') && pnL.length === 2
+          && Number(pnL[0].PRECO_VENDA) === 6.75 && Number(pnL[0].MARKUP) === 50 && pnL[0].CODPRODNOTA === '049800035324'
+          && pnL.every((r: any) => Number(r.MEDIAMARGEM) === 37.5) && pnL[1].ULTCUSTO === null
+          && pnImpJ.variaveis?.DtInicial === "'02/09/2026'" && /^'\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}'$/.test(String(pnImpJ.variaveis?.DtFinal ?? ''))
+          && pnVazio.status === 400,
+          { st: pnImp.status, l: pnL, vars: pnImpJ.variaveis, vazio: pnVazio.status });
+
         await pgPn.query(`DELETE FROM etiqueta_cons_prod WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
@@ -18565,6 +18586,23 @@ async function main() {
         check('PRECIFICAÇÃO NF BRUTA §151.3 [transação única — o defeito do legado]: um lote com 2 itens onde o SEGUNDO é um produto inexistente falha inteiro e **não deixa o primeiro gravado** (o legado dava commit por item: o primeiro ficaria e o lote sairia pela metade, sem aviso) — o lote do produto continua com 1 linha, a do teste anterior; sem o grant BTNAPLICAR, 403',
           invalido.status === 422 && invalidoJ.code === 'PRODUTO_NAO_ENCONTRADO' && lotesDepois === 1 && semGrant.status === 403,
           { invalido: [invalido.status, invalidoJ.code], lotesDepois, rbac: semGrant.status });
+        // 151.4) o IMPRIMIR: a grade como está no PrecificacaoNFBruta.fr3 — MARGEM = o markup fixo da grade, MEDIAMARGEM = AVG(MARGEM),
+        // DtInicial/DtFinal = o texto dos campos do período (em branco, a máscara vazia do JvDateEdit)
+        const stubPb = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="PrecNFBruta"/></TfrxReport>').toString('base64');
+        await pgPb.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992948, 1, 'PrecificacaoNFBruta.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubPb]);
+        const pbImp = await fetch(`${base}/${PB}/impressao`, { method: 'POST', headers: j, body: JSON.stringify({ dataIni: '2026-09-01', dataFim: null, linhas: [
+          { idempresa: 1, codprodnota: 'A1', descricao: 'ITEM A', quantidade: 10, vrcusto: 3.4, ultcusto: 3.2, vrvenda: 4.99, pmz: 4.1, vrvendasug: 5.19, margem: 30, preco_venda: 5.19 },
+          { idempresa: 1, codprodnota: 'B2', descricao: 'ITEM B', quantidade: 5, vrcusto: 2, ultcusto: 2, vrvenda: 3, pmz: 2.5, vrvendasug: 3.1, margem: 45, preco_venda: 3.2 },
+        ] }) });
+        const pbImpJ = (await pbImp.json().catch(() => ({}))) as any;
+        await pgPb.query(`DELETE FROM relatorios WHERE codrelatorio = 992948`);
+        const pbL = pbImpJ.datasets?.frxDBDataset1 ?? [];
+        check('PRECIFICAÇÃO NF BRUTA §151.4 [o Imprimir]: o PrecificacaoNFBruta.fr3 recebe a grade (MARGEM = o markup fixo 30/45, PRECO_VENDA = o preço da grade 3,20), MEDIAMARGEM = 37,5 em todas as linhas, DtInicial = 01/09/2026 e DtFinal = o campo em branco',
+          pbImp.status === 200 && String(pbImpJ.modelo ?? '').includes('PrecNFBruta') && pbL.length === 2
+          && Number(pbL[1].MARGEM) === 45 && Number(pbL[1].PRECO_VENDA) === 3.2 && pbL.every((r: any) => Number(r.MEDIAMARGEM) === 37.5)
+          && pbImpJ.variaveis?.DtInicial === "'01/09/2026'" && pbImpJ.variaveis?.DtFinal === "'  /  /    '",
+          { st: pbImp.status, l: pbL, vars: pbImpJ.variaveis });
         await pgPb.query(`DELETE FROM lote_preco WHERE idproduto IN (994101,994102)`);
         await pgPb.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2)`, [nf, nfOutra]);
         await pgPb.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nf, nfOutra]);

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { useNavigate } from 'react-router-dom';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
@@ -174,6 +175,22 @@ export function PrecificacaoNfPage() {
   };
 
   /** o alvo dos atalhos é a linha marcada; com várias marcadas, a primeira. */
+  /** IMPRIMIR (`btnImprimirClick`): a grade como está — o preço e o markup editados — no PrecificacaoNF.fr3 do cliente */
+  const imprimir = async () => {
+    if (!res?.linhas.length) return;
+    const corrente = res.linhas.find((l) => sel.has(l.codnfprod)) ?? res.linhas[0];
+    try {
+      await imprimirRelatorio('/precificacao/nf/impressao', {
+        dtemissao: corrente.dtemissao ?? null,
+        linhas: res.linhas.map((l) => ({
+          idempresa: l.idempresa, codprodnota: l.codprodnota ?? null, descricao: l.descricao,
+          quantidade: l.quantidade, vrcusto: l.vrcusto, ultcusto: l.ultcusto, vrvenda: l.vrvenda, pmz: l.pmz, vrvendasug: l.vrvendasug,
+          markup: edit[l.codnfprod]?.markup ?? l.markup, preco_venda: edit[l.codnfprod]?.vrvenda ?? l.preco_venda,
+        })),
+      });
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const atalhoItem = useMemo(
     () => (res && sel.size > 0 ? res.linhas.find((l) => sel.has(l.codnfprod)) ?? null : null),
     [res, sel],
@@ -330,6 +347,7 @@ export function PrecificacaoNfPage() {
               <div><div className="text-body-sm text-fg-muted">Selecionados</div><div className="text-body-lg tabular-nums">{sel.size}</div></div>
               <Button label="Selecionar &todos" variant="soft" onClick={() => setSel(new Set(res.linhas.map((l) => l.codnfprod)))} />
               <Button label="&Aplicar valores" disabled={ocupado || sel.size === 0} onClick={() => void aplicar()} />
+              <Button label="&Imprimir" variant="soft" disabled={ocupado || !res.linhas.length} onClick={() => void imprimir()} />
               <label className="flex items-center gap-gp-sm text-body-sm">
                 Aplicar em
                 <select multiple size={1} className="rounded border border-border px-1 py-0.5"

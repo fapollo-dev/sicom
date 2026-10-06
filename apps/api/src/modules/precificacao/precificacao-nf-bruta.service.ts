@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import type { PrecificacaoNfBrutaImpressaoDto } from '@apollo/shared';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { dataBr, textoVariavel } from '../../shared/relatorios/registro-fr3';
 import { sql, type Kysely } from 'kysely';
 import type { PrecificacaoNfBrutaAplicarDto, PrecificacaoNfBrutaConsultaDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -69,7 +72,7 @@ export class PrecificacaoNfBrutaService {
       const vrvenda = num(r.vrvenda);
       const sugerido = num(r.vrvendasug);
       return {
-        codnfprod: Number(r.codnfprod), codnf: Number(r.codnf), nronf: r.nronf, dtemissao: r.dtemissao,
+        codnfprod: Number(r.codnfprod), codnf: Number(r.codnf), nronf: r.nronf, dtemissao: r.dtemissao, idempresa: Number(r.idempresa),
         fornecedor: r.fornecedor ?? null, idproduto: Number(r.idproduto ?? r.codproduto),
         codbarra: r.codbarra ?? null, codprodnota: r.codprodnota ?? null, descricao: r.descricao ?? '',
         quantidade: num(r.quantidade), ultcusto: num(r.ultcusto), pmz: num(r.pmz),
@@ -121,5 +124,28 @@ export class PrecificacaoNfBrutaService {
       }
       return { lotes, totais: { lotes: lotes.length, markupsAtualizados: markups, empresa: emp } };
     });
+  }
+
+  /**
+   * IMPRESSÃO da grade — `btnImprimirClick` (uPrecificacaoNFBruta.pas:296): `Relatorios\PrecificacaoNFBruta.fr3` com o
+   * `frxDBDataset1` = o `cdsPrecificacaoNF` como está na tela (MARGEM = o markup fixo, editável; PRECO_VENDA = o preço da grade) e o
+   * agregado `MEDIAMARGEM` = AVG(MARGEM); DtInicial e DtFinal = o texto dos campos do período (em branco, a máscara vazia do JvDateEdit).
+   */
+  async impressao(dto: PrecificacaoNfBrutaImpressaoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const media = dto.linhas.reduce((a, l) => a + num(l.margem), 0) / dto.linhas.length;
+    const campo = (d?: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? dataBr(d) : '  /  /    ');
+    return {
+      titulo: 'Precificação NF bruta',
+      modelo: await modeloFr3(db, 'PrecificacaoNFBruta.fr3'),
+      datasets: {
+        frxDBDataset1: dto.linhas.map((l) => ({
+          IDEMPRESA: l.idempresa ?? null, CODPRODNOTA: l.codprodnota ?? '', DESCRICAO: l.descricao ?? '', QUANTIDADE: num(l.quantidade),
+          VRCUSTO: num(l.vrcusto), ULTCUSTO: num(l.ultcusto), VRVENDA: num(l.vrvenda), PMZ: num(l.pmz), VRVENDASUG: num(l.vrvendasug),
+          MARGEM: num(l.margem), PRECO_VENDA: num(l.preco_venda), MEDIAMARGEM: media,
+        })),
+      },
+      variaveis: { DtInicial: textoVariavel(campo(dto.dataIni)), DtFinal: textoVariavel(campo(dto.dataFim)) },
+    };
   }
 }

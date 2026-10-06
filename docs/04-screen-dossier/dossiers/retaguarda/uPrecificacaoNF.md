@@ -254,3 +254,12 @@ campo morto** — fator 3 não multiplica nada (§104.15).
 
 Fechamento (2): o botão de etiquetas enfileirando sem duplicar (§104.16) · a coloração por regra e o gate do
 PMZ como colunas (§104.17).
+
+## A impressão (06/10/2026)
+
+`btnImprimirClick` (uPrecificacaoNF.pas:364): `Relatorios\PrecificacaoNF.fr3` (PERSONALIZADO 875) com o `frxDBDataset1` = o
+`cdsPrecificacaoNF` **como está na tela** — o preço e o markup que o operador editou e ainda não aplicou entram na impressão —, por
+isso a página manda as linhas visíveis (API `POST precificacao/nf/impressao`, botão "Imprimir"). O layout agrupa por IDEMPRESA (margem
+média e contagem do grupo) e o resumo lê o `MEDIAMARGEM`, o `TAggregateField` `AVG(MARKUP)` do dataset (o mesmo valor em todas as
+linhas). Variáveis: DtInicial = a `DTEMISSAO` do registro corrente (o selecionado; senão o primeiro) e DtFinal = `DateTimeToStr(Now)`.
+Smoke §104.18; teste de renderização do layout 875.

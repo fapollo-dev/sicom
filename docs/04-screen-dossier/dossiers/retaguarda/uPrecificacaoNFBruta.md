@@ -44,3 +44,12 @@ relatório de preços alterados (mig 244).
 ## 4. Fora
 
 A impressão (.fr3) e a fila de etiquetas da tela — o épico Etiquetas já cobre a impressão.
+
+## A impressão (06/10/2026)
+
+`btnImprimirClick` (uPrecificacaoNFBruta.pas:296): `Relatorios\PrecificacaoNFBruta.fr3` (PERSONALIZADO 876), o `frxDBDataset1` = o
+`cdsPrecificacaoNF` como está na tela. O layout lê **MARGEM** — no legado o campo recebe o `MARKUPFIXO` ao carregar (:351) e é o que a
+grade edita — e o resumo, o agregado `MEDIAMARGEM` = AVG(MARGEM). DtInicial/DtFinal = o **texto** dos campos do período
+(`dtInicial.Text`; em branco, a máscara vazia do JvDateEdit). API `POST precificacao/nf-bruta/impressao`, botão "Imprimir" (a página
+manda as linhas visíveis com o preço e o markup fixo editados). O item passou a trazer o IDEMPRESA (o grupo do layout).
+Smoke §151.4; teste de renderização do layout 876.

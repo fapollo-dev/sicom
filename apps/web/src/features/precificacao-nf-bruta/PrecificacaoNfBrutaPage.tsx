@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * PRECIFICAÇÃO PELA NF BRUTA (`FRMPRECIFICACAONFBRUTA`). Dossiê: `uPrecificacaoNFBruta.md`.
@@ -20,7 +21,7 @@ const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-
 interface Item {
   codnfprod: number; codnf: number; nronf: string; dtemissao: string; fornecedor: string | null;
   idproduto: number; codbarra: string | null; descricao: string; quantidade: number; ultcusto: number;
-  pmz: number; vrcusto: number; vrvenda: number; vrvendasug: number; markupfixo: number;
+  pmz: number; vrcusto: number; vrvenda: number; vrvendasug: number; markupfixo: number; idempresa: number; codprodnota: string | null;
   temSugestao: boolean; diferenca: number;
 }
 interface Consulta { itens: Item[]; truncado: boolean; totais: { itens: number; comSugestao: number; semPreco: number; semMarkupFixo: number } }
@@ -79,6 +80,22 @@ export function PrecificacaoNfBrutaPage() {
     if (!marcados.length) return;
     abrirEtiquetasCom({ fonte: 'precificacao', itens: marcados.map((i) => ({ idproduto: i.idproduto, valor: Number(edit[i.idproduto]?.vrvenda ?? i.vrvendasug) || 0 })) }, navigate);
   };
+  /** IMPRIMIR (`btnImprimirClick`): a grade como está — o preço e o markup fixo da grade — no PrecificacaoNFBruta.fr3 do cliente */
+  const imprimir = async () => {
+    if (!res?.itens.length) return;
+    const n = (t: string | undefined) => Number(String(t ?? '').replace(',', '.')) || 0;
+    try {
+      await imprimirRelatorio('/precificacao/nf-bruta/impressao', {
+        dataIni: f.dataIni || null, dataFim: f.dataFim || null,
+        linhas: res.itens.map((i) => ({
+          idempresa: i.idempresa, codprodnota: i.codprodnota, descricao: i.descricao, quantidade: i.quantidade, vrcusto: i.vrcusto,
+          ultcusto: i.ultcusto, vrvenda: i.vrvenda, pmz: i.pmz, vrvendasug: i.vrvendasug,
+          margem: edit[i.idproduto] ? n(edit[i.idproduto].markupfixo) : i.markupfixo,
+          preco_venda: edit[i.idproduto] ? n(edit[i.idproduto].vrvenda) : i.vrvendasug,
+        })),
+      });
+    } catch (e) { mensagem.erro(e); }
+  };
   const alternar = (id: number) => { const n = new Set(sel); if (n.has(id)) n.delete(id); else n.add(id); setSel(n); };
 
   return (
@@ -95,6 +112,7 @@ export function PrecificacaoNfBrutaPage() {
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           <Button label="&Aplicar" disabled={ocupado || sel.size === 0} onClick={() => void aplicar()} />
           <Button label="&Etiquetas" variant="soft" disabled={ocupado || sel.size === 0} onClick={abrirEtiquetas} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado || !res?.itens.length} onClick={() => void imprimir()} />
         </div>
       </section>
 

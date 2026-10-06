@@ -15,7 +15,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 877 | `FRMCONFBOLETO` | BoletoFR, Dup_Duplicata* | ✅ 06/10 (boleto com os datasets do ACBr, duplicata com o extenso; as instruções com vírgula) |
 | 735 | `FRMADIANTAMENTOFORNECEDOR` | ReciboAdiantamentoParceiro | ✅ 06/10 (o NumeroExtenso no motor) |
 | 355 | `FRMRELREGISTROS_ES` | Notas_Fiscais_Registro_Apuracao/Entrada/Saida | ✅ 06/10 — Apuração (e a apuração refeita pela regra do binário novo, `7a44529`) e o modo Registro de entradas/saídas, que não existia |
-| 236 | `FRMPRECIFICACAONF` | PrecificacaoNF | ⏳ |
+| 236 | `FRMPRECIFICACAONF` | PrecificacaoNF | ✅ 06/10 (a grade como está, com o editado) |
 | 141 | `FRMRELINVENTARIOROTATIVO` | InvRotDetalhado/Produtos/Resumido | ⏳ |
 | 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ⏳ |
 | 121 | `FRMTROCAMERCADORIAFOR` | extr - Troca | ⏳ |
@@ -35,7 +35,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ⏳ |
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ⏳ |
 | 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ⏳ |
-| 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ⏳ |
+| 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ✅ 06/10 (MARGEM = markup fixo da grade) |
 | 11 | `FRMRELENTRADAS_FINAN` | Notas_Fiscais_Entradas_Finan | ⏳ |
 | 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ⏳ |
 | — | `FRMCONSULTORIAATM`, `FRMRELPERDAS`, `FRMSALDOEMPRESA` | | ⛔ aguardam o SQL do binário novo (vigias do V$SQL) |

@@ -6,6 +6,10 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { PrecificacaoCustoService } from './precificacao-custo.service';
 import { ConfigService } from '../cadastro/config.service';
+import type { PrecificacaoNfImpressaoDto } from '@apollo/shared';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { dataBr, textoVariavel } from '../../shared/relatorios/registro-fr3';
+import { FUSO_LOJA } from '../../shared/tempo/hoje';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -297,6 +301,30 @@ export class PrecificacaoNfService {
    * `PrecificacaoCustoService`, que já é a do `FRMPRIFICACAOCUSTO`. Não há uma segunda implementação da
    * margem no Apollo, e não deve haver.
    */
+  /**
+   * IMPRESSÃO da grade — `Relatorios\PrecificacaoNF.fr3` com o `frxDBDataset1` = o `cdsPrecificacaoNF` (as linhas como a tela as
+   * mostra) e o agregado `MEDIAMARGEM` = AVG(MARKUP) do dataset (o rodapé "MARGEM MÉDIA GERAL"); variáveis DtInicial = a emissão do
+   * registro corrente e DtFinal = `DateTimeToStr(Now)`.
+   */
+  async impressao(dto: PrecificacaoNfImpressaoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const media = dto.linhas.reduce((a, l) => a + num(l.markup), 0) / dto.linhas.length;
+    const agora = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_LOJA, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+      .format(new Date()).replace(',', '');
+    return {
+      titulo: 'Precificação NF',
+      modelo: await modeloFr3(db, 'PrecificacaoNF.fr3'),
+      datasets: {
+        frxDBDataset1: dto.linhas.map((l) => ({
+          IDEMPRESA: l.idempresa ?? null, CODPRODNOTA: l.codprodnota ?? '', DESCRICAO: l.descricao ?? '', QUANTIDADE: num(l.quantidade),
+          VRCUSTO: num(l.vrcusto), ULTCUSTO: l.ultcusto == null ? null : num(l.ultcusto), VRVENDA: num(l.vrvenda), PMZ: num(l.pmz),
+          VRVENDASUG: num(l.vrvendasug), MARKUP: num(l.markup), PRECO_VENDA: num(l.preco_venda), MEDIAMARGEM: media,
+        })),
+      },
+      variaveis: { DtInicial: textoVariavel(dataBr(String(dto.dtemissao ?? '').slice(0, 10))), DtFinal: textoVariavel(agora) },
+    };
+  }
+
   async recalcular(codnfprod: number, p: { markup?: number | null; vrvenda?: number | null }) {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;

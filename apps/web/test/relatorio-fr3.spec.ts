@@ -1272,3 +1272,34 @@ describe('livro de Registro de Saídas (Notas_fiscais_Registro_Saida.fr3, menu 1
     expect(t).toContain('36,00');
   });
 });
+
+describe('precificação NF (PrecificacaoNF.fr3, FRMPRECIFICACAONF)', () => {
+  it('a grade como está, o grupo por empresa com a margem média e a contagem, e a margem média geral do agregado', () => {
+    const l = (CODPRODNOTA: string, DESCRICAO: string, MARKUP: number, PRECO_VENDA: number) => ({
+      IDEMPRESA: 1, CODPRODNOTA, DESCRICAO, QUANTIDADE: 12, VRCUSTO: 4.5, ULTCUSTO: 4.3, VRVENDA: 6.49, PMZ: 5.1, VRVENDASUG: 6.79, MARKUP, PRECO_VENDA, MEDIAMARGEM: 40,
+    });
+    const t = texto(paginasDoModelo(modelo('precificacao-nf.fr3'), { frxDBDataset1: [l('049800035324', 'CHANTILLY AMERICA', 50, 6.75), l('7891000', 'ACHOCOLATADO 400G', 30, 5.85)] },
+      agora, { DtInicial: "'02/09/2026'", DtFinal: "'06/10/2026 10:05:00'" }));
+    expect(t).toContain('PRECIFICAÇÃO NF');
+    expect(t).toContain('Período: 02/09/2026 até 06/10/2026 10:05:00');
+    expect(t).toContain('CHANTILLY AMERICA');
+    expect(t).toContain('049800035324');
+    expect(t).toContain('Empresa: 1');
+    expect(t).toContain('40,00');          // AVG(MARKUP) do grupo com %2.2f
+    expect(t).toContain('PRODUTOS LISTADOS:');
+    expect(t).toContain('TOTAL DE PRODUTOS LISTADOS:');
+  });
+});
+
+describe('precificação pela NF bruta (PrecificacaoNFBruta.fr3, FRMPRECIFICACAONFBRUTA)', () => {
+  it('o MARGEM (markup fixo da grade) com 2 casas, o período digitado e a média do grupo e geral', () => {
+    const l = (CODPRODNOTA: string, MARGEM: number) => ({ IDEMPRESA: 1, CODPRODNOTA, DESCRICAO: `ITEM ${CODPRODNOTA}`, QUANTIDADE: 10, VRCUSTO: 3.456, ULTCUSTO: 3.2,
+      VRVENDA: 4.99, PMZ: 4.1, VRVENDASUG: 5.19, MARGEM, PRECO_VENDA: 5.19, MEDIAMARGEM: 32.5 });
+    const t = texto(paginasDoModelo(modelo('precificacao-nf-bruta.fr3'), { frxDBDataset1: [l('A1', 30), l('B2', 35)] }, agora, { DtInicial: "'01/09/2026'", DtFinal: "'30/09/2026'" }));
+    expect(t).toContain('Período: 01/09/2026 até 30/09/2026');
+    expect(t).toContain('ITEM A1');
+    expect(t).toContain('3,46');      // VRCUSTO com %2.2f
+    expect(t).toContain('30,00');
+    expect(t).toContain('32,50');     // a média do grupo (AVG) e a geral (MEDIAMARGEM)
+  });
+});

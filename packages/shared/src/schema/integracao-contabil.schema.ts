@@ -300,6 +300,35 @@ export const precificacaoNfFiltroSchema = z.object({
 export type PrecificacaoNfFiltroDto = z.infer<typeof precificacaoNfFiltroSchema>;
 
 /**
+ * IMPRIMIR a grade (`btnImprimirClick`, uPrecificacaoNF.pas:364): o `PrecificacaoNF.fr3` lê o `cdsPrecificacaoNF` como está na tela —
+ * com o preço e o markup que o operador editou e ainda não aplicou —, então a página manda as linhas visíveis.
+ */
+const numImp = z.coerce.number().finite().nullish();
+export const precificacaoNfImpressaoSchema = z.object({
+  linhas: z.array(z.object({
+    idempresa: numImp, codprodnota: z.string().max(60).nullish(), descricao: z.string().max(200).nullish(),
+    quantidade: numImp, vrcusto: numImp, ultcusto: numImp, vrvenda: numImp, pmz: numImp, vrvendasug: numImp,
+    markup: numImp, preco_venda: numImp,
+  })).min(1, 'Não há itens na grade para imprimir.').max(10000),
+  /** o `cdsPrecificacaoNFDTEMISSAO` do registro corrente (AAAA-MM-DD) */
+  dtemissao: z.string().max(30).nullish(),
+});
+export type PrecificacaoNfImpressaoDto = z.infer<typeof precificacaoNfImpressaoSchema>;
+
+/** IMPRIMIR a grade da precificação pela NF bruta (uPrecificacaoNFBruta.pas:296): o MARGEM é o markup fixo da grade (editável) */
+export const precificacaoNfBrutaImpressaoSchema = z.object({
+  linhas: z.array(z.object({
+    idempresa: numImp, codprodnota: z.string().max(60).nullish(), descricao: z.string().max(200).nullish(),
+    quantidade: numImp, vrcusto: numImp, ultcusto: numImp, vrvenda: numImp, pmz: numImp, vrvendasug: numImp,
+    margem: numImp, preco_venda: numImp,
+  })).min(1, 'Não há itens na grade para imprimir.').max(10000),
+  /** o período digitado (AAAA-MM-DD; vazio = o campo em branco) */
+  dataIni: z.string().max(10).nullish(),
+  dataFim: z.string().max(10).nullish(),
+});
+export type PrecificacaoNfBrutaImpressaoDto = z.infer<typeof precificacaoNfBrutaImpressaoSchema>;
+
+/**
  * APLICAR os preços — enfileira um lote por item e por empresa. Não muda o preço: quem muda é o
  * processamento do lote.
  */

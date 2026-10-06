@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
-  precificacaoNfFiltroSchema, aplicarPrecificacaoNfSchema,
-  type PrecificacaoNfFiltroDto, type AplicarPrecificacaoNfDto,
+  precificacaoNfFiltroSchema, aplicarPrecificacaoNfSchema, precificacaoNfImpressaoSchema,
+  type PrecificacaoNfFiltroDto, type AplicarPrecificacaoNfDto, type PrecificacaoNfImpressaoDto,
 } from '@apollo/shared';
 import { PrecificacaoNfService } from './precificacao-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -21,6 +21,14 @@ export class PrecificacaoNfController {
   @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
   listar(@Query(new ZodValidationPipe(precificacaoNfFiltroSchema)) q: PrecificacaoNfFiltroDto) {
     return this.svc.listar(q as never);
+  }
+
+  /** o "Imprimir" da tela: a grade como está (com o que foi editado e não aplicado) no PrecificacaoNF.fr3 do cliente */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
+  impressao(@Body(new ZodValidationPipe(precificacaoNfImpressaoSchema)) dto: PrecificacaoNfImpressaoDto) {
+    return this.svc.impressao(dto);
   }
 
   /** recalcula um item quando o operador mexe no markup ou no preço — a escada é a do FRMPRIFICACAOCUSTO. */
