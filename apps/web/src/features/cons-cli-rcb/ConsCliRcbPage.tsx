@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
@@ -40,6 +41,9 @@ export function ConsCliRcbPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [sel, setSel] = useState<number[]>([]);
   const [ocupado, setOcupado] = useState(false);
+  const jurosRef = useRef<HTMLInputElement>(null);
+  // F8 = edtJuro.SetFocus (FormKeyDown do UConsCliRcb) — o campo só fica habilitado depois da consulta
+  useShortcut('f8', () => jurosRef.current?.focus(), { when: !!res });
 
   const params = (marcados: number[], comTaxa: boolean) => {
     const q = new URLSearchParams({ codparceiro: f.codparceiro });
@@ -105,7 +109,7 @@ export function ConsCliRcbPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&Cliente (código)" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value.replace(/\D/g, '') })} /></div>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void consultar([], false)} />
-          <div className="w-32"><Field label="&Juros (% a.m.)" value={f.taxa} disabled={!res} onChange={(e) => setF({ ...f, taxa: e.target.value })} /></div>
+          <div className="w-32"><Field ref={jurosRef} label="&Juros (% a.m.)" value={f.taxa} disabled={!res} onChange={(e) => setF({ ...f, taxa: e.target.value })} /></div>
           <div className="w-40"><Field label="Juros &até" type="date" value={f.juroAte} disabled={!res} onChange={(e) => setF({ ...f, juroAte: e.target.value })} /></div>
           <Button label="&Recalcular" variant="soft" disabled={!res || ocupado} onClick={() => void consultar(sel, true)} />
           <Button label="&Todos" variant="soft" disabled={!res || ocupado} onClick={() => void consultar((res?.titulos ?? []).map((t) => t.codigo), true)} />

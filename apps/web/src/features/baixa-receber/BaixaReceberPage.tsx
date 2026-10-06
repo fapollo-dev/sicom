@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -7,6 +7,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, retornoBaixaReceber, titulosBaixaReceber,
@@ -52,6 +53,7 @@ export function BaixaReceberPage() {
   const [arquivoRetorno, setArquivoRetorno] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [ultimoLote, setUltimoLote] = useState<number | null>(null);
+  const addRecursoRef = useRef<HTMLSpanElement>(null);
 
   const executar = async (fn: () => Promise<void>) => {
     setOcupado(true);
@@ -221,6 +223,13 @@ export function BaixaReceberPage() {
     setLiberacao(null);
   };
 
+  // F9 = btnaddrecurso.SetFocus (FormKeyDown do UBaixaAreceber) — só leva o foco ao "Adicionar recurso"; sem o botão na tela, nada
+  useShortcut('f9', () => {
+    const botao = addRecursoRef.current?.querySelector('button');
+    if (!botao || botao.disabled) return false;
+    botao.focus();
+  });
+
   const nomeConta = (c: ContaReceber) => `${c.nroconta ?? c.codconta} · ${c.titular ?? ''}${c.caixa ? ' (caixa)' : ''}`;
   const tipoSel = padroes?.recursos.find((x) => x.tipo === Number(novo?.tipo ?? 0));
   const contasDoTipo = contas.filter((c) => (c.caixa ? tipoSel?.caixa : tipoSel?.banco));
@@ -368,7 +377,7 @@ export function BaixaReceberPage() {
             <strong className="text-sm">Recursos</strong>
             <span className="text-sm">Restante <strong className="tabular-nums">{moeda(Math.max(restante, 0))}</strong></span>
             <div className="flex-1" />
-            {!novo && <Button label="Adicionar &recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} />}
+            {!novo && <span ref={addRecursoRef} className="contents"><Button label="Adicionar &recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} /></span>}
           </div>
           {novo && (
             <div className="grid grid-cols-1 gap-gp-sm rounded-md border border-border p-3 sm:grid-cols-2 lg:grid-cols-4">

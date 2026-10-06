@@ -4,6 +4,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -53,6 +54,14 @@ export function RelEntradasFinanPage() {
       setRes(await pedir<Resultado>(`${BASE}/relatorios/entradas-financeiro?${params()}`));
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+  const imprimir = () => {
+    void imprimirRelatorio(`/relatorios/entradas-financeiro/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+  };
+  // F9 = btnConsultaClick, o "[F9] - Consulta" (FormKeyDown do uRelEntradas_Finan)
+  useShortcut('f9', () => void buscar(), { when: !ocupado });
+  // F11 = btnImprimirClick, o "[F11] - Imprimir" (FormKeyDown do uRelEntradas_Finan) — com o mesmo Enabled do botão (só depois de
+  // uma consulta com notas): o relatório daqui reconsulta no servidor, não imprime a grade da tela como o legado
+  useShortcut('f11', imprimir, { when: !ocupado && !!res?.notas.length });
   const abrir = async (codnf: number) => {
     setSel(codnf);
     try {
@@ -72,9 +81,7 @@ export function RelEntradasFinanPage() {
           <label className="flex items-center gap-1 pb-2 text-body-sm"><input type="checkbox" checked={f.somenteSemTitulo} onChange={(e) => setF({ ...f, somenteSemTitulo: e.target.checked })} /> só notas sem título</label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           {/* o legado só habilita o Imprimir depois de uma consulta com notas */}
-          <Button label="&Imprimir" variant="soft" disabled={ocupado || !res?.notas.length} onClick={() => {
-            void imprimirRelatorio(`/relatorios/entradas-financeiro/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
-          }} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado || !res?.notas.length} onClick={imprimir} />
         </div>
       </section>
 

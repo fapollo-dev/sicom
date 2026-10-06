@@ -6,6 +6,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 
@@ -64,6 +65,13 @@ export function ConsRcbBxPage() {
     const lote = Number(params.get('lote') ?? 0);
     if (lote) void abrir(lote);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // F3 = btnAddChequeTer.Click, o "[F3] - Buscar Titulos" (FormKeyDown do UconsRCBbx): aberta com o lote (FIDLote), recarrega o lote;
+  // senão, a busca dos lotes (no legado, a Pesquisa de lotes)
+  useShortcut('f3', () => {
+    const lote = Number(params.get('lote') ?? 0);
+    if (lote) void abrir(lote);
+    else void buscar();
+  }, { when: !ocupado });
 
   const gravarObs = async (codrcbbx: number, obs: string) => {
     try { await pedir(`${BASE}/cobranca/cons-rcb-bx/baixa/${codrcbbx}/obs`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ obs }) }); mensagem.sucesso('Observação gravada.'); }

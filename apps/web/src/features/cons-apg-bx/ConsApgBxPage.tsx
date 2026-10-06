@@ -6,6 +6,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 
@@ -64,6 +65,13 @@ export function ConsApgBxPage() {
     const lote = Number(params.get('lote') ?? 0);
     if (lote) void abrir(lote);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // F3 = btnAddChequeTer.Click, o "[F3] - Buscar Titulos" (FormKeyDown do UConsAPGbx): aberta com o lote (FIDLote), recarrega o lote;
+  // senão, a busca dos lotes (no legado, a Pesquisa de lotes)
+  useShortcut('f3', () => {
+    const lote = Number(params.get('lote') ?? 0);
+    if (lote) void abrir(lote);
+    else void buscar();
+  }, { when: !ocupado });
 
   const reverter = async () => {
     if (!det) return;

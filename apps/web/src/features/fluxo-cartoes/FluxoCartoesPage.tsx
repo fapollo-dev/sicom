@@ -4,6 +4,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
@@ -61,6 +62,21 @@ export function FluxoCartoesPage() {
       setDia(null);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+
+  const exportar = () => {
+    if (!res) return;
+    exportarGradeCsv(res.linhas, [
+      { titulo: 'Dia', valor: (d) => dataBr(d.dtvenda) },
+      { titulo: 'Vendido', valor: (d) => d.total_vendas },
+      { titulo: 'Já recebido', valor: (d) => d.recebidas },
+      { titulo: 'A receber', valor: (d) => d.nao_recebidas },
+      { titulo: 'Lançamentos', valor: (d) => d.lancamentos },
+    ], 'fluxo-cartoes');
+  };
+  // F3 = btnPesquisar.Click, o "[F3] Pesquisar" (FormKeyDown do uFluxoCartoes; o legado não olha modificador)
+  useShortcut('f3', () => void gerar(), { when: !ocupado });
+  // Ctrl+A = ExportaExcel(cdsMontaGridFluxoCartao) (FormKeyDown do uFluxoCartoes) — a exportação da grade, com o Enabled do botão
+  useShortcut('ctrl+a', exportar, { when: !!res });
 
   const abrirDia = async (data: string) => {
     setOcupado(true);
@@ -120,16 +136,7 @@ export function FluxoCartoesPage() {
           <Button label="&Imprimir" variant="soft" disabled={!res || ocupado} onClick={() => {
             void imprimirRelatorio(`/cobranca/fluxo-cartoes/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
           }} />
-          <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
-            if (!res) return;
-            exportarGradeCsv(res.linhas, [
-              { titulo: 'Dia', valor: (d) => dataBr(d.dtvenda) },
-              { titulo: 'Vendido', valor: (d) => d.total_vendas },
-              { titulo: 'Já recebido', valor: (d) => d.recebidas },
-              { titulo: 'A receber', valor: (d) => d.nao_recebidas },
-              { titulo: 'Lançamentos', valor: (d) => d.lancamentos },
-            ], 'fluxo-cartoes');
-          }} />
+          <Button label="E&xportar" variant="soft" disabled={!res} onClick={exportar} />
         </div>
       </section>
 

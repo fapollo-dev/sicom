@@ -4,6 +4,7 @@ import { DATAS_REL_FINANCEIRO, isErroResposta, type ErroResposta } from '@apollo
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
@@ -73,6 +74,9 @@ export function RelFinanceiroPage() {
       if (relatorio === 'GERAL') { setRes((await r.json()) as Resultado); setReceber(null); } else { setReceber((await r.json()) as LinhaReceber[]); setRes(null); }
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+
+  // F9 = btnPesquisarClick, o "[F9] - Consulta" (FormKeyUp do UrelFinanceiro; o legado chama a consulta duas vezes na mesma tecla)
+  useShortcut('f9', () => void buscar(), { when: !ocupado });
 
   const colsReceber = useMemo<DataTableColumnDef<LinhaReceber>[]>(() => [
     { field: 'codigo', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
