@@ -1624,3 +1624,20 @@ describe('análise compra × venda casa de carne (Rel_Analise_Compra_Venda_Carne
     expect(t).toContain('1.200,00');
   });
 });
+
+describe('preços alterados (Rel_PrecosAlterados.fr3, FRMRELPRECOSALTERADOS)', () => {
+  it('por empresa e departamento, com o valor anterior do histórico e o operador', () => {
+    const l = (DESCRICAO: string, VALOR: number, VALOR_ANT: string | null) =>
+      ({ CODEMPRESA: 1, FANTASIA: 'LOJA CENTRO', DPTO: 'MERCEARIA', DESCRICAO, CODBARRA: '789', VALOR, PROMOCAO: 'N', DATA: '2043-07-10T09:00:00', USUARIO: 'MARIA', CODUSUALT: 7, VALOR_ANT });
+    const t = texto(paginasDoModelo(modelo('precos-alterados.fr3'), {
+      frxDBDatasetPrecosAlterados: [l('ARROZ 5KG', 17.9, '12,99'), l('FEIJAO 1KG', 25, null)],
+      frxDBDataset1: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', FANTASIA: 'JF', CNPJ: '37.954.975/0001-69', ENDERECO: 'AV SACRAMENTO', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG' }],
+    }, agora, { OPERADOR_RELATORIO: "'MARIA'", PERIODO: "'01/07/2043 à 31/07/2043'" }));
+    expect(t).toContain('LOJA CENTRO');
+    expect(t).toContain('MERCEARIA');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('17,90');
+    expect(t).toContain('12,99');
+    expect(t).toContain('01/07/2043 à 31/07/2043');
+  });
+});

@@ -24,6 +24,10 @@ export const relPrecosAlteradosSchema = z.object({
   produto: z.string().trim().max(120).optional(),
   /** o "Retirar itens Grupo Preço" do legado: tira o que pertence a um grupo de preço. */
   semGrupoPreco: z.enum(['S', 'N']).default('N'),
+  /** o rbAgrupamento do Imprimir: por empresa, por departamento (PorProduto) ou loja em colunas (só na origem Produtos) */
+  agrupamento: z.enum(['EMPRESA', 'DEPARTAMENTO', 'COLUNAS']).default('EMPRESA'),
+  /** as lojas marcadas, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).optional(),
   limite: z.coerce.number().int().positive().max(20000).default(5000),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 

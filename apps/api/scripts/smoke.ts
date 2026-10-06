@@ -17234,6 +17234,28 @@ async function main() {
           porLote.status === 200 && semGrant.status === 403 && invertido.status === 400,
           { lote: porLote.status, rbac: semGrant.status, invertido: invertido.status });
 
+        // §121.4 — o Imprimir: os três agrupamentos da origem Produtos (o histórico LEFT, como a consulta) e o lote sem relatório no departamento
+        await pgPa.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992968, 1, 'Rel_PrecosAlterados.fr3', 'x', 'PERSONALIZADO', $1), (992969, 1, 'Rel_PrecosAlteradosPorProduto.fr3', 'x', 'PERSONALIZADO', $2),
+          (992970, 1, 'Rel_PrecosAlteradosPorEmpresa.fr3', 'x', 'PERSONALIZADO', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`,
+          ['PA_emp', 'PA_prod', 'PA_col'].map((n) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}_stub"/></TfrxReport>`).toString('base64')));
+        const ipa = async (qs: string) => { const x = await fetch(`${base}/${PA2}/impressao?dataIni=2043-07-01&dataFim=2043-07-31&${qs}`, { headers: H }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const pEmp = await ipa('agrupamento=EMPRESA');
+        const pProd = await ipa('agrupamento=DEPARTAMENTO');
+        const pCol = await ipa('agrupamento=COLUNAS');
+        const pLoteDep = await ipa('origem=LOTE&agrupamento=DEPARTAMENTO');
+        await pgPa.query(`DELETE FROM relatorios WHERE codrelatorio IN (992968, 992969, 992970)`);
+        const dsE = (pEmp.j.datasets?.frxDBDatasetPrecosAlterados ?? []) as any[];
+        const col = (pCol.j.datasets?.frxEmpresasEmColunas ?? []) as any[];
+        const colH = col.find((x) => x.CODBARRA === '7891400001400');
+        check('PREÇOS ALTERADOS §121.4 [o Imprimir nos layouts do cliente]: por empresa → Rel_PrecosAlterados.fr3 com o cdsConsulta (VALOR, VALOR_ANT do histórico como texto, o operador), a empresa e OPERADOR_RELATORIO/PERIODO; por departamento → Rel_PrecosAlteradosPorProduto.fr3; loja em colunas → Rel_PrecosAlteradosPorEmpresa.fr3 com o cdsEmpresasEmColunas (VALOR_EMPRESA1 = "17,90", as colunas sem loja com "-", "Empresa 1" na 1ª linha); no lote, o agrupamento por departamento não tem relatório no legado → 422',
+          pEmp.status === 200 && String(pEmp.j.modelo).includes('PA_emp_stub') && dsE.some((x) => x.CODBARRA === '7891400001400' && x.VALOR_ANT === '12,99' && Math.abs(Number(x.VALOR) - 17.9) < 0.005)
+            && String(pEmp.j.variaveis?.PERIODO) === "'01/07/2043 à 31/07/2043'" && String(pEmp.j.variaveis?.OPERADOR_RELATORIO ?? '').length > 2 && (pEmp.j.datasets?.frxDBDataset1 ?? []).length === 1
+          && pProd.status === 200 && String(pProd.j.modelo).includes('PA_prod_stub')
+          && pCol.status === 200 && String(pCol.j.modelo).includes('PA_col_stub') && !!colH && colH.VALOR_EMPRESA1 === '17,90' && colH.VALOR_EMPRESA2 === '-' && col[0].EMPRESA1 === 'Empresa 1'
+          && pLoteDep.status === 422,
+          { emp: [pEmp.status, dsE.length, pEmp.j.variaveis], prod: pProd.status, col: [pCol.status, colH, col[0]?.EMPRESA1], loteDep: pLoteDep.status });
+
         await pgPa.query(`DELETE FROM multi_preco WHERE idproduto IN (991400,991401)`);
         await pgPa.query(`DELETE FROM historico_dinamico WHERE origem='SMOKE'`);
         await pgPa.query(`DELETE FROM produtos WHERE idproduto IN (991400,991401)`);

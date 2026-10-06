@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 
 /**
@@ -40,7 +41,7 @@ export function RelPrecosAlteradosPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
     dataIni: diaUm(), dataFim: hoje(), origem: 'PRECO', promocao: 'TODOS',
-    coddpto: '', produto: '', semGrupoPreco: 'N',
+    coddpto: '', produto: '', semGrupoPreco: 'N', agrupamento: 'EMPRESA', empresas: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -111,6 +112,21 @@ export function RelPrecosAlteradosPage() {
             Retirar itens de grupo de preço
           </label>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          {/* o rbAgrupamento do Imprimir: a "loja em colunas" só aparece na origem Produtos (ConfiguraAgrupamento) */}
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Agrupamento
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={f.agrupamento} onChange={(e) => setF({ ...f, agrupamento: e.target.value })}>
+              <option value="EMPRESA">Por empresa</option><option value="DEPARTAMENTO">Por departamento</option>
+              {f.origem === 'PRECO' && <option value="COLUNAS">Loja em colunas</option>}
+            </select>
+          </label>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, origem: f.origem, promocao: f.promocao, agrupamento: f.origem === 'LOTE' && f.agrupamento === 'COLUNAS' ? 'EMPRESA' : f.agrupamento });
+            if (f.coddpto) q.set('coddpto', f.coddpto);
+            if (f.empresas) q.set('empresas', f.empresas);
+            void imprimirRelatorio(`/relatorios/precos-alterados/impressao?${q.toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           <Button variant="soft" label="E&tiquetas" disabled={ocupado} onClick={() => void etiquetas()} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(

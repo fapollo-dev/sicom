@@ -29,7 +29,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 43 | `FRMRELFINANCEIRO` | RelatorioFinanceiroGeral, RelatorioFinanceiroContasReceber | ✅ 06/10 — as duas (a Geral com os detalhes aninhados por lote; o "Contas a receber" não existia) e a consulta fiel (ordem LOTE/RAZÃO, lojas, filtro travado) · ⛔ Sintético/Atrasados: binário novo |
 | 38 | `FRMEXTRATOFORNECEDORES` | ExtratoFornecedores1/2/3 | ✅ 06/10 — os três, e o corte 2 (os 6 modelos, os operadores do parceiro, lojas, datas sem TRUNC) |
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | Rel_Analise_Compra_Venda_Carne | ✅ 06/10 (a estrutura do sqqAnaliseCVCarne: um corte por linha da peça, as somas dos cortes repetidos) |
-| 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ⏳ |
+| 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ✅ 06/10 — Produtos e Lote, os 3 agrupamentos (loja em colunas) · ⛔ "Lote detalhado" (procedure com ROWNUM no ON, a medir) |
 | 34 | `FRMRELANALISEITENSNF` | Rel_AnaliseItensNF | ⏳ |
 | 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ⏳ |
 | 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ⏳ |

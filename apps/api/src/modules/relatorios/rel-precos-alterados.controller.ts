@@ -16,4 +16,11 @@ export class RelPrecosAlteradosController {
   gerar(@Query(new ZodValidationPipe(relPrecosAlteradosSchema)) q: RelPrecosAlteradosDto) {
     return this.svc.gerar(q);
   }
+
+  /** o Imprimir nos layouts do cliente (Rel_PrecosAlterados / PorProduto / PorEmpresa) */
+  @Get('impressao')
+  @RequerAcesso('FRMRELPRECOSALTERADOS', 'FRMRELPRECOSALTERADOS')
+  impressao(@Query(new ZodValidationPipe(relPrecosAlteradosSchema)) q: RelPrecosAlteradosDto) {
+    return this.svc.impressao(q);
+  }
 }
