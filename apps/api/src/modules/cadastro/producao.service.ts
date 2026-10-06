@@ -3,6 +3,8 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -155,5 +157,103 @@ export class ProducaoService {
       saldo_anterior: saldoAnt, saldo_novo: saldoNovo, origem: 'PRODUCAO', codnf: null,
       historico, data: sql`now()`, codoperador: op,
     }).execute();
+  }
+
+  /**
+   * O "Imprimir produção" (`ImprimirProduo1Click`): `Relatorios\\Producao.fr3` com o `cdsRelProducao` (`QryRelProducao`: P.*, a razão
+   * social das empresas solicitante e produtora, o NOME do operador e STATUS_DESC ABERTO/PROCESSADO — com JOIN, então sem operador
+   * não há produção), os itens (`QryRelProducaoItens`: o acabado e cada insumo da receita gravada) e a empresa do login.
+   *
+   * Os dois campos calculados do `cdsRelProducaoItensCalcFields` (uDMProducao.pas:565):
+   *  - QUANTIDADE_COMERCIAL — pelo `ProdutoConvertePeloFatorCaixaProducao(unidade do produto, unidade da receita)`: no ramo-caixa,
+   *    `ConverteQuantidadeProducaoPeloFator` (÷ RECEITA_PROD.FATORCXPROD da primeira receita em que o insumo aparece, quando > 1); no
+   *    ramo KG/LT, `ConverterQuantidade` (FuncoesApollo, ausente) — reconstruído pelo ramo equivalente da própria tela
+   *    (`qtde ÷ FATOR_CONVERSAO`, uDMProducao.pas:676) e pelo dado (ITENS_PRODUCAO_TRANSFERENCIA: QTDE_TRANSF = QTDE_ORIGEM × FATOR):
+   *    a quantidade ÷ o FATOR da FATOR_CONVERSAO do produto com DE = unidade da receita, quando a unidade do produto é outra; sem
+   *    fator, a quantidade como está;
+   *  - TOTAL = QUANTIDADE_COMERCIAL × VRCUSTO (Currency, 4 casas).
+   * ⚠️ O legado grava os insumos na digitação; o Apollo, no processar. Na produção ABERTA a impressão explode a receita na hora (a
+   * mesma conta do processar: qtde × receita ÷ RECEITAFATOR, custo da MULTI_PRECO), que é o que o legado teria gravado.
+   */
+  async impressao(codproducao: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const p = (await sql<Record<string, unknown>>`
+      SELECT p.*, p.idempresa AS codempresa, es.razao_social AS empresa_solicitante, ep.razao_social AS empresa_producao, o.nome AS usuario,
+             CASE WHEN p.status = 'A' THEN 'ABERTO' ELSE 'PROCESSADO' END AS status_desc
+        FROM producao p
+        JOIN empresas es ON es.idempresa = p.idempresa
+        JOIN empresas ep ON ep.idempresa = coalesce(p.codempresa_producao, p.idempresa)
+        JOIN operadores o ON o.codoperador = p.codoperador
+       WHERE p.codproducao = ${codproducao} AND p.idempresa = ${emp}`.execute(db)).rows[0];
+    if (!p) throw new BusinessRuleError('PRODUCAO_NAO_ENCONTRADA', { codproducao }, 'Produção não encontrada na base de dados para imprimir o relatório.');
+
+    let itens = (await sql<Record<string, unknown>>`
+      SELECT i.coditenprod, pa.codbarra AS codbarraprodprincipal, pa.descricao AS descricaoprodprincipal, i.qtde AS qtdeprodprincipal,
+             pa.unidade AS unidadeprodprincipal, ir.coditenprodrec, ir.codproduto, pr.codbarra, pr.descricao AS descricaoprodrec,
+             pr.unidade AS unidade_comercial, ir.quantidade, ir.unidade, ir.vrcusto
+        FROM itens_producao_receita ir
+        JOIN itens_producao i ON i.coditenprod = ir.coditenprod
+        JOIN produtos pr ON pr.idproduto = ir.codproduto
+        JOIN produtos pa ON pa.idproduto = i.idprodutos
+       WHERE i.codproducao = ${codproducao}
+       ORDER BY i.coditenprod, ir.coditenprodrec`.execute(db)).rows;
+    if (!itens.length && p.status === 'A') {
+      // CarregarProdutosDaReceita (uCadProducao.pas:968): cada linha da receita (serviço também), uma vez por insumo (Locate), com a
+      // QTDE × FATORCXPROD_UTIL no ramo-caixa, proporcional ao RECEITAFATOR, 3 casas; o custo da MULTI_PRECO da empresa
+      itens = (await sql<Record<string, unknown>>`
+        SELECT * FROM (
+          SELECT DISTINCT ON (i.coditenprod, rp.idproduto_receita)
+                 i.coditenprod, pa.codbarra AS codbarraprodprincipal, pa.descricao AS descricaoprodprincipal, i.qtde AS qtdeprodprincipal,
+                 pa.unidade AS unidadeprodprincipal, NULL::integer AS coditenprodrec, rp.idproduto_receita AS codproduto, pr.codbarra,
+                 pr.descricao AS descricaoprodrec, pr.unidade AS unidade_comercial,
+                 round(i.qtde * rp.qtde
+                       * (CASE WHEN (trim(rp.unidade) = trim(pr.unidade) AND trim(pr.unidade) IN ('KG', 'LT'))
+                                 OR (trim(rp.unidade) <> trim(pr.unidade) AND trim(rp.unidade) IN ('KG', 'LT')) THEN 1
+                               ELSE coalesce(rp.fatorcxprod_util, 1) END)
+                       / (CASE WHEN coalesce(pa.receitafator, 0) > 0 THEN pa.receitafator ELSE 1 END), 3) AS quantidade,
+                 trim(rp.unidade) AS unidade, coalesce(mp.vrcusto, 0) AS vrcusto, rp.codreceita
+            FROM itens_producao i
+            JOIN produtos pa ON pa.idproduto = i.idprodutos
+            JOIN receita_prod rp ON rp.idproduto = i.idprodutos
+            JOIN produtos pr ON pr.idproduto = rp.idproduto_receita
+            LEFT JOIN multi_preco mp ON mp.idproduto = rp.idproduto_receita AND mp.idempresa = ${emp}
+           WHERE i.codproducao = ${codproducao}
+           ORDER BY i.coditenprod, rp.idproduto_receita, rp.codreceita
+        ) x
+         ORDER BY x.coditenprod, x.codreceita`.execute(db)).rows;
+    }
+
+    const kgLt = (u: string) => u === 'KG' || u === 'LT';
+    const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
+    const linhas = [] as Record<string, unknown>[];
+    for (const it of itens) {
+      const uProd = String(it.unidade_comercial ?? '').trim();
+      const uRec = String(it.unidade ?? '').trim();
+      const qtd = num(it.quantidade);
+      let conv = qtd;
+      const pelaCaixa = !((uRec === uProd && kgLt(uProd)) || (uRec !== uProd && kgLt(uRec)));
+      if (pelaCaixa) {
+        const rp = (await sql<{ f: unknown }>`SELECT coalesce(fatorcxprod, 1) AS f FROM receita_prod WHERE idproduto_receita = ${it.codproduto} ORDER BY codreceita LIMIT 1`.execute(db)).rows[0];
+        if (rp && num(rp.f) > 1) conv = qtd / num(rp.f);
+      } else if (uProd.toUpperCase() !== uRec.toUpperCase()) {
+        const fc = (await sql<{ f: unknown }>`SELECT fator AS f FROM fator_conversao WHERE codproduto = ${it.codproduto} AND upper(de) = ${uRec.toUpperCase()} ORDER BY codfatorconv LIMIT 1`.execute(db)).rows[0];
+        if (fc && num(fc.f) !== 0) conv = qtd / num(fc.f);
+      }
+      const qc = r4(conv);
+      const { codreceita: _r, ...linha } = it;
+      linhas.push({ ...linha, quantidade_comercial: qc, total: r4(qc * r4(num(it.vrcusto))) });
+    }
+
+    const nums = new Set(['coditenprod', 'qtdeprodprincipal', 'coditenprodrec', 'codproduto', 'quantidade', 'quantidade_comercial', 'vrcusto', 'total']);
+    return {
+      titulo: `Produção ${codproducao}`,
+      modelo: await modeloFr3(db, 'Producao.fr3'),
+      datasets: {
+        frxDBDatasetProducao: [registroFr3(p, new Set(['codproducao', 'codparceiro', 'codoperador', 'codempresa', 'idempresa', 'codplc', 'usultalteracao', 'codempresa_producao']))],
+        frxDBDatasetItens: linhas.map((l) => registroFr3(l, nums)),
+        frxDBDatasetEmpresa: [await empresaParaRelatorio(db, emp)],
+      },
+    };
   }
 }

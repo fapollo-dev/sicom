@@ -4996,6 +4996,27 @@ async function main() {
           && stA?.status === 'A' && stA?.dtprocessamento == null && snap2 === 0,
           { status: rv.status, sA: await saldo(ING_A), sB: await saldo(ING_B), sAc: await saldo(ACAB), st: stA, snap2 });
 
+        // 47f.5b) o "Imprimir produção" (Producao.fr3): processada lê os insumos gravados; aberta explode a receita como o legado grava
+        await pgPr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992957, 1, 'Producao.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Producao_stub"/></TfrxReport>').toString('base64')]);
+        await pgPr.query(`UPDATE receita_prod SET fatorcxprod = 4 WHERE idproduto = ${ACAB} AND idproduto_receita = ${SERV}`);
+        const impPrA = await fetch(`${base}/${PR}/${cod}/impressao`, { headers: H });
+        const ipa = (await impPrA.json().catch(() => ({}))) as any;
+        const itA = (ipa.datasets?.frxDBDatasetItens ?? []) as any[];
+        const iA = (id: number) => itA.find((r) => Number(r.CODPRODUTO) === id);
+        const cabA = (ipa.datasets?.frxDBDatasetProducao ?? [])[0] ?? {};
+        const impPrX = await fetch(`${base}/${PR}/999999/impressao`, { headers: H });
+        const ipx = (await impPrX.json().catch(() => ({}))) as any;
+        check('PRODUÇÃO §47f.5b [o Imprimir produção, aberta]: o Producao.fr3 do cliente com o frxDBDatasetProducao (QryRelProducao: STATUS_DESC ABERTO, a razão social da empresa solicitante, o nome do operador), os insumos que o legado grava na digitação — a receita explodida 20 × qtde ÷ RECEITAFATOR 10 (FARINHA 10, FERMENTO 4, e o SERVIÇO também: 2) — com QUANTIDADE_COMERCIAL pelo ramo-caixa (o serviço em UN ÷ FATORCXPROD 4 = 0,5; KG/KG fica como está) e TOTAL = comercial × custo (10 × 1,50 = 15); a empresa do login; produção inexistente → a mensagem do legado',
+          impPrA.status === 200 && String(ipa.modelo).includes('Producao_stub') && cabA.STATUS_DESC === 'ABERTO' && String(cabA.EMPRESA_SOLICITANTE ?? '').length > 0 && String(cabA.USUARIO ?? '').length > 0
+            && itA.length === 3 && Math.abs(Number(iA(ING_A)?.QUANTIDADE) - 10) < 0.0005 && Math.abs(Number(iA(ING_A)?.TOTAL) - 15) < 0.0005
+            && Math.abs(Number(iA(ING_B)?.QUANTIDADE) - 4) < 0.0005 && Math.abs(Number(iA(SERV)?.QUANTIDADE) - 2) < 0.0005 && Math.abs(Number(iA(SERV)?.QUANTIDADE_COMERCIAL) - 0.5) < 0.0005
+            && iA(ING_A)?.DESCRICAOPRODPRINCIPAL === 'PAO FRANCES (ACABADO)' && Math.abs(Number(iA(ING_A)?.QTDEPRODPRINCIPAL) - 20) < 0.0005
+            && (ipa.datasets?.frxDBDatasetEmpresa ?? []).length === 1
+          && impPrX.status === 422 && String(ipx.message ?? '').includes('Produção não encontrada na base de dados para imprimir o relatório'),
+          { st: impPrA.status, cab: [cabA.STATUS_DESC, cabA.EMPRESA_SOLICITANTE, cabA.USUARIO], itens: itA.map((r) => [r.CODPRODUTO, r.QUANTIDADE, r.QUANTIDADE_COMERCIAL, r.TOTAL]), x: [impPrX.status, ipx.message] });
+        await pgPr.query(`UPDATE receita_prod SET fatorcxprod = NULL WHERE idproduto = ${ACAB} AND idproduto_receita = ${SERV}`);
+
         // 47f.6) reverter 2x → 422 PRODUCAO_NAO_PROCESSADA; excluir após reverter → 204.
         const rv2 = await fetch(`${base}/${PR}/${cod}/reverter`, { method: 'POST', headers: H });
         const del2 = await fetch(`${base}/${PR}/${cod}`, { method: 'DELETE', headers: H });
@@ -5012,6 +5033,15 @@ async function main() {
           prConv.status === 422 && ((await prConv.json().catch(() => ({}))) as any).code === 'PRODUCAO_CONVERSAO_NAO_SUPORTADA'
           && (await saldo(ING_CONV)) === 100,
           { status: prConv.status, saldoIng: await saldo(ING_CONV) });
+        // o Imprimir da produção com a receita em KG e o produto em UN: QUANTIDADE_COMERCIAL = 1 KG ÷ FATOR_CONVERSAO (KG → 0,25) = 4 UN
+        await pgPr.query(`INSERT INTO fator_conversao (codproduto, de, para, fator) VALUES (${ING_CONV}, 'KG', 'UN', 0.25)`);
+        const impConv = (await (await fetch(`${base}/${PR}/${codConv}/impressao`, { headers: H })).json().catch(() => ({}))) as any;
+        const icv = (impConv.datasets?.frxDBDatasetItens ?? [])[0] ?? {};
+        await pgPr.query(`DELETE FROM relatorios WHERE codrelatorio = 992957`);
+        await pgPr.query(`DELETE FROM fator_conversao WHERE codproduto = ${ING_CONV}`);
+        check('PRODUÇÃO §47f.6c [o Imprimir com conversão de unidade]: receita em KG e produto em UN cai no ramo do ConverterQuantidade — a quantidade ÷ o FATOR da FATOR_CONVERSAO com DE = KG (1 ÷ 0,25 = 4 UN), o mesmo que a tela faz com o FATOR_CONVERSAO gravado no item; TOTAL = 4 × custo 1,00',
+          Math.abs(Number(icv.QUANTIDADE) - 1) < 0.0005 && Math.abs(Number(icv.QUANTIDADE_COMERCIAL) - 4) < 0.0005 && Math.abs(Number(icv.TOTAL) - 4) < 0.0005 && icv.UNIDADE === 'KG' && icv.UNIDADE_COMERCIAL === 'UN',
+          { item: icv });
         await fetch(`${base}/${PR}/${codConv}`, { method: 'DELETE', headers: H });
 
         // 47f.7) RBAC sem grant → 403.

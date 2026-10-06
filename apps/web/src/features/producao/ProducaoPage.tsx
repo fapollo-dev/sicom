@@ -4,6 +4,7 @@ import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   listarProducoes, obterProducao, criarProducao, atualizarProducao, excluirProducao, processarProducao, reverterProducao,
   type ProducaoHeader, type ProducaoDetalhe, type ProducaoItem,
@@ -154,6 +155,10 @@ export function ProducaoPage() {
           <Button label="&Salvar" variant="soft" disabled={busy || processado} onClick={() => void salvar()} />
           {!processado && <Button label="&Processar (baixar ingredientes + entrar acabado)" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void processar()} />}
           {processado && <Button label="&Reverter processamento" variant="soft" disabled={busy} onClick={() => void reverter()} />}
+          {/* o "Imprimir produção" do legado, no layout do cliente (Producao.fr3) */}
+          <Button label="&Imprimir" variant="soft" disabled={busy || dirty} onClick={() => {
+            void imprimirRelatorio(`/cadastro/producao/${sel.codproducao}/impressao`).catch((e) => mensagem.erro(e));
+          }} />
           <Button label="E&xcluir" variant="ghost" disabled={busy || processado} onClick={() => void excluir()} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
           <small className="w-full text-fg-muted">Cada acabado precisa de ficha técnica (receita). {dirty && !processado ? 'Salve antes de processar. ' : ''}«Processar» explode a receita, baixa os ingredientes e dá entrada do acabado; para editar itens de uma produção processada, reverta antes.</small>

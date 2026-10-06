@@ -1459,3 +1459,28 @@ describe('entradas e saídas · comparativo (Rel_EntradasESaidas_Comparativo.fr3
     expect(t).not.toContain('10,214');
   });
 });
+
+describe('produção (Producao.fr3, FRMCADPRODUCAO)', () => {
+  const cab = { CODPRODUCAO: 41, DATA: '2026-10-06T08:30:00', EMPRESA_SOLICITANTE: 'JF SUPERMERCADOS LTDA', EMPRESA_PRODUCAO: 'JF SUPERMERCADOS LTDA', USUARIO: 'MARIA PADARIA', STATUS_DESC: 'ABERTO' };
+  const item = (CODITENPROD: number, principal: string, CODPRODUTO: number, DESCRICAOPRODREC: string, QUANTIDADE: number, UNIDADE: string, QUANTIDADE_COMERCIAL: number, UNIDADE_COMERCIAL: string, VRCUSTO: number) => ({
+    CODITENPROD, CODBARRAPRODPRINCIPAL: '7000000990100', DESCRICAOPRODPRINCIPAL: principal, QTDEPRODPRINCIPAL: 20, UNIDADEPRODPRINCIPAL: 'KG',
+    CODPRODUTO, CODBARRA: `78${CODPRODUTO}`, DESCRICAOPRODREC, QUANTIDADE, UNIDADE, QUANTIDADE_COMERCIAL, UNIDADE_COMERCIAL, VRCUSTO, TOTAL: QUANTIDADE_COMERCIAL * VRCUSTO,
+  });
+  it('o cabeçalho da requisição, um grupo por acabado e cada insumo com a quantidade comercial e o total', () => {
+    const t = texto(paginasDoModelo(modelo('producao.fr3'), {
+      frxDBDatasetProducao: [cab],
+      frxDBDatasetItens: [item(1, 'PAO FRANCES', 101, 'FARINHA DE TRIGO', 10, 'KG', 10, 'KG', 1.5), item(1, 'PAO FRANCES', 104, 'MARGARINA POTE', 1, 'KG', 4, 'UN', 2.25)],
+      frxDBDatasetEmpresa: [{ FANTASIA: 'JF SUPERMERCADOS', ENDERECO: 'AV SACRAMENTO', CNPJ: '37.954.975/0001-69', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG' }],
+    }, agora));
+    expect(t).toContain('Requisição de produção');
+    expect(t).toContain('41');
+    expect(t).toContain('MARIA PADARIA');
+    expect(t).toContain('ABERTO');
+    expect(t).toContain('PAO FRANCES');
+    expect(t).toContain('FARINHA DE TRIGO');
+    expect(t).toContain('MARGARINA POTE');
+    expect(t).toContain('JF SUPERMERCADOS');
+    expect(t).toContain('15,00');      // 10 × 1,50
+    expect(t).toContain('9,00');       // 4 UN × 2,25 (o total vai pela quantidade comercial)
+  });
+});

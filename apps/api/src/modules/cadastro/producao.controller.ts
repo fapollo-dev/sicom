@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { ProducaoService } from './producao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -27,5 +27,12 @@ export class ProducaoController {
   @RequerAcesso('FRMCADPRODUCAO', 'BTNEXCLUIR')
   reverter(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reverter(id);
+  }
+
+  /** o "Imprimir produção" no layout do cliente (Producao.fr3) — leitura, como o GET do agregado (sem opção de RBAC). A lista de
+   *  transferência lê ITENS_PRODUCAO_TRANSFERENCIA (morta desde 11/2023, `conferir-tabelas-fora.py`). */
+  @Get(':id/impressao')
+  impressao(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.impressao(id);
   }
 }
