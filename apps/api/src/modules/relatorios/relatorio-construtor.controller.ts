@@ -75,10 +75,11 @@ export class RelatorioConstrutorController {
     return this.svc.executar(body as never);
   }
 
-  /** a impressão no modelo do legado (`Config\\RelatorioGeral_*.fr3`, montado como o `MontaRelatorio`) */
+  /** a impressão no modelo do legado (`Config\\RelatorioGeral_*.fr3`, montado como o `MontaRelatorio`) — o btnImprimir é controlado
+   *  pela opção BTNIMPRIMIR do FRMRELATORIO (65 concessões na produção) */
   @Post('impressao')
   @HttpCode(200)
-  @RequerAcesso('FRMRELATORIO', 'FRMRELATORIO')
+  @RequerAcesso('FRMRELATORIO', 'BTNIMPRIMIR')
   impressao(@Body(new ZodValidationPipe(executarRelatorioSchema)) body: ExecutarRelatorioDto) {
     return this.svc.impressao(body as never);
   }

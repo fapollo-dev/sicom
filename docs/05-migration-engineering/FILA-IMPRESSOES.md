@@ -43,3 +43,12 @@ TfrxDBDataset e as variáveis que o legado atribui.
 
 Já feitas antes deste levantamento: produtos-rel (13), pedidos de compra (5), apuração PIS/COFINS, dados do pagamento/recebimento,
 análise entrada × saída (2) e as demais telas do `TFrmRelMaster`.
+
+## RBAC das impressões — a opção BTNIMPRIMIR (06/10/2026)
+
+O legado controla o `btnImprimir` pela opção BTNIMPRIMIR do formulário quando ela existe na PERMISSOES. Na produção ela existe em 19
+telas: FRMAJUSTEPRECOS, FRMCADABASTECIMENTO, FRMCONSOLIDACAOPISCOFINS, FRMCOTACAOLISTAFORN, FRMDEVOLUCAOCH, FRMDIGITACAOPEDIDOSPRODUCAO,
+FRMFATURAMENTO2, FRMINVENTARIO, FRMMOVIMENTACOESDIA, FRMMOVPEDIDOS, FRMPROCESSAAPAGAR, FRMRELACORDOCOMERCIAL, FRMRELATORIO,
+FRMRELATORIOCAIXA, FRMRELATORIOCAIXADME, FRMRELATORIOINDUSTRIA, FRMRELPRECOSALTERADOS, FRMRELVENDEDORES, FRMSIMULADORVENDA. A impressão
+dessas telas exige `RequerAcesso(form, 'BTNIMPRIMIR')` — feito em FRMINVENTARIO, FRMFATURAMENTO2, FRMRELPRECOSALTERADOS e FRMRELATORIO
+(o construtor). As outras ganham a regra quando a impressão delas for feita/revisada.
