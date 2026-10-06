@@ -44,14 +44,41 @@ Pouco em valor, e invisível: o operador não tem como saber que sumiu.
 **A correção:** o filtro só se aplica **quando preenchido**, e o produto sem cadastro aparece rotulado —
 `(SEM FORNECEDOR)`, `(SEM GRUPO)`, `(SEM DEPARTAMENTO)`. É o rótulo que faz alguém ir arrumar o cadastro.
 
-## 3. Cobertura (§120 do smoke, 4 checks)
+## 3. Auditoria de fidelidade (06/10/2026)
+
+A conversão de setembro tinha divergências silenciosas em relação ao `sqqAnalise` (udmAnaliseEntradaXSaida.dfm), corrigidas:
+
+| ponto | legado | o que o Apollo fazia |
+|---|---|---|
+| "Pedidos" | `AND J.TIPO = 'P'` — na produção, **53 de 2.208** linhas de PEDIDOS desde 2025 (os nulos são antigos; há 'O' e 'T') | somava todos os tipos |
+| o rádio | abre em **Pedidos** (`ItemIndex = 0`) | abria em Vendas |
+| nota cancelada | **conta** (o SQL não filtra CANCELADA nem PROC; 1 nota de entrada cancelada em 2025-26) | excluía |
+| famílias | pelo CODFAMILIA, **sem** o tipo | exigia tipo G/D |
+| filtros | fornecedor em maiúsculas (`CharCase`); grupo e departamento `LIKE` **como digitados** | `ILIKE` nos três |
+
+Mantida a correção já documentada (§2): o filtro só entra preenchido e o produto sem cadastro aparece rotulado.
+
+A tela do legado **não tem grade**: o botão imprime direto. A grade do Apollo soma os dois ramos por produto; a impressão segue o legado.
+
+## 4. A impressão (06/10/2026)
+
+`GET relatorios/analise-entrada-saida/impressao` → `extr - AnaliseEntradaXSaidaComItens.fr3` ("Mostrar itens") ou `extr - AnaliseEntradaXSaida.fr3`
+(PERSONALIZADO 736/735) com o `frxDBAnalise` — os **dois ramos do UNION ALL**, como o legado lista (o produto com entrada e saída sai em
+duas linhas no layout com itens), ORDER BY departamento, grupo, fornecedor — e o `frxDBEmpresa`; variáveis `DtIncial` (sic), `DtFinal`,
+`Titulo`. Sem dados: "Não existem informações no período informado para impressão. Verifique!".
+
+O layout "sem itens" esconde a MasterData e soma os grupos com `SUM(…, MasterData1, 1)` — a flag 1 do FastReport conta a banda
+invisível. **O motor de impressão não imprimia os rodapés de grupo quando a banda de dados era invisível** (o registro invisível não
+contava como percorrido) e ignorava as flags das agregadas: agora a banda invisível percorre o dataset (os grupos quebram e fecham), a
+agregada sem a flag 1 não a soma, e a flag 2 é o total acumulado (não zera no grupo). Os layouts da Consultoria (participação dos
+setores, analítico) usam o mesmo recurso.
+
+## 5. Cobertura (§120 do smoke, 5 checks)
 
 1. o produto sem cadastro **aparece**, rotulado, com entrada e saída certas;
 2. entrada × saída por produto, só em quantidade;
-3. o rádio trocando a saída de venda (70) para pedido (15);
-4. o filtro preenchido **volta a filtrar** — a correção não desligou o filtro, só parou de aplicá-lo vazio.
+3. o rádio (que abre em Pedidos) trocando a saída de venda (70) para pedido de TIPO 'P' (15; o de tipo 'O' fica fora);
+4. o filtro preenchido **volta a filtrar** (e o grupo é `LIKE` como digitado);
+5. a nota cancelada conta; a impressão nos dois layouts, com os dois ramos, as variáveis e a mensagem sem dados.
 
-## 4. O que ficou de fora
-
-**Resolvido de outro jeito:** os dois relatórios `.fr3` (com e sem itens) — a grade mostra o detalhe e
-exporta.
+Testes de renderização dos dois layouts (735/736).

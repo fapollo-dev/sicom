@@ -14,9 +14,20 @@ export class AnaliseEntradaSaidaController {
   @Get()
   @RequerAcesso('FRMANALISEENTRADAXSAIDA', 'FRMANALISEENTRADAXSAIDA')
   gerar(@Query(new ZodValidationPipe(analiseEntradaSaidaSchema)) q: AnaliseEntradaSaidaDto) {
-    return this.svc.gerar({
+    return this.svc.gerar(this.filtro(q));
+  }
+
+  /** o "Imprimir": o layout com ou sem itens */
+  @Get('impressao')
+  @RequerAcesso('FRMANALISEENTRADAXSAIDA', 'FRMANALISEENTRADAXSAIDA')
+  impressao(@Query(new ZodValidationPipe(analiseEntradaSaidaSchema)) q: AnaliseEntradaSaidaDto) {
+    return this.svc.impressao({ ...this.filtro(q), mostrarItens: !!q.mostrarItens });
+  }
+
+  private filtro(q: AnaliseEntradaSaidaDto) {
+    return {
       dataIni: q.dataIni, dataFim: q.dataFim, origemSaida: q.origemSaida ?? null,
       fornecedor: q.fornecedor ?? null, grupo: q.grupo ?? null, departamento: q.departamento ?? null,
-    });
+    };
   }
 }

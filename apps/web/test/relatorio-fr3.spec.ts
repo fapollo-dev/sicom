@@ -1046,3 +1046,28 @@ describe('consulta de baixas: dados do pagamento / recebimento (DadosPagamentoCP
     expect(t).toContain('04/11/2026');
   });
 });
+
+describe('análise de entrada × saída (extr - AnaliseEntradaXSaida*.fr3)', () => {
+  const rows = [
+    { CODFOR: 2, FORNECEDOR: 'CEREALISTA SUL', CODBARRA: '7891000100103', PRODUTO: 'ARROZ 5KG', CODGRUPO: 10, DESC_GRUPO: 'GRAOS', QTD_ENTRADA: 100, QTD_SAIDA: 0, CODDPTO: 3, DEPTO: 'MERCEARIA' },
+    { CODFOR: 2, FORNECEDOR: 'CEREALISTA SUL', CODBARRA: '7891000100103', PRODUTO: 'ARROZ 5KG', CODGRUPO: 10, DESC_GRUPO: 'GRAOS', QTD_ENTRADA: 0, QTD_SAIDA: 70, CODDPTO: 3, DEPTO: 'MERCEARIA' },
+    { CODFOR: 2, FORNECEDOR: 'CEREALISTA SUL', CODBARRA: '7891000100110', PRODUTO: 'FEIJAO 1KG', CODGRUPO: 10, DESC_GRUPO: 'GRAOS', QTD_ENTRADA: 40, QTD_SAIDA: 0, CODDPTO: 3, DEPTO: 'MERCEARIA' },
+  ];
+  const vars = { DtIncial: "'01/09/2026'", DtFinal: "'30/09/2026'", Titulo: "'Análise Entradas X Saídas'" };
+  const emp = [{ ...empresa, ENDERECO: 'AV BRASIL 100', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA' }];
+  it('com itens: o produto em duas linhas (entrada e saída) e os totais por fornecedor, grupo e departamento', () => {
+    const t = texto(paginasDoModelo(modelo('analise-entrada-saida-itens.fr3'), { frxDBAnalise: rows, frxDBEmpresa: emp }, agora, vars));
+    expect(t).toContain('Análise Entradas X Saídas');
+    expect(t).toContain('01/09/2026');
+    expect(t).toContain('Departamento: MERCEARIA');
+    expect(t).toContain('FEIJAO 1KG');
+    expect(t).toContain('140,000'); // SUM(QTD_ENTRADA)
+    expect(t).toContain('70,000');
+  });
+  it('sem itens: só os totais (a banda dos produtos é invisível)', () => {
+    const t = texto(paginasDoModelo(modelo('analise-entrada-saida.fr3'), { frxDBAnalise: rows, frxDBEmpresa: emp }, agora, vars));
+    expect(t).not.toContain('FEIJAO 1KG');
+    expect(t).toContain('140,000');
+    expect(t).toContain('CEREALISTA SUL');
+  });
+});

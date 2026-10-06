@@ -8,6 +8,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -37,17 +38,25 @@ const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 export function AnaliseEntradaSaidaPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    dataIni: diaUm(), dataFim: hoje(), origemSaida: 'VENDAS',
-    fornecedor: '', grupo: '', departamento: '',
+    // o `rgPedVen` do legado abre em "Pedidos"
+    dataIni: diaUm(), dataFim: hoje(), origemSaida: 'PEDIDOS',
+    fornecedor: '', grupo: '', departamento: '', mostrarItens: false,
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const consulta = () => {
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '' && v !== false) q.set(k, String(v)); });
+    return q;
+  };
+  // o "Imprimir" do legado: o layout com ou sem os itens (RELATORIOS do cliente)
+  const imprimir = () => { imprimirRelatorio(`/relatorios/analise-entrada-saida/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+      const q = consulta();
       const r = await fetch(`${BASE}/relatorios/analise-entrada-saida?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -89,14 +98,19 @@ export function AnaliseEntradaSaidaPage() {
             A saída vem de
             <select className="rounded border border-border px-1 py-1" value={f.origemSaida}
               onChange={(e) => setF({ ...f, origemSaida: e.target.value })}>
-              <option value="VENDAS">Vendas</option>
               <option value="PEDIDOS">Pedidos</option>
+              <option value="VENDAS">Vendas</option>
             </select>
           </label>
-          <div className="w-48"><Field label="&Fornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
+          {/* o edtFornecedor do legado é CharCase maiúsculo; grupo e departamento vão como digitados */}
+          <div className="w-48"><Field label="&Fornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value.toUpperCase() })} /></div>
           <div className="w-44"><Field label="G&rupo" value={f.grupo} onChange={(e) => setF({ ...f, grupo: e.target.value })} /></div>
           <div className="w-44"><Field label="De&partamento" value={f.departamento} onChange={(e) => setF({ ...f, departamento: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
+          <label className="flex items-center gap-gp-xs self-center text-body-sm">
+            <input type="checkbox" checked={f.mostrarItens} onChange={(e) => setF({ ...f, mostrarItens: e.target.checked })} /> Mostrar itens
+          </label>
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={imprimir} />
           <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
             exportarGradeCsv(res.linhas, [

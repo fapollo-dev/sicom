@@ -132,6 +132,8 @@ class Relatorio {
   private readonly cursor = new Map<string, number>();
   /** as linhas já impressas por banda de dados (as agregadas somam sobre elas) e o dataset de cada banda */
   private readonly impressas = new Map<string, number[]>();
+  /** todas as linhas que a banda percorreu, impressas ou não (a banda invisível também anda no dataset): o `SUM(…, Banda, 1)` soma estas */
+  private readonly percorridas = new Map<string, number[]>();
   private readonly dsDaBanda = new Map<string, string>();
   private recno = 0;
   /** o [Line#]: a linha da banda de dados, que recomeça a cada grupo */
@@ -139,6 +141,7 @@ class Relatorio {
   /** a banda em desenho (as agregadas de um GroupFooter somam só o grupo) e onde cada grupo começou nas linhas impressas */
   private bandaAtual: No | null = null;
   private readonly inicioGrupo = new Map<No, Map<string, number>>();
+  private readonly inicioGrupoPercorridas = new Map<No, Map<string, number>>();
   private pagina = 0;
   /** o objeto do evento em curso (o `Sender` do script) */
   private remetente = '';
@@ -366,9 +369,16 @@ class Relatorio {
       return achar(pg);
     };
     const banda = (f === 'count' ? nomeBanda(args[0]) : nomeBanda(args[1])) || daPagina() || [...this.dsDaBanda.keys()][0] || '';
-    const todas = this.impressas.get(banda) ?? [];
-    // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo)
-    const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' ? this.inicioGrupo.get(this.bandaAtual)?.get(banda) : undefined;
+    // as flags do FastReport (`SUM(expr, Banda, Flags)`): 1 = conta também as linhas da banda INVISÍVEL; 2 = total acumulado (não zera no grupo).
+    // Sem a flag 1, a banda escondida não soma — o layout "só totais" que esconde a MasterData e não passa a flag imprime zero, como lá
+    const argFlags = f === 'count' ? args[1] : args[2];
+    let flags = 0;
+    if (argFlags) { try { flags = Math.trunc(numero(avaliar(argFlags, this.amb, this.funcoes))); } catch { flags = 0; } }
+    const contaInvisiveis = (flags & 1) === 1;
+    const todas = (contaInvisiveis ? this.percorridas : this.impressas).get(banda) ?? [];
+    // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo), salvo o total acumulado
+    const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' && (flags & 2) !== 2
+      ? (contaInvisiveis ? this.inicioGrupoPercorridas : this.inicioGrupo).get(this.bandaAtual)?.get(banda) : undefined;
     const linhas = inicio != null ? todas.slice(inicio) : todas;
     if (f === 'count') return linhas.length;
     const ds = this.dsDaBanda.get(banda) ?? '';
@@ -814,6 +824,8 @@ class Relatorio {
           const nomeBanda = (b.a.Name ?? '').toLowerCase();
           const impressas = this.impressas.get(nomeBanda) ?? [];
           this.impressas.set(nomeBanda, impressas);
+          const percorridas = this.percorridas.get(nomeBanda) ?? [];
+          this.percorridas.set(nomeBanda, percorridas);
           this.dsDaBanda.set(nomeBanda, ds);
           let col = 0;
           let alturaLinha = 0;
@@ -875,6 +887,7 @@ class Relatorio {
                   if (g.f) {
                     const doGrupo = new Set([nomeBanda, ...detalhesDe(b).map((d) => (d.a.Name ?? '').toLowerCase())]);
                     this.inicioGrupo.set(g.f, new Map([...this.impressas].filter(([nome]) => doGrupo.has(nome)).map(([nome, l]) => [nome, l.length])));
+                    this.inicioGrupoPercorridas.set(g.f, new Map([...this.percorridas].filter(([nome]) => doGrupo.has(nome)).map(([nome, l]) => [nome, l.length])));
                   }
                   if (oculto(j)) { rodar(g.h); continue; }
                   if (g.h.a.StartNewPage === 'True' && k > 0) novaPagina();
@@ -888,7 +901,9 @@ class Relatorio {
             if (grupos.length && oculto(grupos.length)) {
               // a linha dentro de um grupo recolhido: os eventos e as agregadas contam, a folha não recebe
               impressas.push(i);
-              if (this.banda(b, n(b.a.Left))) anterior = i; else impressas.pop();
+              percorridas.push(i);
+              if (!this.banda(b, n(b.a.Left))) impressas.pop();
+              anterior = i;
               continue;
             }
             if (col === 0 && !cabe(n(b.a.Height))) {
@@ -898,9 +913,12 @@ class Relatorio {
             }
             const x = n(b.a.Left) + (cols > 1 ? col * (cw + gap) : 0);
             impressas.push(i);
+            percorridas.push(i);
             const y0 = c.y;
             const r = this.banda(b, x);
-            if (!r) { impressas.pop(); continue; }
+            // a banda invisível (no arquivo ou pelo script) não sai na folha nem soma sem a flag 1, mas o registro foi percorrido: os grupos
+            // quebram e fecham nele (o rodapé do grupo sai)
+            if (!r) { impressas.pop(); anterior = i; continue; }
             anterior = i;
             emitir(r.html);
             alturaLinha = Math.max(alturaLinha, r.altura);

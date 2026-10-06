@@ -655,5 +655,7 @@ export const analiseEntradaSaidaSchema = z.object({
   fornecedor: z.string().max(120).nullish(),
   grupo: z.string().max(120).nullish(),
   departamento: z.string().max(120).nullish(),
+  /** o `chkMostrarItens` da impressão: o layout com os produtos ou só os totais */
+  mostrarItens: z.preprocess((v) => v === true || v === 'true' || v === '1', z.boolean()).optional(),
 });
 export type AnaliseEntradaSaidaDto = z.infer<typeof analiseEntradaSaidaSchema>;

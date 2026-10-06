@@ -6694,36 +6694,36 @@ async function main() {
         const VH = 'relatorios/vendas-hora/consultar';
         await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
           VALUES (992501,'7899000992501','VH HORA','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
-        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-05' AND dtvenda < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2023-10-05' AND dtvenda < '2023-10-08'`);
         await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
-          (1,'2026-10-05 09:30:00-03','001','01',1700,1,992501,1,100,50,'A',5102,'T01','N','S','P'),
-          (1,'2026-10-05 14:10:00-03','001','01',1701,1,992501,1,300,150,'A',5102,'T01','N','S','P'),
-          (1,'2026-10-05 14:50:00-03','001','01',1702,1,992501,1,200,100,'A',5102,'T01','N','S','P'),
-          (1,'2026-10-06 09:30:00-03','001','01',1703,1,992501,1, 25, 10,'A',5102,'T01','N','S','P'),
-          (1,'2026-10-06 20:15:00-03','001','01',1704,1,992501,1, 50, 20,'A',5102,'T01','N','S','P')`);
+          (1,'2023-10-05 09:30:00-03','001','01',1700,1,992501,1,100,50,'A',5102,'T01','N','S','P'),
+          (1,'2023-10-05 14:10:00-03','001','01',1701,1,992501,1,300,150,'A',5102,'T01','N','S','P'),
+          (1,'2023-10-05 14:50:00-03','001','01',1702,1,992501,1,200,100,'A',5102,'T01','N','S','P'),
+          (1,'2023-10-06 09:30:00-03','001','01',1703,1,992501,1, 25, 10,'A',5102,'T01','N','S','P'),
+          (1,'2023-10-06 20:15:00-03','001','01',1704,1,992501,1, 50, 20,'A',5102,'T01','N','S','P')`);
         await pgRv.query(`DELETE FROM caixa_pdv WHERE idempresa=1 AND codcaixa BETWEEN 99001 AND 99099`);
-        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-05' AND data < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2023-10-05' AND data < '2023-10-08'`);
         await pgRv.query(`DELETE FROM pdv WHERE codpdv IN (9901,9902,9903)`);
         await pgRv.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES
           (9901,1,'PDV VH 1',1), (9902,2,'PDV VH 2',1), (9903,3,'PDV VH 3',1)`);
         await pgRv.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, horasaida, chave, idempresa) VALUES
-          (99001,1,7,'2026-10-05','2026-10-05 08:00:00-03','2026-10-05 12:00:00-03','01261005080000',1),
-          (99002,2,1,'2026-10-05','2026-10-05 14:00:00-03','2026-10-05 15:00:00-03','02261005140000',1),
-          (99003,3,8,'2026-10-05','2026-10-05 14:00:00-03','2026-10-05 14:30:00-03','03261005140000',1),
-          (99004,1,7,'2026-10-06','2026-10-06 20:00:00-03',NULL,                    '01261006200000',1),
-          (99005,2,1,'2026-10-06',NULL,                    '2026-10-06 10:00:00-03','02261006090000',1),
-          (99006,1,7,'2026-10-07','2026-10-07 22:00:00-03','2026-10-08 02:00:00-03','01261007220000',1),
-          (99007,99,7,'2026-10-05','2026-10-05 03:00:00-03','2026-10-05 04:00:00-03','99261005030000',1)`);
+          (99001,1,7,'2023-10-05','2023-10-05 08:00:00-03','2023-10-05 12:00:00-03','01231005080000',1),
+          (99002,2,1,'2023-10-05','2023-10-05 14:00:00-03','2023-10-05 15:00:00-03','02231005140000',1),
+          (99003,3,8,'2023-10-05','2023-10-05 14:00:00-03','2023-10-05 14:30:00-03','03231005140000',1),
+          (99004,1,7,'2023-10-06','2023-10-06 20:00:00-03',NULL,                    '01231006200000',1),
+          (99005,2,1,'2023-10-06',NULL,                    '2023-10-06 10:00:00-03','02231006090000',1),
+          (99006,1,7,'2023-10-07','2023-10-07 22:00:00-03','2023-10-08 02:00:00-03','01231007220000',1),
+          (99007,99,7,'2023-10-05','2023-10-05 03:00:00-03','2023-10-05 04:00:00-03','99231005030000',1)`);
         await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, chave) VALUES
-          (1,'2026-10-05 09:00:00-03',1, 7,'DINHEIRO',100,'01261005080000'),
-          (1,'2026-10-05 14:20:00-03',2, 1,'DINHEIRO',300,'02261005140000'),
-          (1,'2026-10-05 14:25:00-03',3, 8,'DINHEIRO',200,'03261005140000'),
-          (1,'2026-10-06 21:00:00-03',1, 7,'DINHEIRO', 50,'01261006200000'),
-          (1,'2026-10-06 09:40:00-03',2, 1,'DINHEIRO', 25,'02261006090000'),
-          (1,'2026-10-07 23:00:00-03',1, 7,'DINHEIRO', 10,'01261007220000'),
-          (1,'2026-10-05 03:30:00-03',99,7,'DINHEIRO', 10,'99261005030000')`);
+          (1,'2023-10-05 09:00:00-03',1, 7,'DINHEIRO',100,'01231005080000'),
+          (1,'2023-10-05 14:20:00-03',2, 1,'DINHEIRO',300,'02231005140000'),
+          (1,'2023-10-05 14:25:00-03',3, 8,'DINHEIRO',200,'03231005140000'),
+          (1,'2023-10-06 21:00:00-03',1, 7,'DINHEIRO', 50,'01231006200000'),
+          (1,'2023-10-06 09:40:00-03',2, 1,'DINHEIRO', 25,'02231006090000'),
+          (1,'2023-10-07 23:00:00-03',1, 7,'DINHEIRO', 10,'01231007220000'),
+          (1,'2023-10-05 03:30:00-03',99,7,'DINHEIRO', 10,'99231005030000')`);
 
-        const vhJ = (await (await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-05', dtfim: '2026-10-07', departamentos: [91], detalhe: true }) })).json().catch(() => ({}))) as any;
+        const vhJ = (await (await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2023-10-05', dtfim: '2023-10-07', departamentos: [91], detalhe: true }) })).json().catch(() => ({}))) as any;
         const hr = (h: number) => (vhJ.horas ?? []).find((x: any) => Number(x.hora) === h);
         check('VENDAS POR HORA (rel 07): faturamento por hora — 9h = 125,00 (a venda de 09:30 dos DOIS dias soma na mesma hora), 14h = 500,00, 20h = 50,00 · pico na hora 14 com 500,00 e 2 caixas abertos nela',
           r2ck(Number(hr(9)?.total_venda)) === 125 && r2ck(Number(hr(14)?.total_venda)) === 500
@@ -6746,8 +6746,8 @@ async function main() {
           { h23: op(23)?.quantidade, h22: op(22)?.quantidade, h3: op(3) ?? null });
 
         const det = (t: string) => (vhJ.detalhe ?? []).find((x: any) => x.horario === t);
-        const vhInv = await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-07', dtfim: '2026-10-05' }) });
-        const vhRb = await fetch(`${base}/${VH}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-10-05', dtfim: '2026-10-05' }) });
+        const vhInv = await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2023-10-07', dtfim: '2023-10-05' }) });
+        const vhRb = await fetch(`${base}/${VH}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2023-10-05', dtfim: '2023-10-05' }) });
         check('VENDAS POR HORA: o detalhe da subconsulta agrupa pelo TEXTO HH24:MI:SS sem a data — 09:30:00 dos dois dias vira UMA linha de 125,00 (é perfil de horário, não série temporal) · período invertido → 422 · sem grant do hub → 403',
           r2ck(Number(det('09:30:00')?.total_venda)) === 125
           && r2ck(Number(det('14:10:00')?.total_venda)) === 300
@@ -6755,10 +6755,10 @@ async function main() {
           && vhInv.status === 422 && vhRb.status === 403,
           { d0930: det('09:30:00')?.total_venda, linhas: (vhJ.detalhe ?? []).length, dias: vhJ.totais?.dias_no_periodo, inv: vhInv.status, rb: vhRb.status });
 
-        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-05' AND data < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2023-10-05' AND data < '2023-10-08'`);
         await pgRv.query(`DELETE FROM caixa_pdv WHERE idempresa=1 AND codcaixa BETWEEN 99001 AND 99099`);
         await pgRv.query(`DELETE FROM pdv WHERE codpdv IN (9901,9902,9903)`);
-        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-05' AND dtvenda < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2023-10-05' AND dtvenda < '2023-10-08'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992501`);
 
         // 47aa) GRÁFICO DE FORMAS DE PAGAMENTO (rel 08) — total por OPERACAO de cx_vendas, líquido de troco,
@@ -13583,10 +13583,11 @@ async function main() {
           VALUES (1,'2057-08-12','AE-1',920001,920001,$1,70,9.00,5.00,'A','N'),
                  (1,'2057-08-12','AE-1',920001,920001,$2,25,9.00,5.00,'A','N')`, [pOk, pSem]);
         // um PEDIDO, para provar a troca de origem da saída
-        await pgAe.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, vrcusto, dtvenda, cancelado, bonificado, troca)
-          VALUES ('AE-P1',1,1,$1,'ITEM','UN',15,9.00,5.00,'2057-08-13','N','N','N')`, [pOk]);
+        // o "Pedidos" do legado soma só os de TIPO 'P' (o de tipo 'O' fica fora)
+        await pgAe.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, vrcusto, dtvenda, cancelado, bonificado, troca, tipo)
+          VALUES ('AE-P1',1,1,$1,'ITEM','UN',15,9.00,5.00,'2057-08-13','N','N','N','P'), ('AE-P1',1,2,$1,'ITEM','UN',99,9.00,5.00,'2057-08-13','N','N','N','O')`, [pOk]);
 
-        const r = await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31`, { headers: H });
+        const r = await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&origemSaida=VENDAS`, { headers: H });
         const j = (await r.json().catch(() => ({}))) as any;
         const lOk = (j.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE COMPLETO');
         const lSem = (j.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE SEM CADASTRO');
@@ -13606,18 +13607,48 @@ async function main() {
           && Math.abs(Number(lOk.diferenca) + 30) < 0.005,
           { completo: lOk && { ent: lOk.qtd_entrada, sai: lOk.qtd_saida, dif: lOk.diferenca } });
 
-        const porPedido = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&origemSaida=PEDIDOS`, { headers: H })).json().catch(() => ({}))) as any;
+        // sem origem: o rádio do legado abre em "Pedidos"
+        const porPedido = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31`, { headers: H })).json().catch(() => ({}))) as any;
         const pOkPed = (porPedido.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE COMPLETO');
-        check('ANÁLISE E×S §120.3 [a saída troca de origem no rádio]: com "pedidos" em vez de "vendas", a saída do produto completo passa de 70 (vendido) para **15** (pedido) — é a mesma tela respondendo se o giro é do que saiu pelo caixa ou do que foi encomendado',
+        check('ANÁLISE E×S §120.3 [a saída troca de origem no rádio, que abre em "Pedidos"]: com "pedidos" a saída do produto completo passa de 70 (vendido) para **15** — só o pedido de TIPO \'P\', como o `AND J.TIPO = \'P\'` do legado (o de tipo \'O\', 99, fica fora; na produção são 53 de 2.208 linhas desde 2025)',
           Math.abs(Number(pOkPed?.qtd_saida) - 15) < 0.005
           && String(porPedido.origemSaida) === 'PEDIDOS',
           { comPedidos: pOkPed && { sai: pOkPed.qtd_saida }, origem: porPedido.origemSaida });
 
         const comFiltro = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&grupo=GRUPO%20AE`, { headers: H })).json().catch(() => ({}))) as any;
-        check('ANÁLISE E×S §120.4 [o filtro preenchido volta a filtrar, como deve]: pedindo o grupo "GRUPO AE" só o produto completo aparece — a correção do §120.1 não desligou o filtro, só parou de aplicá-lo quando está vazio',
+        const minusculo = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&grupo=grupo%20ae`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ANÁLISE E×S §120.4 [o filtro preenchido volta a filtrar, como deve]: pedindo o grupo "GRUPO AE" só o produto completo aparece — a correção do §120.1 não desligou o filtro, só parou de aplicá-lo quando está vazio; e o grupo é `LIKE` como digitado (o edtGrupo não tem CharCase): "grupo ae" não acha nada',
           Number(comFiltro.totais?.itens) === 1
-          && String((comFiltro.linhas ?? [])[0]?.produto) === 'PROD AE COMPLETO',
-          { comFiltro: comFiltro.totais?.itens });
+          && String((comFiltro.linhas ?? [])[0]?.produto) === 'PROD AE COMPLETO' && Number(minusculo.totais?.itens) === 0,
+          { comFiltro: comFiltro.totais?.itens, minusculo: minusculo.totais?.itens });
+
+        // a nota de entrada CANCELADA conta (o sqqAnalise não filtra CANCELADA nem PROC)
+        const nfCanc = Number((await pgAe.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','993002','2057-08-11','2057-08-11',2,'N','S',35,'1102') RETURNING codnf`)).rows[0].codnf);
+        await pgAe.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota) VALUES ($1,$2,7,5.00,1,'T01')`, [nfCanc, pOk]);
+        const comCanc = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&origemSaida=VENDAS`, { headers: H })).json().catch(() => ({}))) as any;
+        const okCanc = (comCanc.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE COMPLETO');
+        const stubAe = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"/></TfrxReport>`).toString('base64');
+        await pgAe.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (991131, 1, 'extr - AnaliseEntradaXSaida.fr3', 'x', 'DEFAULT', $1), (991132, 1, 'extr - AnaliseEntradaXSaidaComItens.fr3', 'x', 'DEFAULT', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubAe('SoTotais'), stubAe('ComItens')]);
+        const impAe = async (q: string) => { const x = await fetch(`${base}/${AE}/impressao?${q}`, { headers: H }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const iItens = await impAe('dataIni=2057-08-01&dataFim=2057-08-31&origemSaida=VENDAS&mostrarItens=true');
+        const iTot = await impAe('dataIni=2057-08-01&dataFim=2057-08-31');
+        const iVazio = await impAe('dataIni=2001-08-01&dataFim=2001-08-31');
+        await pgAe.query(`DELETE FROM relatorios WHERE codrelatorio IN (991131, 991132)`);
+        const dsAe = ((iItens.j.datasets?.frxDBAnalise ?? []) as any[]).filter((x) => x.PRODUTO === 'PROD AE COMPLETO');
+        check('ANÁLISE E×S §120.5 [a nota cancelada conta, e a impressão lista os dois ramos]: a entrada cancelada de 7 entra na soma (107), como no sqqAnalise; a impressão "com itens" usa o extr - AnaliseEntradaXSaidaComItens.fr3 com o produto em DUAS linhas (a da entrada, 107, e a da saída, 70) — é o UNION ALL do legado; sem itens, o extr - AnaliseEntradaXSaida.fr3; as variáveis DtIncial (sic)/DtFinal/Titulo e a empresa; sem dados, a mensagem do legado',
+          Math.abs(Number(okCanc?.qtd_entrada) - 107) < 0.005
+          && iItens.status === 200 && String(iItens.j.modelo).includes('ComItens') && dsAe.length === 2
+            && dsAe.some((x) => x.QTD_ENTRADA === 107 && x.QTD_SAIDA === 0) && dsAe.some((x) => x.QTD_ENTRADA === 0 && x.QTD_SAIDA === 70)
+            && iItens.j.variaveis?.DtIncial === "'01/08/2057'" && iItens.j.variaveis?.Titulo === "'Análise Entradas X Saídas'" && (iItens.j.datasets?.frxDBEmpresa ?? []).length === 1
+          && iTot.status === 200 && String(iTot.j.modelo).includes('SoTotais')
+          && iVazio.status === 422 && iVazio.j.message === 'Não existem informações no período informado para impressão. Verifique!',
+          { ent: okCanc?.qtd_entrada, itens: [iItens.status, dsAe], tot: iTot.status, vazio: [iVazio.status, iVazio.j.message] });
+        await pgAe.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfCanc]);
+        await pgAe.query(`DELETE FROM nf WHERE codnf=$1`, [nfCanc]);
 
         await pgAe.query(`DELETE FROM pedidos WHERE nropedido='AE-P1'`);
         await pgAe.query(`DELETE FROM vendas WHERE codvendas_legado=920001`);
