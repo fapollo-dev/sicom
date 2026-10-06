@@ -13398,6 +13398,28 @@ async function main() {
           && Math.abs(Number(p1.desconto_promocao) - 3) < 0.005,
           { descontoAposSegundaAplicacao: l1b?.d, pedido: p1 && { total: p1.total, desc: p1.desconto_promocao } });
 
+        // 114.5) o TOTAL do pedido pelo sqqPedidos (ROUND(QTDE × FATOREMB × (VRVENDA + DESC_ACRE_ITEM), 2) − promoção: o acréscimo é POR
+        // UNIDADE e há o fator) e o IMPRIMIR no layout de Config\ (bobina, com a configuração A4 'N'): os itens não cancelados por descrição,
+        // VRUNITARIO = VRVENDA + DESC_ACRE_ITEM, TOTALPEDIDO = o SUBTOTAL (todas as linhas do pedido)
+        await pgPv.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, fatoremb, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, bonificado, troca) VALUES
+          ('PV-IMP',1,1,$1,'ITEM FATOR','CX',2,3,5.00,-0.50,1.00,'2052-03-10','N','N','N'),
+          ('PV-IMP',1,2,$2,'ITEM CANCELADO','UN',1,1,100.00,0,1.00,'2052-03-10','S','N','N')`, [prNormal, prAtaca]);
+        const stubPv = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="PedBobina"/></TfrxReport>').toString('base64');
+        await pgPv.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992955, 1, 'PedidoRetaguarda.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubPv]);
+        const pvLista = (await (await fetch(`${base}/${PV}?dataIni=2052-03-01&dataFim=2052-03-31&nropedido=PV-IMP`, { headers: H })).json().catch(() => ([]))) as any;
+        const pvImp = await fetch(`${base}/${PV}/PV-IMP/impressao`, { headers: H });
+        const pvImpJ = (await pvImp.json().catch(() => ({}))) as any;
+        await pgPv.query(`DELETE FROM relatorios WHERE codrelatorio = 992955`);
+        const pvLinhaLista = (Array.isArray(pvLista) ? pvLista : (pvLista.linhas ?? [])).find((x: any) => x.nropedido === 'PV-IMP');
+        check('PEDIDO DE VENDA §114.5 [o total do fonte e o Imprimir]: o item de 2 caixas × fator 3 a 5,00 com −0,50 de desconto POR UNIDADE totaliza ROUND(2 × 3 × 4,50) = 27,00 (o Apollo fazia 2 × 5 − 0,50 = 9,50) · a impressão sai no PedidoRetaguarda.fr3 de Config\ (A4 desligado) com o item não cancelado (VRUNITARIO 4,50), a empresa nas variáveis e TOTALPEDIDO = o SUBTOTAL de todas as linhas (27 + 100 do cancelado = 127)',
+          Math.abs(Number(pvLinhaLista?.total) - 27) < 0.005
+          && pvImp.status === 200 && String(pvImpJ.modelo ?? '').includes('PedBobina')
+          && (pvImpJ.datasets?.frxDBDataset1 ?? []).length === 1 && Number(pvImpJ.datasets.frxDBDataset1[0].VRUNITARIO) === 4.5
+          && String(pvImpJ.variaveis?.EMPRESA ?? '').startsWith("' ") && Number(pvImpJ.variaveis?.TOTALPEDIDO) === 127 && pvImpJ.variaveis?.FATURAMENTO === "''",
+          { lista: pvLinhaLista, st: pvImp.status, n: pvImpJ.datasets?.frxDBDataset1?.length, vars: pvImpJ.variaveis, msg: pvImpJ.message });
+        await pgPv.query(`DELETE FROM pedidos WHERE nropedido = 'PV-IMP'`);
+
         await pgPv.query(`DELETE FROM pedidos WHERE nropedido IN ('PV-001','PV-002','PV-003')`);
         await pgPv.query(`DELETE FROM promocao_acumulativa WHERE idproacumulativa IN (998101,998102,998103)`);
         await pgPv.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[prNormal, prAtaca, prGrupoA, prGrupoB]]);

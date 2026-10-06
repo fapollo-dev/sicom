@@ -20,7 +20,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ✅ 06/10 (a tela como está; a ordem dos itens do fonte) |
 | 121 | `FRMTROCAMERCADORIAFOR` | extr - Troca | ✅ 06/10 (o 3º nível no motor) |
 | 120 | `FRMRELINTERSECCAOPRODUTOS` | extr - Interseccao produtos qtde cupom/vendida | ✅ 06/10 (e 4 correções de fidelidade: lojas, cancelado, COUNT(NROCUPOM), fuso) |
-| 116 | `FRMDIGITACAOPEDIDOS` | PedidoRetaguarda[A4][_Transferencia] | ⏳ |
+| 116 | `FRMDIGITACAOPEDIDOS` | PedidoRetaguarda[A4][_Transferencia] | ✅ 06/10 (e o total do pedido pela fórmula do fonte) |
 | 109 | `FRMCADPRODUCAO` | Producao, Producao_Lista_Transferencia | ⏳ |
 | 98 | `FRMFLUXOCARTOES` | Rel_Fluxo_Cartoes | ⏳ |
 | 84 | `FRMRELENTSAI` | Rel_Analise_Compra_Venda2 | ⏳ |

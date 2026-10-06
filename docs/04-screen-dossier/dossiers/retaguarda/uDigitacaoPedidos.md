@@ -72,3 +72,22 @@ serviço zera o acumulado no começo da transação.
 - **converter orçamento em pedido** (`MniConverterOrcamentoPedidoClick`);
 - o vendedor vindo do cliente ou do operador logado (`CarregaVendedorDoClienteOuLogado`);
 - ⛔ as três telas auxiliares — **sem substrato** neste cliente (§2).
+
+## O total pelo fonte e a impressão (06/10/2026)
+
+- **O total** (o `TOTAL` do `sqqPedidos`, somado no `SUBTOTAL` do `cdsPedidos`): `ROUND(QTDE × COALESCE(FATOREMB,1) × (VRVENDA +
+  DESC_ACRE_ITEM) × 100) / 100 − DESC_PROMO_ACUMULATIVA`. O acréscimo/desconto do item é **por unidade** (o `VRUNITARIO` do pedido é
+  `VRVENDA + DESC_ACRE_ITEM`) e entra o fator de embalagem; o Apollo fazia `QTDE × VRVENDA − DESC_ACRE_ITEM − promoção`. Os pedidos de
+  2026 não têm acréscimo nem fator (53 linhas), então nada mudou no dado de hoje — mas a regra era outra.
+- **A impressão** (`btnImprimirClick`, :1248 — "Deseja imprimir o pedido?"): layouts de `Config\` — com
+  `DIGITACAO_PEDIDOS_IMPRIMIR_FOLHA_A4` (a configuração que o binário novo migrou do XML da estação para `CONFIGURACOES`, id 543; 'N' na
+  produção) `PedidoRetaguardaA4.fr3`, ou `PedidoRetaguardaA4_Transferencia.fr3` no pedido de transferência (TIPO 'T', 33 linhas na
+  produção, a última de 30/07/2026); senão o de bobina `PedidoRetaguarda.fr3`. O dataset é o `sqqPedidoRetaguarda` (os itens não
+  cancelados, por descrição). Variáveis EMPRESA, EMPRESA2, FATURAMENTO vazio (a impressão da tela) e TOTALPEDIDO = TOTALPRODUTOS = o
+  SUBTOTAL — passado como número (o legado manda o texto do campo, que o `%2.2n` do layout formata).
+- **Sem prova**: o layout de transferência lê `NOME_OPERADOR`, que o SQL de 2020 não traz (binário novo); vem do cadastro de operadores pelo
+  `PEDIDOS.OPERADOR`, a única coluna de operador da tabela.
+- **O motor**: os layouts do cliente gravam `Caption="&Visualizar"` (o `&` do atalho, cru) — XML inválido que o leitor do FastReport
+  aceita; o parser agora escapa o `&` solto e lê de novo.
+
+Cobertura: smoke §114.5; testes de renderização do A4 (com o diálogo) e do de transferência.

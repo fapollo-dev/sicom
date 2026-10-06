@@ -39,7 +39,12 @@ const n = (s: string | undefined, d = 0): number => {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 function parse(xml: string): No {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  let doc = new DOMParser().parseFromString(xml, 'application/xml');
+  // o leitor do FastReport tolera o `&` solto num atributo (o PedidoRetaguarda do cliente grava `Caption="&Visualizar"`, o atalho do botão);
+  // o XML não: escapa o `&` que não abre uma entidade e tenta de novo
+  if (doc.getElementsByTagName('parsererror').length) {
+    doc = new DOMParser().parseFromString(xml.replace(/&(?!(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][\w.-]*);)/g, '&amp;'), 'application/xml');
+  }
   if (doc.getElementsByTagName('parsererror').length) throw new Error('arquivo .fr3 inválido');
   const conv = (el: Element, pai?: No): No => {
     const a: Record<string, string> = {};

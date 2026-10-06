@@ -3,6 +3,13 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { configNaTrx } from './pedido-heranca';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3 } from '../../shared/relatorios/registro-fr3';
+
+/** o TOTAL do item no `sqqPedidos` (uRDMDigitacaoPedidos.dfm): ROUND(QTDE × FATOREMB × (VRVENDA + DESC_ACRE_ITEM) × 100) / 100 − promoção */
+const TOTAL_ITEM = sql`(round((p.qtde * coalesce(p.fatoremb, 1) * (coalesce(p.vrvenda, 0) + coalesce(p.desc_acre_item, 0)))::numeric, 2)
+                        - coalesce(p.desc_promo_acumulativa, 0))`;
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -83,10 +90,9 @@ export class PedidoVendaService {
              max(p.codvendedor) AS codvendedor,
              count(*)::int AS itens,
              sum(p.qtde) AS qtde_total,
-             -- o total do pedido: quantidade × preço, menos o desconto do item e o da promoção acumulativa
-             round(sum((p.qtde * p.vrvenda)
-                       - coalesce(p.desc_acre_item, 0)
-                       - coalesce(p.desc_promo_acumulativa, 0))::numeric, 2) AS total,
+             -- o total do pedido: o TOTAL do sqqPedidos somado (o SUBTOTAL = SUM(TOTAL) do cdsPedidos) — por item,
+             -- ROUND(QTDE × FATOREMB × (VRVENDA + DESC_ACRE_ITEM), 2) − DESC_PROMO_ACUMULATIVA (o acréscimo/desconto é POR UNIDADE)
+             round(sum(${TOTAL_ITEM}), 2) AS total,
              round(sum(coalesce(p.desc_promo_acumulativa, 0))::numeric, 2) AS desconto_promocao,
              max(coalesce(p.entregar, 'N')) AS entregar,
              max(coalesce(p.proc, 'N')) AS proc,
@@ -112,8 +118,7 @@ export class PedidoVendaService {
              coalesce(p.bonificado, 'N') AS bonificado,
              coalesce(p.troca, 'N') AS troca,
              pr.codgrupopreco,
-             round(((p.qtde * p.vrvenda) - coalesce(p.desc_acre_item, 0)
-                    - coalesce(p.desc_promo_acumulativa, 0))::numeric, 2) AS total_item
+             ${TOTAL_ITEM} AS total_item
         FROM pedidos p
         LEFT JOIN produtos pr ON pr.idproduto = p.codproduto
        WHERE p.idempresa = ${emp} AND p.nropedido = ${nropedido}
@@ -121,6 +126,58 @@ export class PedidoVendaService {
     `.execute(db)).rows;
     if (itens.length === 0) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { nropedido });
     return { itens, total: r2(itens.reduce((s, i) => s + num(i.total_item), 0)) };
+  }
+
+  /**
+   * IMPRIMIR o pedido (`btnImprimirClick`, uDigitacaoPedidos.pas:1248; o mesmo no fim da digitação, uDigitacaoPedidosFormasPagto.pas:296).
+   * O layout é de `Config\`: com `DIGITACAO_PEDIDOS_IMPRIMIR_FOLHA_A4` (a configuração que o binário novo migrou do XML da estação; 'N'
+   * na produção) `PedidoRetaguardaA4.fr3`, ou `PedidoRetaguardaA4_Transferencia.fr3` no pedido de TRANSFERÊNCIA (TIPO 'T'); senão o de
+   * bobina `PedidoRetaguarda.fr3`. O dataset é o `sqqPedidoRetaguarda` (os itens não cancelados, por descrição; VRUNITARIO = VRVENDA +
+   * DESC_ACRE_ITEM) — e o NOME_OPERADOR que o layout de transferência lê (o binário novo; o SQL de 2020 não tem) vem do OPERADOR do pedido,
+   * a única coluna de operador da tabela. Variáveis: EMPRESA ("razão cidade - UF"), EMPRESA2 ("endereço bairro CNPJ:… IE:…"), FATURAMENTO
+   * vazio (a impressão da tela) e TOTALPEDIDO = TOTALPRODUTOS = o SUBTOTAL do pedido. Sem itens: "Não existe informações para serem
+   * impressas. Verifique !!!".
+   */
+  async impressao(nropedido: string) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT p.codpedidos, p.nropedido, p.codbarra, p.desc_acre_item, (coalesce(p.vrvenda, 0) + coalesce(p.desc_acre_item, 0)) AS vrunitario,
+             p.qtde, p.descricao, p.unidade, p.aliquota, p.dtvenda, p.codvendedor, p.codparceiro AS codcliente, pr.peso, p.desc_acre, p.obs,
+             p.referencia, p.cliente, c.fantasia, e.uf, e.endereco, e.numero, e.cidade, e.telefone, e.cnpj_cpf, e.rg_insc, e.bairro, e.celular,
+             e.cep, v.razao AS vendedor, p.obs_entrega, p.tipo, p.vrcusto, p.vrvenda, coalesce(p.desc_promo_acumulativa, 0) AS desc_promo_acumulativa,
+             p.fatoremb, o.nome AS nome_operador
+        FROM pedidos p
+        LEFT JOIN parceiros c ON c.codparceiro = p.codparceiro
+        LEFT JOIN parceiros_end e ON e.codend = p.codparceiro_end
+        LEFT JOIN parceiros v ON v.codparceiro = p.codvendedor
+        LEFT JOIN produtos pr ON pr.idproduto = p.codproduto
+        LEFT JOIN operadores o ON o.codoperador = p.operador
+       WHERE p.nropedido = ${nropedido} AND p.idempresa = ${emp} AND coalesce(p.cancelado, 'N') = 'N'
+       ORDER BY p.descricao`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('PEDIDO_SEM_ITENS', { nropedido }, 'Não existe informações para serem impressas. Verifique !!!');
+    // o SUBTOTAL: SUM(TOTAL) do cdsPedidos (o sqqPedidos traz todas as linhas do pedido)
+    const sub = (await sql<{ s: string | null }>`
+      SELECT sum(${TOTAL_ITEM}) AS s FROM pedidos p WHERE p.nropedido = ${nropedido} AND p.idempresa = ${emp}`.execute(db)).rows[0];
+    const subtotal = Number(sub?.s ?? 0);
+    const a4 = ['S', 'SIM'].includes(String((await configNaTrx(db, 'DIGITACAO_PEDIDOS_IMPRIMIR_FOLHA_A4',
+      { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 'N').toUpperCase());
+    const arquivo = !a4 ? 'PedidoRetaguarda.fr3' : String(rows[0].tipo ?? '') === 'T' ? 'PedidoRetaguardaA4_Transferencia.fr3' : 'PedidoRetaguardaA4.fr3';
+    const e = (await sql<Record<string, unknown>>`SELECT razao_social, cidade, uf, endereco, bairro, cnpj, insc FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const q = (t: string) => `'${t.replace(/'/g, "''")}'`;
+    const nums = new Set(['codpedidos', 'desc_acre_item', 'vrunitario', 'qtde', 'codvendedor', 'codcliente', 'peso', 'desc_acre', 'vrcusto', 'vrvenda', 'desc_promo_acumulativa', 'fatoremb']);
+    return {
+      titulo: `Pedido ${nropedido}`,
+      modelo: await modeloFr3(db, arquivo, { pasta: 'Config' }),
+      datasets: { frxDBDataset1: rows.map((r) => registroFr3(r, nums)) },
+      variaveis: {
+        EMPRESA: q(` ${String(e.razao_social ?? '')} ${String(e.cidade ?? '')} - ${String(e.uf ?? '')} `),
+        EMPRESA2: q(` ${String(e.endereco ?? '')} ${String(e.bairro ?? '')} CNPJ:${String(e.cnpj ?? '')} IE:${String(e.insc ?? '')} `),
+        FATURAMENTO: "''",
+        // o legado passa o SUBTOTAL como texto; aqui vai o número, para o %2.2n do layout formatar
+        TOTALPEDIDO: String(subtotal), TOTALPRODUTOS: String(subtotal),
+      },
+    };
   }
 
   /**

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -88,6 +89,13 @@ export function PedidoVendaPage() {
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
+  /** IMPRIMIR (`btnImprimirClick`): "Deseja imprimir o pedido?" e o layout de Config\ do cliente (bobina ou A4, pela configuração) */
+  const imprimir = async () => {
+    if (!aberto) return;
+    if (!window.confirm('Deseja imprimir o pedido?')) return;
+    try { await imprimirRelatorio(`/compras/pedido-venda/${encodeURIComponent(aberto.nropedido)}/impressao`); } catch (e) { mensagem.erro(e); }
+  };
+
   const colsPedido = useMemo<DataTableColumnDef<Pedido>[]>(() => [
     { field: 'nropedido', headerName: 'Pedido', type: 'text', width: 120, isPrimary: true },
     { field: 'dtvenda', headerName: 'Data', type: 'text', width: 105, valueGetter: (p) => dataBr(p.dtvenda) },
@@ -155,6 +163,7 @@ export function PedidoVendaPage() {
             <div><div className="text-body-sm text-fg-muted">Itens</div><div className="text-body-lg tabular-nums">{aberto.itens.length}</div></div>
             <div><div className="text-body-sm text-fg-muted">Total</div><div className="text-body-lg tabular-nums">{moeda(aberto.total)}</div></div>
             <Button label="Aplicar &promoção acumulativa" disabled={ocupado} onClick={() => void aplicarPromocao()} />
+            <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />
             <Button label="&Fechar" variant="soft" onClick={() => setAberto(null)} />
           </div>
           <p className="mb-form-gap text-body-sm text-fg-muted">

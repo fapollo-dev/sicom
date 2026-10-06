@@ -20,6 +20,13 @@ export class PedidoVendaController {
     });
   }
 
+  /** o "Imprimir" do pedido (`btnImprimirClick`) nos layouts de Config\ do cliente */
+  @Get(':nropedido/impressao')
+  @RequerAcesso('FRMDIGITACAOPEDIDOS', 'FRMDIGITACAOPEDIDOS')
+  impressao(@Param('nropedido') nropedido: string) {
+    return this.svc.impressao(nropedido);
+  }
+
   @Get(':nropedido')
   @RequerAcesso('FRMDIGITACAOPEDIDOS', 'FRMDIGITACAOPEDIDOS')
   abrir(@Param('nropedido') nropedido: string) {

@@ -1404,3 +1404,27 @@ describe('intersecção de produtos (extr - Interseccao produtos qtde vendida/cu
     expect(t).toContain('24,00');
   });
 });
+
+describe('pedido de venda (PedidoRetaguarda[A4][_Transferencia].fr3, FRMDIGITACAOPEDIDOS)', () => {
+  const it0 = (CODBARRA: string, DESCRICAO: string, QTDE: number, VRUNITARIO: number, DESC_ACRE_ITEM = 0) => ({
+    NROPEDIDO: '000123', CODBARRA, DESCRICAO, QTDE, VRUNITARIO, DESC_ACRE_ITEM, UNIDADE: 'UN', ALIQUOTA: 'T01', DTVENDA: '2026-10-06T10:15:00',
+    CODCLIENTE: 81, CLIENTE: 'MERCADINHO BOM PRECO', FANTASIA: 'BOM PRECO', ENDERECO: 'RUA A', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG',
+    TELEFONE: '3432', CEP: '38400000', CNPJ_CPF: '12.345.678/0001-90', RG_INSC: 'ISENTO', VENDEDOR: 'JOAO', PESO: 1, VRCUSTO: 3, OBS_ENTREGA: 'ENTREGAR CEDO', NOME_OPERADOR: 'MARIA',
+  });
+  const vars = { EMPRESA: "' JF SUPERMERCADOS LTDA UBERLANDIA - MG '", EMPRESA2: "' AV SACRAMENTO MARTINS CNPJ:37.954.975/0001-69 IE:0037992540050 '", FATURAMENTO: "''", TOTALPEDIDO: '57.5', TOTALPRODUTOS: '57.5' };
+  it('A4: a empresa, o cliente, os itens com o unitário e o total, e o total do pedido formatado (diálogo normal)', () => {
+    const t = texto(paginasDoModelo(modelo('pedido-a4.fr3'), { frxDBDataset1: [it0('7891', 'ARROZ 5KG', 2, 22.5), it0('7892', 'FEIJAO 1KG', 1.5, 8.33)] }, agora, vars, {}, { marcados: { rbNormal: true, rbUsuario: false }, botao: 'btnOk' }));
+    expect(t).toContain('JF SUPERMERCADOS LTDA UBERLANDIA - MG');
+    expect(t).toContain('DAV: 000123');
+    expect(t).toContain('MERCADINHO BOM PRECO');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('45,00');
+    expect(t).toContain('Total pedido: 57,50');
+  });
+  it('transferência: o custo e o operador do pedido', () => {
+    const t = texto(paginasDoModelo(modelo('pedido-a4-transf.fr3'), { frxDBDataset1: [it0('7891', 'ARROZ 5KG', 2, 22.5)] }, agora, vars));
+    expect(t).toContain('Pedido 000123');
+    expect(t).toContain('Operador: MARIA');
+    expect(t).toContain('6,00');      // 2 × custo 3,00
+  });
+});
