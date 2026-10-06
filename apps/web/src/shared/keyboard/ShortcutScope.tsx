@@ -64,11 +64,14 @@ function instalar() {
     for (const esc of ordem) {
       const set = esc.handlers.get(combo);
       if (!set || !set.size) continue;
-      let tratou = false;
-      for (const h of [...set]) if (h(e) !== false) tratou = true;
-      if (tratou) {
-        e.preventDefault();
-        return;
+      // a tecla é de UM handler (como na VCL: com dois controles no mesmo acelerador, só o primeiro que aceita o foco leva — antes,
+      // Alt+C acionava os dois "&Cancelar" da baixa). No mesmo escopo, o registrado por último primeiro (o painel que abriu
+      // depois); o handler que devolve false (desabilitado, fora da tela) passa a tecla ao próximo.
+      for (const h of [...set].reverse()) {
+        if (h(e) !== false) {
+          e.preventDefault();
+          return;
+        }
       }
     }
   });

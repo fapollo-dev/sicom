@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { FormFieldInput } from '@apollosg/design-system';
-import { useMnemonic } from '../keyboard/useMnemonic';
+import { useMnemonic, focarMnemonico } from '../keyboard/useMnemonic';
 import { parseMnemonic } from '../keyboard/parseMnemonic';
 
 type Props = {
@@ -18,7 +18,7 @@ type Props = {
  */
 export function DateField({ label, value, onChange, error, disabled }: Props) {
   const id = useId();
-  useMnemonic(label, () => document.getElementById(id)?.querySelector<HTMLInputElement>('input')?.focus());
+  useMnemonic(label, () => focarMnemonico(document.getElementById(id)?.querySelector<HTMLInputElement>('input')));
   const clean = parseMnemonic(label).text;
   return (
     <div id={id}>

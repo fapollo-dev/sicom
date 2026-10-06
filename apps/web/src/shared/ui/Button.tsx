@@ -16,7 +16,8 @@ type Props = {
  */
 export function Button({ label, onClick, variant = 'filled', type = 'button', disabled = false }: Props) {
   const { text } = useMnemonic(label, () => {
-    if (!disabled) onClick?.();
+    if (disabled) return false;
+    onClick?.();
   });
   return (
     <DSButton variant={variant} type={type} onClick={onClick} disabled={disabled}>

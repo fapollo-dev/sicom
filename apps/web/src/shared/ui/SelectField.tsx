@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { FormFieldSelect } from '@apollosg/design-system';
-import { useMnemonic } from '../keyboard/useMnemonic';
+import { useMnemonic, focarMnemonico } from '../keyboard/useMnemonic';
 import { parseMnemonic } from '../keyboard/parseMnemonic';
 
 type Option = { value: string; label: string };
@@ -22,9 +22,7 @@ type Props = {
  */
 export function SelectField({ label, value, onChange, options, placeholder, error, disabled }: Props) {
   const id = useId();
-  useMnemonic(label, () =>
-    document.getElementById(id)?.querySelector<HTMLElement>('button,[role=combobox]')?.focus(),
-  );
+  useMnemonic(label, () => focarMnemonico(document.getElementById(id)?.querySelector<HTMLElement>('button,[role=combobox]')));
   const clean = parseMnemonic(label).text;
   return (
     <div id={id}>

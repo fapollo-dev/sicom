@@ -1,6 +1,6 @@
 import { forwardRef, useRef, type InputHTMLAttributes } from 'react';
 import { FormFieldInput } from '@apollosg/design-system';
-import { useMnemonic } from '../keyboard/useMnemonic';
+import { useMnemonic, focarMnemonico } from '../keyboard/useMnemonic';
 import { parseMnemonic } from '../keyboard/parseMnemonic';
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'size'> & {
@@ -28,7 +28,7 @@ export const Field = forwardRef<HTMLInputElement, Props>(function Field(
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
   // registra Alt+letra → foca o campo (papel 2 do mnemônico)
-  useMnemonic(label, () => inputRef.current?.focus());
+  useMnemonic(label, () => focarMnemonico(inputRef.current));
   const clean = parseMnemonic(label).text;
   return (
     <FormFieldInput

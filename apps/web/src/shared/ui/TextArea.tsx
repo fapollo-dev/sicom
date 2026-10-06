@@ -1,6 +1,6 @@
 import { forwardRef, useRef, type TextareaHTMLAttributes } from 'react';
 import { FormFieldTextarea } from '@apollosg/design-system';
-import { useMnemonic } from '../keyboard/useMnemonic';
+import { useMnemonic, focarMnemonico } from '../keyboard/useMnemonic';
 import { parseMnemonic } from '../keyboard/parseMnemonic';
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'id'> & {
@@ -27,7 +27,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, Props>(function TextArea
   forwardedRef,
 ) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  useMnemonic(label, () => ref.current?.focus());
+  useMnemonic(label, () => focarMnemonico(ref.current));
   const clean = parseMnemonic(label).text;
   return (
     <FormFieldTextarea

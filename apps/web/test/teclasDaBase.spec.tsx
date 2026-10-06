@@ -9,6 +9,7 @@ import { AppLayout } from '../src/app/AppLayout';
 import { AuthProvider } from '../src/features/auth/AuthContext';
 import { CadMaster } from '../src/shared/cadmaster/CadMaster';
 import { useRef } from 'react';
+import { Button } from '../src/shared/ui/Button';
 
 beforeEach(() => {
   global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] }) as any;
@@ -58,6 +59,31 @@ function Conteudo({ children }: { children: React.ReactNode }) {
   useEnterAdvances(ref);
   return <div ref={ref}>{children}</div>;
 }
+
+describe('mnemônico repetido na tela (CM_DIALOGCHAR da VCL: um controle só leva a letra)', () => {
+  it('Alt+letra aciona UM botão — o montado por último; desabilitado, a letra passa ao outro', () => {
+    const lote = vi.fn();
+    const recurso = vi.fn();
+    const { rerender } = render(
+      <ShortcutScope>
+        <Button label="&Cancelar" onClick={lote} />
+        <Button label="&Cancelar" onClick={recurso} />
+      </ShortcutScope>,
+    );
+    fireEvent.keyDown(window, { key: 'c', code: 'KeyC', altKey: true });
+    expect(lote).not.toHaveBeenCalled();
+    expect(recurso).toHaveBeenCalledTimes(1);
+    rerender(
+      <ShortcutScope>
+        <Button label="&Cancelar" onClick={lote} />
+        <Button label="&Cancelar" onClick={recurso} disabled />
+      </ShortcutScope>,
+    );
+    fireEvent.keyDown(window, { key: 'c', code: 'KeyC', altKey: true });
+    expect(lote).toHaveBeenCalledTimes(1);
+    expect(recurso).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('Enter-avança fora de <form> (o FormKeyPress do TfrmMaster)', () => {
   it('avança no container; não avança em campo "Enter nativo" nem em grade', async () => {

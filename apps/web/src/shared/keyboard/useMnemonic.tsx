@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { parseMnemonic } from './parseMnemonic';
 import { useShortcutRegistry } from './ShortcutScope';
 import { useAltPressed } from './useAltPressed';
@@ -11,16 +11,20 @@ import { useAltPressed } from './useAltPressed';
  */
 export function useMnemonic(
   label: string,
-  action: () => void,
+  action: () => void | boolean,
 ): { text: ReactNode; accelerator: string | null } {
   const reg = useShortcutRegistry();
   const { text, key, index } = parseMnemonic(label);
   const altDown = useAltPressed();
+  // o vínculo fica estável (a ação de cada render pelo ref): re-vincular a cada render mudaria a ordem do escopo, que decide quem
+  // leva a letra quando dois controles a dividem. A ação devolve false quando o controle não aceita (desabilitado / fora da tela).
+  const ref = useRef(action);
+  ref.current = action;
 
   useEffect(() => {
     if (!key) return;
-    return reg.bind(`alt+${key}`, () => action());
-  }, [key, action, reg]);
+    return reg.bind(`alt+${key}`, () => ref.current());
+  }, [key, reg]);
 
   // Um ÚNICO <span> inline: o Button do DS usa flex com `gap`, então múltiplos
   // filhos (texto + <u> + texto) ganhariam espaço entre si ("P esquisar"). Um só
@@ -37,4 +41,11 @@ export function useMnemonic(
     );
 
   return { text: node, accelerator: key ? `Alt+${key.toUpperCase()}` : null };
+}
+
+/** foca o controle do mnemônico (papel "campo"); sem ele na tela ou desabilitado, devolve false — a letra segue para o próximo
+ *  controle (o `CanFocus` da VCL) */
+export function focarMnemonico(el: HTMLElement | null | undefined): false | void {
+  if (!el || el.matches(':disabled')) return false;
+  el.focus();
 }

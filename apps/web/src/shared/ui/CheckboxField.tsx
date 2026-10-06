@@ -17,7 +17,8 @@ type Props = {
 export function CheckboxField({ label, value, onChange, disabled }: Props) {
   const checked = value === 'S';
   const { text } = useMnemonic(label, () => {
-    if (!disabled) onChange?.(checked ? 'N' : 'S');
+    if (disabled) return false;
+    onChange?.(checked ? 'N' : 'S');
   });
   return (
     <FormFieldCheckbox
