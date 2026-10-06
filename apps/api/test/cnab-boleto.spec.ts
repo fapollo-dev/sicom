@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codigoBarras, linhaDigitavel, mod10, mod11Barras, fatorVencimento, instrucoesBoleto } from '../src/modules/cobranca/cnab-remessa.service';
+import { codigoBarras, linhaDigitavel, linhaDigitavelFormatada, mod10, mod11Barras, fatorVencimento, instrucoesBoleto } from '../src/modules/cobranca/cnab-remessa.service';
 
 /**
  * CÓDIGO DE BARRAS / LINHA DIGITÁVEL do boleto. O algoritmo foi VERIFICADO CONTRA DADO REAL antes de entrar:
@@ -87,18 +87,19 @@ describe('boleto — instruções por título', () => {
   it('Itaú/Bradesco: abre com "NAO DISPENSAR", usa MORA DIA/COM. PERMANÊNCIA e cita a NF pelo IDNF', () => {
     const l = instrucoesBoleto({ ...base, idnf: 77, nronf: '12345' }, '341', 5);
     expect(l[0]).toBe('APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA');
-    expect(l).toContain('DESCONTO DE R$20.00 ATE 10/03/2026');   // 1000 × 2%
-    expect(l).toContain('MORA DIA/COM. PERMANÊNCIA: R$ 1.00');   // (3/30) × 1000 / 100
-    expect(l).toContain('APÓS 10/03/2026 MULTA: R$50.00');       // 1000 × 5%
+    expect(l).toContain('DESCONTO DE R$20,00 ATE 10/03/2026');   // 1000 × 2%
+    expect(l).toContain('MORA DIA/COM. PERMANÊNCIA: R$ 1,00');   // (3/30) × 1000 / 100
+    expect(l).toContain('APÓS 10/03/2026 MULTA: R$50,00');       // 1000 × 5%
     expect(l).toContain('Referente N.Fiscal numero: 12345');
   });
 
   it('demais bancos: sem a linha de abertura, protesto entra e a NF vem só do DOCNF', () => {
     const l = instrucoesBoleto({ ...base, diasprotesto: 15, docnf: '999' }, '001', 5);
     expect(l[0]).not.toContain('NAO DISPENSAR');
-    expect(l).toContain('SUJEITO A PROTESTO APOS 15 DIAS DO VENCIMENTO');
-    expect(l).toContain('APÓS O VENCIMENTO COBRAR: R$ 1.00 POR DIA DE ATRASO');
-    expect(l).toContain('Referente N.Fiscal numero: 999');
+    expect(l).toContain(' SUJEITO A PROTESTO APOS 15 DIAS DO VENCIMENTO');
+    expect(l).toContain(' APÓS O VENCIMENTO COBRAR: R$ 1,00 POR DIA DE ATRASO ');
+    expect(l).toContain(' APÓS 10/03/2026 MULTA: R$ 50,00');
+    expect(l).toContain(' Referente N.Fiscal numero: 999');
   });
 
   it('sem juros, sem multa e sem desconto: só a linha de abertura no Itaú, e nada nos demais', () => {
@@ -106,8 +107,22 @@ describe('boleto — instruções por título', () => {
     expect(instrucoesBoleto({ valor: 100, venc: '2026-03-10' }, '001', 0)).toEqual([]);
   });
 
+  it('vírgula decimal (FormatFloat do Windows em pt-BR); mora que arredonda a zero não sai; nos demais bancos a multa sai pelo percentual', () => {
+    expect(instrucoesBoleto({ valor: 0.1, venc: '2026-03-10', txjuros: 1 }, '341', 0)).toEqual(['APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA']);
+    expect(instrucoesBoleto({ valor: 0.1, venc: '2026-03-10' }, '001', 2)).toEqual([' APÓS 10/03/2026 MULTA: R$ 0,00']);
+    expect(instrucoesBoleto({ valor: 0.1, venc: '2026-03-10' }, '341', 2)).toEqual(['APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA']);
+  });
+
   it('a NF do Itaú exige IDNF > 0 (cópia fiel: com DOCNF mas sem IDNF, não cita a nota)', () => {
     const l = instrucoesBoleto({ ...base, idnf: 0, docnf: '4321' }, '341', 0);
     expect(l.some((x) => x.includes('N.Fiscal'))).toBe(false);
+  });
+});
+
+describe('boleto — a linha digitável impressa', () => {
+  it('cinco campos com os pontos e espaços da FEBRABAN', () => {
+    expect(linhaDigitavelFormatada('34191090080657063230551234560000123450000010000'))
+      .toBe('34191.09008 06570.632305 51234.560000 1 23450000010000');
+    expect(linhaDigitavelFormatada('123')).toBe('123');
   });
 });

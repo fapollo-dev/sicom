@@ -126,5 +126,6 @@ export * from './validators/chave-nfe';
 export * from './nfe-status';
 export * from './ufs';
 export * from './nf-valor';
+export * from './extenso';
 export * from './schema/fechamento-caixa.schema';
 export * from './schema/lancamento-caixa.schema';

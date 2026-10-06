@@ -6,7 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
-import { svgCodigoBarras } from './codigoBarrasItf';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -27,7 +27,9 @@ type Linha = Record<string, unknown>;
 /**
  * CNAB DE COBRANÇA (FRMCONFBOLETO) — emite o boleto dos títulos a receber e gera o arquivo de REMESSA
  * para o banco (Itaú 400 neste corte). O fluxo é o do legado: escolher os títulos → "Emitir boleto"
- * (carimba o nosso número) → "Gerar remessa" (produz o arquivo e marca os títulos como enviados) → baixar.
+ * (carimba o nosso número e, com "Impressão" marcada, imprime no BoletoFR.fr3 do cliente) → "Gerar remessa"
+ * (produz o arquivo e marca os títulos como enviados) → baixar. "Reimprimir" é para o boleto já enviado ao
+ * banco; "Imprimir" é a duplicata (dup_Duplicata001_1.fr3).
  */
 export function CnabRemessaPage() {
   const mensagem = useMensagem();
@@ -40,8 +42,7 @@ export function CnabRemessaPage() {
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [remessas, setRemessas] = useState<Linha[]>([]);
   const [boletos, setBoletos] = useState<Linha[] | null>(null);
-  const [cabecalho, setCabecalho] = useState<Record<string, unknown> | null>(null);
-  const [ficha, setFicha] = useState(false); // ficha de compensação (para imprimir) × lista de conferência
+  const [impresso, setImpresso] = useState(true); // o chkImpresso do legado (marcado por padrão)
   const [retorno, setRetorno] = useState<{ banco: number; data_baixa: string | null; totais: Record<string, number>; propostas: Linha[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,13 +64,36 @@ export function CnabRemessaPage() {
     setSel(s);
   };
 
+  const corpoBoleto = (codrcbs: number[]) => ({ codconf: Number(codconf), codconta: Number(codconta), codrcbs });
+
   const emitir = async () => {
     if (!sel.size) return mensagem.erro(new Error('Selecione ao menos um título.'));
-    try {
-      await post('/cobranca/cnab/emitir', { codrcbs: Array.from(sel) });
-      mensagem.sucesso(`Boleto emitido para ${sel.size} título(s).`);
+    const codrcbs = Array.from(sel);
+    const emite = async () => {
+      await post('/cobranca/cnab/emitir', { codrcbs });
+      mensagem.sucesso(`Boleto emitido para ${codrcbs.length} título(s).`);
       void consultar();
+    };
+    try {
+      if (!impresso) return void (await emite());
+      // Boleto(): "É preciso informar uma conta para prosseguir." — e a impressão sai logo depois de emitir (:2931)
+      if (!codconf || !codconta) return mensagem.erro(new Error('É preciso informar uma conta para prosseguir.'));
+      await imprimirRelatorio('/cobranca/cnab/boleto/impressao', corpoBoleto(codrcbs), emite);
     } catch (e) { mensagem.erro(e); }
+  };
+
+  /** REIMPRIMIR (btnReimprimir → taReimprimirBoleto): só os boletos já enviados ao banco (REGISTRO_ARQ_REMESSA = 'S') */
+  const reimprimir = async () => {
+    const enviados = linhas.filter((l) => sel.has(Number(l.codrcb)) && String(l.registro_arq_remessa ?? '') === 'S').map((l) => Number(l.codrcb));
+    if (!enviados.length) return mensagem.erro(new Error('Não existem boletos a serem reimpressos. Verifique!'));
+    if (!codconf || !codconta) return mensagem.erro(new Error('É preciso informar uma conta para prosseguir.'));
+    try { await imprimirRelatorio('/cobranca/cnab/boleto/impressao', corpoBoleto(enviados)); } catch (e) { mensagem.erro(e); }
+  };
+
+  /** IMPRIMIR (btnImprimirClick): a duplicata dos títulos marcados — recusa o já enviado ou cancelado */
+  const imprimirDuplicata = async () => {
+    if (!linhas.length || !sel.size) return mensagem.erro(new Error('Não existe nenhum título na grade para ser impresso. Verifique!'));
+    try { await imprimirRelatorio('/cobranca/cnab/duplicata/impressao', { codrcbs: Array.from(sel) }); } catch (e) { mensagem.erro(e); }
   };
 
   const gerar = async (tipo: 'E' | 'C' | 'AV' = 'E') => {
@@ -111,7 +135,7 @@ export function CnabRemessaPage() {
       const r = await post<{ banco: string; cabecalho: Record<string, unknown>; boletos: Linha[] }>('/cobranca/cnab/boleto', {
         codconf: Number(codconf), codconta: Number(codconta), codrcbs: Array.from(sel),
       });
-      setBoletos(r.boletos); setCabecalho(r.cabecalho);
+      setBoletos(r.boletos);
     } catch (e) { mensagem.erro(e); }
   };
 
@@ -143,6 +167,11 @@ export function CnabRemessaPage() {
         <div className="w-36"><Field label="Conta &bancária" value={codconta} onChange={(e) => setCodconta(e.target.value)} placeholder="cód." /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         <Button label="&Emitir boleto" variant="soft" disabled={busy || !sel.size} onClick={() => void emitir()} />
+        <label className="flex items-center gap-1 text-body-sm">
+          <input type="checkbox" checked={impresso} onChange={(e) => setImpresso(e.target.checked)} /> Impressão
+        </label>
+        <Button label="&Reimprimir" variant="ghost" disabled={busy || !sel.size} onClick={() => void reimprimir()} />
+        <Button label="Im&primir" variant="ghost" disabled={busy} onClick={() => void imprimirDuplicata()} />
         <Button label="&Gerar remessa" variant="soft" disabled={busy || !sel.size} onClick={() => void gerar('E')} />
         <Button label="&Ver boleto" variant="ghost" disabled={busy || !sel.size} onClick={() => void verBoleto()} />
         <Button label="Alterar &vencimento" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('AV')} />
@@ -154,7 +183,9 @@ export function CnabRemessaPage() {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarRetorno(f); e.target.value = ''; }} />
         </label>
         <small className="w-full text-fg-muted">
-          Selecione os títulos, emita o boleto e gere a remessa — o arquivo fica guardado e pode ser baixado depois.
+          Selecione os títulos, emita o boleto (com <em>Impressão</em> marcada ele sai no layout de boleto) e gere a remessa — o
+          arquivo fica guardado e pode ser baixado depois. <em>Reimprimir</em> é para o boleto já enviado ao banco; <em>Imprimir</em> é
+          a duplicata.
           Para título já enviado ao banco: <em>Alterar vencimento</em> avisa o novo vencimento; <em>Cancelar no banco</em> pede a baixa.
           {sel.size > 0 && ` Selecionados: ${sel.size} · ${brl(total)}.`}
         </small>
@@ -174,7 +205,7 @@ export function CnabRemessaPage() {
               return (
                 <tr key={String(l.codrcb)} className="border-t border-border">
                   <td className="p-pad-xs">
-                    <input type="checkbox" checked={sel.has(Number(l.codrcb))} onChange={() => marcar(Number(l.codrcb))} disabled={enviado} />
+                    <input type="checkbox" checked={sel.has(Number(l.codrcb))} onChange={() => marcar(Number(l.codrcb))} />
                   </td>
                   <td className="p-pad-xs tabular-nums">{String(l.codrcb)}</td>
                   <td className="p-pad-xs">{String(l.razao ?? '—')}</td>
@@ -196,51 +227,11 @@ export function CnabRemessaPage() {
 
       {boletos && (
         <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <div className="flex items-center justify-between print:hidden">
-            <div className="text-title-sm font-semibold">
-              Boleto — {ficha ? 'ficha de compensação (pronta para imprimir)' : 'linha digitável e código de barras'}
-            </div>
-            <div className="flex gap-gp-sm">
-              <button className="underline text-body-sm" onClick={() => setFicha(!ficha)}>
-                {ficha ? 'ver conferência' : 'ver ficha para imprimir'}
-              </button>
-              <button className="underline text-body-sm" onClick={() => { setBoletos(null); setFicha(false); }}>fechar</button>
-            </div>
+          <div className="flex items-center justify-between">
+            <div className="text-title-sm font-semibold">Boleto — linha digitável e código de barras</div>
+            <button className="underline text-body-sm" onClick={() => setBoletos(null)}>fechar</button>
           </div>
-          {ficha && boletos.map((b) => {
-            const sac = (b.sacado ?? {}) as Record<string, unknown>;
-            return (
-              <div key={`f${b.codrcb}`} className="flex flex-col gap-1 border border-fg-default p-pad-sm text-body-xs break-inside-avoid">
-                <div className="flex items-end justify-between border-b-2 border-fg-default pb-1">
-                  <span className="text-title-sm font-bold">{String(cabecalho?.banco ?? '')}</span>
-                  <span className="text-body-xs">{String(cabecalho?.nome_banco ?? '')}</span>
-                  <span className="font-mono text-body-sm font-semibold tabular-nums">{String(b.linha_digitavel)}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-1">
-                  <div className="col-span-2"><span className="text-fg-muted">Cedente</span><br />{String(cabecalho?.cedente ?? '')} · {String(cabecalho?.cedente_cnpj ?? '')}</div>
-                  <div><span className="text-fg-muted">Agência/Conta</span><br />{String(cabecalho?.agencia ?? '')} / {String(cabecalho?.conta ?? '')}</div>
-                  <div><span className="text-fg-muted">Vencimento</span><br /><strong>{dia(b.vencimento)}</strong></div>
-                  <div><span className="text-fg-muted">Nosso número</span><br />{String(b.nosso_numero)}{b.nosso_numero_dv != null ? `-${String(b.nosso_numero_dv)}` : ''}</div>
-                  <div><span className="text-fg-muted">Carteira</span><br />{String(cabecalho?.carteira ?? '')}</div>
-                  <div><span className="text-fg-muted">Nº documento</span><br />{String(b.duplicata ?? '')}</div>
-                  <div><span className="text-fg-muted">Valor do documento</span><br /><strong>{brl(b.valor)}</strong></div>
-                </div>
-                <div>
-                  <span className="text-fg-muted">Instruções</span>
-                  <ul>{(Array.isArray(b.instrucoes) ? (b.instrucoes as string[]) : []).map((i, k) => <li key={k}>{i}</li>)}</ul>
-                </div>
-                <div className="border-t border-border pt-1">
-                  <span className="text-fg-muted">Sacado</span><br />
-                  {String(sac.nome ?? '')} · {String(sac.documento ?? '')}<br />
-                  {String(sac.endereco ?? '')} {sac.bairro ? `· ${String(sac.bairro)}` : ''} {sac.cidade ? `· ${String(sac.cidade)}/${String(sac.uf ?? '')}` : ''} {sac.cep ? `· CEP ${String(sac.cep)}` : ''}
-                </div>
-                {/* código de barras no padrão FEBRABAN (ITF 2 de 5), desenhado em SVG — sem dependência externa */}
-                <div className="pt-1" dangerouslySetInnerHTML={{ __html: svgCodigoBarras(String(b.codigo_barras), 45) }} />
-              </div>
-            );
-          })}
-
-          {!ficha && boletos.map((b) => (
+          {boletos.map((b) => (
             <div key={String(b.codrcb)} className="flex flex-col gap-1 border-t border-border pt-pad-xs">
               <div className="text-body-sm">
                 Título {String(b.codrcb)} · {String(b.razao ?? '')} · venc. {dia(b.vencimento)} · {brl(b.valor)}
@@ -255,10 +246,9 @@ export function CnabRemessaPage() {
               )}
             </div>
           ))}
-          <small className="text-fg-muted print:hidden">
+          <small className="text-fg-muted">
             As instruções (mora, multa, desconto, nota fiscal) são as que o boleto imprime — calculadas do título,
-            como no sistema atual. Confira a linha digitável antes de enviar a remessa; na ficha, use o botão de
-            imprimir da tela (o diálogo permite salvar em PDF).
+            como no sistema atual. Confira a linha digitável antes de enviar a remessa.
           </small>
         </div>
       )}

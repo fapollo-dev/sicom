@@ -12,7 +12,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 7.920 | `FRMRELFINALIZADORAS` | Rel_Finalizadoras[_Vertical] | ✅ 06/10 (`2790e4b`) |
 | 3.903 | `FRMRELLISTAPRECOSFORNECEDOR` | AnaliseGiroMercPeriodo[Analitico], ListaPrecFornecedor* (8 layouts, dataset `dbdListagem` com TITULOn/SMDn/QTDE_ENTRADAn) | ⏳ recon feito: os títulos dos meses vêm de `MesExtenso` (prova no Rel_CaixaAnual: abreviação de 3 letras) e `MesExtensoT` (sem prova — FuncoesApollo ausente); o modo "Pedidos" ainda está adiado no serviço (PEDIDOS já migrada); VRCUSTOREP impresso = custo de reposição ÷ nº de períodos com custo (quirk do AtualizaListagem) |
 | 1.415 | `FRMVALORTICKETMEDIO` | Rel_TicketMedio | ⛔ os dois layouts (DEFAULT e PERSONALIZADO) leem MEDIA_QTDE_PRODUTOS_CUPOM, que o SQL de 2020 não tem — binário novo; vigia do V$SQL ligado |
-| 877 | `FRMCONFBOLETO` | BoletoFR, Dup_Duplicata* | ⏳ |
+| 877 | `FRMCONFBOLETO` | BoletoFR, Dup_Duplicata* | ✅ 06/10 (boleto com os datasets do ACBr, duplicata com o extenso; as instruções com vírgula) |
 | 735 | `FRMADIANTAMENTOFORNECEDOR` | ReciboAdiantamentoParceiro | ✅ 06/10 (o NumeroExtenso no motor) |
 | 355 | `FRMRELREGISTROS_ES` | Notas_Fiscais_Registro_Apuracao/Entrada/Saida | ⏳ |
 | 236 | `FRMPRECIFICACAONF` | PrecificacaoNF | ⏳ |

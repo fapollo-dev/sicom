@@ -1,5 +1,5 @@
 /**
- * `NumeroExtenso(Valor, Moeda = False)` — a função que o legado registra no FastReport do recibo de adiantamento
+ * `NumeroExtenso(Valor, Moeda = False)` — a função que o legado registra no FastReport do recibo de adiantamento e usa no VALOR_EXTENSO da duplicata (uConfBoleto.pas:1977)
  * (`FrxRelatorio.AddFunction`, uCadAdiantamentoFornecedor.pas:650). A implementação está no FuncoesApollo, que não veio no repositório:
  * aqui a escrita por extenso do português do Brasil ("cento e cinquenta", "mil e duzentos", "um milhão e…"). Com `Moeda`, "reais" e
  * "centavos"; sem moeda, a parte decimal sai como "vírgula <centavos>" — forma NÃO comprovada (93% dos adiantamentos da produção são
@@ -44,7 +44,8 @@ export function numeroExtenso(valor: number, moeda = false): string {
   let s: string;
   if (moeda) {
     const partes: string[] = [];
-    if (inteiro) partes.push(`${inteiroPorExtenso(inteiro)} ${inteiro === 1 ? 'real' : 'reais'}`);
+    // "um milhão de reais": o milhão/bilhão redondo pede o "de"
+    if (inteiro) partes.push(`${inteiroPorExtenso(inteiro)} ${inteiro === 1 ? 'real' : inteiro % 1e6 === 0 ? 'de reais' : 'reais'}`);
     if (centavos) partes.push(`${inteiroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`);
     s = partes.length ? partes.join(' e ') : 'zero reais';
   } else {

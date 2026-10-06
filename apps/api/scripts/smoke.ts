@@ -7818,9 +7818,9 @@ async function main() {
           && bol.nosso_numero_dv != null && Number(bol.valor) === 1603.48
           // INSTRUÇÕES (GerarInstrucao): abertura do Itaú + desconto 2% + mora (3/30 × 1.603,48 / 100) + multa 5%
           && (bol.instrucoes ?? [])[0] === 'APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA'
-          && (bol.instrucoes ?? []).some((x: string) => x === 'DESCONTO DE R$32.07 ATE 10/03/2026')
-          && (bol.instrucoes ?? []).some((x: string) => x === 'MORA DIA/COM. PERMANÊNCIA: R$ 1.60')
-          && (bol.instrucoes ?? []).some((x: string) => x === 'APÓS 10/03/2026 MULTA: R$80.17')
+          && (bol.instrucoes ?? []).some((x: string) => x === 'DESCONTO DE R$32,07 ATE 10/03/2026')
+          && (bol.instrucoes ?? []).some((x: string) => x === 'MORA DIA/COM. PERMANÊNCIA: R$ 1,60')
+          && (bol.instrucoes ?? []).some((x: string) => x === 'APÓS 10/03/2026 MULTA: R$80,17')
           && Number(bol.mora_dia) === 1.6 && Number(bol.multa) === 80.17
           // a ficha de compensação precisa do cedente e do sacado completos
           && String(bolJ.cabecalho?.cedente ?? '').length > 0 && String(bolJ.cabecalho?.cedente_cnpj ?? '').length > 0
@@ -7830,6 +7830,43 @@ async function main() {
           && String(bol.sacado?.endereco ?? '').startsWith('RUA DAS FLORES'),
           { st: bolRes.status, banco: bolJ.banco, barras, ld, nn: bol.nosso_numero, dv: bol.nosso_numero_dv,
             reversivel: voltaBarras === barras, instr: bol.instrucoes, mora: bol.mora_dia, multa: bol.multa });
+
+        // 47at.1a2) a IMPRESSÃO no layout do cliente — o boleto (`BoletoFR.fr3`, os datasets Banco/Cedente/Titulo que o ACBr alimenta,
+        // :2420-2850) e a duplicata (`Config\dup_Duplicata001_1.fr3` com o dbdDuplicata, btnImprimirClick :481), que recusa o título já
+        // enviado ao banco. O VALOR_EXTENSO é o NumeroExtenso com moeda (:1977).
+        const stubCb = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        await pgRv.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992943, 1, 'BoletoFR.fr3', 'x', 'DEFAULT', $1), (992944, 1, 'dup_Duplicata001_1.fr3', 'x', 'PERSONALIZADO', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubCb('BoletoFR'), stubCb('dupDuplicata')]);
+        const bImp = await fetch(`${base}/${CNB}/boleto/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb] }) });
+        const bImpJ = (await bImp.json().catch(() => ({}))) as any;
+        const bBanco = bImpJ.datasets?.Banco?.[0] ?? {}; const bCed = bImpJ.datasets?.Cedente?.[0] ?? {}; const bTit = bImpJ.datasets?.Titulo?.[0] ?? {};
+        const ldFmt = `${ld.slice(0, 5)}.${ld.slice(5, 10)} ${ld.slice(10, 15)}.${ld.slice(15, 21)} ${ld.slice(21, 26)}.${ld.slice(26, 32)} ${ld[32]} ${ld.slice(33)}`;
+        const rcb3 = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'CNAB3 - 001/001', '2026-02-11', '2026-03-11', 1500.25, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        const dImp = await fetch(`${base}/${CNB}/duplicata/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcb3.codrcb] }) });
+        const dImpJ = (await dImp.json().catch(() => ({}))) as any;
+        const dReg = dImpJ.datasets?.dbdDuplicata?.[0] ?? {};
+        const dEnv = await fetch(`${base}/${CNB}/duplicata/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcb1.codrcb, rcb3.codrcb] }) });
+        const dEnvJ = (await dEnv.json().catch(() => ({}))) as any;
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb = $1`, [rcb3.codrcb]);
+        await pgRv.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 992943 AND 992944`);
+        check('CNAB IMPRESSÃO: o boleto no BoletoFR.fr3 com Banco (341-7), Cedente (o código do beneficiário = a conta digitada no Itaú, agência, razão em 30) e Titulo (nosso número carteira/número-DAC, linha digitável com pontos e espaços, NumeroDocumento = a DUPLICATA, sacado "CODPARCEIRO - RAZÃO", DM/R$/N, a Mensagem das instruções com vírgula) · a duplicata no dup_Duplicata001_1.fr3 com o valor por extenso e recusa do título já enviado ao banco',
+          bImp.status === 200 && String(bImpJ.modelo ?? '').includes('BoletoFR')
+          && bBanco.Numero === '341' && bBanco.Digito === '7' && bBanco.DirLogo === ''
+          && bCed.CodigoCedente === '23055-1' && bCed.Agencia === '3034' && String(bCed.Nome ?? '').length > 0 && String(bCed.Nome ?? '').length <= 30
+          && bTit.NossoNum === `109/${String(rcb1.codrcb).padStart(8, '0')}-${bol.nosso_numero_dv}`
+          && bTit.LinhaDigitavel === ldFmt && bTit.CodBarras === barras
+          && bTit.NumeroDocumento === 'CNAB1 - 001/001' && bTit.Sacado_NomeSacado === '1 - COBRADOR PADRAO LTDA'
+          && bTit.EspecieDoc === 'DM' && bTit.EspecieMod === 'R$' && bTit.Aceite === 'N' && bTit.Carteira === '109'
+          && bTit.Vencimento === '2026-03-10' && bTit.DataDocumento === '2026-02-10' && Number(bTit.ValorDocumento) === 1603.48
+          && String(bTit.Mensagem ?? '').split('\n').includes('MORA DIA/COM. PERMANÊNCIA: R$ 1,60')
+          && dImp.status === 200 && String(dImpJ.modelo ?? '').includes('dupDuplicata')
+          && dReg.VALOR_EXTENSO === 'mil e quinhentos reais e vinte e cinco centavos' && Number(dReg.VALOR) === 1500.25
+          && dReg.NOMECLIENTE === 'COBRADOR PADRAO LTDA' && String(dReg.DTVENC ?? '').startsWith('2026-03-11') && dReg.DUPLICATA === 'CNAB3 - 001/001'
+          && dEnv.status === 422 && String(dEnvJ.message ?? '').includes('enviado(s) para o banco'),
+          { st: bImp.status, banco: bBanco, ced: bCed, tit: { nn: bTit.NossoNum, ld: bTit.LinhaDigitavel, doc: bTit.NumeroDocumento, sac: bTit.Sacado_NomeSacado, msg: bTit.Mensagem },
+            dup: { st: dImp.status, ext: dReg.VALOR_EXTENSO, venc: dReg.DTVENC, nome: dReg.NOMECLIENTE }, env: { st: dEnv.status, msg: dEnvJ.message } });
 
         // 47at.1b) as outras duas remessas: CANCELAMENTO (ocorrência 02) e ALTERAÇÃO DE VENCIMENTO (06).
         // Procedência: o comentário do legado ("se for cancelamento, emite o codigo '02'…", :2781) e

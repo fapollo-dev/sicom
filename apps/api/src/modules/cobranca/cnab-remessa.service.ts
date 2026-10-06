@@ -3,6 +3,10 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3 } from '../../shared/relatorios/registro-fr3';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
+import { numeroExtenso } from '@apollo/shared';
 
 type AnyDB = Kysely<any>;
 
@@ -83,7 +87,8 @@ const dataBr = (iso: unknown) => {
   const s = String(iso ?? '').slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('/') : '';
 };
-const vlr2 = (n: number) => n.toFixed(2);
+/** `FormatFloat('0.00', x)` do Delphi com a vírgula decimal do Windows em pt-BR (o uLogin repõe `DecimalSeparator := ','`) */
+const vlr2 = (n: number) => (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2).replace('.', ',');
 
 /**
  * INSTRUÇÕES do boleto por título — `GerarInstrucao` (uConfBoleto.pas:1100-1195). São o texto que o boleto
@@ -108,8 +113,9 @@ export function instrucoesBoleto(t: {
   diasprotesto?: number | null; docnf?: string | null; idnf?: number | null; nronf?: string | null;
 }, febraban: string, percentMulta: number): string[] {
   const valor = Number(t.valor) || 0;
-  const mora = ((Number(t.txjuros) || 0) / 30) * valor / 100;
-  const multa = (valor * (Number(percentMulta) || 0)) / 100;
+  // as condições comparam o texto já formatado (`StrToFloat(Mora) > 0`): a mora de 0,004 não sai
+  const mora = Math.round(((Number(t.txjuros) || 0) / 30) * valor) / 100;
+  const multa = Math.round(valor * (Number(percentMulta) || 0)) / 100;
   const desconto = (valor * (Number(t.desconto_boleto) || 0)) / 100;
   const venc = dataBr(t.venc);
   const linhas: string[] = [];
@@ -120,14 +126,15 @@ export function instrucoesBoleto(t: {
     if (mora > 0) linhas.push(`MORA DIA/COM. PERMANÊNCIA: R$ ${vlr2(mora)}`);
     if (multa > 0) linhas.push(`APÓS ${venc} MULTA: R$${vlr2(multa)}`);
     const nf = String(t.docnf ?? '').trim() || String(t.nronf ?? '').trim();
-    if (Number(t.idnf) > 0 && nf) linhas.push(`Referente N.Fiscal numero: ${nf}`);
+    if (Number(t.idnf) > 0) linhas.push(`Referente N.Fiscal numero: ${nf}`);
   } else {
+    // nos demais bancos as linhas começam com espaço e a multa sai sempre que a empresa tem percentual (mesmo R$ 0,00)
     if (desconto > 0) linhas.push(`DESCONTO DE R$${vlr2(desconto)} ATE ${venc}`);
-    if (Number(t.diasprotesto) > 0) linhas.push(`SUJEITO A PROTESTO APOS ${Number(t.diasprotesto)} DIAS DO VENCIMENTO`);
-    if (multa > 0) linhas.push(`APÓS ${venc} MULTA: R$ ${vlr2(multa)}`);
-    if (mora > 0) linhas.push(`APÓS O VENCIMENTO COBRAR: R$ ${vlr2(mora)} POR DIA DE ATRASO`);
+    if (Number(t.diasprotesto) > 0) linhas.push(` SUJEITO A PROTESTO APOS ${Number(t.diasprotesto)} DIAS DO VENCIMENTO`);
+    if ((Number(percentMulta) || 0) > 0) linhas.push(` APÓS ${venc} MULTA: R$ ${vlr2(multa)}`);
+    if (mora > 0) linhas.push(` APÓS O VENCIMENTO COBRAR: R$ ${vlr2(mora)} POR DIA DE ATRASO `);
     const nf = String(t.docnf ?? '').trim();
-    if (nf) linhas.push(`Referente N.Fiscal numero: ${nf}`);
+    if (nf) linhas.push(` Referente N.Fiscal numero: ${nf}`);
   }
   return linhas;
 }
@@ -174,6 +181,24 @@ export function linhaDigitavel(b: string): string {
   const c2 = b.slice(24, 34);
   const c3 = b.slice(34, 44);
   return `${c1}${mod10(c1)}${c2}${mod10(c2)}${c3}${mod10(c3)}${b[4]}${b.slice(5, 19)}`;
+}
+
+/** o `case CODBCOBLT` de `Boleto()` (:2420): dígito e nome que o ACBr imprime no cabeçalho ("341-7") — os bancos com boleto aqui */
+const BANCO_BOLETO: Record<string, { digito: string; nome: string }> = {
+  '001': { digito: '9', nome: 'Banco do Brasil' },
+  '341': { digito: '7', nome: 'Banco Itau' },
+};
+
+/**
+ * "Local de pagamento" do Itaú e do BB: a unit não atribui (só o Bradesco e o Sicoob têm texto próprio, :2697) e o valor vem do
+ * padrão da biblioteca ACBr, que não está no material — é o texto da FEBRABAN que a própria unit usa para o Sicoob. SEM PROVA.
+ */
+const LOCAL_PAGAMENTO = 'Pagável em qualquer banco até o vencimento';
+
+/** a linha digitável como o boleto a imprime: "AAAAA.AAAAA BBBBB.BBBBBB CCCCC.CCCCCC D EEEEEEEEEEEEEE" (FEBRABAN) */
+export function linhaDigitavelFormatada(l: string): string {
+  if (l.length !== 47) return l;
+  return `${l.slice(0, 5)}.${l.slice(5, 10)} ${l.slice(10, 15)}.${l.slice(15, 21)} ${l.slice(21, 26)}.${l.slice(26, 32)} ${l[32]} ${l.slice(33)}`;
 }
 
 /**
@@ -643,11 +668,9 @@ export class CnabRemessaService {
 
 
   /**
-   * BOLETO dos títulos selecionados: nosso número com DAC, CÓDIGO DE BARRAS e LINHA DIGITÁVEL — o que o legado
-   * calcula em `MontarCodigoBarras`/`MontarLinhaDigitavel` para imprimir (não persiste nada, e aqui também não:
-   * é derivado do título + da conta). O PDF/impressão do carnê segue fora (a tela usa a impressão da página).
+   * Os dados comuns do boleto (a conferência e a impressão): a configuração, a conta, o banco, o cedente e os títulos com o sacado.
    */
-  async boleto(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
+  private async dadosBoleto(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const conf = (await db.selectFrom('conf_integ_bancaria').selectAll()
@@ -662,11 +685,12 @@ export class CnabRemessaService {
     const bancoRow = (await db.selectFrom('bancos').select(['codbcoblt', 'banco'])
       .where('codbco', '=', Number(conf.codbco)).executeTakeFirst()) as { codbcoblt?: number | null; banco?: string } | undefined;
     const febraban = (dig(bancoRow?.codbcoblt ?? '') || dig(conf.codfornbco)).padStart(3, '0');
-    // CEDENTE (a ficha de compensação mostra razão + CNPJ + agência/conta) — a empresa da config, como na remessa
+    // CEDENTE — o `QryEmpresaCabecalho` (ConsultaIntegBancaria, :2130): a empresa do arquivo da config, senão a do login
     const empCedente = Number(conf.codempresa_arquivo) > 0 ? Number(conf.codempresa_arquivo) : emp;
     const cedente = (await db.selectFrom('empresas')
-      .select([sql`razao_social`.as('razao'), 'cnpj']).where('idempresa', '=', empCedente)
-      .executeTakeFirst()) as { razao?: string; cnpj?: string } | undefined;
+      .select([sql`razao_social`.as('razao'), 'cnpj', 'endereco', 'numero', 'bairro', 'cidade', 'uf', 'cep'])
+      .where('idempresa', '=', empCedente)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
 
     const agRaw = String(conf.agencia ?? '').slice(0, 4);
     const ctaRaw = String(conta.nroconta ?? '');
@@ -681,17 +705,47 @@ export class CnabRemessaService {
       .leftJoin('nf as n', 'n.codnf', 'r.idnf')
       .leftJoin('parceiros_end as e', (j) => j.on(sql<boolean>`e.codend = p.codend or (p.codend is null and e.codparceiro = p.codparceiro)`))
       .select([
-        'r.codrcb', 'r.duplicata', 'r.valor', 'r.nosso_numero_boleto', sql`p.razao`.as('razao'),
+        'r.codrcb', 'r.duplicata', 'r.valor', 'r.nosso_numero_boleto', sql`p.razao`.as('razao'), 'r.codparceiro',
         'r.txjuros', 'r.desconto_boleto', sql`r.docnf`.as('docnf'), 'r.idnf', sql`n.nronf`.as('nronf'),
         sql`e.cnpj_cpf`.as('sacado_doc'), sql`e.endereco`.as('sacado_endereco'), sql`e.numero`.as('sacado_numero'),
+        sql`e.complemento`.as('sacado_complemento'),
         sql`e.bairro`.as('sacado_bairro'), sql`e.cidade`.as('sacado_cidade'), sql`e.uf`.as('sacado_uf'),
         sql`e.cep`.as('sacado_cep'),
         sql`to_char(r.dtvenc at time zone 'America/Sao_Paulo','YYYY-MM-DD')`.as('venc'),
+        sql`to_char(r.dtvenda at time zone 'America/Sao_Paulo','YYYY-MM-DD')`.as('emissao'),
       ])
       .where('r.codempresa', '=', emp).where('r.codrcb', 'in', dto.codrcbs.length ? dto.codrcbs : [0])
       .orderBy('r.codrcb').execute()) as Array<Record<string, unknown>>;
     if (!titulos.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
 
+    const fichas = titulos.map((t) => {
+      const nn = String(t.nosso_numero_boleto ?? t.codrcb);
+      const barras = codigoBarras({
+        febraban, venc: String(t.venc ?? ''), valor: Number(t.valor) || 0,
+        carteira: carteira.padStart(3, '0'), agencia: dig(agRaw).padStart(4, '0'),
+        conta: dig(ctaNum).padStart(5, '0'), nossoNumero: dig(nn), convenio: dig(conta.convenio ?? ''),
+      });
+      const instrucoes = instrucoesBoleto({
+        valor: Number(t.valor) || 0, venc: String(t.venc ?? ''), txjuros: Number(t.txjuros) || 0,
+        desconto_boleto: Number(t.desconto_boleto) || 0, docnf: String(t.docnf ?? ''),
+        idnf: Number(t.idnf) || 0, nronf: String(t.nronf ?? ''),
+      }, febraban, percentMulta);
+      // o DAC do nosso número (o que o boleto exibe como "nosso número-DV")
+      const dv = febraban === '341'
+        ? mod10(dig(agRaw) + dig(ctaNum).padStart(5, '0') + carteira.padStart(3, '0') + dig(nn).padStart(8, '0'))
+        : null;
+      return { t, nn, dv, barras, instrucoes };
+    });
+    return { conf, conta, bancoRow, febraban, cedente, agRaw, carteira, percentMulta, fichas };
+  }
+
+  /**
+   * BOLETO dos títulos selecionados: nosso número com DAC, CÓDIGO DE BARRAS e LINHA DIGITÁVEL — o que o legado
+   * calcula em `MontarCodigoBarras`/`MontarLinhaDigitavel` para imprimir (não persiste nada, e aqui também não:
+   * é derivado do título + da conta). A impressão no layout do cliente é `boletoImpressao`.
+   */
+  async boleto(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
+    const { conf, conta, bancoRow, febraban, cedente, percentMulta, fichas } = await this.dadosBoleto(dto);
     return {
       banco: febraban,
       // a ficha de compensação: banco, cedente e a conta de cobrança
@@ -701,38 +755,107 @@ export class CnabRemessaService {
         agencia: String(conf.agencia ?? ''), conta: String(conta.nroconta ?? ''),
         carteira: String(conta.carteira_cobranca ?? ''),
       },
-      boletos: titulos.map((t) => {
-        const nn = String(t.nosso_numero_boleto ?? t.codrcb);
-        const barras = codigoBarras({
-          febraban, venc: String(t.venc ?? ''), valor: Number(t.valor) || 0,
-          carteira: carteira.padStart(3, '0'), agencia: dig(agRaw).padStart(4, '0'),
-          conta: dig(ctaNum).padStart(5, '0'), nossoNumero: dig(nn), convenio: dig(conta.convenio ?? ''),
-        });
-        return {
-          codrcb: t.codrcb, duplicata: t.duplicata, razao: t.razao, valor: Number(t.valor),
-          sacado: {
-            nome: t.razao ?? null, documento: t.sacado_doc ?? null,
-            endereco: [String(t.sacado_endereco ?? '').trim(), String(t.sacado_numero ?? '').trim()].filter(Boolean).join(', '),
-            bairro: t.sacado_bairro ?? null, cidade: t.sacado_cidade ?? null,
-            uf: t.sacado_uf ?? null, cep: t.sacado_cep ?? null,
-          },
-          vencimento: t.venc, nosso_numero: nn,
-          // o DAC do nosso número (o que o boleto exibe como "nosso número-DV")
-          nosso_numero_dv: febraban === '341'
-            ? mod10(dig(agRaw) + dig(ctaNum).padStart(5, '0') + carteira.padStart(3, '0') + dig(nn).padStart(8, '0'))
-            : null,
-          codigo_barras: barras,
-          linha_digitavel: linhaDigitavel(barras),
-          // as instruções que o boleto imprime (mora/multa/desconto/NF) — derivadas, como no legado
-          mora_dia: Math.round(((Number(t.txjuros) || 0) / 30) * (Number(t.valor) || 0)) / 100,
-          multa: Math.round((Number(t.valor) || 0) * percentMulta) / 100,
-          instrucoes: instrucoesBoleto({
-            valor: Number(t.valor) || 0, venc: String(t.venc ?? ''), txjuros: Number(t.txjuros) || 0,
-            desconto_boleto: Number(t.desconto_boleto) || 0, docnf: String(t.docnf ?? ''),
-            idnf: Number(t.idnf) || 0, nronf: String(t.nronf ?? ''),
-          }, febraban, percentMulta),
-        };
-      }),
+      boletos: fichas.map(({ t, nn, dv, barras, instrucoes }) => ({
+        codrcb: t.codrcb, duplicata: t.duplicata, razao: t.razao, valor: Number(t.valor),
+        sacado: {
+          nome: t.razao ?? null, documento: t.sacado_doc ?? null,
+          endereco: [String(t.sacado_endereco ?? '').trim(), String(t.sacado_numero ?? '').trim()].filter(Boolean).join(', '),
+          bairro: t.sacado_bairro ?? null, cidade: t.sacado_cidade ?? null,
+          uf: t.sacado_uf ?? null, cep: t.sacado_cep ?? null,
+        },
+        vencimento: t.venc, nosso_numero: nn,
+        nosso_numero_dv: dv,
+        codigo_barras: barras,
+        linha_digitavel: linhaDigitavel(barras),
+        // as instruções que o boleto imprime (mora/multa/desconto/NF) — derivadas, como no legado
+        mora_dia: Math.round(((Number(t.txjuros) || 0) / 30) * (Number(t.valor) || 0)) / 100,
+        multa: Math.round((Number(t.valor) || 0) * percentMulta) / 100,
+        instrucoes,
+      })),
+    };
+  }
+
+  /**
+   * IMPRESSÃO DO BOLETO no layout do cliente — `ACBrBoleto1.Imprimir` (Emitir boleto com "Impressão" marcada, :2931, e Reimprimir,
+   * :3009) com o `ACBrBoletoFCFR1.FastReportFile` = `Relatorios\BoletoFR.fr3` (FormCreate, :888). O ACBr alimenta três datasets —
+   * **Banco**, **Cedente** e **Titulo** (um registro por boleto) — com o que a unit atribui em `Boleto()` (:2420-2850):
+   *  - Banco: o número com 3 dígitos e o dígito do `case CODBCOBLT` (341-7 Itaú, 001-9 BB); DirLogo vazio (o bitmap do banco
+   *    fica no disco da estação, `Images\Logos\`; o script do layout só carrega o logo quando há diretório).
+   *  - Cedente: a razão (30 caracteres), o CNPJ e o endereço da empresa do cabeçalho; a agência com 6 caracteres no Itaú e 4 nos
+   *    demais; o código do beneficiário = a conta digitada no Itaú, e a conta sem o DAC no BB.
+   *  - Titulo: NumeroDocumento = DUPLICATA, ou (vazia/'BOLETO') DOCNF, ou CODRCB; EspecieDoc 'DM', EspecieMod 'R$', aceite N; o
+   *    sacado como "CODPARCEIRO - RAZÃO"; Mensagem = as instruções do `GerarInstrucao`; nosso número no formato do banco
+   *    (Itaú: carteira/nosso número-DAC; BB convênio 7: convênio + nosso número), a linha digitável com os pontos e espaços.
+   */
+  async boletoImpressao(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
+    const { conf, conta, febraban, cedente, carteira, fichas } = await this.dadosBoleto(dto);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const banco = BANCO_BOLETO[febraban];
+    if (!banco) throw new BusinessRuleError('BOLETO_BANCO_NAO_SUPORTADO', { banco: febraban });
+    const nroConta = String(conta.nroconta ?? '').trim();
+    const itau = febraban === '341';
+    const agencia = String(conf.agencia ?? '').slice(0, itau ? 6 : 4);
+    const semDac = nroConta.replace(/-/g, '');
+    const codigoCedente = itau ? nroConta : semDac.slice(0, Math.max(0, semDac.length - 1));
+    const hoje = `${hojeNaLoja()}T00:00:00`;
+    const convenio = dig(conta.convenio ?? '');
+    return {
+      titulo: `Boleto (${fichas.length})`,
+      modelo: await modeloFr3(db, 'BoletoFR.fr3'),
+      datasets: {
+        Banco: [{ Numero: febraban, Digito: banco.digito, Nome: banco.nome, DirLogo: '', OrientacoesBanco: '', CIP: '' }],
+        Cedente: [{
+          Nome: String(cedente?.razao ?? '').slice(0, 30), CodigoCedente: codigoCedente, Agencia: agencia, AgenciaDigito: '0',
+          CNPJCPF: cedente?.cnpj ?? '', Logradouro: cedente?.endereco ?? '', NumeroRes: cedente?.numero ?? '', Complemento: '',
+          Bairro: cedente?.bairro ?? '', Cidade: cedente?.cidade ?? '', UF: cedente?.uf ?? '', CEP: dig(cedente?.cep),
+        }],
+        Titulo: fichas.map(({ t, nn, dv, barras, instrucoes }) => {
+          const dup = String(t.duplicata ?? '');
+          const numeroDocumento = dup === 'BOLETO' || dup === '' ? (String(t.docnf ?? '') || String(t.codrcb)) : dup;
+          const nossoNum = itau
+            ? `${carteira.padStart(3, '0')}/${dig(nn).padStart(8, '0')}-${dv}`
+            : convenio.padStart(7, '0') + dig(nn).padStart(10, '0');
+          return {
+            NossoNum: nossoNum, NumeroDocumento: numeroDocumento, Vencimento: t.venc, DataDocumento: t.emissao,
+            DataProcessamento: hoje, EspecieDoc: 'DM', EspecieMod: 'R$', Aceite: 'N', Carteira: carteira, UsoBanco: '',
+            ValorDocumento: Number(t.valor) || 0, LocalPagamento: LOCAL_PAGAMENTO, Mensagem: instrucoes.join('\n'),
+            CodBarras: barras, LinhaDigitavel: linhaDigitavelFormatada(linhaDigitavel(barras)), CodCedente: codigoCedente,
+            Sacado_NomeSacado: `${String(t.codparceiro ?? '')} - ${String(t.razao ?? '')}`, Sacado_CNPJCPF: t.sacado_doc ?? '',
+            Sacado_Logradouro: t.sacado_endereco ?? '', Sacado_Numero: Number(t.sacado_numero) ? String(t.sacado_numero) : '',
+            Sacado_Complemento: t.sacado_complemento ?? '', Sacado_Bairro: t.sacado_bairro ?? '', Sacado_Cidade: t.sacado_cidade ?? '',
+            Sacado_UF: t.sacado_uf ?? '', Sacado_CEP: dig(t.sacado_cep), Sacado_Avalista: '', Sacado_Avalista_CNPJCPF: '',
+          };
+        }),
+      },
+    };
+  }
+
+  /**
+   * IMPRESSÃO DA DUPLICATA — `btnImprimirClick` (:481): sem conta informada, `Config\dup_Duplicata001_1.fr3` com o `dbdDuplicata`
+   * (o cdsReceber dos títulos marcados, `FiltrarRegistros` :830). Recusa a grade vazia e o título já enviado ao banco ou cancelado
+   * (REGISTRO_ARQ_REMESSA 'S'/'C'). VALOR_EXTENSO = `NumeroExtenso(VALOR, True)` (:1977); o endereço é o do CODEND (:1950).
+   */
+  async duplicataImpressao(codrcbs: number[]) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (!codrcbs.length) throw new BusinessRuleError('DUPLICATA_SEM_TITULO', {}, 'Não existe nenhum título na grade para ser impresso. Verifique!');
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT r.codrcb, r.duplicata, r.nrocupom, r.docnf, r.obs, r.dtvenda, r.codparceiro, r.valor, r.txjuros, r.dtvenc::date AS dtvenc,
+             r.tipodoc, r.nrodup, r.total, r.registro_arq_remessa, p.razao AS nomecliente,
+             e.endereco, e.numero, e.bairro, e.cidade, e.cep, e.uf, e.cnpj_cpf, e.rg_insc, e.codend, e.complemento, e.telefone
+        FROM areceber r
+        LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+        LEFT JOIN parceiros_end e ON e.codend = p.codend OR (p.codend IS NULL AND e.codparceiro = p.codparceiro)
+       WHERE r.codempresa = ${emp} AND r.codrcb IN (${sql.join(codrcbs)}) AND coalesce(r.agrupado, 'N') = 'N'
+       ORDER BY p.setor, p.codaux, r.codrcb`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('DUPLICATA_SEM_TITULO', {}, 'Não existe nenhum título na grade para ser impresso. Verifique!');
+    if (rows.some((r) => ['S', 'C'].includes(String(r.registro_arq_remessa ?? ''))))
+      throw new BusinessRuleError('DUPLICATA_ENVIADA_OU_CANCELADA', {}, 'Existe(m) documento(s) enviado(s) para o banco ou encontra(m)-se cancelado(s). Verifique!');
+    const nums = new Set(['codrcb', 'codparceiro', 'valor', 'txjuros', 'total', 'codend', 'numero']);
+    return {
+      titulo: `Duplicata (${rows.length})`,
+      modelo: await modeloFr3(db, 'dup_Duplicata001_1.fr3', { pasta: 'Config' }),
+      datasets: { dbdDuplicata: rows.map((r) => registroFr3({ ...r, valor_extenso: numeroExtenso(Number(r.valor) || 0, true) }, nums)) },
     };
   }
 

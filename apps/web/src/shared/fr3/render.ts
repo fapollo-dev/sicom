@@ -25,7 +25,7 @@ import { avaliar, compilarExpr, compilarScript, executar, numero, texto, type Am
 import { aplicarDisplayFormat, formatDateTime, formatDelphi, formatFloat, type Separadores } from './formato';
 import { desenhar } from './barras';
 import { definicaoGrafico, svgGrafico, type Ponto } from './grafico';
-import { numeroExtenso } from './extenso';
+import { numeroExtenso } from '@apollo/shared';
 
 const PX_MM = 96 / 25.4;
 

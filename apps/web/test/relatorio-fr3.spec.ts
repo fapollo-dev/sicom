@@ -1119,7 +1119,7 @@ describe('vendas e finalizadoras (Rel_Finalizadoras[_Vertical].fr3)', () => {
 
 describe('recibo de adiantamento (ReciboAdiantamentoParceiro.fr3) e o NumeroExtenso', () => {
   it('o extenso do português: centenas, milhares, milhões e o "e" de ligação; com moeda, reais e centavos', async () => {
-    const { numeroExtenso } = await import('../src/shared/fr3/extenso');
+    const { numeroExtenso } = await import('@apollo/shared');
     expect(numeroExtenso(150)).toBe('cento e cinquenta');
     expect(numeroExtenso(100)).toBe('cem');
     expect(numeroExtenso(1100)).toBe('mil e cem');
@@ -1136,5 +1136,53 @@ describe('recibo de adiantamento (ReciboAdiantamentoParceiro.fr3) e o NumeroExte
     expect(d).toContain('Eu, CEREALISTA SUL recebi um adiantamento da empresa HIPER PINHEIRAO, no dia 22/09/2026, no valor de 1500,00 (mil e quinhentos) reais.');
     const c = texto(paginasDoModelo(modelo('recibo-adiantamento.fr3'), { DbdRelatorio: r('C') }, agora));
     expect(c).toContain('Eu, HIPER PINHEIRAO recebi um adiantamento de CEREALISTA SUL');
+  });
+});
+
+describe('boleto (BoletoFR.fr3, datasets do ACBr) e duplicata (dup_Duplicata001_1.fr3) do FRMCONFBOLETO', () => {
+  const banco = [{ Numero: '341', Digito: '7', Nome: 'Banco Itau', DirLogo: '', OrientacoesBanco: '', CIP: '' }];
+  const cedente = [{ Nome: 'JF SUPERMERCADOS LTDA', CodigoCedente: '23055-1', Agencia: '3034', CNPJCPF: '37.954.975/0001-69', Logradouro: 'AVENIDA SACRAMENTO', NumeroRes: '1817', Complemento: '', Bairro: 'MARTINS', Cidade: 'UBERLANDIA', UF: 'MG', CEP: '38400466' }];
+  const titulo = (cod: number, nn: string) => ({
+    NossoNum: nn, NumeroDocumento: String(cod), Vencimento: '2026-10-20', DataDocumento: '2026-10-01', DataProcessamento: '2026-10-06T00:00:00',
+    EspecieDoc: 'DM', EspecieMod: 'R$', Aceite: 'N', Carteira: '109', UsoBanco: '', ValorDocumento: 1234.5,
+    LocalPagamento: 'Pagável em qualquer banco até o vencimento', Mensagem: 'APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA\nMORA DIA/COM. PERMANÊNCIA: R$ 1,23',
+    CodBarras: '34191123400001234501090013473720303423055100', LinhaDigitavel: '34191.09008 13473.720306 34230.551009 1 12340000123450', CodCedente: '23055-1',
+    Sacado_NomeSacado: '81 - CLIENTE BOLETO LTDA', Sacado_CNPJCPF: '12.345.678/0001-90', Sacado_Logradouro: 'RUA A', Sacado_Numero: '10', Sacado_Complemento: '',
+    Sacado_Bairro: 'CENTRO', Sacado_Cidade: 'UBERLANDIA', Sacado_UF: 'MG', Sacado_CEP: '38400000', Sacado_Avalista: '', Sacado_Avalista_CNPJCPF: '',
+  });
+
+  it('um boleto por página: banco-dígito, o código do beneficiário que o script põe no lugar da agência, a linha digitável e o código de barras', () => {
+    const pgs = paginasDoModelo(modelo('boleto-fr.fr3'), { Banco: banco, Cedente: cedente, Titulo: [titulo(134737, '109/00134737-2'), titulo(134732, '109/00134732-3')] }, agora);
+    const t = texto(pgs);
+    expect(pgs.length).toBe(2);
+    expect(t).toContain('341-7');
+    expect(t).toContain('JF SUPERMERCADOS LTDA');
+    expect(t).toContain('109/00134737-2');
+    expect(t).toContain('109/00134732-3');
+    expect(t).toContain('34191.09008 13473.720306 34230.551009 1 12340000123450');
+    expect(t).toContain('1.234,50');
+    expect(t).toContain('20/10/2026');
+    expect(t).toContain('81 - CLIENTE BOLETO LTDA');
+    expect(t).toContain('MORA DIA/COM. PERMANÊNCIA: R$ 1,23');
+    expect(t).toContain('Pagável em qualquer banco até o vencimento');
+    // MDOnBeforePrint: fora da Caixa (104), "Agência / Código do Beneficiário" recebe só o Cedente.CodigoCedente
+    expect(t).toContain('23055-1');
+    expect(t).not.toContain('3034/23055-1');
+    expect(pgs[0].html.join('')).toContain('<svg');
+  });
+
+  it('a duplicata: o cliente, o vencimento e o valor por extenso com moeda', async () => {
+    const { numeroExtenso } = await import('@apollo/shared');
+    const reg = { CODRCB: 501, DUPLICATA: '4356/1', DOCNF: '4356', OBS: 'INCLUSAO AUTOMATICA FINANCEIRO', DTVENDA: '2026-10-01T00:00:00', DTVENC: '2026-10-31T00:00:00',
+      VALOR: 1500.25, NOMECLIENTE: 'CLIENTE DUPLICATA LTDA', ENDERECO: 'RUA B', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', CEP: '38400-000',
+      CNPJ_CPF: '12.345.678/0001-90', RG_INSC: 'ISENTO', VALOR_EXTENSO: numeroExtenso(1500.25, true) };
+    const t = texto(paginasDoModelo(modelo('duplicata-001-1.fr3'), { dbdDuplicata: [reg] }, agora));
+    expect(reg.VALOR_EXTENSO).toBe('mil e quinhentos reais e vinte e cinco centavos');
+    expect(t).toContain('mil e quinhentos reais e vinte e cinco centavos');
+    expect(t).toContain('CLIENTE DUPLICATA LTDA');
+    expect(t).toContain('31/10/26');
+    expect(t).toContain('1.500,25');
+    expect(t).toContain('4356/1');
+    expect(numeroExtenso(1000000, true)).toBe('um milhão de reais');
   });
 });

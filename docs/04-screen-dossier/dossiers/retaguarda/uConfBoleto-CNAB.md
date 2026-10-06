@@ -219,3 +219,46 @@ Com a remessa (envio/cancelamento/alteração de vencimento), o retorno→baixa,
 instruções e a ficha imprimível entregues, e com estes dois itens provados fora de alcance, **a cobrança bancária
 está completa no que é migrável**. O que sobra é ampliação de cobertura, não regra faltando: os demais bancos
 (237/104/756/707), que só entram quando houver arquivo real de cada um para confrontar (lição 77).
+
+## §7. A IMPRESSÃO nos layouts do cliente (06/10/2026)
+
+A "ficha imprimível" de 08/2026 era uma página HTML montada pelo Apollo. O legado imprime nos `.fr3` do cliente, e agora o Apollo
+também (API `cobranca/cnab/boleto/impressao` e `cobranca/cnab/duplicata/impressao`; FILA-IMPRESSOES: 877 acessos).
+
+- **Boleto** — `ACBrBoleto1.Imprimir` no "Emitir boleto" com **Impressão** marcada (`chkImpresso`, marcada por padrão no .dfm; :2931) e no
+  **Reimprimir** (só os títulos com `REGISTRO_ARQ_REMESSA = 'S'`: "Não existem boletos a serem reimpressos. Verifique!", :3009), com
+  `Relatorios\BoletoFR.fr3` (FormCreate :888; na produção só existe o DEFAULT 1261). O ACBr alimenta três datasets, preenchidos com o que
+  `Boleto()` atribui (:2420-2850):
+  - **Banco**: Numero com 3 dígitos e o Digito do `case CODBCOBLT` (341-7, 001-9); `DirLogo` vazio — o bitmap do banco fica no disco da
+    estação (`Images\Logos\<número>.bmp`) e o script do layout só carrega o logo quando há diretório; CIP e OrientacoesBanco vazios.
+  - **Cedente**: a empresa do `QryEmpresaCabecalho` (a do arquivo da config, senão a do login): razão em 30 caracteres, CNPJ, endereço,
+    CEP só com dígitos; agência com 6 caracteres no Itaú (emissão) e 4 nos demais; **código do beneficiário = a conta digitada** no Itaú
+    e a conta sem o DAC no BB. O script `MDOnBeforePrint` põe **só** o código do beneficiário no campo "Agência / Código do Beneficiário"
+    (fora da Caixa) — o boleto do Itaú mostra "23055-1", sem a agência.
+  - **Titulo** (um por boleto, um por página): NumeroDocumento = DUPLICATA, ou, se vazia ou 'BOLETO', DOCNF, ou CODRCB (na produção as
+    duplicatas dos boletos de 2026 são nulas → sai o CODRCB); EspecieDoc 'DM', EspecieMod 'R$', aceite N; DataDocumento = DTVENDA;
+    DataProcessamento = hoje; o sacado como "CODPARCEIRO - RAZÃO", número vazio quando 0, CEP só com dígitos; a **Mensagem** = as linhas
+    do `GerarInstrucao`; nosso número no formato do banco (Itaú `109/00134737-2`; BB convênio 7 = convênio + nosso número em 10); a
+    linha digitável com os pontos e espaços da FEBRABAN; o código de barras em ITF (o motor já desenhava o `bcCode_2_5_interleaved`).
+    `NOSSO_NUMERO_BOLETO` (coluna do binário novo) = CODRCB em 100% dos 12.897 boletos da produção que a preenchem.
+- **Duplicata** — o "Imprimir" (`btnImprimirClick`, :481): sem conta, `Config\dup_Duplicata001_1.fr3` (PERSONALIZADO 590) com o
+  `dbdDuplicata` = os títulos marcados (`FiltrarRegistros`, :830), o endereço pelo CODEND e `VALOR_EXTENSO = NumeroExtenso(VALOR, True)`
+  (:1977; o `numeroExtenso` foi para `@apollo/shared`, o mesmo do recibo de adiantamento). Recusa "Não existe nenhum título na grade para
+  ser impresso. Verifique!" e "Existe(m) documento(s) enviado(s) para o banco ou encontra(m)-se cancelado(s). Verifique!".
+
+**Correção das instruções** (achada nesta impressão): o legado formata com `FormatFloat('0.00')` e roda com a vírgula decimal do Windows
+em pt-BR (o `uLogin` repõe `DecimalSeparator := ','`) — o Apollo escrevia `R$ 1.60`; agora `R$ 1,60`. E, fiel ao fonte: nos demais bancos
+as linhas começam com espaço e a multa sai sempre que a empresa tem percentual (mesmo R$ 0,00); as condições de mora/multa comparam o
+valor já arredondado (`StrToFloat(Mora) > 0`); no Itaú a linha da NF sai sempre que há IDNF, mesmo com o número vazio.
+
+**Sem prova** (a biblioteca ACBr não está no material): o "Local de pagamento" do Itaú e do BB — a unit só dá texto ao Bradesco e ao
+Sicoob; o Apollo usa o texto da FEBRABAN que a própria unit usa para o Sicoob ("Pagável em qualquer banco até o vencimento"). O endereço
+do sacado segue o CODEND (a configuração `ENDEREÇO COBRANÇA BOLETO` vive no XML da estação, não no banco; sem ela o legado faz
+`OR E.CODPARCEIRO = P3.CODPARCEIRO` e repetiria o título por endereço).
+
+**Correção do §6**: o e-mail do boleto **existe** no fonte (`EnviarEmail`, :608, com o `ACBrMail1` e o `chkemail`; o PDF por
+`GeraArqPDF_EnviaEmail`, :934) — a busca de 08/2026 procurou outros nomes. Continua fora pelo mesmo motivo (o canal SMTP é infra), mas o
+registro anterior de "zero call sites" estava errado.
+
+Cobertura: smoke §47at.1a2 (os três datasets do boleto, a duplicata com o extenso e a recusa do título enviado); testes de renderização
+dos dois layouts da produção (1261 e 590); testes das instruções (vírgula, espaços, arredondamento) e da linha digitável formatada.

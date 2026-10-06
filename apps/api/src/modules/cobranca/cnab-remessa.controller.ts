@@ -49,6 +49,22 @@ export class CnabRemessaController {
     return this.svc.boleto(dto);
   }
 
+  /** o boleto no layout do cliente (`BoletoFR.fr3`, datasets Banco/Cedente/Titulo do ACBr) */
+  @Post('boleto/impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
+  boletoImpressao(@Body(new ZodValidationPipe(cnabBoletoSchema)) dto: CnabBoletoDto) {
+    return this.svc.boletoImpressao(dto);
+  }
+
+  /** o "Imprimir" da tela: a duplicata (`Config\dup_Duplicata001_1.fr3`) dos títulos marcados */
+  @Post('duplicata/impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
+  duplicataImpressao(@Body(new ZodValidationPipe(cnabEmitirSchema)) dto: CnabEmitirDto) {
+    return this.svc.duplicataImpressao(dto.codrcbs);
+  }
+
   @Post('retorno')
   @HttpCode(200)
   @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
