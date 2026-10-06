@@ -6,6 +6,8 @@ import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
 import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
 import { ApuracaoIcmsController } from './apuracao-icms.controller';
 import { ApuracaoIcmsService } from './apuracao-icms.service';
+import { RegistroEsService } from './registro-es.service';
+import { RegistroEsController } from './registro-es.controller';
 import { ApuracaoIbsCbsController } from './apuracao-ibscbs.controller';
 import { ApuracaoIbsCbsService } from './apuracao-ibscbs.service';
 import { SplitPaymentController } from './split-payment.controller';
@@ -17,7 +19,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * **APURAÇÃO DE ICMS** (o processo do livro de Registro de Entradas e Saídas, que produz o E110 — mig 164).
  */
 @Module({
-  controllers: [SpedController, ApuracaoIcmsController, ApuracaoIbsCbsController, SplitPaymentController],
-  providers: [ApuracaoIbsCbsService, SplitPaymentService, SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, DatabaseProvider],
+  controllers: [SpedController, ApuracaoIcmsController, RegistroEsController, ApuracaoIbsCbsController, SplitPaymentController],
+  providers: [ApuracaoIbsCbsService, SplitPaymentService, SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, RegistroEsService, DatabaseProvider],
 })
 export class SpedModule {}

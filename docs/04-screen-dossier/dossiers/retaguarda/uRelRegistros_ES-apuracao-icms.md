@@ -323,3 +323,27 @@ CFOP no cupom, sem o `INNER JOIN` do endereço e sem o `ARREDONDA` no grão.
   converte (Integer arredonda, String vira texto).
 
 Cobertura: smoke §85.3b (os quatro datasets, o SetaCFOP, as variáveis, os totalizadores); teste de renderização do layout 848.
+
+## §10. O modo REGISTRO DE ENTRADAS / SAÍDAS (06/10/2026)
+
+O mesmo form aberto pelos menus **186** ("Registro de entradas", **140 acessos**, vivo em 30/09/2026) e **187** (saídas; o
+`FormCreate` escolhe o `TipoRel` pelo `ParametroCriacao`). Não existia no Apollo — a tela de apuração só fazia o menu 189. Agora:
+`/fiscal/registro-entradas` e `/fiscal/registro-saidas`, API `fiscal/registro-es/consultar` e `/impressao`.
+
+- **As notas** (`RegistroEntradaSaida`, :1401): NF do tipo pela data CONTÁBIL, `PROC='S'`, `CANCELADA='N'`, não denegada, número
+  ≠ '0'/'000000' e série ≠ 'D', da empresa do login; ordem de chegada e número. **Sem** o filtro de CFOP e **sem** o `INNER JOIN` do
+  endereço — esses são da apuração. As saídas unem a Redução Z (0 linhas na produção).
+- **O resultado de cada nota** (o `cdsCFOP_ICMS_IMP`, aninhado — o "[F2] Resultado da Nota" e o sub-relatório do livro): o
+  `sqqCFOP_ICMS` do DM. **É o SQL do fonte**: este modo não grava nada, então não há golden para dizer se o binário novo também o
+  mudou (a apuração mudou, §8); V$SQL e AWR não têm o texto, e o vigia `registro` ficou ligado. Diferenças do fonte para a apuração:
+  só a alíquota **T** conta no ICMS (o x401 zera), efetivo = `ICME × BCR / 100`, ISENTAS da alíquota T = valor + acessórias − base,
+  OUTRAS das alíquotas I/T = IPI% + acessórias (se não `GERAICM_ACESS`) + frete% (se não `GERAICM_FRETE`), o FCP-ST soma duas vezes
+  no TOTALNF, e ISENTAS/OUTRAS/TOTALNF arredondam ou truncam em 2 casas pelo `ARREDONDA`.
+- **Alíquotas** (`cdsICMS`, só nas entradas): o imposto creditado por alíquota, na ordem em que aparecem.
+- **Teclas**: [F2] o resultado da nota, [F4] abre a nota para alterar ("Recurso apenas para Notas Fiscais."), [F11] imprime,
+  Ctrl+A/Exportar leva a grade. Os totalizadores (Entrada, Saída…) ficam zerados nesse modo no legado — não vieram.
+- **O livro**: `Notas_fiscais_Registro_Entrada.fr3` (PERSONALIZADO 849) / `..._Saida.fr3` (850) — frxDBDatasetNF, o detalhe
+  aninhado (frxDBDatasetCFOP_ICMS, `__MESTRE`), frxDBDatasetICMS, a empresa, LIVRO/FOLHA/MES.
+
+Cobertura: smoke §85.5 (as notas e o detalhe pelas regras do fonte, as alíquotas, o livro, período vazio → 422); testes de
+renderização dos layouts 849 e 850.

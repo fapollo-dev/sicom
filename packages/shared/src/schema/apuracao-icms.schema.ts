@@ -38,3 +38,19 @@ export const apuracaoIcmsObterSchema = z
     path: ['codapuracaoicms'],
   });
 export type ApuracaoIcmsObterDto = z.infer<typeof apuracaoIcmsObterSchema>;
+
+/**
+ * REGISTRO DE ENTRADAS / SAÍDAS (o mesmo FRMRELREGISTROS_ES aberto pelos menus 186 e 187, `RegistroEntradaSaida`): as notas do
+ * período pela data contábil, com o resultado de cada uma por CFOP/CST/alíquota, e o livro impresso.
+ */
+export const registroEsSchema = z
+  .object({
+    tipo: z.enum(['E', 'S']),
+    dataini: dataIso('Data inicial'),
+    datafin: dataIso('Data final'),
+    /** edtNR / edtFolha: o número do livro e a folha inicial do livro impresso (vazios → 1) */
+    livro: z.string().trim().max(10).optional(),
+    folha: z.string().trim().max(10).optional(),
+  })
+  .refine((v) => v.datafin >= v.dataini, { message: 'A data final deve ser maior ou igual à inicial.', path: ['datafin'] });
+export type RegistroEsDto = z.infer<typeof registroEsSchema>;

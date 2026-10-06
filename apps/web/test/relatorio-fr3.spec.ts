@@ -1225,3 +1225,50 @@ describe('livro de apuração do ICMS (Notas_fiscais_Registro_Apuracao.fr3, FRMR
     expect(texto([pgs[pgs.length - 1]])).toMatch(/FOLHA\.+: 1 /);
   });
 });
+
+describe('livro de Registro de Entradas (Notas_fiscais_Registro_Entrada.fr3, FRMRELREGISTROS_ES menu 186)', () => {
+  it('cada nota com o seu resultado por CFOP no sub-relatório, os totais e as alíquotas no fim', () => {
+    const notas = [
+      { NRONF: 4356, CODIGO: '101NF', DTEMISSAO: '2026-09-02T00:00:00', TOTAL: 1500, DTCHEGADA: '2026-09-03T00:00:00', SERIE: '1', RAZAO: 'LATICINIOS TREVO LTDA', CODPARCEIRO: 77, UF: 'MG', ESPECIE: 'NF' },
+      { NRONF: 812, CODIGO: '102NF', DTEMISSAO: '2026-09-04T00:00:00', TOTAL: 300, DTCHEGADA: '2026-09-05T00:00:00', SERIE: '2', RAZAO: 'CEREALISTA SUL', CODPARCEIRO: 88, UF: 'GO', ESPECIE: 'NF' },
+    ];
+    const det = [
+      { CODIGO: '101NF', CFOP: 1102, ICMS: 12, ICMS_EFETIVO: 12, CST: 0, BASE: 1000, VALOR_ICMS: 120, ISENTAS_NAOTRIB: 0, OUTRAS: 0, TOTALNF: 1000, __MESTRE: 0 },
+      { CODIGO: '101NF', CFOP: 1403, ICMS: 0, ICMS_EFETIVO: 0, CST: 60, BASE: 0, VALOR_ICMS: 0, ISENTAS_NAOTRIB: 0, OUTRAS: 500, TOTALNF: 500, __MESTRE: 0 },
+      { CODIGO: '102NF', CFOP: 2102, ICMS: 7, ICMS_EFETIVO: 7, CST: 0, BASE: 300, VALOR_ICMS: 21, ISENTAS_NAOTRIB: 0, OUTRAS: 0, TOTALNF: 300, __MESTRE: 1 },
+    ];
+    const pgs = paginasDoModelo(modelo('registro-entrada.fr3'), {
+      frxDBDatasetNF: notas, frxDBDatasetCFOP_ICMS: det, frxDBDatasetICMS: [{ ICMS: 12, VALOR: 120 }, { ICMS: 0, VALOR: 0 }, { ICMS: 7, VALOR: 21 }],
+      frxDBDataset2: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', CNPJ: '37.954.975/0001-69', INSC: '0037992540050' }],
+    }, agora, { LIVRO: "'2'", FOLHA: "'5'", MES: "'MES OU PERÍODO: 01/09/2026 até 30/09/2026'" });
+    const t = texto(pgs);
+    expect(t).toContain('LIVRO REGISTRO DE ENTRADAS - RE - MODELO P1');
+    expect(t).toContain('REGISTRO DE ENTRADAS Nr 2');
+    expect(t).toContain('000004356');            // FormatFloat('000000000', NRONF)
+    expect(t).toContain('LATICINIOS TREVO LTDA');
+    expect(t).toContain('1102');
+    expect(t).toContain('1403');
+    expect(t).toContain('2102');
+    expect(t).toContain('1.000,00');
+    expect(t).toContain('1.800,00');             // o total contábil das notas (SUM do frxDBDatasetNF.TOTAL)
+    expect(t).toContain('1.300,00');             // a base somada do sub-relatório (1000 + 300)
+    expect(t).toContain('141,00');               // as alíquotas no fim: 120 + 21
+    expect(t).toMatch(/FOLHA\.+: 5 /);
+  });
+});
+
+describe('livro de Registro de Saídas (Notas_fiscais_Registro_Saida.fr3, menu 187)', () => {
+  it('o número da nota com 9 dígitos quando a espécie é NF e o CFOP/OUTRAS que o script do detalhe escreve', () => {
+    const pgs = paginasDoModelo(modelo('registro-saida.fr3'), {
+      frxDBDatasetNF: [{ NRONF: 77, CODIGO: '201NF', DTEMISSAO: '2026-09-02T00:00:00', TOTAL: 250, DTCHEGADA: '2026-09-02T00:00:00', SERIE: '1', RAZAO: 'CLIENTE SAIDA', CODPARCEIRO: 20, UF: 'MG', ESPECIE: 'NF' }],
+      frxDBDatasetCFOP_ICMS: [{ CODIGO: '201NF', CFOP: 5102, ICMS: 18, ICMS_EFETIVO: 18, CST: 0, BASE: 200, VALOR_ICMS: 36, ISENTAS_NAOTRIB: 0, OUTRAS: 50, TOTALNF: 250, ESPECIE: 'NF', __MESTRE: 0 }],
+      frxDBDataset2: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', CNPJ: '37.954.975/0001-69', INSC: '0037992540050' }],
+    }, agora, { LIVRO: "'1'", FOLHA: "'1'", MES: "'MES OU PERÍODO: 01/09/2026 até 30/09/2026'" });
+    const t = texto(pgs);
+    expect(t).toContain('CLIENTE SAIDA');
+    expect(t).toContain('000000077');
+    expect(t).toContain('5102');
+    expect(t).toContain('50,00');
+    expect(t).toContain('36,00');
+  });
+});

@@ -15833,6 +15833,37 @@ async function main() {
           && obterVazio.status === 422 && semGrant.status === 403 && invertido.status === 400,
           { credor: apCredJ.cabecalho, obter: [obter.status, obterJ.detalhe?.length], vazio: obterVazio.status, rbac: semGrant.status, invertido: invertido.status });
 
+        // 85.5) REGISTRO DE ENTRADAS / SAÍDAS (o mesmo form pelos menus 186/187): as notas do período e o resultado de cada uma pelo
+        // sqqCFOP_ICMS do fonte — sem o filtro de CFOP e sem o endereço (são da apuração), e só a alíquota T conta no ICMS
+        const reg = async (tipo: 'E' | 'S') => (await (await fetch(`${base}/fiscal/registro-es/consultar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo, dataini: '2035-09-01', datafin: '2035-09-30' }) })).json().catch(() => ({}))) as any;
+        const regE = await reg('E');
+        const regS = await reg('S');
+        const dReg = (r: any, cod: number, cfop: number, cst: number, ef?: number) => (r.detalhe ?? []).find((d: any) => d.codigo === `${cod}NF` && Number(d.cfop) === cfop && Number(d.cst) === cst && (ef == null || Number(d.icms_efetivo) === ef));
+        const stubReg = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        await pgAp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992946, 1, 'Notas_fiscais_Registro_Entrada.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubReg('RegEntrada')]);
+        const regImp = await fetch(`${base}/fiscal/registro-es/impressao?tipo=E&dataini=2035-09-01&datafin=2035-09-30&livro=2`, { headers: H });
+        const regImpJ = (await regImp.json().catch(() => ({}))) as any;
+        const regVazio = await fetch(`${base}/fiscal/registro-es/impressao?tipo=E&dataini=2020-01-01&datafin=2020-01-31`, { headers: H });
+        await pgAp.query(`DELETE FROM relatorios WHERE codrelatorio = 992946`);
+        const nfsImp = regImpJ.datasets?.frxDBDatasetNF ?? [];
+        const detImp = regImpJ.datasets?.frxDBDatasetCFOP_ICMS ?? [];
+        check('REGISTRO DE ENTRADAS/SAÍDAS §85.5: entradas = as 3 notas em ordem de chegada (a sem endereço entra: o endereço é da apuração), o 1401 com alíquota T e ICMS zerado (x401) leva o valor para ISENTAS (40,00 = valor − base 0), o 1102 tem efetivo ICME×BCR/100 = 12 · alíquotas: 12% com 16,80 e 0% · saídas = a nota e a bonificação de CFOP marcado (o registro não filtra CFOP), sem a não processada e a cancelada; o item STB com ICMS NÃO conta (fonte: só T), OUTRAS = valor + IPI 10% = 55,00 e o frete pelo percentual; o T com BCR 60 tem efetivo 10,80 e ISENTAS = valor − base = 120,00 · o livro impresso traz as notas, o resultado aninhado (__MESTRE) e as alíquotas, LIVRO 2 e FOLHA 1; período sem notas → 422',
+          // (outra seção do smoke deixa uma entrada no mesmo mês: olha-se a ordem relativa das três do cenário)
+          (regE.notas ?? []).map((n: any) => n.codigo).filter((c: string) => [`${nfE.codnf}NF`, `${nfE2.codnf}NF`, `${nfSemEnd.codnf}NF`].includes(c)).join(',') === `${nfE.codnf}NF,${nfE2.codnf}NF,${nfSemEnd.codnf}NF`
+          && Number(dReg(regE, nfE2.codnf, 1401, 60)?.isentas_naotrib) === 40 && Number(dReg(regE, nfE2.codnf, 1401, 60)?.valor_icms) === 0
+          && Number(dReg(regE, nfE.codnf, 1102, 0)?.icms_efetivo) === 12 && Number(dReg(regE, nfE.codnf, 1102, 0)?.valor_icms) === 12
+          && Number((regE.icms ?? []).find((x: any) => Number(x.icms) === 12)?.valor) === 16.8 && (regE.icms ?? []).some((x: any) => Number(x.icms) === 0)
+          && (regS.notas ?? []).length === 2 && (regS.notas ?? []).some((n: any) => n.codigo === `${nfBonif.codnf}NF`)
+          && Number(dReg(regS, nfS.codnf, 5102, 10)?.valor_icms) === 0 && Number(dReg(regS, nfS.codnf, 5102, 10)?.outras) === 55
+          && Number(dReg(regS, nfS.codnf, 5102, 10)?.totalnf) === 55
+          && Number(dReg(regS, nfS.codnf, 5102, 0, 10.8)?.isentas_naotrib) === 120 && Number(dReg(regS, nfS.codnf, 5102, 40)?.isentas_naotrib) === 90
+          && (regS.icms ?? []).length === 0
+          && regImp.status === 200 && String(regImpJ.modelo ?? '').includes('RegEntrada') && nfsImp.length === (regE.notas ?? []).length
+          && detImp.every((d: any) => nfsImp[d.__MESTRE]?.CODIGO === d.CODIGO) && (regImpJ.datasets?.frxDBDatasetICMS ?? []).length === (regE.icms ?? []).length
+          && regImpJ.variaveis?.LIVRO === "'2'" && regImpJ.variaveis?.FOLHA === "'1'" && regVazio.status === 422,
+          { e: regE.notas?.map((n: any) => n.codigo), dE: regE.detalhe, icms: regE.icms, s: regS.notas?.map((n: any) => n.codigo), dS: regS.detalhe, imp: regImp.status, vazio: regVazio.status });
+
         // cleanup
         await pgAp.query(`DELETE FROM apuracao_icms WHERE idempresa=1 AND dataini >= '2035-08-01'`);
         await pgAp.query(`DELETE FROM vendas WHERE nropedido LIKE '011009261%'`);
