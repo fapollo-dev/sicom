@@ -1567,3 +1567,23 @@ describe('análise de comportamento da loja (Rel_Analise_comportamento_loja.fr3,
     expect(t).toContain('13.000');
   });
 });
+
+describe('relatório financeiro (RelatorioFinanceiroGeral.fr3, FRMRELFINANCEIRO)', () => {
+  it('os detalhes aninhados por lote saem só no cabeçalho do documento deles (sub-relatório na banda de grupo)', () => {
+    const doc = (CODIGO: string, IDLOTE: number | null, RAZAO: string, VALOR: number) =>
+      ({ VENC: '2037-06-20', VALOR, EMISSAO: '2037-06-01', PAGAMENTO: '2037-07-10', VALORPG: VALOR, ACRE_DESC: 0, JUROS: 0, RAZAO, IDLOTE, NRODOC: null, CODIGO, TIPO: '1', IDLOTEBXRCB: IDLOTE, IDEMPRESA: 1, OBS: null });
+    const t = texto(paginasDoModelo(modelo('financeiro-geral.fr3'), {
+      frxDBDatasetDocs: [doc('101_1', 991151, 'CLIENTE COM LOTE', 500), doc('102_1', null, 'CLIENTE SEM LOTE', 90)],
+      frxDBDatasetContasCorrentes: [{ __MESTRE: 0, CODCONTA: 1, VALOR: 460, DTVENC: '2037-07-10', TITULAR: 'CAIXA CENTRAL', IDLOTE: 991151 }],
+      DBDatasetCheques: [], DBDatasetChequeProp: [], DBDatasetPermuta: [], DBDatasetRep: [],
+      frxDBDatasetResumo: [{ CODCONTA: 1, CONTA: 'RESUMO DA CONTA', VALOR: 460, IDEMPRESA: 1 }],
+      frxDBDataset2: [{ RAZAOSOCIAL: 'JF SUPERMERCADOS LTDA', FANTASIA: 'JF', CNPJ: '37.954.975/0001-69', INSC: '0037992540050', FONE1: '3432' }],
+    }, agora, { CodEmpresas: "'1'", DataInicial: "'01/06/2037'", Datafinal: "'30/06/2037'" }));
+    expect(t).toContain('Relatório Financeiro');
+    expect(t).toContain('CLIENTE COM LOTE');
+    expect(t).toContain('CLIENTE SEM LOTE');
+    expect(t.match(/CAIXA CENTRAL/g)?.length).toBe(1);   // sem o filtro pelo mestre, sairia também no 2º documento
+    expect(t).toContain('RESUMO DA CONTA');
+    expect(t).toContain('460,00');
+  });
+});

@@ -41,11 +41,11 @@ Em agosto/2026, filtrar por `R.DTPGTO` dá **0 linhas** onde o certo (`BX.DTPGTO
 Aqui a data de baixa é **sempre a da baixa**. Do lado A PAGAR o legado acerta por acidente: `APAGAR` **não
 tem** `DTPGTO`, então o nome sem prefixo resolve sozinho para o da baixa.
 
-## 3. ⚠️ O LIKE do parceiro anulava o LEFT JOIN
+## 3. O LIKE do parceiro
 
-`AND P.RAZAO LIKE '%x%'` (`:610`) sobre um `LEFT JOIN PARCEIROS` derruba todo título **sem** parceiro, porque
-`NULL LIKE '%%'` é falso — o mesmo defeito já corrigido em `FRMANALISEENTRADAXSAIDA` e em `FRMPRODUTOSREL`.
-Aqui o filtro só se aplica quando preenchido, e o título sem parceiro aparece rotulado.
+`AND P.RAZAO LIKE '%x%'` (`:610`) só entra quando o campo está preenchido (o `if edtParceiro.Text <> ''`) — sem filtro, o título sem
+parceiro aparece. (O corte de 09/2026 chamava isso de defeito "corrigido"; no fonte já era assim.) Desde 06/10/2026 o LIKE é o do
+legado: com as maiúsculas como digitadas.
 
 ## 4. O total não multiplica com o título
 
@@ -75,3 +75,31 @@ a pagar. O cheque de terceiros mostra o VALOR como pago mesmo em aberto — é o
 (todos/títulos/cheques/cartões) e `cmbCompromissos` (todos/títulos/cheques) escolhem os ramos. ⚠️ O filtro de **conta** era do
 Apollo (`areceber.codconta`, só do lado a receber); agora é o do legado: o **lote** que passou pela conta
 (`IDLOTE IN (SELECT IDLOTE FROM MOV_CONTAS_BANCARIAS WHERE CODCONTA = …)`), em todos os ramos. Smoke §115.5.
+
+## 7. ✅ Fidelidade e as impressões (06/10/2026)
+
+**A consulta** passou a seguir o `MontaRelatorioAnaliseDescritiva` em quatro pontos: as lojas do `GetMultiEmpresa` (era só a do login);
+a **ordem** do `sqqDtos` (`ORDER BY 9, 8` = LOTE, RAZÃO — o relatório agrupa por TIPO, CÓDIGO e LOTE nessa ordem; era por vencimento);
+a situação exata (`QUITADA = 'N'`); e o `rgTipoClick`: com a situação "todos" o rgFiltro fica desabilitado e travado em
+**VENCIMENTO** (o filtro por emissão/baixa só vale com "em aberto"/"baixados"). As linhas trazem também as colunas do `cdsDoctos`.
+
+**Imprimir — análise descritiva** (`RelatorioFinanceiroGeral.fr3`, 918): o `cdsDoctos` no `frxDBDatasetDocs` e, ANINHADOS em cada linha
+pelo lote (`MasterFields = IDLOTE`): as contas correntes do lote (`sqqContaCorrente`: o VALOR é o do movimento, o crédito MENOS e o
+débito MAIS o Σ das baixas a receber do mesmo lote cujo título está FORA do período), os cheques (`IDLOTEBXRCB` = o lote), os cheques
+próprios, permutas e cheques repassados (essas duas tabelas não vieram — 0 linhas na produção); o resumo por conta do laço (`cdsResumoconta`:
+a 1ª conta corrente do lote de cada linha, somada quando o lote ou a conta muda — a linha sem lote vira a "conta 0" com 0,00); a empresa;
+CodEmpresas/DataInicial/Datafinal. Os sub-relatórios estão no cabeçalho do grupo por CÓDIGO: o motor passou a dar a eles a linha
+corrente do grupo como mestre (antes viam os detalhes de todas as linhas). ⚠️ Não reproduzido: o laço apagaria o cheque cujo
+IDLOTEBXRCB está nos cheques do 1º documento quando o lote dele não tem conta corrente — e entraria em laço infinito quando tem (o
+`Continue` sem `Next`); 11 cheques de 2023 na produção.
+
+**O 2º relatório, "Contas a receber"** (`MontaRelatorioContasAReceber`, não existia no Apollo): os títulos das lojas pela emissão,
+vencimento ou baixa, a situação, sem agrupados; CNPJ/CPF do 1º endereço ativo; documento `COALESCE(NROCUPOM, DOCNF)`; tipo NF / NFC / ECF
+(a NFC-e do pedido vem da venda — a tabela NFC fica com o PDV); o status da nota. Pela baixa, a data da BAIXA (o legado lê
+`R.DTPGTO`, a coluna abandonada — §2). Grade + Imprimir (`RelatorioFinanceiroContasReceber.fr3`, 916).
+
+Os layouts `RelatorioFinanceiroGeralSintetico` (919) e `RelatorioFinanceiroContasReceberAtrasados` (917, com a variável `vFiltro`) estão
+na RELATORIOS do cliente, mas nenhuma opção do fonte os carrega — binário novo, sem SQL capturado.
+
+Cobertura: smoke §115.1 (+ o filtro travado), §115.6 (impressão geral: ordem, aninhados, VALOR ajustado, resumo), §115.7 (contas a
+receber e a impressão); teste de renderização do 918 (o detalhe só no documento dele).

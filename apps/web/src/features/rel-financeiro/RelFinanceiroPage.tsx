@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * RELATÓRIO FINANCEIRO (`FRMRELFINANCEIRO`).
@@ -30,6 +31,10 @@ interface Linha {
   acre_desc: number; juros: number; parceiro: string; idlote: number | null;
   quitada: string; obs: string | null;
 }
+interface LinhaReceber {
+  codigo: number; idempresa: number; emissao: string | null; venc: string | null; valor: number; codparceiro: number | null; razao: string | null;
+  cnpj_cpf: string | null; nro_doc: string | null; tipo_doc: string | null; quitada: string | null; status: string | null; nropedido: string | null;
+}
 interface Resultado {
   linhas: Linha[];
   totais: { receber: number; pagar: number; recebido: number; pago: number; saldo: number };
@@ -39,26 +44,50 @@ export function RelFinanceiroPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
     dataIni: diaUm(), dataFim: hoje(), recebiveis: 'S', compromissos: 'S',
-    filtroData: 'VENCIMENTO', situacao: 'TODOS', parceiro: '', tipoRecebivel: 'TODOS', tipoCompromisso: 'TODOS',
+    filtroData: 'VENCIMENTO', situacao: 'TODOS', parceiro: '', tipoRecebivel: 'TODOS', tipoCompromisso: 'TODOS', empresas: '',
   });
+  // o cmbRelatorio do legado: 0 = Financeiro análise descritiva, 1 = Contas a receber
+  const [relatorio, setRelatorio] = useState<'GERAL' | 'RECEBER'>('GERAL');
   const [res, setRes] = useState<Resultado | null>(null);
+  const [receber, setReceber] = useState<LinhaReceber[] | null>(null);
   const [ocupado, setOcupado] = useState(false);
+
+  const params = () => {
+    const q = new URLSearchParams();
+    const chaves = relatorio === 'GERAL' ? Object.keys(f) : ['dataIni', 'dataFim', 'filtroData', 'situacao', 'empresas'];
+    Object.entries(f).forEach(([k, v]) => { if (v !== '' && chaves.includes(k)) q.set(k, String(v)); });
+    return q;
+  };
+  const rota = () => (relatorio === 'GERAL' ? 'relatorios/financeiro' : 'relatorios/financeiro/contas-receber');
 
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
-      const r = await fetch(`${BASE}/relatorios/financeiro?${q}`, { headers: apiHeaders() });
+      const r = await fetch(`${BASE}/${rota()}?${params()}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
         const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
         throw Object.assign(new Error(env.code), { envelope: env });
       }
-      setRes((await r.json()) as Resultado);
+      if (relatorio === 'GERAL') { setRes((await r.json()) as Resultado); setReceber(null); } else { setReceber((await r.json()) as LinhaReceber[]); setRes(null); }
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+
+  const colsReceber = useMemo<DataTableColumnDef<LinhaReceber>[]>(() => [
+    { field: 'codigo', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
+    { field: 'idempresa', headerName: 'Loja', type: 'text', width: 70 },
+    { field: 'emissao', headerName: 'Emissão', type: 'text', width: 105, valueGetter: (l) => dataBr(l.emissao) },
+    { field: 'venc', headerName: 'Vencimento', type: 'text', width: 110, valueGetter: (l) => dataBr(l.venc) },
+    { field: 'valor', headerName: 'Valor', type: 'text', width: 120, valueGetter: (l) => moeda(l.valor) },
+    { field: 'razao', headerName: 'Parceiro', type: 'text', width: 220 },
+    { field: 'cnpj_cpf', headerName: 'CNPJ/CPF', type: 'text', width: 150 },
+    { field: 'nro_doc', headerName: 'Documento', type: 'text', width: 110 },
+    { field: 'tipo_doc', headerName: 'Tipo', type: 'text', width: 70 },
+    { field: 'quitada', headerName: 'Quitada', type: 'text', width: 80 },
+    { field: 'status', headerName: 'Status', type: 'text', width: 120 },
+    { field: 'nropedido', headerName: 'Pedido', type: 'text', width: 110 },
+  ], []);
 
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => [
     { field: 'lado', headerName: '', type: 'text', width: 60, isPrimary: true,
@@ -89,22 +118,32 @@ export function RelFinanceiroPage() {
           Recebíveis e compromissos no mesmo extrato, com a baixa ao lado do título.
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Relatório
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={relatorio}
+              onChange={(e) => { setRelatorio(e.target.value as 'GERAL' | 'RECEBER'); setRes(null); setReceber(null); }}>
+              <option value="GERAL">Financeiro análise descritiva</option><option value="RECEBER">Contas a receber</option>
+            </select>
+          </label>
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Filtrar a data por
-            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
-              value={f.filtroData} onChange={(e) => setF({ ...f, filtroData: e.target.value })}>
+            {/* o rgTipoClick: com "todos" o filtro de data fica travado em vencimento */}
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" disabled={f.situacao === 'TODOS'}
+              value={f.situacao === 'TODOS' ? 'VENCIMENTO' : f.filtroData} onChange={(e) => setF({ ...f, filtroData: e.target.value })}>
               {DATAS_REL_FINANCEIRO.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Situação
             <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
-              value={f.situacao} onChange={(e) => setF({ ...f, situacao: e.target.value })}>
+              value={f.situacao} onChange={(e) => setF({ ...f, situacao: e.target.value, filtroData: e.target.value === 'TODOS' ? 'VENCIMENTO' : 'EMISSAO' })}>
               <option value="TODOS">Todos</option><option value="ABERTO">Em aberto</option><option value="BAIXADO">Baixados</option>
             </select>
           </label>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
+          {relatorio === 'GERAL' && <>
           <div className="w-56"><Field label="&Parceiro" value={f.parceiro} onChange={(e) => setF({ ...f, parceiro: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.recebiveis === 'S'} onChange={(e) => setF({ ...f, recebiveis: e.target.checked ? 'S' : 'N' })} />
@@ -123,7 +162,11 @@ export function RelFinanceiroPage() {
             value={f.tipoCompromisso} onChange={(e) => setF({ ...f, tipoCompromisso: e.target.value })}>
             <option value="TODOS">Todos</option><option value="TITULOS">Títulos</option><option value="CHEQUE">Cheques próprios</option>
           </select>
+          </>}
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/${rota()}/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,
@@ -167,6 +210,7 @@ export function RelFinanceiroPage() {
       )}
 
       {res && <DataTable rows={res.linhas} columns={cols} getRowId={(r: Linha) => `${r.lado}-${r.codigo}-${r.baixa ?? 'x'}-${r.valorpg ?? 0}`} />}
+      {receber && <DataTable rows={receber} columns={colsReceber} getRowId={(r: LinhaReceber) => String(r.codigo)} />}
     </div>
   );
 }

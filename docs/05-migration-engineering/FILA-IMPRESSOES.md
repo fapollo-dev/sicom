@@ -26,7 +26,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 84 | `FRMRELENTSAI` | Rel_Analise_Compra_Venda2 | ✅ 06/10 (e 5 correções de fidelidade: lojas, NF cancelada processada, descrição da venda, dpto do pedido, fornecedor; e o agrupar, que dava 500) |
 | 64 | `FRMCONSCLIRCB` | Rel_BaixaAReceber | ✅ 06/10 — e a tela refeita pelo fonte (juro pela taxa da tela, tolerância do cliente, agrupados fora, todas as lojas, seleção) |
 | 53 | `FRMANALISECOMPORTAMENTO` | Rel_Analise_Comportamento_Loja | ✅ 06/10 — e o corte 2 (Previsão Impostos 5,5% com a lista vazia, margem do total pela média das semanas, lojas) |
-| 43 | `FRMRELFINANCEIRO` | (o TRelatorio da unit) | ⏳ |
+| 43 | `FRMRELFINANCEIRO` | RelatorioFinanceiroGeral, RelatorioFinanceiroContasReceber | ✅ 06/10 — as duas (a Geral com os detalhes aninhados por lote; o "Contas a receber" não existia) e a consulta fiel (ordem LOTE/RAZÃO, lojas, filtro travado) · ⛔ Sintético/Atrasados: binário novo |
 | 38 | `FRMEXTRATOFORNECEDORES` | ExtratoFornecedores1/2/3 | ⏳ |
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | Rel_Analise_Compra_Venda_Carne | ⏳ |
 | 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ⏳ |

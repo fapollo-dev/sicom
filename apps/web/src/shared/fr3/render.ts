@@ -799,7 +799,8 @@ class Relatorio {
       const emitir = (html: string) => c.atual!.html.push(html);
       // definido mais abaixo (precisa do processador das bandas); o título da primeira página sai antes
       let subrelatorios: (b: No, y0: number, altura: number, mestre?: number, detalhe?: number) => Set<string> = () => new Set();
-      const mostrar = (b: No) => { const y0 = c.y; const r = this.banda(b, n(b.a.Left)); if (r) { emitir(r.html); c.y += r.altura; subrelatorios(b, y0, r.altura); } };
+      // `mestre`: a linha do mestre que os sub-relatórios da banda enxergam (os grupos da MasterData: a linha corrente do grupo)
+      const mostrar = (b: No, mestre?: number) => { const y0 = c.y; const r = this.banda(b, n(b.a.Left)); if (r) { emitir(r.html); c.y += r.altura; subrelatorios(b, y0, r.altura, mestre); } };
       const fechar = () => {
         if (!c.atual || c.fechando) return;
         c.fechando = true;
@@ -884,6 +885,9 @@ class Relatorio {
             return x != null ? !!x : h.a.ExpandDrillDown === 'True';
           };
           const oculto = (nivel: number) => grupos.slice(0, nivel).some((g) => !aberto(g.h));
+          // o sub-relatório num cabeçalho/rodapé de grupo da MasterData vê os detalhes aninhados da linha corrente (a 1ª do grupo no
+          // cabeçalho, a última no rodapé — o FastReport volta um registro), como o nested dataset do Delphi segue o cursor do mestre
+          const mestreDoGrupo = (linha: number) => (ds && b.tag === 'TfrxMasterData' && mestre == null ? linha : undefined);
           const rodar = (bd: No) => { this.banda(bd, n(bd.a.Left)); };
           // fecha os grupos do mais interno até `ate`, com o cursor na última linha do grupo (o FastReport volta um registro)
           const fecharGrupos = (ate: number, ultima: number) => {
@@ -893,7 +897,7 @@ class Relatorio {
               if (!f) continue;
               if (oculto(k) || (!aberto(grupos[k].h) && grupos[k].h.a.ShowFooterIfDrillDown !== 'True')) { rodar(f); continue; }
               if (!cabe(n(f.a.Height))) novaPagina();
-              mostrar(f);
+              mostrar(f, mestreDoGrupo(ultima));
             }
           };
           const temLinhas = indices.length > 0;
@@ -923,7 +927,7 @@ class Relatorio {
                   if (oculto(j)) { rodar(g.h); continue; }
                   if (g.h.a.StartNewPage === 'True' && k > 0) novaPagina();
                   if (!cabe(n(g.h.a.Height) + n(b.a.Height))) novaPagina();
-                  mostrar(g.h);
+                  mostrar(g.h, mestreDoGrupo(i));
                 }
                 this.linhaBanda = 0;
               }

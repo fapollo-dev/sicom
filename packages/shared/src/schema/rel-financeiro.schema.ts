@@ -31,6 +31,8 @@ export const relFinanceiroSchema = z.object({
   /** o `cmbCompromissos` do legado: todos, só títulos ou só cheques próprios */
   tipoCompromisso: z.enum(['TODOS', 'TITULOS', 'CHEQUE']).default('TODOS'),
   limite: z.coerce.number().int().positive().max(20000).default(2000),
+  /** as lojas do GetMultiEmpresa, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).optional(),
 })
   .refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] })
   .refine((f) => f.recebiveis === 'S' || f.compromissos === 'S', {
@@ -38,3 +40,13 @@ export const relFinanceiroSchema = z.object({
   });
 
 export type RelFinanceiroDto = z.infer<typeof relFinanceiroSchema>;
+
+/** o 2º relatório da tela, "Contas a receber" (`MontaRelatorioContasAReceber`): os títulos por emissão/vencimento/baixa e situação. */
+export const relFinanceiroReceberSchema = z.object({
+  dataIni: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  filtroData: z.enum(['EMISSAO', 'VENCIMENTO', 'BAIXA']).default('VENCIMENTO'),
+  situacao: z.enum(SITUACOES_REL_FINANCEIRO).default('TODOS'),
+  empresas: z.string().regex(/^[\d,\s]*$/).optional(),
+}).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
+export type RelFinanceiroReceberDto = z.infer<typeof relFinanceiroReceberSchema>;

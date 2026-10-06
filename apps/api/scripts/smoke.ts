@@ -16764,13 +16764,17 @@ async function main() {
           VALUES (1, 2, 1, '2037-06-05', '2037-06-25', 300.00, 'N', 'DP') RETURNING codapg`)).rows[0].codapg);
 
         const porVenc = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
-        const porBaixa = (await (await fetch(`${base}/${RF}?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=BAIXA`, { headers: H })).json().catch(() => ({}))) as any;
+        // o rgTipoClick: o filtro de data só vale com a situação "em aberto"/"baixados"; com "todos" ele trava em VENCIMENTO
+        const porBaixa = (await (await fetch(`${base}/${RF}?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=BAIXA&situacao=BAIXADO`, { headers: H })).json().catch(() => ({}))) as any;
+        const baixaTodos = (await (await fetch(`${base}/${RF}?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=BAIXA`, { headers: H })).json().catch(() => ({}))) as any;
         const doRcbV = (porVenc.linhas ?? []).find((l: any) => Number(l.codigo) === rcb && l.lado === 'R');
         const doRcbB = (porBaixa.linhas ?? []).find((l: any) => Number(l.codigo) === rcb && l.lado === 'R');
         check('REL FINANCEIRO §115.1 [o filtro por BAIXA, que no legado nem roda]: o legado cola `AND DTPGTO BETWEEN` sem prefixo num SELECT que já tem `LEFT JOIN ARECEBER_BX` — e como as DUAS tabelas têm a coluna, o Oracle responde **ORA-00918** e a consulta falha (verificado na produção). Aqui a data de baixa é a da BAIXA: o título vence em junho e foi baixado em julho, então aparece em cada filtro no seu mês. ⚠️ a coluna denormalizada do título está nula, que é o estado de 44 mil títulos quitados do cliente',
           !!doRcbV && !!doRcbB && String(doRcbB.baixa).slice(0, 10) === '2037-07-10'
-          && Math.abs(Number(doRcbB.valorpg) - 500) < 0.005,
-          { porVencimento: !!doRcbV, porBaixa: doRcbB });
+          && Math.abs(Number(doRcbB.valorpg) - 500) < 0.005
+          // com "todos" o rgFiltro do legado fica desabilitado em VENCIMENTO: julho não acha o título que vence em junho
+          && !(baixaTodos.linhas ?? []).some((l: any) => Number(l.codigo) === rcb && l.lado === 'R'),
+          { porVencimento: !!doRcbV, porBaixa: doRcbB, baixaComTodos: (baixaTodos.linhas ?? []).filter((l: any) => Number(l.codigo) === rcb).length });
 
         const ambos = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
         const soReceb = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO&compromissos=N`, { headers: H })).json().catch(() => ({}))) as any;
@@ -16825,6 +16829,42 @@ async function main() {
           && !(soTit.linhas ?? []).some((l: any) => l.tipo_doc === 'CARTAO') && (soCar.linhas ?? []).length > 0 && (soCar.linhas ?? []).every((l: any) => l.tipo_doc === 'CARTAO')
           && (porConta.linhas ?? []).length > 0 && (porConta.linhas ?? []).every((l: any) => Number(l.idlote) === 991151),
           { lc, soTit: (soTit.linhas ?? []).map((l: any) => l.tipo_doc), soCar: (soCar.linhas ?? []).length, porConta: (porConta.linhas ?? []).map((l: any) => [l.tipo_doc, l.codigo, l.idlote]) });
+        // §115.6 — o Imprimir da análise descritiva: RelatorioFinanceiroGeral.fr3 com os detalhes ANINHADOS por lote e o resumo por conta
+        const fora = Number((await pgRf.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 22, 'RF-AGO', '2037-08-01', '2037-08-20', 40.00, 'S', 'DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgRf.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote) VALUES ($1, 1, '2037-07-10', 40.00, 0, 0, 'I', 991151)`, [fora]);
+        await pgRf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992962, 1, 'RelatorioFinanceiroGeral.fr3', 'x', 'PERSONALIZADO', $1), (992963, 1, 'RelatorioFinanceiroContasReceber.fr3', 'x', 'PERSONALIZADO', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`,
+          [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Geral_stub"/></TfrxReport>').toString('base64'),
+           Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Receber_stub"/></TfrxReport>').toString('base64')]);
+        const ig = (await (await fetch(`${base}/${RF}/impressao?dataIni=2037-06-01&dataFim=2037-06-30&compromissos=N&tipoRecebivel=TITULOS`, { headers: H })).json().catch(() => ({}))) as any;
+        const igDocs = (ig.datasets?.frxDBDatasetDocs ?? []) as any[];
+        const igCc = (ig.datasets?.frxDBDatasetContasCorrentes ?? []) as any[];
+        const igRes = (ig.datasets?.frxDBDatasetResumo ?? []) as any[];
+        check('REL FINANCEIRO §115.6 [o Imprimir da análise descritiva]: o RelatorioFinanceiroGeral.fr3 do cliente com o cdsDoctos na ordem do legado (ORDER BY 9, 8 = LOTE, RAZÃO: as duas linhas do título baixado no lote 991151 antes do título sem lote), CODIGO "cod_tipo" e TIPO 1; a conta corrente ANINHADA em cada linha do lote (__MESTRE 0 e 1) com o VALOR do sqqContaCorrente: o crédito de 500,00 MENOS a baixa de 40,00 do mesmo lote cujo título vence FORA do período = 460,00; o resumo do laço: a conta 1 com 460,00 uma vez (a 2ª linha tem o mesmo lote e conta) e a linha sem lote vira a conta 0 com 0,00, como o cdsResumoconta; a empresa e as variáveis',
+          String(ig.modelo).includes('Geral_stub') && igDocs.length === 3 && Number(igDocs[0].IDLOTE) === 991151 && igDocs[0].TIPO === '1' && igDocs[0].CODIGO === `${rcb}_1`
+            && igDocs[2].IDLOTE == null && igCc.length === 2 && igCc.map((x) => x.__MESTRE).join(',') === '0,1' && Math.abs(Number(igCc[0].VALOR) - 460) < 0.005
+            && igRes.length === 2 && Number(igRes[0].CODCONTA) === 1 && Math.abs(Number(igRes[0].VALOR) - 460) < 0.005 && Number(igRes[1].CODCONTA) === 0
+            && (ig.datasets?.frxDBDataset2 ?? []).length === 1 && ig.variaveis?.DataInicial === "'01/06/2037'" && ig.variaveis?.Datafinal === "'30/06/2037'" && ig.variaveis?.CodEmpresas === "'1'",
+          { docs: igDocs.map((x) => [x.CODIGO, x.TIPO, x.IDLOTE, x.RAZAO]), cc: igCc.map((x) => [x.__MESTRE, x.VALOR, x.TITULAR]), resumo: igRes, v: ig.variaveis });
+
+        const cr = (await (await fetch(`${base}/${RF}/contas-receber?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => [])) as any[];
+        const crB = (await (await fetch(`${base}/${RF}/contas-receber?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=BAIXA&situacao=BAIXADO`, { headers: H })).json().catch(() => [])) as any[];
+        const icr = (await (await fetch(`${base}/${RF}/contas-receber/impressao?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const vzr = await fetch(`${base}/${RF}/contas-receber/impressao?dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const vzrj = (await vzr.json().catch(() => ({}))) as any;
+        const crRcb = cr.find((x) => Number(x.codigo) === rcb);
+        check('REL FINANCEIRO §115.7 [o 2º relatório, "Contas a receber"]: os títulos pelo vencimento, a situação e sem os agrupados, com o documento, o tipo ("  " sem NF, NFC-e ou venda do pedido) e a razão; pela BAIXA, a data da baixa (o título de 20/06 baixado em 10/07 aparece em julho — o legado olharia a coluna DTPGTO do título, abandonada); o RelatorioFinanceiroContasReceber.fr3 com o frxDBConsulta e as variáveis; sem linhas, a mensagem do legado',
+          !!crRcb && crRcb.tipo_doc === '  ' && crRcb.quitada === 'S' && cr.some((x) => Number(x.codigo) === semParc) && !cr.some((x) => Number(x.codigo) === fora)
+          && crB.some((x) => Number(x.codigo) === rcb) && String(icr.modelo).includes('Receber_stub') && (icr.datasets?.frxDBConsulta ?? []).some((x: any) => Number(x.CODIGO) === rcb)
+          && icr.variaveis?.DataInicial === "'01/06/2037'"
+          && vzr.status === 422 && String(vzrj.message ?? '').includes('A lista de registro para ser impresso está vazia'),
+          { crRcb, crB: crB.map((x) => x.codigo), icr: (icr.datasets?.frxDBConsulta ?? []).length, vz: [vzr.status, vzrj.message] });
+        await pgRf.query(`DELETE FROM relatorios WHERE codrelatorio IN (992962, 992963)`);
+        await pgRf.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [fora]);
+        await pgRf.query(`DELETE FROM areceber WHERE codrcb=$1`, [fora]);
+
         await pgRf.query(`DELETE FROM mov_contas_bancarias WHERE idlote = 991151`);
         await pgRf.query(`DELETE FROM cartao WHERE codvendcartao = $1`, [car]);
         await pgRf.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcb]);
