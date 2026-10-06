@@ -46,23 +46,23 @@ export function PlcCadMaster() {
           <TeclasDoPlc novo={novo} />
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
             <Controller control={form.control} name="codpai" render={({ field }) => (
-              <SelectField label="Conta &retrocedente" options={plcs} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+              <SelectField label="Conta retrocedente" options={plcs} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : '')} placeholder="Conta raiz" disabled={!editavel} />
             )} />
-            <Field label="Código da &conta" disabled={!editavel} maxLength={30} error={form.formState.errors.desccodplc?.message as string | undefined} {...form.register('desccodplc')} />
+            <Field label="Código da conta" disabled={!editavel} maxLength={30} error={form.formState.errors.desccodplc?.message as string | undefined} {...form.register('desccodplc')} />
             <Controller control={form.control} name="tpconta" render={({ field }) => (
-              <SelectField label="&Tipo" options={TIPOS} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+              <SelectField label="Tipo" options={TIPOS} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v === '' || v == null ? '' : Number(v))} placeholder="—" disabled={!editavel} />
             )} />
             <div className="sm:col-span-2">
-              <Field label="&Descrição" disabled={!editavel} maxLength={80} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
+              <Field label="Descrição" disabled={!editavel} maxLength={80} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
             </div>
             <Controller control={form.control} name="limiteplc" render={({ field }) => (
               <NumberField label="Limite" value={field.value != null ? Number(field.value) : undefined} onChange={field.onChange} decimais={2} disabled={!editavel} />
             )} />
             <div className="sm:col-span-3">
               <Controller control={form.control} name="codcontabil" render={({ field }) => (
-                <SelectField label="&Lançamento contábil" options={contas} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+                <SelectField label="Lançamento contábil" options={contas} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                   onChange={(v) => field.onChange(v ? Number(v) : '')} placeholder="—" disabled={!editavel} />
               )} />
             </div>

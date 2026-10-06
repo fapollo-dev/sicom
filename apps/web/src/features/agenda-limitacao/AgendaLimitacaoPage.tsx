@@ -120,7 +120,7 @@ export function AgendaLimitacaoPage() {
 
       {form && (
         <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <div className="w-80"><Field label="&Descrição" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></div>
+          <div className="w-80"><Field label="Descrição" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></div>
           <div className="w-56"><Field label="&Início" type="datetime-local" value={form.dtinicio} onChange={(e) => setForm({ ...form, dtinicio: e.target.value })} /></div>
           <div className="w-56"><Field label="&Término" type="datetime-local" value={form.dtfim} onChange={(e) => setForm({ ...form, dtfim: e.target.value })} /></div>
           <div className="w-40"><Field label="&Lojas (;1;2;)" value={form.empresas} onChange={(e) => setForm({ ...form, empresas: e.target.value })} /></div>
@@ -163,7 +163,7 @@ export function AgendaLimitacaoPage() {
           {!fechada && (
             <div className="flex flex-wrap items-end gap-gp-sm">
               <div className="w-96"><Field label="&Produtos (códigos separados por espaço)" value={novos.ids} onChange={(e) => setNovos({ ...novos, ids: e.target.value })} /></div>
-              <div className="w-40"><Field label="&Quantidade padrão" type="number" value={novos.quantidade} onChange={(e) => setNovos({ ...novos, quantidade: e.target.value })} /></div>
+              <div className="w-40"><Field label="Quantidade padrão" type="number" value={novos.quantidade} onChange={(e) => setNovos({ ...novos, quantidade: e.target.value })} /></div>
               <Button label="&Adicionar" disabled={ocupado || !novos.ids} onClick={() => void adicionar()} />
             </div>
           )}

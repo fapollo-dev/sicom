@@ -114,13 +114,13 @@ export function AjusteEstoquePage() {
         <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Novo ajuste</legend>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-80">
-            <SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione o produto…" />
+            <SelectField label="Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione o produto…" />
           </div>
           <div className="w-52">
-            <SelectField label="&Operação" options={AJUSTE_OPERACAO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={operacao} onChange={setOperacao} />
+            <SelectField label="Operação" options={AJUSTE_OPERACAO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={operacao} onChange={setOperacao} />
           </div>
           <div className="w-36">
-            <NumberField label="&Quantidade" value={qtde} onChange={setQtde} decimais={3} min={0} />
+            <NumberField label="Quantidade" value={qtde} onChange={setQtde} decimais={3} min={0} />
           </div>
           <div className="w-32">
             <NumberField label="M&ínimo" value={minimo} onChange={setMinimo} decimais={3} min={0} />
@@ -129,13 +129,13 @@ export function AjusteEstoquePage() {
             <NumberField label="Má&ximo" value={maximo} onChange={setMaximo} decimais={3} min={0} />
           </div>
           <div className="w-44">
-            <SelectField label="&Motivo" options={motivoOptions} value={codmotivo != null ? String(codmotivo) : undefined} onChange={(v) => setCodmotivo(v ? Number(v) : undefined)} placeholder="Motivo…" />
+            <SelectField label="Motivo" options={motivoOptions} value={codmotivo != null ? String(codmotivo) : undefined} onChange={(v) => setCodmotivo(v ? Number(v) : undefined)} placeholder="Motivo…" />
           </div>
           <div className="w-40">
-            <SelectField label="&Destino" options={AJUSTE_DESTINO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={destino} onChange={setDestino} />
+            <SelectField label="Destino" options={AJUSTE_DESTINO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={destino} onChange={setDestino} />
           </div>
           <div className="w-72">
-            <TextArea label="&Observação" value={obs} onChange={(e) => setObs(e.target.value)} rows={1} />
+            <TextArea label="Observação" value={obs} onChange={(e) => setObs(e.target.value)} rows={1} />
           </div>
           <Button label="&Aplicar ajuste" variant="soft" onClick={() => void ajustar()} />
         </div>

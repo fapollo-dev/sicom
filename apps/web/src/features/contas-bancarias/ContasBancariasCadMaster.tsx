@@ -128,7 +128,7 @@ export function ContasBancariasCadMaster() {
               name="codbco"
               render={({ field }) => (
                 <SelectField
-                  label="&Banco"
+                  label="Banco"
                   options={bancoOptions}
                   value={field.value != null ? String(field.value) : undefined}
                   onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -140,7 +140,7 @@ export function ContasBancariasCadMaster() {
           </div>
 
           <Field
-            label="&Titular"
+            label="Titular"
             disabled={!editavel}
             error={form.formState.errors.titular?.message as string | undefined}
             {...form.register('titular')}
@@ -153,7 +153,7 @@ export function ContasBancariasCadMaster() {
           />
 
           <Field
-            label="&Gerente"
+            label="Gerente"
             disabled={!editavel}
             error={form.formState.errors.gerente?.message as string | undefined}
             {...form.register('gerente')}
@@ -163,7 +163,7 @@ export function ContasBancariasCadMaster() {
             name="dtabertura"
             render={({ field }) => (
               <DateField
-                label="Data de &abertura"
+                label="Data de abertura"
                 value={field.value as string | undefined}
                 onChange={field.onChange}
                 disabled={!editavel}
@@ -173,7 +173,7 @@ export function ContasBancariasCadMaster() {
           />
 
           <Field
-            label="&Telefone"
+            label="Telefone"
             disabled={!editavel}
             error={form.formState.errors.fone1?.message as string | undefined}
             {...form.register('fone1')}
@@ -184,7 +184,7 @@ export function ContasBancariasCadMaster() {
             name="codlanccontabil"
             render={({ field }) => (
               <SelectField
-                label="&Plano de contas"
+                label="Plano de contas"
                 options={planoContasOptions}
                 value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ?? '')}
@@ -196,7 +196,7 @@ export function ContasBancariasCadMaster() {
 
           <div className="sm:col-span-2">
             <TextArea
-              label="&Observação"
+              label="Observação"
               disabled={!editavel}
               error={form.formState.errors.obs?.message as string | undefined}
               {...form.register('obs')}
@@ -210,7 +210,7 @@ export function ContasBancariasCadMaster() {
               name="conta_propria"
               render={({ field }) => (
                 <CheckboxField
-                  label="Conta &Interna"
+                  label="Conta Interna"
                   value={field.value}
                   onChange={field.onChange}
                   disabled={!editavel}
@@ -222,7 +222,7 @@ export function ContasBancariasCadMaster() {
               name="exibe_rel_apuracao_caixa"
               render={({ field }) => (
                 <CheckboxField
-                  label="&Exibe no relatório de apuração de caixa"
+                  label="Exibe no relatório de apuração de caixa"
                   value={field.value}
                   onChange={field.onChange}
                   disabled={!editavel}
@@ -234,7 +234,7 @@ export function ContasBancariasCadMaster() {
               name="ativo"
               render={({ field }) => (
                 <CheckboxField
-                  label="&Ativo"
+                  label="Ativo"
                   value={field.value}
                   onChange={field.onChange}
                   disabled={!editavel}
@@ -252,7 +252,7 @@ export function ContasBancariasCadMaster() {
                 name="convenio"
                 render={({ field }) => (
                   <NumberField
-                    label="&Convênio"
+                    label="Convênio"
                     value={field.value as number | undefined}
                     onChange={field.onChange}
                     decimais={0}
@@ -267,7 +267,7 @@ export function ContasBancariasCadMaster() {
                 name="tipo_cobranca"
                 render={({ field }) => (
                   <SelectField
-                    label="&Tipo do título"
+                    label="Tipo do título"
                     options={TIPO_COBRANCA}
                     value={field.value ?? undefined}
                     onChange={field.onChange}
@@ -281,7 +281,7 @@ export function ContasBancariasCadMaster() {
                 name="carteira_cobranca"
                 render={({ field }) => (
                   <NumberField
-                    label="Cart&eira"
+                    label="Carteira"
                     value={field.value as number | undefined}
                     onChange={field.onChange}
                     decimais={0}
@@ -296,7 +296,7 @@ export function ContasBancariasCadMaster() {
                 name="variacao_carteira"
                 render={({ field }) => (
                   <NumberField
-                    label="&Variação"
+                    label="Variação"
                     value={field.value as number | undefined}
                     onChange={field.onChange}
                     decimais={0}
@@ -308,7 +308,7 @@ export function ContasBancariasCadMaster() {
               />
               <div className="sm:col-span-2">
                 <Field
-                  label="Cód. &Transmissão"
+                  label="Cód. Transmissão"
                   disabled={!editavel}
                   error={
                     form.formState.errors.codigo_transmissao_cobranca?.message as string | undefined

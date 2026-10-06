@@ -25,9 +25,9 @@ export function UnidadesCadMaster() {
       defaultValues={{ sigla: '', descricao: '', ativo: 'S' }}
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-          <Field label="&Sigla" disabled={!editavel} maxLength={2} error={form.formState.errors.sigla?.message as string | undefined} {...form.register('sigla')} />
+          <Field label="Sigla" disabled={!editavel} maxLength={2} error={form.formState.errors.sigla?.message as string | undefined} {...form.register('sigla')} />
           <div className="sm:col-span-2">
-            <Field label="&Descrição" disabled={!editavel} maxLength={15} {...form.register('descricao')} />
+            <Field label="Descrição" disabled={!editavel} maxLength={15} {...form.register('descricao')} />
           </div>
           {([['ativo', 'Ativo'], ['producao', 'Produção'], ['fracionado', 'Fracionado']] as const).map(([name, label]) => (
             <Controller key={name} control={form.control} name={name} render={({ field }) => (

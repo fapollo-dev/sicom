@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import type { NfItemDto } from '@apollo/shared';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';

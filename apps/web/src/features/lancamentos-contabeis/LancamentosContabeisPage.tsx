@@ -282,7 +282,7 @@ export function LancamentosContabeisPage() {
               </>
             )}
             <Button label="&Filtrar" disabled={ocupado || !no} onClick={() => { setLote(null); void filtrar(no, { lote: null }); }} />
-            <Button label="&Detalhar" variant="soft" disabled={!selecionada} onClick={() => void detalhar()} />
+            <Button label="Detalhar" variant="soft" disabled={!selecionada} onClick={() => void detalhar()} />
             <Button label="Totais débito/crédito" variant="ghost" disabled={!res} onClick={totais} />
             <Button label="Diferenças débito × crédito" variant="ghost" disabled={!no} onClick={() => void abrirDiferencas()} />
             <Button label="Exportar Excel" variant="ghost" disabled={!res} onClick={exportarGrade} />

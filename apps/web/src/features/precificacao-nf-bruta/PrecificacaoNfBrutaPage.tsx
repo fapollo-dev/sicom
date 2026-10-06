@@ -106,13 +106,13 @@ export function PrecificacaoNfBrutaPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-36"><Field label="&Nº da nota" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
           <div className="w-40"><Field label="Emissão &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-32"><Field label="&Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value.replace(/\D/g, '') })} /></div>
           <label className="flex items-center gap-1 pb-2 text-body-sm"><input type="checkbox" checked={f.somenteComSugestao} onChange={(e) => setF({ ...f, somenteComSugestao: e.target.checked })} /> só com sugestão</label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           <Button label="&Aplicar" disabled={ocupado || sel.size === 0} onClick={() => void aplicar()} />
-          <Button label="&Etiquetas" variant="soft" disabled={ocupado || sel.size === 0} onClick={abrirEtiquetas} />
-          <Button label="&Imprimir" variant="soft" disabled={ocupado || !res?.itens.length} onClick={() => void imprimir()} />
+          <Button label="Etiquetas" variant="soft" disabled={ocupado || sel.size === 0} onClick={abrirEtiquetas} />
+          <Button label="Imprimir" variant="soft" disabled={ocupado || !res?.itens.length} onClick={() => void imprimir()} />
         </div>
       </section>
 

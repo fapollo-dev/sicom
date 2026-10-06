@@ -246,7 +246,7 @@ export function ManifestoDfePage() {
         <div className="w-56"><Field label="C&have (final)" value={chave} onChange={(e) => setChave(e.target.value.replace(/\D/g, ''))} placeholder="os últimos dígitos" /></div>
         <div className="w-40"><Field label="&Emissão de" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="&até" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
-        <div className="w-56"><Field label="&Fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} placeholder="parte da razão social" /></div>
+        <div className="w-56"><Field label="Fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} placeholder="parte da razão social" /></div>
         <div className="w-44"><SelectField label="&Mostrar" value={canceladas} onChange={setCanceladas} options={[
           { value: 'TODOS', label: 'Todas' }, { value: 'CANCELADAS', label: 'Apenas canceladas' }, { value: 'NAO_CANCELADAS', label: 'Apenas não canceladas' },
         ]} /></div>
@@ -281,10 +281,10 @@ export function ManifestoDfePage() {
       {linhas.length > 0 && (
         <div className="flex flex-wrap items-center gap-gp-sm">
           <span className="text-body-sm">Marcadas: <b>{sel.size}</b></span>
-          <Button label="&Ciência da operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CIENCIA')} />
+          <Button label="C&iência da operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CIENCIA')} />
           <Button label="Con&firmar operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CONFIRMACAO')} />
           <Button label="&Desconhecer operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('DESCONHECIMENTO')} />
-          <Button label="Operação &não realizada" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('OPERACAO_NAO_REALIZADA')} />
+          <Button label="&Operação não realizada" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('OPERACAO_NAO_REALIZADA')} />
         </div>
       )}
 
@@ -373,7 +373,7 @@ export function ManifestoDfePage() {
           <div className="flex flex-wrap items-center gap-gp-sm">
             <SelectField label="Mo&strar" value={filtroItens} onChange={(v) => setFiltroItens((v || 'T') as 'T' | 'S' | 'N')} options={[{ value: 'T', label: 'Todos' }, { value: 'S', label: 'Produtos cadastrados' }, { value: 'N', label: 'Produtos não cadastrados' }]} />
             <Button label="&Gravar fatores" variant="soft" disabled={busy || !analise.editavel} onClick={() => void gravarFatores()} />
-            <Button label="Fator &original a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'original' }, 'Produtos atualizados com sucesso!')} />
+            <Button label="Fator original a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'original' }, 'Produtos atualizados com sucesso!')} />
             <Button label="Fator &1,0 a todos" variant="ghost" disabled={busy || !analise.editavel} onClick={() => void acaoAnalise('fator-todos', { modo: 'unitario' }, 'Produtos atualizados com sucesso!')} />
             <Button label="Im&primir todos" variant="ghost" onClick={() => imprimirAnalise('todos')} />
             <Button label="Imprimir cadastrados" variant="ghost" onClick={() => imprimirAnalise('cadastrados')} />

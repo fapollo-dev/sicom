@@ -100,10 +100,10 @@ export function IndexadorTributarioPage() {
           completa, com desempate por <strong>especificidade</strong> (EAN &gt; NCM &gt; fornecedor).
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32"><Field label="&NCM" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} /></div>
-          <div className="w-40"><Field label="&EAN" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value })} /></div>
+          <div className="w-32"><Field label="NCM" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} /></div>
+          <div className="w-40"><Field label="EAN" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value })} /></div>
           <div className="w-32"><Field label="&Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
-          <div className="w-28"><Field label="&CFOP" value={f.codcfop} onChange={(e) => setF({ ...f, codcfop: e.target.value })} /></div>
+          <div className="w-28"><Field label="CFOP" value={f.codcfop} onChange={(e) => setF({ ...f, codcfop: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.incluirExcluidos === 'S'} onChange={(e) => setF({ ...f, incluirExcluidos: e.target.checked ? 'S' : 'N' })} />
             Mostrar excluídos
@@ -165,10 +165,10 @@ export function IndexadorTributarioPage() {
                 {TIPOS_CADASTRO_INDEXADOR.map((t) => <option key={t} value={t}>{t === 'F' ? 'Fornecedor' : 'Cliente'}</option>)}
               </select>
             </label>
-            <div className="w-28"><Field label="&Figura" value={String(form.codfigurafiscal ?? '')} onChange={(e) => setForm({ ...form, codfigurafiscal: e.target.value ? Number(e.target.value) : null })} /></div>
-            <div className="w-24"><Field label="&Origem" value={form.origem ?? ''} onChange={(e) => setForm({ ...form, origem: e.target.value.toUpperCase() })} /></div>
-            <div className="w-24"><Field label="&Destino" value={form.destino ?? ''} onChange={(e) => setForm({ ...form, destino: e.target.value.toUpperCase() })} /></div>
-            <div className="w-28"><Field label="&CFOP" value={String(form.codcfop ?? '')} onChange={(e) => setForm({ ...form, codcfop: e.target.value ? Number(e.target.value) : null })} /></div>
+            <div className="w-28"><Field label="Figura" value={String(form.codfigurafiscal ?? '')} onChange={(e) => setForm({ ...form, codfigurafiscal: e.target.value ? Number(e.target.value) : null })} /></div>
+            <div className="w-24"><Field label="Origem" value={form.origem ?? ''} onChange={(e) => setForm({ ...form, origem: e.target.value.toUpperCase() })} /></div>
+            <div className="w-24"><Field label="Destino" value={form.destino ?? ''} onChange={(e) => setForm({ ...form, destino: e.target.value.toUpperCase() })} /></div>
+            <div className="w-28"><Field label="CFOP" value={String(form.codcfop ?? '')} onChange={(e) => setForm({ ...form, codcfop: e.target.value ? Number(e.target.value) : null })} /></div>
             <label className="flex flex-col gap-gp-xs text-body-sm">
               Operação
               <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
@@ -183,8 +183,8 @@ export function IndexadorTributarioPage() {
           </div>
 
           <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-44"><Field label="&EAN" value={form.codbarra ?? ''} onChange={(e) => setForm({ ...form, codbarra: e.target.value || null })} /></div>
-            <div className="w-36"><Field label="N&CM" value={form.ncm ?? ''} onChange={(e) => setForm({ ...form, ncm: e.target.value || null })} /></div>
+            <div className="w-44"><Field label="EAN" value={form.codbarra ?? ''} onChange={(e) => setForm({ ...form, codbarra: e.target.value || null })} /></div>
+            <div className="w-36"><Field label="NCM" value={form.ncm ?? ''} onChange={(e) => setForm({ ...form, ncm: e.target.value || null })} /></div>
             <div className="w-32"><Field label="&Parceiro" value={String(form.codparceiro ?? '')} onChange={(e) => setForm({ ...form, codparceiro: e.target.value ? Number(e.target.value) : null })} /></div>
             <div className="w-44"><Field label="CNPJ/CP&F" value={form.cnpj_cpf ?? ''} onChange={(e) => setForm({ ...form, cnpj_cpf: e.target.value || null })} /></div>
           </div>
@@ -196,9 +196,9 @@ export function IndexadorTributarioPage() {
           )}
 
           <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-32"><Field label="&Alíquota %" type="number" value={String(form.aliquota_dest)} onChange={(e) => setForm({ ...form, aliquota_dest: Number(e.target.value || 0) })} /></div>
+            <div className="w-32"><Field label="Alíquota %" type="number" value={String(form.aliquota_dest)} onChange={(e) => setForm({ ...form, aliquota_dest: Number(e.target.value || 0) })} /></div>
             <div className="w-36"><Field label="Alíq. &fonte %" type="number" value={String(form.icm_fonte)} onChange={(e) => setForm({ ...form, icm_fonte: Number(e.target.value || 0) })} /></div>
-            <div className="w-28"><Field label="&MVA %" type="number" value={String(form.mva)} onChange={(e) => setForm({ ...form, mva: Number(e.target.value || 0) })} /></div>
+            <div className="w-28"><Field label="MVA %" type="number" value={String(form.mva)} onChange={(e) => setForm({ ...form, mva: Number(e.target.value || 0) })} /></div>
             <div className="w-32"><Field label="BC ST &red. %" type="number" value={String(form.redcom)} onChange={(e) => setForm({ ...form, redcom: Number(e.target.value || 0) })} /></div>
             <div className="w-32"><Field label="BC ICMS re&d. %" type="number" value={String(form.reducao)} onChange={(e) => setForm({ ...form, reducao: Number(e.target.value || 0) })} /></div>
             <div className="w-28"><Field label="F&CP %" type="number" value={String(form.aliquota_fem)} onChange={(e) => setForm({ ...form, aliquota_fem: Number(e.target.value || 0) })} /></div>

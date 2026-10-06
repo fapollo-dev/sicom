@@ -55,7 +55,7 @@ export function RelDiarioContabilPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Página inicial" value={f.pagina} onChange={(e) => setF({ ...f, pagina: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-28"><Field label="Página inicial" value={f.pagina} onChange={(e) => setF({ ...f, pagina: e.target.value.replace(/\D/g, '') })} /></div>
           <div className="w-40"><Field label="&Lojas (vírgula)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {

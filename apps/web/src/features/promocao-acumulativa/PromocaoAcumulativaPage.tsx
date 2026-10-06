@@ -201,8 +201,8 @@ export function PromocaoAcumulativaPage() {
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-32"><Field label="&Produto (código)" value={form.idproduto} onChange={(e) => setForm({ ...form, idproduto: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Quantidade" value={form.qtde} onChange={(e) => setForm({ ...form, qtde: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Desconto" value={form.desconto} onChange={(e) => setForm({ ...form, desconto: e.target.value })} /></div>
+          <div className="w-28"><Field label="Quantidade" value={form.qtde} onChange={(e) => setForm({ ...form, qtde: e.target.value })} /></div>
+          <div className="w-32"><Field label="Desconto" value={form.desconto} onChange={(e) => setForm({ ...form, desconto: e.target.value })} /></div>
           <div className="w-52"><Field label="&Início (data e hora)" type="datetime-local" value={form.dtini} onChange={(e) => setForm({ ...form, dtini: e.target.value })} /></div>
           <div className="w-52"><Field label="&Término (data e hora)" type="datetime-local" value={form.dtfim} onChange={(e) => setForm({ ...form, dtfim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">

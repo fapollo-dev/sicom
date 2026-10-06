@@ -180,7 +180,7 @@ export function ConstrutorPage() {
           <h2 className="mb-form-gap text-body-md">Colunas</h2>
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-72"><SelectField label="&Campo" options={opcoesCampo} value={aAdicionar} onChange={(v) => setAAdicionar(v ?? '')} /></div>
-            <Button label="&Adicionar" variant="soft" onClick={addCampo} />
+            <Button label="A&dicionar" variant="soft" onClick={addCampo} />
           </div>
 
           <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm border-t border-border pt-form-gap">
@@ -275,7 +275,7 @@ export function ConstrutorPage() {
               <Button label="Remover" variant="soft" onClick={() => setCondicoes((cs) => cs.filter((_, k) => k !== i))} />
             </div>
           ))}
-          <Button label="+ Con&dição" variant="soft" disabled={!campos.length}
+          <Button label="+ Condição" variant="soft" disabled={!campos.length}
             onClick={() => setCondicoes((cs) => [...cs, { campo: campos[0]?.campo ?? '', operador: '=', valor: '' }])} />
         </section>
       )}

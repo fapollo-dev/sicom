@@ -63,8 +63,8 @@ export function LotesCobrancaCadMaster() {
         { campo: 'data', label: 'Emissão', tipo: 'date', largura: 130 },
       ]}
       outros={[
-        { label: 'Relatório &geral', onClick: () => imprimir('GERAL') },
-        { label: 'Relatório agrupado por &bairro', onClick: () => imprimir('BAIRRO') },
+        { label: 'Relatório geral', onClick: () => imprimir('GERAL') },
+        { label: 'Relatório agrupado por bairro', onClick: () => imprimir('BAIRRO') },
       ]}
       campos={({ form, editavel }) => {
         formRef.current = form;
@@ -76,7 +76,7 @@ export function LotesCobrancaCadMaster() {
               name="codparceiro"
               render={({ field }) => (
                 <SelectField
-                  label="&Cobrador"
+                  label="Cobrador"
                   options={cobradorOptions}
                   value={field.value != null ? String(field.value) : undefined}
                   onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -90,7 +90,7 @@ export function LotesCobrancaCadMaster() {
               name="data"
               render={({ field }) => (
                 <DateField
-                  label="&Emissão"
+                  label="Emissão"
                   value={(field.value as string) || undefined}
                   onChange={(v) => field.onChange(v ?? '')}
                   disabled={!editavel}

@@ -113,11 +113,11 @@ export function AnaliseComportamentoPeriodoPage() {
             </div>
           ))}
           <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-28"><Field label="&Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
-            <div className="w-28"><Field label="&Seção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>
+            <div className="w-28"><Field label="Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
+            <div className="w-28"><Field label="Seção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>
             <div className="w-28"><Field label="&Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-            <div className="w-28"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-            <div className="w-28"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+            <div className="w-28"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+            <div className="w-28"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
             <label className="flex items-center gap-gp-xs text-body-sm">
               <input type="checkbox" checked={f.custoReposicao} onChange={(e) => setF({ ...f, custoReposicao: e.target.checked })} />
               Custo de reposição

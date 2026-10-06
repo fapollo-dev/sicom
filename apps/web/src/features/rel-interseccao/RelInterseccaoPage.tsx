@@ -96,9 +96,9 @@ export function RelInterseccaoPage() {
           contêm o produto e soma tudo o que estava junto neles.
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-40"><Field label="&Produto (código)" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
+          <div className="w-40"><Field label="Produto (código)" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
           <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Tipo de análise
             <select className="rounded border border-border px-1 py-1" value={f.ordenarPor}
@@ -107,7 +107,7 @@ export function RelInterseccaoPage() {
               <option value="CUPOM">Qtde cupom</option>
             </select>
           </label>
-          <div className="w-40"><Field label="Qtde itens &analisados" value={f.limite} onChange={(e) => setF({ ...f, limite: e.target.value })} /></div>
+          <div className="w-40"><Field label="Qtde itens analisados" value={f.limite} onChange={(e) => setF({ ...f, limite: e.target.value })} /></div>
           <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Pesquisar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />

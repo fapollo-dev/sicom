@@ -157,8 +157,8 @@ export function HistVendasPage() {
 
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-40"><NumberField label="&Cupom" value={cupom} decimais={0} min={0} onChange={setCupom} /></div>
-        <div className="w-28"><NumberField label="&PDV" value={pdv} decimais={0} min={0} max={99} onChange={setPdv} /></div>
-        <div className="w-64"><Field label="Nro. &Pedido (opcional)" value={pedido} onChange={(e) => setPedido(e.target.value)} placeholder="ex. 01280526112745" /></div>
+        <div className="w-28"><NumberField label="PDV" value={pdv} decimais={0} min={0} max={99} onChange={setPdv} /></div>
+        <div className="w-64"><Field label="Nro. Pedido (opcional)" value={pedido} onChange={(e) => setPedido(e.target.value)} placeholder="ex. 01280526112745" /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
       </div>
 
@@ -167,7 +167,7 @@ export function HistVendasPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-44"><DateField label="&De" value={dtini} onChange={setDtini} /></div>
           <div className="w-44"><DateField label="&Até" value={dtfim} onChange={setDtfim} /></div>
-          <div className="min-w-48 flex-1"><Field label="C&liente" value={fCliente} onChange={(e) => setFCliente(e.target.value)} placeholder="parte do nome" /></div>
+          <div className="min-w-48 flex-1"><Field label="Cliente" value={fCliente} onChange={(e) => setFCliente(e.target.value)} placeholder="parte do nome" /></div>
           <div className="w-36"><NumberField label="Cupo&m" value={fCupom} decimais={0} min={0} onChange={setFCupom} /></div>
           <div className="w-52"><Field label="Pedi&do" value={fPedido} onChange={(e) => setFPedido(e.target.value)} placeholder="início do número" /></div>
           <Button label="&Pesquisar" variant="ghost" disabled={busy} onClick={() => void pesquisar()} />

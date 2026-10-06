@@ -56,8 +56,8 @@ export function RelBalancoPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">Ativo e passivo na data escolhida. O saldo anterior vem de tudo lançado antes do 1º dia do mês; débito e crédito são o movimento do mês até a data.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-40"><Field label="&Saldos em" type="date" value={f.data} onChange={(e) => setF({ ...f, data: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Página inicial" value={f.pagina} onChange={(e) => setF({ ...f, pagina: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-40"><Field label="Saldos em" type="date" value={f.data} onChange={(e) => setF({ ...f, data: e.target.value })} /></div>
+          <div className="w-28"><Field label="Página inicial" value={f.pagina} onChange={(e) => setF({ ...f, pagina: e.target.value.replace(/\D/g, '') })} /></div>
           <div className="w-40"><Field label="&Lojas (vírgula)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} /></div>
         </div>
         <div className="mt-form-gap flex flex-wrap items-center gap-gp-md">

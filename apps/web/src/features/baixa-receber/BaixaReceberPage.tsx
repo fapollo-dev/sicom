@@ -256,9 +256,9 @@ export function BaixaReceberPage() {
         {lote && (
           <>
             <strong className="text-sm">Lote {lote}{loteManutencao ? ` · manutenção do lote ${loteManutencao}` : ''}{arquivoRetorno ? ` · retorno ${arquivoRetorno}` : ''}</strong>
-            <div className="w-44"><DateField label="&Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
+            <div className="w-44"><DateField label="Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
             <div className="flex-1" />
-            <Button label="Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
+            <Button label="&Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
             <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length} />
           </>
         )}
@@ -392,7 +392,7 @@ export function BaixaReceberPage() {
               <Field label="Valor" inputMode="decimal" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} />
               <div className="sm:col-span-2 lg:col-span-4"><Field label="Histórico" value={novo.historico} onChange={(e) => setNovo({ ...novo, historico: e.target.value })} /></div>
               <div className="flex justify-end gap-gp-sm sm:col-span-2 lg:col-span-4">
-                <Button label="Cancelar" variant="ghost" onClick={() => setNovo(null)} />
+                <Button label="&Cancelar" variant="ghost" onClick={() => setNovo(null)} />
                 <Button label="&Salvar recurso" onClick={salvarRecurso} />
               </div>
             </div>

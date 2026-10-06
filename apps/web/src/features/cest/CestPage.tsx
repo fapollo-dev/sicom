@@ -62,9 +62,9 @@ export function CestPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">O Código Especificador da Substituição Tributária, por NCM. É o código que sai na NF-e e no SPED — um produto apontando um CEST que não existe aqui vai com o código errado.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32"><Field label="&CEST" value={f.cest} maxLength={7} onChange={(e) => setF({ ...f, cest: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-32"><Field label="&NCM" value={f.ncm} maxLength={8} onChange={(e) => setF({ ...f, ncm: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-[28rem]"><Field label="&Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
+          <div className="w-32"><Field label="CEST" value={f.cest} maxLength={7} onChange={(e) => setF({ ...f, cest: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-32"><Field label="NCM" value={f.ncm} maxLength={8} onChange={(e) => setF({ ...f, ncm: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-[28rem]"><Field label="Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
           <div className="w-64"><Field label="Se&gmento" value={f.seguimento} onChange={(e) => setF({ ...f, seguimento: e.target.value })} /></div>
           <div className="w-24"><Field label="&Item" value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} /></div>
           <div className="w-32">

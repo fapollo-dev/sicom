@@ -75,20 +75,20 @@ export function OperadorasPage() {
       <div className="flex flex-col gap-gp-md p-pad-md">
         <PageHeader title={sel.codoperadoras > 0 ? `Operadora nº ${sel.codoperadoras}` : 'Nova operadora'} />
         <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <div className="w-64"><Field label="&Nome da operadora" value={form.operadora ?? ''} onChange={(e) => set('operadora', e.target.value)} /></div>
-          <div className="w-36"><SelectField label="&Tipo" value={form.tipo ?? 'C'} onChange={(v) => set('tipo', v)} options={TIPOS} /></div>
+          <div className="w-64"><Field label="Nome da operadora" value={form.operadora ?? ''} onChange={(e) => set('operadora', e.target.value)} /></div>
+          <div className="w-36"><SelectField label="Tipo" value={form.tipo ?? 'C'} onChange={(v) => set('tipo', v)} options={TIPOS} /></div>
           <div className="w-28"><NumberField label="Taxa &adm (%)" value={form.txadm} decimais={4} min={0} onChange={(v) => set('txadm', v)} /></div>
           <div className="w-28"><NumberField label="Taxa &parc (%)" value={form.txadmparc} decimais={4} min={0} onChange={(v) => set('txadmparc', v)} /></div>
           <div className="w-32"><NumberField label="&Dias compens." value={form.diascomp} decimais={0} min={0} onChange={(v) => set('diascomp', v)} /></div>
-          <Button label="&Salvar" variant="soft" disabled={busy} onClick={() => void salvar()} />
-          {sel.codoperadoras > 0 && <Button label="E&xcluir" variant="ghost" disabled={busy} onClick={() => void excluir()} />}
+          <Button label="Salvar" variant="soft" disabled={busy} onClick={() => void salvar()} />
+          {sel.codoperadoras > 0 && <Button label="Excluir" variant="ghost" disabled={busy} onClick={() => void excluir()} />}
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregar(); }} />
         </div>
 
         <div className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <div className="mb-2 text-body-sm font-semibold text-fg-muted">Override de taxa por empresa (opcional — tem precedência sobre a taxa base)</div>
           <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-28"><NumberField label="&Empresa" value={tEmp} decimais={0} min={1} onChange={setTEmp} /></div>
+            <div className="w-28"><NumberField label="Empresa" value={tEmp} decimais={0} min={1} onChange={setTEmp} /></div>
             <div className="w-28"><NumberField label="&Taxa (%)" value={tTx} decimais={4} min={0} onChange={setTTx} /></div>
             <div className="w-32"><NumberField label="&Dias fech." value={tDia} decimais={0} min={0} onChange={setTDia} /></div>
             <Button label="&Adicionar" variant="soft" onClick={addTaxa} />

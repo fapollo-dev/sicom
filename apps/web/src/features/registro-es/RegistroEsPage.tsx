@@ -103,7 +103,7 @@ export function RegistroEsPage({ tipo }: { tipo: 'E' | 'S' }) {
         <div className="w-44"><DateField label="Data &inicial" value={dataini} onChange={setDataini} /></div>
         <div className="w-44"><DateField label="Data &final" value={datafin} onChange={setDatafin} /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
-        <div className="w-24"><Field label="Nrº &Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
+        <div className="w-24"><Field label="Nrº Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
         <div className="w-24"><Field label="Nrº F&olha" value={folha} inputMode="numeric" onChange={(e) => setFolha(e.target.value.replace(/\D/g, ''))} /></div>
         <Button label="&Imprimir livro (F11)" variant="ghost" disabled={busy} onClick={() => void imprimir()} />
         <Button label="&Exportar" variant="ghost" disabled={!notas.length} onClick={exportar} />

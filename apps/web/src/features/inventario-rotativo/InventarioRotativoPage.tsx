@@ -151,8 +151,8 @@ export function InventarioRotativoPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <Field label="&Nome do lote" value={nomelote} onChange={(e) => setNomelote(e.target.value)} />
         <SelectField label="&Tipo" value={tipo} onChange={(v) => setTipo(v || 'R')} options={[{ value: 'R', label: 'Rotativo' }, { value: 'G', label: 'Geral' }]} />
-        <NumberField label="&Grupo" value={codgrupo} onChange={setCodgrupo} />
-        <NumberField label="&Seção" value={codsecao} onChange={setCodsecao} />
+        <NumberField label="Grupo" value={codgrupo} onChange={setCodgrupo} />
+        <NumberField label="Seção" value={codsecao} onChange={setCodsecao} />
         <CheckboxField label="&Exige confirmação" value={exige ? 'S' : 'N'} onChange={(v) => setExige(v === 'S')} />
         <Button label="&Abrir lote" variant="soft" disabled={busy || !nomelote.trim()} onClick={() => void abrir()} />
       </div>

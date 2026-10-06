@@ -62,10 +62,10 @@ export function FamiliasCadMaster() {
           <div className="flex flex-col gap-form-gap">
             <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
               <div className="sm:col-span-2">
-                <Field label="&Descrição" disabled={!editavel} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
+                <Field label="Descrição" disabled={!editavel} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
               </div>
               <Controller control={form.control} name="tipo" render={({ field }) => (
-                <SelectField label="&Tipo" options={FAMILIA_TIPO_OPCOES} value={field.value ?? undefined} onChange={(v) => field.onChange(v || 'D')} disabled={!editavel} />
+                <SelectField label="Tipo" options={FAMILIA_TIPO_OPCOES} value={field.value ?? undefined} onChange={(v) => field.onChange(v || 'D')} disabled={!editavel} />
               )} />
               {codigo(form, 'codplc', 'Centro de custo de perdas', plcs, editavel)}
               {flag(form, 'ativo', 'Ativo', editavel)}

@@ -93,3 +93,30 @@ test.describe('teclas próprias das telas (FormKeyDown de cada form)', () => {
     expect((await consulta).status()).toBeLessThan(500);
   });
 });
+
+test.describe('mnemônicos do .dfm', () => {
+  test('Alt+letra da legenda da aba abre a aba (TTabSheet "Itens da &nota" da NF)', async ({ page }) => {
+    await entrar(page);
+    await page.goto('/fiscal/notas/entrada');
+    const itens = page.getByRole('tab', { name: 'Itens da nota' });
+    const calculo = page.getByRole('tab', { name: 'Cálculo de impostos' });
+    await itens.waitFor();
+    await page.keyboard.press('Alt+l'); // "Cá&lculo de impostos"
+    await expect(calculo).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Alt+n'); // "Itens da &nota"
+    await expect(itens).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('a Pesquisa tem F3 (foca o filtro) e F5 (limpa) próprios', async ({ page }) => {
+    await entrar(page);
+    await page.goto('/cadastro/bancos');
+    await page.getByRole('button', { name: /Pesquisar/ }).waitFor();
+    await page.keyboard.press('F3');
+    const busca = page.getByRole('dialog').getByLabel('Buscar');
+    await busca.fill('xyz');
+    await page.keyboard.press('F5');
+    await expect(busca).toHaveValue('');
+    await page.keyboard.press('F3');
+    await expect(busca).toBeFocused();
+  });
+});

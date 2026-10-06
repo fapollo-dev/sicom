@@ -119,7 +119,7 @@ export function AjustePrecosPage() {
         <Button label="&Marcar/desmarcar todos" variant="ghost" disabled={!lotes.length} onClick={todos} />
         <Button label="&Processar selecionados" variant="soft" disabled={busy || !sel.size} onClick={() => void processar()} />
         <Button label="E&xcluir da fila" variant="ghost" disabled={busy || !sel.size} onClick={() => void excluir()} />
-        <Button label="E&tiquetas" variant="ghost" disabled={busy || (!sel.size && !ultimos.length)} onClick={etiquetas} />
+        <Button label="&Etiquetas" variant="ghost" disabled={busy || (!sel.size && !ultimos.length)} onClick={etiquetas} />
         <label className="flex items-center gap-gp-2xs text-body-sm"><input type="checkbox" checked={semPromo} onChange={(e) => setSemPromo(e.target.checked)} /> sem os de promoção</label>
         <div className="flex-1 text-right text-body-sm"><b>{sel.size}</b> de {lotes.length} lote(s) selecionado(s)</div>
         <small className="w-full text-fg-muted">Lotes de preço pendentes propostos pelas telas de origem. «Processar» aplica o preço no cadastro (por empresa do lote) e propaga aos produtos do mesmo grupo de preço; a etiqueta é marcada para reimpressão. O preço não é editável aqui.</small>

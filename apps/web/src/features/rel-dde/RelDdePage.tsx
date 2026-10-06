@@ -168,7 +168,7 @@ export function RelDdePage() {
               </select>
             </label>
           )}
-          <div className="w-52"><Field label="&Dias para o cálculo da cobertura" value={f.dias} onChange={(e) => setF({ ...f, dias: e.target.value })} /></div>
+          <div className="w-52"><Field label="Dias para o cálculo da cobertura" value={f.dias} onChange={(e) => setF({ ...f, dias: e.target.value })} /></div>
           {f.tipo === 'RUPTURA' && (
             <>
               <label className="flex flex-col gap-gp-xs text-body-sm">
@@ -190,12 +190,12 @@ export function RelDdePage() {
           {res?.tipo === 'RUPTURA' && <Button label="Gerar &cotação" variant="soft" disabled={ocupado} onClick={() => void gerarCotacao()} />}
         </div>
         <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="Su&bgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="Se&ção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>
-          <div className="w-32"><Field label="Pr&oduto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Seção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>
+          <div className="w-32"><Field label="Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
         </div>
         {f.tipo === 'PADRAO' && (
           <label className="mt-form-gap flex items-center gap-gp-sm text-body-sm">

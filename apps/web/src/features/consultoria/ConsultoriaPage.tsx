@@ -83,7 +83,7 @@ export function ConsultoriaPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-56"><SelectField label="&Nível" options={NIVEIS} value={nivel} onChange={(v) => setNivel(v ?? 'DEPARTAMENTO')} /></div>
           <div className="w-40"><Field label="&De" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
+          <div className="w-40"><Field label="até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={imprimir} />
         </div>

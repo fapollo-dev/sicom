@@ -176,7 +176,7 @@ export function CnabRemessaPage() {
         <Button label="&Ver boleto" variant="ghost" disabled={busy || !sel.size} onClick={() => void verBoleto()} />
         <Button label="Alterar &vencimento" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('AV')} />
         <Button label="&Cancelar no banco" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('C')} />
-        <Button label="&Remessas geradas" variant="ghost" disabled={busy} onClick={() => void listarRemessas()} />
+        <Button label="Remessas geradas" variant="ghost" disabled={busy} onClick={() => void listarRemessas()} />
         <label className="cursor-pointer text-body-sm underline">
           Importar retorno…
           <input type="file" accept=".ret,.txt,.crt,.rem" className="hidden"

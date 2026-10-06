@@ -52,20 +52,20 @@ export function BancosCadMaster() {
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Field
-              label="&Banco"
+              label="Banco"
               disabled={!editavel}
               error={form.formState.errors.banco?.message as string | undefined}
               {...form.register('banco')}
             />
           </div>
           <Field
-            label="&Cidade"
+            label="Cidade"
             disabled={!editavel}
             error={form.formState.errors.cidade?.message as string | undefined}
             {...form.register('cidade')}
           />
           <Field
-            label="&Agência"
+            label="Agência"
             disabled={!editavel}
             error={form.formState.errors.agencia?.message as string | undefined}
             {...form.register('agencia')}
@@ -75,7 +75,7 @@ export function BancosCadMaster() {
             name="agenciaCedente"
             render={({ field }) => (
               <NumberField
-                label="Agência Ce&dente"
+                label="Agência Cedente"
                 decimais={0}
                 disabled={!editavel}
                 value={field.value ?? undefined}
@@ -103,7 +103,7 @@ export function BancosCadMaster() {
             name="convenio"
             render={({ field }) => (
               <NumberField
-                label="Con&vênio"
+                label="Convênio"
                 decimais={0}
                 disabled={!editavel}
                 value={field.value ?? undefined}
@@ -117,7 +117,7 @@ export function BancosCadMaster() {
             name="carteiraCobranca"
             render={({ field }) => (
               <NumberField
-                label="Carteira Cob&rança"
+                label="Carteira Cobrança"
                 decimais={0}
                 disabled={!editavel}
                 value={field.value ?? undefined}
@@ -131,7 +131,7 @@ export function BancosCadMaster() {
             name="variacaoCarteira"
             render={({ field }) => (
               <NumberField
-                label="Variação Car&teira"
+                label="Variação Carteira"
                 decimais={0}
                 disabled={!editavel}
                 value={field.value ?? undefined}

@@ -80,14 +80,14 @@ export function OperadoresCadMaster() {
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <Field
-            label="&Nome"
+            label="Nome"
             maxLength={30}
             disabled={!editavel}
             error={form.formState.errors.nome?.message as string | undefined}
             {...form.register('nome')}
           />
           <Field
-            label="&Login"
+            label="Login"
             maxLength={50}
             disabled={!editavel}
             error={form.formState.errors.login?.message as string | undefined}
@@ -96,7 +96,7 @@ export function OperadoresCadMaster() {
           {/* a senha (uCadUsuarios.pas:423-432): obrigatória na inclusão; na alteração, vazia mantém a atual. O usuário troca no
               primeiro acesso. */}
           <Field
-            label="S&enha"
+            label="Senha"
             type="password"
             autoComplete="new-password"
             maxLength={50}
@@ -145,7 +145,7 @@ export function OperadoresCadMaster() {
             name="idsupervisor"
             render={({ field }) => (
               <SelectField
-                label="Supervi&sor"
+                label="Supervisor"
                 options={supervisorOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -172,7 +172,7 @@ export function OperadoresCadMaster() {
               control={form.control}
               name="desabilita_desconto_pdv"
               render={({ field }) => (
-                <CheckboxField label="Desabilita Desco&nto no PDV" value={field.value ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+                <CheckboxField label="Desabilita Desconto no PDV" value={field.value ?? 'N'} onChange={field.onChange} disabled={!editavel} />
               )}
             />
             <Controller

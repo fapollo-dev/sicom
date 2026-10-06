@@ -112,10 +112,10 @@ export function AnaliseComportamentoPage() {
           <div className="w-28"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
           <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
-          <Button label="Im&primir" variant="soft" disabled={ocupado} onClick={() => {
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
             void imprimirRelatorio(`/relatorios/analise-comportamento/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
           }} />
-          <Button label="&Impostos" variant="outline" onClick={() => void carregarImpostos()} />
+          <Button label="Impostos" variant="outline" onClick={() => void carregarImpostos()} />
         </div>
       </section>
 

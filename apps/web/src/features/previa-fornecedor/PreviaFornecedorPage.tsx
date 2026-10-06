@@ -147,7 +147,7 @@ export function PreviaFornecedorPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-44"><Field label="Data de &análise" type="date" value={dataAnalise} onChange={(e) => setDataAnalise(e.target.value)} /></div>
         <div className="w-40"><Field label="&Fornecedor (cód.)" value={codfor} onChange={(e) => setCodfor(e.target.value)} placeholder="todos" /></div>
-        <div className="w-44"><SelectField label="Perío&do" value={periodizacao} onChange={setPeriodizacao} options={[
+        <div className="w-44"><SelectField label="Período" value={periodizacao} onChange={setPeriodizacao} options={[
           { value: '15D', label: '15 Dias' }, { value: '5D', label: '5 Dias' }, { value: '30D', label: '30 Dias' },
           { value: '5S', label: '5 Semanas' }, { value: '5M', label: '5 Meses' }, { value: '5A', label: '5 Anos' },
           { value: 'ANUAL', label: 'Anual (12 meses)' }, { value: 'PERIODO', label: 'Habilita Período…' },
@@ -164,13 +164,13 @@ export function PreviaFornecedorPage() {
             ]} /></div>
             <div className="w-28"><Field label="&Qtde" type="number" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} /></div>
             {(unidade === 'MESES' || unidade === 'ANOS') && (
-              <div className="w-36"><SelectField label="&Modelo" value={modelo} onChange={setModelo} options={[
+              <div className="w-36"><SelectField label="Modelo" value={modelo} onChange={setModelo} options={[
                 { value: 'SINTETICO', label: 'Sintético' }, { value: 'ANALITICO', label: 'Analítico' },
               ]} /></div>
             )}
           </>
         )}
-        <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'PEDIDOS', label: 'Pedidos' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
+        <div className="w-52"><SelectField label="Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'PEDIDOS', label: 'Pedidos' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
         <div className="w-56"><SelectField label="Situa&ção" value={ativo} onChange={setAtivo} placeholder="(sem filtro)" options={[
           { value: '1', label: 'Ativo p/ compra = S' }, { value: '2', label: 'Ativo = S' },
           { value: '3', label: 'Ativo p/ compra = N' }, { value: '4', label: 'Ativo = N' },

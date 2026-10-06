@@ -48,7 +48,7 @@ export function CaixaDmePage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">Declaração de Operações Liquidadas com Moeda em Espécie: parceiros (não funcionários) cuja soma em dinheiro no período passa de R$ 30.000, separando o que recebemos (a receber) do que pagamos (a pagar). Escolha o mês da declaração.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-36">
             <label className="mb-1 block text-body-sm text-fg-muted">Tipo</label>
             <select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>

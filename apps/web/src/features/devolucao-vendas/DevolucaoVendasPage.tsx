@@ -111,7 +111,7 @@ export function DevolucaoVendasPage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">Ache o cupom, marque os itens que o cliente devolveu e informe o motivo. <strong>O estoque não é alterado aqui</strong> — quem devolve mercadoria ao estoque é a nota fiscal de devolução.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-32"><Field label="&Cupom" value={f.nrocupom} onChange={(e) => setF({ ...f, nrocupom: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-24"><Field label="&PDV" value={f.nropdv} onChange={(e) => setF({ ...f, nropdv: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-24"><Field label="PDV" value={f.nropdv} onChange={(e) => setF({ ...f, nropdv: e.target.value.replace(/\D/g, '') })} /></div>
           <div className="w-40"><Field label="Venda &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
@@ -122,10 +122,10 @@ export function DevolucaoVendasPage() {
               {motivos.map((m) => <option key={m.codmotivoop} value={m.codmotivoop}>{m.descricao}</option>)}
             </select>
           </div>
-          <Button label="&Registrar devolução" disabled={ocupado || sel.size === 0} onClick={() => void acao('registrar')} />
+          <Button label="Registrar devolução" disabled={ocupado || sel.size === 0} onClick={() => void acao('registrar')} />
           <Button label="Re&verter" variant="outline" disabled={ocupado || sel.size === 0} onClick={() => void acao('reverter')} />
-          <Button label="Pré-visualizar e&xtrato" variant="ghost" disabled={ocupado || sel.size === 0} onClick={previa} />
-          <Button label="Reimpressão" variant="ghost" disabled={ocupado || !res?.itens?.length} onClick={() => reimprimir(false)} />
+          <Button label="Pré-visualizar extrato" variant="ghost" disabled={ocupado || sel.size === 0} onClick={previa} />
+          <Button label="&Reimpressão" variant="ghost" disabled={ocupado || !res?.itens?.length} onClick={() => reimprimir(false)} />
           <Button label="Reimpressão (preenchimento)" variant="ghost" disabled={ocupado || !res?.itens?.length} onClick={() => reimprimir(true)} />
         </div>
       </section>

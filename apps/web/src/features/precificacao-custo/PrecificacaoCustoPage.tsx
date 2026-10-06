@@ -109,7 +109,7 @@ export function PrecificacaoCustoPage() {
           <div className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
             <div className="mb-1 text-body-sm font-semibold text-fg-muted">Componentes do custo</div>
             <div className="flex flex-col gap-1">
-              <NumberField label="&Custo" value={comp.vrcusto} decimais={4} onChange={(v) => void recalcular({ vrcusto: v ?? 0 })} />
+              <NumberField label="C&usto" value={comp.vrcusto} decimais={4} onChange={(v) => void recalcular({ vrcusto: v ?? 0 })} />
               <div className="grid grid-cols-2 gap-1">
                 <NumberField label="ICMS créd. %" value={comp.icme} decimais={2} onChange={(v) => void recalcular({ icme: v ?? 0 })} />
                 <NumberField label="IPI %" value={comp.ipi} decimais={2} onChange={(v) => void recalcular({ ipi: v ?? 0 })} />

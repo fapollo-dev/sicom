@@ -76,8 +76,8 @@ export function RelEntradasFinanPage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">As notas de entrada do período (data contábil) e os títulos a pagar de cada uma. Clique na nota para ver os títulos.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
           <label className="flex items-center gap-1 pb-2 text-body-sm"><input type="checkbox" checked={f.somenteSemTitulo} onChange={(e) => setF({ ...f, somenteSemTitulo: e.target.checked })} /> só notas sem título</label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           {/* o legado só habilita o Imprimir depois de uma consulta com notas */}

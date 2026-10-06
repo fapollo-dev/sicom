@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, PageHeader } from '@apollosg/design-system';
+import { PageHeader } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { DATAS_FATURAMENTO, isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';

@@ -87,10 +87,10 @@ export function ConfigLegislacaoPage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">As mensagens legais que entram nas observações da nota e na informação adicional do item. Endereçadas por UF, CFOP, produto ou parceiro — quanto mais específica, mais forte.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-64"><Field label="&Chave" value={f.descricao} maxLength={120} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
-          <div className="w-20"><Field label="&UF" value={f.uf} maxLength={2} onChange={(e) => setF({ ...f, uf: e.target.value.toUpperCase() })} /></div>
-          <div className="w-24"><Field label="C&FOP" value={f.codcfop} onChange={(e) => setF({ ...f, codcfop: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-28"><Field label="&Produto" value={f.codproduto} onChange={(e) => setF({ ...f, codproduto: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-28"><Field label="P&arceiro" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-20"><Field label="UF" value={f.uf} maxLength={2} onChange={(e) => setF({ ...f, uf: e.target.value.toUpperCase() })} /></div>
+          <div className="w-24"><Field label="CFOP" value={f.codcfop} onChange={(e) => setF({ ...f, codcfop: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-28"><Field label="Produto" value={f.codproduto} onChange={(e) => setF({ ...f, codproduto: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-28"><Field label="Parceiro" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value.replace(/\D/g, '') })} /></div>
           <Button label={sel ? '&Gravar' : '&Incluir'} disabled={ocupado} onClick={() => void gravar()} />
           <Button label="&Novo" variant="outline" onClick={novo} />
           {sel && <Button label="E&xcluir" variant="ghost" onClick={() => void excluir()} />}

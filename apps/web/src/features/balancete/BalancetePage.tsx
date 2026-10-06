@@ -58,7 +58,7 @@ export function BalancetePage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-40"><Field label="Conta &inicial" value={f.contaIni} onChange={(e) => setF({ ...f, contaIni: e.target.value })} /></div>
+          <div className="w-40"><Field label="Conta inicial" value={f.contaIni} onChange={(e) => setF({ ...f, contaIni: e.target.value })} /></div>
           <div className="w-40"><Field label="Conta &final" value={f.contaFim} onChange={(e) => setF({ ...f, contaFim: e.target.value })} /></div>
           <div className="w-24">
             <label className="mb-1 block text-body-sm text-fg-muted">Nível</label>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../ui/Modal';
 import { apiHeaders, handle401 } from '../auth/session';
 import { Button } from '../ui/Button';
 import { useMensagem } from '../mensagem';

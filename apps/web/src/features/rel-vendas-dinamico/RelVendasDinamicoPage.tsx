@@ -76,12 +76,12 @@ export function RelVendasDinamicoPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-28"><Field label="&Hora" type="time" value={f.horaIni} onChange={(e) => setF({ ...f, horaIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-28"><Field label="H&ora" type="time" value={f.horaFim} onChange={(e) => setF({ ...f, horaFim: e.target.value })} /></div>
-          <div className="w-52"><Field label="&Produto" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-52"><Field label="Produto" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.somenteAtivoCompra === 'S'}
               onChange={(e) => setF({ ...f, somenteAtivoCompra: e.target.checked ? 'S' : 'N' })} />

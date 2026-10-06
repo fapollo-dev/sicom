@@ -372,20 +372,20 @@ function PrincipalSection({
 
           <div className="sm:col-span-2">
             <Field
-              label="&Descrição"
+              label="Descrição"
               disabled={!editavel}
               error={form.formState.errors.descricao?.message as string | undefined}
               {...form.register('descricao')}
             />
           </div>
           <Field
-            label="Descrição &resumida"
+            label="Descrição resumida"
             disabled={!editavel}
             error={form.formState.errors.descricao_resumida?.message as string | undefined}
             {...form.register('descricao_resumida')}
           />
           <Field
-            label="Descrição &web"
+            label="Descrição web"
             disabled={!editavel}
             error={form.formState.errors.descricao_web?.message as string | undefined}
             {...form.register('descricao_web')}
@@ -403,7 +403,7 @@ function PrincipalSection({
             name="codunidade"
             render={({ field }) => (
               <SelectField
-                label="&Unidade"
+                label="Unidade"
                 options={unidadeOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => {
@@ -426,7 +426,7 @@ function PrincipalSection({
             name="codfor"
             render={({ field }) => (
               <SelectField
-                label="&Fornecedor"
+                label="Fornecedor"
                 options={fornecedorOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -440,7 +440,7 @@ function PrincipalSection({
             name="idmarca"
             render={({ field }) => (
               <SelectField
-                label="&Marca"
+                label="Marca"
                 options={marcaOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -454,7 +454,7 @@ function PrincipalSection({
             name="codgrupo"
             render={({ field }) => (
               <SelectField
-                label="&Grupo"
+                label="Grupo"
                 options={grupoOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -468,7 +468,7 @@ function PrincipalSection({
             name="coddpto"
             render={({ field }) => (
               <SelectField
-                label="&Departamento"
+                label="Departamento"
                 options={dptoOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -482,7 +482,7 @@ function PrincipalSection({
             name="codsecao"
             render={({ field }) => (
               <SelectField
-                label="&Seção"
+                label="Seção"
                 options={secaoOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -512,7 +512,7 @@ function PrincipalSection({
             name="ativo_compra"
             render={({ field }) => (
               <CheckboxField
-                label="Ativo p/ &compra"
+                label="Ativo p/ compra"
                 value={field.value}
                 onChange={field.onChange}
                 disabled={!editavel || !pode('CHBATIVOCOMPRA')}
@@ -562,7 +562,7 @@ function PrincipalSection({
             name="fatorkg"
             render={({ field }) => (
               <NumberField
-                label="Fator &KG"
+                label="Fator KG"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={3}
@@ -577,7 +577,7 @@ function PrincipalSection({
             name="peso"
             render={({ field }) => (
               <NumberField
-                label="&Peso"
+                label="Peso"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={3}
@@ -640,7 +640,7 @@ function FiscalSection({
           {...form.register('ncmsh')}
         />
         <Field
-          label="&CEST"
+          label="CEST"
           inputMode="numeric"
           maxLength={7}
           disabled={!editavel}
@@ -725,7 +725,7 @@ function FiscalSection({
           name="mva"
           render={({ field }) => (
             <NumberField
-              label="&MVA (%)"
+              label="MVA (%)"
               value={field.value as number | undefined}
               onChange={field.onChange}
               decimais={2}
@@ -852,7 +852,7 @@ function PrecosSection({
             name="precos.0.vrcusto"
             render={({ field }) => (
               <CurrencyField
-                label="&Custo"
+                label="Custo"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 disabled={!pode('EDTCUSTO')}
@@ -880,7 +880,7 @@ function PrecosSection({
             name="precos.0.markup"
             render={({ field }) => (
               <NumberField
-                label="&Markup"
+                label="Markup"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={4}
@@ -963,7 +963,7 @@ function PrecosSection({
             name="precos.0.ativo"
             render={({ field }) => (
               <CheckboxField
-                label="Ativo p/ &venda"
+                label="Ativo p/ venda"
                 value={field.value}
                 onChange={field.onChange}
               />
@@ -974,7 +974,7 @@ function PrecosSection({
             name="precos.0.ativo_compra"
             render={({ field }) => (
               <CheckboxField
-                label="Ativo p/ &compra"
+                label="Ativo p/ compra"
                 value={field.value}
                 onChange={field.onChange}
               />
@@ -984,7 +984,7 @@ function PrecosSection({
             control={form.control}
             name="precos.0.promocao"
             render={({ field }) => (
-              <CheckboxField label="&Promoção" value={field.value} onChange={field.onChange} />
+              <CheckboxField label="Promoção" value={field.value} onChange={field.onChange} />
             )}
           />
         </div>
@@ -1061,7 +1061,7 @@ function EstoqueSection({
           name="estoques.0.minimo"
           render={({ field }) => (
             <NumberField
-              label="&Mínimo"
+              label="Mínimo"
               value={field.value as number | undefined}
               onChange={field.onChange}
               decimais={3}
@@ -1075,7 +1075,7 @@ function EstoqueSection({
           name="estoques.0.maximo"
           render={({ field }) => (
             <NumberField
-              label="Má&ximo"
+              label="Máximo"
               value={field.value as number | undefined}
               onChange={field.onChange}
               decimais={3}
@@ -1090,7 +1090,7 @@ function EstoqueSection({
           name="estoques.0.local"
           render={({ field }) => (
             <Field
-              label="&Local"
+              label="Local"
               maxLength={50}
               value={field.value ?? ''}
               onChange={(e) => field.onChange(e.target.value.toUpperCase())}
@@ -1632,7 +1632,7 @@ function ReceitaSection({
       <div className="flex flex-col gap-gp-sm">
         <div>
           <Button
-            label="Adicionar &ingrediente"
+            label="Adicionar ingrediente"
             variant="soft"
             onClick={() => setEditIdx(-1)}
           />
@@ -1862,7 +1862,7 @@ function ProdutosFilhosSection({
             name="idproduto_pai"
             render={({ field }) => (
               <SelectField
-                label="&Produto pai"
+                label="Produto pai"
                 options={paiOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -2111,7 +2111,7 @@ function NutricionalSection({
             name="valorenergetico"
             render={({ field }) => (
               <NumberField
-                label="&Valor energético"
+                label="Valor energético"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={2}
@@ -2169,7 +2169,7 @@ function NutricionalSection({
             name="proteina"
             render={({ field }) => (
               <NumberField
-                label="&Proteína"
+                label="Proteína"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={2}
@@ -2285,7 +2285,7 @@ function NutricionalSection({
             name="fibra"
             render={({ field }) => (
               <NumberField
-                label="&Fibra alimentar"
+                label="Fibra alimentar"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={2}
@@ -2299,7 +2299,7 @@ function NutricionalSection({
             name="vd_fibra"
             render={({ field }) => (
               <NumberField
-                label="VD% f&ibra"
+                label="VD% fibra"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={2}
@@ -2314,7 +2314,7 @@ function NutricionalSection({
             name="sodio"
             render={({ field }) => (
               <NumberField
-                label="Sódi&o"
+                label="Sódio"
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 decimais={2}
@@ -2831,7 +2831,7 @@ function LogisticaSection({
               name="pallet_caixas_por_camada"
               render={({ field }) => (
                 <NumberField
-                  label="Caixas por &camada"
+                  label="Caixas por camada"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -2845,7 +2845,7 @@ function LogisticaSection({
               name="pallet_camadas_por_pallet"
               render={({ field }) => (
                 <NumberField
-                  label="Camadas por p&allet"
+                  label="Camadas por pallet"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -2859,7 +2859,7 @@ function LogisticaSection({
               name="pallet_caixas_por_pallet"
               render={({ field }) => (
                 <NumberField
-                  label="Cai&xas por pallet"
+                  label="Caixas por pallet"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -2873,7 +2873,7 @@ function LogisticaSection({
               name="pallet_empilhamento"
               render={({ field }) => (
                 <NumberField
-                  label="&Empilhamento"
+                  label="Empilhamento"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -2887,7 +2887,7 @@ function LogisticaSection({
               name="pallet_produtos_por_caixa"
               render={({ field }) => (
                 <NumberField
-                  label="&Produtos por caixa"
+                  label="Produtos por caixa"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -2901,7 +2901,7 @@ function LogisticaSection({
               name="pallet_produtos_por_pallet"
               render={({ field }) => (
                 <NumberField
-                  label="Produtos por pa&llet"
+                  label="Produtos por pallet"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}

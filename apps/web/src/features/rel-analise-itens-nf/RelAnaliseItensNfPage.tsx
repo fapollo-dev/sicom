@@ -77,7 +77,7 @@ export function RelAnaliseItensNfPage() {
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Tipo de nota
             <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
@@ -90,10 +90,10 @@ export function RelAnaliseItensNfPage() {
               onChange={(e) => setF({ ...f, incluirCanceladas: e.target.checked ? 'S' : 'N' })} />
             Incluir canceladas
           </label>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Nota fiscal" value={f.codnf} onChange={(e) => setF({ ...f, codnf: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Nota fiscal" value={f.codnf} onChange={(e) => setF({ ...f, codnf: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
           <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
             void imprimirRelatorio(`/relatorios/analise-itens-nf/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));

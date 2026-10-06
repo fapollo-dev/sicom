@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { TextArea } from '../../shared/ui/TextArea';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';

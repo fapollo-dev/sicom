@@ -90,7 +90,7 @@ export function MovimentacoesDiaPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-36"><Field label="&Operador" value={f.codoperador} onChange={(e) => setF({ ...f, codoperador: e.target.value })} /></div>
+          <div className="w-36"><Field label="Operador" value={f.codoperador} onChange={(e) => setF({ ...f, codoperador: e.target.value })} /></div>
           <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Opções de vendas

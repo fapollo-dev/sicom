@@ -106,10 +106,10 @@ export function AgendaPromocaoRelatorios({ codagenda }: { codagenda: number }) {
       <div className="flex flex-wrap items-end gap-gp-sm print:hidden">
         <div className="w-96"><SelectField label="&Relatório" value={tipo} onChange={(v) => { setTipo(v as TipoRelAgenda); setRes(null); }} options={TIPOS} /></div>
         {tipo === 'agenda' && <CheckboxField label="Agrupar por departamento" value={agrupar} onChange={setAgrupar} />}
-        {tipo !== 'inativos' && tipo !== 'agenda' && tipo !== 'fim-promocao' && <div className="w-40"><Field label="Data &inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>}
+        {tipo !== 'inativos' && tipo !== 'agenda' && tipo !== 'fim-promocao' && <div className="w-40"><Field label="Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>}
         {tipo !== 'inativos' && tipo !== 'agenda' && <div className="w-40"><Field label={tipo === 'fim-promocao' ? 'Data fim promoção' : 'Data &final'} type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>}
         <Button label={ocupado ? 'Gerando…' : '&Gerar'} variant="soft" disabled={ocupado} onClick={() => void gerar()} />
-        <Button label="Im&primir" variant="ghost" disabled={ocupado} onClick={imprimir} />
+        <Button label="&Imprimir" variant="ghost" disabled={ocupado} onClick={imprimir} />
       </div>
       {res && (
         <div className="flex flex-col gap-gp-sm overflow-x-auto">

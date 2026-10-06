@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import type { PedidoCompraItemDto } from '@apollo/shared';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';

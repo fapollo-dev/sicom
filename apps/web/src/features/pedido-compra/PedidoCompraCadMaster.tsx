@@ -3,7 +3,8 @@ import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Unlink } from 'lucide-react';
-import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import {
   pedidoCompraSchema,
   PC_TIPO_FRETE_OPCOES,
@@ -293,7 +294,7 @@ function CabecalhoBand({
           name="codparceiro"
           render={({ field }) => (
             <SelectField
-              label="&Fornecedor"
+              label="Fornecedor"
               options={fornecedorOptions}
               value={field.value != null ? String(field.value) : undefined}
               onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -311,7 +312,7 @@ function CabecalhoBand({
           name="data"
           render={({ field }) => (
             <DateField
-              label="&Data"
+              label="Data"
               value={(field.value as string) || undefined}
               onChange={(v) => field.onChange(v ?? '')}
               error={err.data?.message as string | undefined}
@@ -323,7 +324,7 @@ function CabecalhoBand({
           name="dt_vencimento"
           render={({ field }) => (
             <DateField
-              label="&Vencimento"
+              label="Vencimento"
               value={(field.value as string) || undefined}
               onChange={(v) => field.onChange(v ?? undefined)}
               error={err.dt_vencimento?.message as string | undefined}
@@ -335,7 +336,7 @@ function CabecalhoBand({
           name="data_faturamento"
           render={({ field }) => (
             <DateField
-              label="Data de &faturamento"
+              label="Data de faturamento"
               value={(field.value as string) || undefined}
               onChange={(v) => field.onChange(v ?? undefined)}
               error={err.data_faturamento?.message as string | undefined}
@@ -410,7 +411,7 @@ function CabecalhoBand({
           name="pc_tipo_frete"
           render={({ field }) => (
             <SelectField
-              label="Tipo de &frete"
+              label="Tipo de frete"
               options={freteOptions}
               value={field.value ?? undefined}
               onChange={(v) => field.onChange(v || undefined)}
@@ -424,7 +425,7 @@ function CabecalhoBand({
           name="pc_valor_frete"
           render={({ field }) => (
             <CurrencyField
-              label="&Valor do frete"
+              label="Valor do frete"
               value={field.value as number | undefined}
               onChange={(v) => field.onChange(v)}
               error={err.pc_valor_frete?.message as string | undefined}
@@ -803,7 +804,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
         >
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
             <CurrencyField label="&Valor" value={editParc.valor} onChange={(v) => setEditParc((e) => (e ? { ...e, valor: v as number } : e))} />
-            <DateField label="&Vencimento" value={editParc.data || undefined} onChange={(v) => setEditParc((e) => (e ? { ...e, data: v ?? e.data } : e))} />
+            <DateField label="Vencimento" value={editParc.data || undefined} onChange={(v) => setEditParc((e) => (e ? { ...e, data: v ?? e.data } : e))} />
           </div>
         </Modal>
       )}
@@ -967,20 +968,20 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
     <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Estado do pedido</legend>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {est.participa && !est.lojaLogadaFechada && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
+        {est.participa && !est.lojaLogadaFechada && !recebido && <Button label="Fechar pedido" variant="soft" onClick={() => void fechar()} />}
         {/* Wave 4 1:N: gerar/importar disponíveis enquanto FECHADO (o servidor barra quando o saldo zera —
             PEDIDO_TOTALMENTE_RECEBIDO); recebimento em VÁRIAS remessas. Reabrir só ANTES da 1ª remessa. */}
         {fechado && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
         {fechado && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
-        {est.lojaLogadaFechada && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
+        {est.lojaLogadaFechada && !recebido && <Button label="Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
         <Button label="&Imprimir pedido" variant="ghost" onClick={() => void imprimir(false)} />
         <Button label="Imprimir a&grupado" variant="ghost" onClick={() => void imprimir(true)} />
         {codpedcomp != null && (
-          <Button label="Imprimir conferência de pre&ço" variant="ghost"
+          <Button label="Imprimir conferência de preço" variant="ghost"
             onClick={() => imprimirRelatorio(`/compras/pedidos/${codpedcomp}/impressao/conferencia-preco`).catch((e) => mensagem.erro(e))} />
         )}
-        <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
+        <Button label="Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
         <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />
         <small className="text-fg-muted">
           {recebido

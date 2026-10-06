@@ -130,7 +130,7 @@ export function RelFinanceiroPage() {
             </select>
           </label>
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Filtrar a data por
             {/* o rgTipoClick: com "todos" o filtro de data fica travado em vencimento */}
@@ -148,7 +148,7 @@ export function RelFinanceiroPage() {
           </label>
           <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           {relatorio === 'GERAL' && <>
-          <div className="w-56"><Field label="&Parceiro" value={f.parceiro} onChange={(e) => setF({ ...f, parceiro: e.target.value })} /></div>
+          <div className="w-56"><Field label="P&arceiro" value={f.parceiro} onChange={(e) => setF({ ...f, parceiro: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.recebiveis === 'S'} onChange={(e) => setF({ ...f, recebiveis: e.target.checked ? 'S' : 'N' })} />
             Recebíveis

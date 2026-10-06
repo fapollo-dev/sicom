@@ -167,7 +167,7 @@ export function ApuracaoPisCofinsPage() {
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={periodo.dtini} onChange={(e) => setPeriodo({ ...periodo, dtini: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={periodo.dtfim} onChange={(e) => setPeriodo({ ...periodo, dtfim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={periodo.dtfim} onChange={(e) => setPeriodo({ ...periodo, dtfim: e.target.value })} /></div>
           <Button label="&Apurar" disabled={ocupado} onClick={() => void apurar()} />
         </div>
       </section>

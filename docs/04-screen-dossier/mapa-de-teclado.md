@@ -33,8 +33,75 @@ navegador pode ficar com a tecla — na casca Electron (ADR-008) elas chegam à 
 
 ## As teclas próprias de cada tela
 
-⏳ Corte 2 (em andamento): as 48 telas com F-keys próprias no legado e tela no Apollo. A lista com o comando de cada tecla está em
-`tools/teclado/mapa-teclado.json`.
+Corte 2 (06/10/2026): as telas com F-keys próprias no legado e tela no Apollo, pelo `FormKeyDown`/`FormKeyUp`/`ShortCut` de cada
+form (o comando de cada tecla está em `tools/teclado/mapa-teclado.json`). **Lacuna** = a ação que a tecla chama não existe na tela do
+Apollo (a tecla entra quando a ação entrar); **dev** = ferramenta de desenvolvedor (`CopyQuery`), fora.
+
+| form | tela | no Apollo | lacuna (por quê) |
+|---|---|---|---|
+| `FRMNF` | Nota fiscal | F7 lançamentos contábeis · F9 financeiro › cobrança ("Selecione uma nota fiscal!" sem nota) · no código de barras do boleto, Enter vai à próxima parcela e Tab não sai (o `FormShortCut`) | F1 Calcular e F4/F5/F6 (os totais são calculados no servidor, só leitura) · F11 formas de pagamento (aba futura) · Ctrl+D decomposição da linha corrente |
+| `FRMPEDIDOCOMPRA` | Pedido de compra | F7 adicionar item (com a permissão `BTNADICIONARI`) | F2/F12/Ctrl+F1 tipo de busca · F4/F5 abas · F6 análise · F8 coletor · F9 limpar · F10 excluir item corrente · F11 "compra para" |
+| `FRMMANIFESTODFE` | Manifesto DF-e | F2 consulta na SEFAZ · F3 pesquisa · T marca/desmarca | F5 últimas NF's (90 dias) |
+| `FRMFATURAMENTO2` | Faturamento | F2 processar · F4 bonificar | — |
+| `FRMEXPORTANFE` · `FRMNFANALISE` · `FRMRELPEDIDOCOMPRA` | Exporta NF-e · Análise de NF · Pedidos | F3 busca · F11 imprime · F10 gera / F11 imprime | T e F5 da exportação (sem seleção / linha corrente) |
+| `FRMCONFERENCIANOTA` · `FRMCONFERENCIANFINDEXADOR` | Conferências | T/D marca/desmarca · F2 busca / F10 exporta | F3 Pesquisa de NF · F8/F9 layout da grade em .ini (no Apollo é o layout salvo da grade) |
+| `FRMPRECIFICACAONF` | Precificação da NF | F2 produto · F4 precificação por custo · F5 nota · F6 financeiro · T na grade | — |
+| `FRMCADCOTACAOFORN` · `FRMTROCAMERCADORIAFOR` | | — | F2/F4 da troca (linha corrente, PLU×barras) |
+| `FRMPESQUISA` | Pesquisa | F3 limpa e foca o filtro · F5 limpa busca e filtros · F6 situação (escopo próprio: com ela aberta, as teclas são dela) | F7 sub-select · F4 salvar layout · Alt+H ordenar pela coluna focada · Ins/F2 abrir o cadastro da view · atalhos de detalhe |
+| `FRMCADPRODUTO` | Produto | F5 foca o fator caixa | F7 análise do produto · F12 preço no PDV · F2 PLU×barras · F4 ir para a NF de decomposição · F5 da receita · Ctrl+A locate do estoque · F10 estoque por empresa |
+| `FRMCADAGENDAPROMOCAO` | Agenda de promoção | F2 limpa e foca o produto do adder | F3 opções abertas/fechadas + Pesquisa |
+| `FRMCADPROMOCAOACUMULATIVA` | Promoção acumulativa | F3 foca a situação do filtro (o `ChamaTelaOpcoes`) | — (a condição "foco no código" não existe: a tela não tem o campo) |
+| `FRMAJUSTEPRECOS` | Ajuste de preços | T marca/desmarca todos (fora de campo de digitação) | — |
+| `FRMMULTATUALIZACAO` | Mult atualização | F3 busca | F4 salvar configuração · Alt+H |
+| `FRMETIQUETA` | Etiqueta | F2 imprime (toda a tela) | — |
+| `FRMCADPRODUCAO` · `FRMCADSCRAP` · `FRMPRECIFICACAONFBRUTA` · `FRMDIGITACAOPEDIDOS` · `FRMPOSICAOPRODUTO` | | — | as teclas abrem ações que as telas não têm (abas, linha corrente, troca de produto, importação de perdas, digitação de pedido, multiempresa) |
+| `FRMBAIXAARECEBER` | Baixa a receber | F9 foco no "Adicionar recurso" | F8 taxa de juros (o campo não existe) |
+| `FRMCONSAPGBX` · `FRMCONSRCBBX` | Consultas de baixa AP/AR | F3 recarrega o lote (aberta com lote) ou busca os lotes | — |
+| `FRMCONSCLIRCB` | A receber do cliente | F8 foco nos juros (depois da consulta) | F6 situação da pesquisa de cliente |
+| `FRMRELFINANCEIRO` | Relatório financeiro | F9 consulta | F10 dev |
+| `FRMFLUXOCARTOES` | Fluxo de cartões | F3 gera · Ctrl+A exporta | — |
+| `FRMRELENTRADAS_FINAN` | Entradas × financeiro | F9 consulta · F11 imprime (com o Enabled do botão) | — |
+| `FRMCADARECEBER` · `FRMCADCLIENTES` · `FRMDESCONTOTITULO` · `FRMCADCARTAO` · `FRMSALDOEMPRESA` | | — | Alt+F4/Esc do modo faturamento · filtro e opções do F3 · Ctrl+N/Ctrl+A das abas do cliente · F2 log local · F3 Pesquisa do cartão · Alt+I menu Outros |
+| `FRMCONFIGDRECONTABIL` | Configurador do DRE | **sem as teclas da base** (`inherited` comentado) | F3 Pesquisa |
+| `FRMCADPLANOCONTAS` | Plano de contas | **sem as teclas da base** · F3 foca a busca da árvore | — |
+| `FRMCADPLC` | Centro de custo | Ctrl+Ins conta raiz (o Adicionar) | Shift+Ins conta derivada · Ctrl+I composição |
+| `FRMRELLANCAMENTOSCONTABEIS` | Lançamentos contábeis | Ctrl+A exporta a grade · Ctrl+B CSV | Ctrl+X TXT · F10 dev |
+| `FRMFECHAMENTOCAIXA` | Fechamento de caixa | F5 caixas do dia | Alt+I menu do Imprimir |
+| `FRMFECHAMENTODIARIO` | Fechamento diário | F8 fecha tudo · F9 reabre tudo | F6/F7 dia sob o cursor · F11 apaga a trava `RES_ALIQ_60D` |
+| `FRMRELFINALIZADORAS` | Finalizadoras | F10 consulta · F11 imprime | — |
+| `FRMRENTABILIDADECATEGORIAS` | Rentabilidade | F9 gera — **com a permissão do botão** (no legado o F9 chama o click direto e passa por cima do Tag) | — |
+| `FRMRELATORIOCAIXA` · `FRMRELATORIO` · `FRMCADUSUARIOS` · `FRMCONSULTORIAATM` | | — | F1 caminho do arquivo · Enter na grade de campos · F2 perfil por cima · (Esc da base, F10 dev) |
+
+**Menu "Outros" fora.** Os `ShortCut` dos itens do `ppmBotaoOutros` (Ctrl+L clonar, Ctrl+E etiquetas, Ctrl+N espelho… da NF;
+Ctrl+I da cotação) não disparam no legado: o menu só é `DropDown` de um `TJvArrowButton` sem foco, e na VCL o atalho de popup só vale
+pelo `PopupMenu` do controle focado (`TWinControl.IsMenuKey`). Ligá-los mataria o Ctrl+E da base na NF.
+
+**Telas sem as teclas da base.** Onde o `FormKeyDown`/`FormKeyPress` tem o `inherited` comentado, a tela é envolvida em
+`TeclasDaBaseDesligadas` (`shared/keyboard`): Esc, Ctrl+E, Alt+← e Enter-avança não valem, as teclas próprias sim.
+
+**Fora do Apollo.** Das 178 telas com teclas próprias, 118 não têm tela ligada pelo nome do form. Pelo `MENUEXPRESS` da produção:
+as de menu com uso (agenda de atendimento, cheques, inventário, controle de funcionários, transferência, apuração ST/CIAP, mapa de
+carga…, de 92 acessos para baixo) entram com a conversão de cada uma; as de 0 acesso são janelas chamadas por outra tela — as que
+já têm equivalente no Apollo (itens da NF, financeiro da NF, estoque da NF, lançamento contábil da NF, precificação do item do
+pedido, sincronizar CFOP, situação do documento) são o corte 3.
+
+## Mnemônicos (`&`)
+
+`tools/teclado/conferir-mnemonicos.py` compara os rótulos de cada tela com as legendas do `.dfm` do form que ela cita (todo controle
+com `Caption`, menos cabeçalho de grade) e grava `tools/teclado/mnemonicos.json`. 06/10/2026: **0 divergências** — saíram 371 `&` que o
+legado não tem e entraram/corrigiram-se 40 letras do legado (abas da NF e da apuração de ICMS, &Cancelar da baixa, &Sair dos diálogos…).
+Exceções com o porquê ficam em `EXCECOES` no próprio script (ex.: botão repetido por linha de grade não leva letra).
+
+Regras da camada (`shared/keyboard`):
+- **Uma tecla, um controle.** Com dois controles na mesma letra, só um aciona (o `CM_DIALOGCHAR` da VCL para no primeiro que aceita):
+  no mesmo escopo, o montado por último; desabilitado ou fora da tela passa ao próximo. Antes, Alt+C acionava os dois &Cancelar da baixa.
+- **Letra do legado ganha.** Se a letra do `.dfm` colide com a de um rótulo que só existe no Apollo, o do Apollo perde a letra.
+- **Janela = escopo próprio.** O `Modal` de `shared/ui` (todas as telas o usam) abre um escopo: com a janela aberta, as letras dela vêm
+  antes das da tela, e o `&` dos botões do rodapé vale (o DS desenhava "&Sair" cru). A pergunta inline (o `MessageDlg`) também.
+- **Abas.** A legenda da aba com `&` abre a aba (`Tabs`), como o `TTabSheet`.
+
+**Testes.** `apps/web/test/teclasDaBase.spec.tsx` e `pesquisa.spec.tsx` (jsdom) e `apps/web/e2e/teclado.e2e.ts` (Playwright, app real —
+[../06-testing-quality/playwright-e2e.md](../06-testing-quality/playwright-e2e.md)).
 
 ## Ver também
 

@@ -71,9 +71,9 @@ export function RelAnalisePedidoNfPage() {
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Comprador" value={f.codcomprador} onChange={(e) => setF({ ...f, codcomprador: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
+          <div className="w-32"><Field label="Comprador" value={f.codcomprador} onChange={(e) => setF({ ...f, codcomprador: e.target.value })} /></div>
           <div className="w-28"><Field label="&Pedido" value={f.codpedcomp} onChange={(e) => setF({ ...f, codpedcomp: e.target.value })} /></div>
           <div className="w-32"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} placeholder="esta loja" /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">

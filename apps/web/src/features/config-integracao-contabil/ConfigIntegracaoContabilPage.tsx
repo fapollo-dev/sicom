@@ -126,7 +126,7 @@ export function ConfigIntegracaoContabilPage() {
         {aba === 'Movimentações bancárias' && (
           <div className="mt-gp-md w-64">
             <Field
-              label="Fechar período a&té"
+              label="Fechar período até"
               type="date"
               value={valor('chaveamento_periodo').slice(0, 10)}
               onChange={(e) => setMudou({ ...mudou, chaveamento_periodo: e.target.value || null })}

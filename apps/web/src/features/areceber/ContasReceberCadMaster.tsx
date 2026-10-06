@@ -208,7 +208,7 @@ function CadastroTab({
         name="codparceiro"
         render={({ field }) => (
           <SelectField
-            label="&Cliente"
+            label="Cliente"
             options={opts.clienteOptions}
             value={field.value != null ? String(field.value) : undefined}
             onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -220,7 +220,7 @@ function CadastroTab({
       />
       {/* documento */}
       <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
-        <Field label="&Duplicata" maxLength={20} disabled={trava('duplicata')} {...form.register('duplicata')} />
+        <Field label="Duplicata" maxLength={20} disabled={trava('duplicata')} {...form.register('duplicata')} />
         <Controller
           control={form.control}
           name="tipodoc"
@@ -234,7 +234,7 @@ function CadastroTab({
             />
           )}
         />
-        <Field label="Nº &pedido" maxLength={20} disabled={trava('nroped')} {...form.register('nroped')} />
+        <Field label="Nº pedido" maxLength={20} disabled={trava('nroped')} {...form.register('nroped')} />
         <Field label="Nº &cupom" maxLength={20} disabled={trava('nrocupom')} {...form.register('nrocupom')} />
       </div>
       {/* datas e valores */}
@@ -243,28 +243,28 @@ function CadastroTab({
           control={form.control}
           name="dtvenda"
           render={({ field }) => (
-            <DateField label="Data de &venda" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenda?.message as string | undefined} disabled={trava('dtvenda')} />
+            <DateField label="Data de venda" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenda?.message as string | undefined} disabled={trava('dtvenda')} />
           )}
         />
         <Controller
           control={form.control}
           name="dtvenc"
           render={({ field }) => (
-            <DateField label="&Vencimento" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenc?.message as string | undefined} />
+            <DateField label="Vencimento" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenc?.message as string | undefined} />
           )}
         />
         <Controller
           control={form.control}
           name="valor"
           render={({ field }) => (
-            <CurrencyField label="&Valor" value={field.value as number | undefined} onChange={field.onChange} disabled={trava('valor')} />
+            <CurrencyField label="Valor" value={field.value as number | undefined} onChange={field.onChange} disabled={trava('valor')} />
           )}
         />
         <Controller
           control={form.control}
           name="txjuros"
           render={({ field }) => (
-            <NumberField label="&Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} disabled={trava('txjuros')} />
+            <NumberField label="Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} disabled={trava('txjuros')} />
           )}
         />
         <Controller
@@ -281,28 +281,28 @@ function CadastroTab({
           control={form.control}
           name="codvendedor"
           render={({ field }) => (
-            <SelectField label="Ven&dedor" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codvendedor')} />
+            <SelectField label="Vendedor" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codvendedor')} />
           )}
         />
         <Controller
           control={form.control}
           name="codcobrador"
           render={({ field }) => (
-            <SelectField label="C&obrador" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codcobrador')} />
+            <SelectField label="Cobrador" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codcobrador')} />
           )}
         />
         <Controller
           control={form.control}
           name="codbco"
           render={({ field }) => (
-            <SelectField label="&Banco" options={opts.bancoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+            <SelectField label="Banco" options={opts.bancoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
           )}
         />
         <Controller
           control={form.control}
           name="codplc"
           render={({ field }) => (
-            <SelectField label="Centro de &custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
+            <SelectField label="Centro de custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
           )}
         />
         <Controller
@@ -314,7 +314,7 @@ function CadastroTab({
         />
       </div>
       <div className="mt-form-gap">
-        <TextArea label="&Observações" rows={2} disabled={trava('obs')} {...form.register('obs')} />
+        <TextArea label="Observações" rows={2} disabled={trava('obs')} {...form.register('obs')} />
       </div>
     </fieldset>
   );

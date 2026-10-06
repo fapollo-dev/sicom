@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { Field } from '../../shared/ui/Field';
 
 /** a liberação do estoque negativo (PermiteReverterComProdutoEstoqueNeg com a config 'N'): os itens e o login de um usuário autorizado */

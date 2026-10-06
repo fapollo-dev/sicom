@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { eanValido, type CodAuxiliarDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';

@@ -147,7 +147,7 @@ export function ConsRcbBxPage() {
             {det.revertido ? <span className="rounded-radius-sm border border-border px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-danger">Lote revertido</span>
               : <Button label="&Reverter baixa" variant="outline" disabled={ocupado} onClick={() => void reverter()} />}
             {/* o "Recibo" da consulta (UconsRCBbx.MniReciboClick): o recibo do lote no layout do cliente; o a receber pergunta antes */}
-            <Button label="Re&cibo" variant="ghost" disabled={ocupado} onClick={() => { if (!window.confirm('Deseja fazer a emissão do recibo?')) return; imprimirRelatorio(`/cobranca/baixa-receber/recibo/${det.semLote ? 0 : det.lote}/impressao`).catch((e) => mensagem.erro(e)); }} />
+            <Button label="Recibo" variant="ghost" disabled={ocupado} onClick={() => { if (!window.confirm('Deseja fazer a emissão do recibo?')) return; imprimirRelatorio(`/cobranca/baixa-receber/recibo/${det.semLote ? 0 : det.lote}/impressao`).catch((e) => mensagem.erro(e)); }} />
             {/* o "Dados do recebimento" (MniDadosRecebimentoClick): títulos, recursos, cheques e permutas do lote no DadosRecebimentoCR.fr3 */}
             <Button label="&Dados do recebimento" variant="ghost" disabled={ocupado || det.semLote} onClick={() => { imprimirRelatorio(`/cobranca/cons-rcb-bx/${det.lote}/dados-recebimento`).catch((e) => mensagem.erro(e)); }} />
             {/* a manutenção do lote (UconsRCBbx.pas:278-380): reabre na tela de baixa e regrava num lote novo */}

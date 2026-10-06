@@ -81,17 +81,17 @@ export function NfeInutilizadaPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">Os números de nota que foram queimados e inutilizados junto à SEFAZ. É o registro que explica o buraco na sequência — sem ele, a numeração fica com falha sem justificativa.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-40"><Field label="&Data" type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></div>
+          <div className="w-40"><Field label="Data" type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></div>
           <div className="w-28">
             <label className="mb-1 block text-body-sm text-fg-muted">Tipo</label>
             <select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={form.tiponf} onChange={(e) => setForm({ ...form, tiponf: e.target.value })}>
               <option value="NFCE">NFC-e</option><option value="NFE">NF-e</option>
             </select>
           </div>
-          <div className="w-20"><Field label="&Série" value={form.serie} maxLength={3} onChange={(e) => setForm({ ...form, serie: e.target.value })} /></div>
+          <div className="w-20"><Field label="Série" value={form.serie} maxLength={3} onChange={(e) => setForm({ ...form, serie: e.target.value })} /></div>
           <div className="w-32"><Field label="Nº &inicial" value={form.numeracaoIni} onChange={(e) => setForm({ ...form, numeracaoIni: e.target.value.replace(/\D/g, '') })} /></div>
           <div className="w-32"><Field label="Nº &final" value={form.numeracaoFim} onChange={(e) => setForm({ ...form, numeracaoFim: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-52"><Field label="&Protocolo" value={form.protocolo} maxLength={30} onChange={(e) => setForm({ ...form, protocolo: e.target.value })} /></div>
+          <div className="w-52"><Field label="Protocolo" value={form.protocolo} maxLength={30} onChange={(e) => setForm({ ...form, protocolo: e.target.value })} /></div>
           <Button label={sel ? '&Gravar' : '&Incluir'} disabled={ocupado || !form.numeracaoIni} onClick={() => void gravar()} />
           <Button label="&Novo" variant="outline" onClick={novo} />
           {sel && <Button label="E&xcluir" variant="ghost" onClick={() => void excluir()} />}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DataTable, type DataTableColumnDef, Modal, PageHeader } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { Pencil, Trash2, Ban, RotateCcw } from 'lucide-react';
 import {
   PC_CLASSE_OPCOES, PC_NATUREZA_OPCOES, type PlanoConta,

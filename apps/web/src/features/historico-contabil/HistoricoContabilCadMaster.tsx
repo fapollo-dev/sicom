@@ -197,7 +197,7 @@ export function HistoricoContabilCadMaster() {
               name="status"
               render={({ field }) => (
                 <SelectField
-                  label="&Ativo"
+                  label="Ativo"
                   options={[{ value: 'S', label: 'Sim' }, { value: 'N', label: 'Não' }]}
                   value={field.value ?? 'S'}
                   onChange={field.onChange}

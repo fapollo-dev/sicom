@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, getSessao, handle401, setSessao } from '../../shared/auth/session';
 import { useMensagem } from '../../shared/mensagem';

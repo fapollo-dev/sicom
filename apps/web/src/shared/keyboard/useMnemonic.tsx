@@ -12,6 +12,7 @@ import { useAltPressed } from './useAltPressed';
 export function useMnemonic(
   label: string,
   action: () => void | boolean,
+  opts?: { when?: boolean },
 ): { text: ReactNode; accelerator: string | null } {
   const reg = useShortcutRegistry();
   const { text, key, index } = parseMnemonic(label);
@@ -21,10 +22,12 @@ export function useMnemonic(
   const ref = useRef(action);
   ref.current = action;
 
+  const ativo = opts?.when ?? true;
+
   useEffect(() => {
-    if (!key) return;
+    if (!key || !ativo) return;
     return reg.bind(`alt+${key}`, () => ref.current());
-  }, [key, reg]);
+  }, [key, ativo, reg]);
 
   // Um ÚNICO <span> inline: o Button do DS usa flex com `gap`, então múltiplos
   // filhos (texto + <u> + texto) ganhariam espaço entre si ("P esquisar"). Um só

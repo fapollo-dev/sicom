@@ -92,12 +92,12 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
     <div className="flex flex-col gap-gp-md">
       <section className="grid grid-cols-1 gap-form-gap sm:grid-cols-6">
         <div className="sm:col-span-3">
-          <Field label="&Descrição" maxLength={100} disabled={!editavel}
+          <Field label="Descrição" maxLength={100} disabled={!editavel}
             error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
         </div>
         <div className="sm:col-span-2">
           <Controller control={form.control} name="tipo_operacao" render={({ field }) => (
-            <SelectField label="Tipo de &operação" options={OPERACOES} value={field.value ?? undefined}
+            <SelectField label="Tipo de operação" options={OPERACOES} value={field.value ?? undefined}
               onChange={(v) => {
                 field.onChange(v);
                 const f = regraTipoOperacao(v).tipoForcado;

@@ -116,14 +116,14 @@ export function RefFornecedorSection({ codfor, idproduto, editavel }: { codfor?:
         <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
           <div className="sm:col-span-2">
             {modoProduto ? (
-              <SelectField label="&Fornecedor" options={fornecedorOptions} value={alvo != null ? String(alvo) : undefined} onChange={(v) => setAlvo(v ? Number(v) : undefined)} placeholder="Selecione…" />
+              <SelectField label="Fornecedor" options={fornecedorOptions} value={alvo != null ? String(alvo) : undefined} onChange={(v) => setAlvo(v ? Number(v) : undefined)} placeholder="Selecione…" />
             ) : (
               <SelectField label="&Produto" options={produtoOptions} value={alvo != null ? String(alvo) : undefined} onChange={(v) => setAlvo(v ? Number(v) : undefined)} placeholder="Selecione…" />
             )}
           </div>
           <div className="sm:col-span-2"><Field label="&Cód. do fornecedor" value={codref} maxLength={60} onChange={(e) => setCodref(e.target.value)} /></div>
-          <div className="sm:col-span-1"><SelectField label="&Tipo" options={TIPOREF_OPCOES} value={tiporef} onChange={(v) => setTiporef(v || 'E')} /></div>
-          <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={() => void adicionar()} /></div>
+          <div className="sm:col-span-1"><SelectField label="Tipo" options={TIPOREF_OPCOES} value={tiporef} onChange={(v) => setTiporef(v || 'E')} /></div>
+          <div className="flex items-end justify-end sm:col-span-1"><Button label="Ad&icionar" variant="soft" onClick={() => void adicionar()} /></div>
         </div>
       )}
       <div className="overflow-x-auto"><DataTable rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.codreferencia_for)} /></div>

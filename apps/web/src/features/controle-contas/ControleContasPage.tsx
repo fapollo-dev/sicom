@@ -207,7 +207,7 @@ export function ControleContasPage() {
           <div className="flex flex-wrap items-center gap-gp-sm">
             <div className="text-body-sm font-semibold text-fg-muted">Movimentos a prazo</div>
             <div className="flex-1" />
-            {!aLiberar && <Button label="Liberar &movimentações" variant="soft" disabled={busy || !pode('habiltiar_libe_moviment')} onClick={() => void abrirLiberacao()} />}
+            {!aLiberar && <Button label="&Liberar movimentações" variant="soft" disabled={busy || !pode('habiltiar_libe_moviment')} onClick={() => void abrirLiberacao()} />}
           </div>
           {aLiberar && (
             <>
@@ -232,7 +232,7 @@ export function ControleContasPage() {
               <div className="flex flex-wrap items-end gap-gp-sm">
                 <div className="w-44"><DateField label="Data da liberação" value={aLiberar.data} onChange={(v) => setALiberar({ ...aLiberar, data: v ?? hoje() })} /></div>
                 <Button label="Cancelar" variant="ghost" onClick={() => setALiberar(null)} />
-                <Button label="&Liberar" disabled={busy || aLiberar.marcados.size === 0} onClick={() => void liberar([...aLiberar.marcados], aLiberar.data)} />
+                <Button label="Liberar" disabled={busy || aLiberar.marcados.size === 0} onClick={() => void liberar([...aLiberar.marcados], aLiberar.data)} />
               </div>
             </>
           )}

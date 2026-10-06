@@ -117,7 +117,7 @@ export function ExportaBalancaPage() {
                 <td className="p-pad-xs">{c.mod_bal ?? '—'}</td>
                 <td className="p-pad-xs text-fg-muted">{c.dir_bal ?? '—'}</td>
                 <td className="p-pad-xs text-right whitespace-nowrap">
-                  <Button label="&Gerar arquivos" variant="soft" disabled={busy} onClick={() => void gerar(c)} />
+                  <Button label="Gerar arquivos" variant="soft" disabled={busy} onClick={() => void gerar(c)} />
                   <Button label="Editar" variant="ghost" disabled={busy} onClick={() => editar(c)} />
                   <Button label="Excluir" variant="ghost" disabled={busy} onClick={() => void excluirConfig(c)} />
                 </td>

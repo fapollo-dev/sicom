@@ -3,8 +3,7 @@
 CONFERIDOR DE MNEMÔNICOS (ADR-010: os `&` vêm do .dfm, não são digitados).
 
 Para cada tela do Apollo ligada a um formulário legado (a página cita o FRM no código), compara os rótulos com `&` da página
-(`label="…"`, `label: '…'`) com as legendas do .dfm (TBitBtn/TButton/TSpeedButton/TLabel/TCheckBox/TRadioGroup/TGroupBox/
-TTabSheet/TMenuItem/TAction): pelo TEXTO sem o `&`, normalizado.
+(`label="…"`, `label: '…'`) com as legendas do .dfm (todo controle com `Caption`): pelo TEXTO sem o `&`, normalizado.
   · mesma legenda, letra diferente     → divergente (corrigir para a do legado)
   · rótulo com `&` e a legenda do legado não tem `&` → inventado
   · legenda com `&` no legado sem rótulo correspondente no Apollo → só informa (a tela pode ter outro texto)
@@ -19,7 +18,8 @@ from pathlib import Path
 FONTES = Path('/Library/SicomGit/retaguarda-master/fonte/Units')
 APOLLO = Path(__file__).resolve().parents[2]
 MAPA = json.loads((Path(__file__).parent / 'mapa-teclado.json').read_text(encoding='utf-8'))
-CLASSES = r'TBitBtn|TButton|TSpeedButton|TLabel|TCheckBox|TDBCheckBox|TRadioGroup|TDBRadioGroup|TGroupBox|TTabSheet|TcxTabSheet|TMenuItem|TAction|TRadioButton|TPanel|TJvXPButton|TcxButton'
+# qualquer classe com Caption (TcxLabel, TJvLabel, TcxCheckBox… também): mais candidatos só diminuem o falso "inventado"
+CLASSES = r'T\w+'
 
 
 def cadeia_dfm(s: str) -> str:
@@ -52,6 +52,8 @@ def legendas(unit: str) -> list[dict]:
         trecho = s[m.end():m.end() + 1500]
         fim = re.search(r'\n\s*(?:object|inherited|end)\b', trecho)
         props = trecho[:fim.start()] if fim else trecho
+        if re.search(r'Column|Band|Series|Level|Summary', m.group(2)):
+            continue  # cabeçalho de grade/gráfico não é controle com acelerador
         cap = re.search(r"Caption\s*=\s*((?:'(?:[^']|'')*'|#\d+)(?:\s*\+?\s*(?:'(?:[^']|'')*'|#\d+))*)", props)
         if not cap:
             continue
@@ -62,11 +64,21 @@ def legendas(unit: str) -> list[dict]:
     return out
 
 
+# rótulos que NÃO levam a letra do legado, com o porquê (página, texto do rótulo sem &)
+EXCECOES = {
+    ('apuracao-piscofins/ApuracaoPisCofinsPage.tsx', 'Excluir'):
+        'botão repetido por linha da grade: Alt+E apagaria uma linha qualquer — o &Excluir do legado é o do registro corrente',
+}
+
+
 def rotulos(pagina: Path) -> list[dict]:
     s = pagina.read_text(encoding='utf-8', errors='ignore')
     out = []
-    for m in re.finditer(r"""label\s*[=:]\s*\{?\s*(["'`])((?:(?!\1).){1,80})\1""", s):
+    # (?<![-\w]): o aria-label não é legenda
+    for m in re.finditer(r"""(?<![-\w])label\s*[=:]\s*\{?\s*(["'`])((?:(?!\1).){1,80})\1""", s):
         t = m.group(2)
+        if any(str(pagina).endswith(a) and t.replace('&', '') == r for a, r in EXCECOES):
+            continue
         out.append({'rotulo': t, 'letra': letra(t), 'norm': norm(t), 'linha': s[:m.start()].count('\n') + 1})
     return out
 

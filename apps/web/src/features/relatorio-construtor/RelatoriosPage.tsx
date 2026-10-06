@@ -104,7 +104,7 @@ export function RelatoriosPage() {
 
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-          <SelectField label="&Relatório" options={salvos.map((r) => ({ value: String(r.codrelatoriodef), label: r.nome }))}
+          <SelectField label="Relatório" options={salvos.map((r) => ({ value: String(r.codrelatoriodef), label: r.nome }))}
             value={sel != null ? String(sel) : undefined} onChange={(v) => setSel(v ? Number(v) : undefined)}
             placeholder="Selecione o relatório…" />
           <div className="flex items-end text-body-sm text-fg-muted">
@@ -148,9 +148,9 @@ export function RelatoriosPage() {
               <Button label="+ &Filtro" variant="soft" disabled={!campos.length}
                 onClick={() => setFiltros((fs) => [...fs, { campo: campos[0]?.campo ?? '', operador: '=', valor: '' }])} />
               <Button label="&Gerar" disabled={ocupado || sel == null} onClick={() => void rodar()} />
-              <Button label="&Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
+              <Button label="Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
               <Button label="&Imprimir" variant="soft" disabled={sel == null || ocupado} onClick={imprimir} />
-              <Button label="Ed&itar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
+              <Button label="&Editar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
               <Button label="&Novo relatório" variant="soft" disabled={!pode('BTNNOVORELATORIO')} onClick={() => navigate('/relatorios/construtor/novo')} />
             </div>
             {semFiltro && <p className="text-body-sm text-fg-muted">Sem filtro, o relatório traz tudo o que a definição dele permite — as condições que o próprio relatório já tem continuam valendo.</p>}

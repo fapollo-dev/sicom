@@ -57,7 +57,7 @@ export function PisCofinsPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">A situação que cada produto aponta: alíquotas e CSTs de entrada e saída, o tipo de crédito do SPED (tabela 4.3.6) e se exige natureza de receita. Situação em uso por produtos não pode ser excluída.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-72"><Field label="&Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
+          <div className="w-72"><Field label="Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
           <div className="w-28"><Field label="PIS ent. %" value={f.aliqPisEnt} onChange={(e) => setF({ ...f, aliqPisEnt: e.target.value })} /></div>
           <div className="w-28"><Field label="PIS saí. %" value={f.aliqPisSai} onChange={(e) => setF({ ...f, aliqPisSai: e.target.value })} /></div>
           <div className="w-28"><Field label="COFINS ent. %" value={f.aliqCofinsEnt} onChange={(e) => setF({ ...f, aliqCofinsEnt: e.target.value })} /></div>

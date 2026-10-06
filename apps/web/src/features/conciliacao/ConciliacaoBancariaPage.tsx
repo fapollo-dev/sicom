@@ -136,7 +136,7 @@ export function ConciliacaoBancariaPage() {
     <div className="flex flex-col gap-gp-md p-pad-md">
       <PageHeader title="Conciliação Bancária (OFX)" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        <div className="w-72"><SelectField label="&Conta bancária" value={conta} onChange={escolherConta} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(selecione a conta)" /></div>
+        <div className="w-72"><SelectField label="Conta bancária" value={conta} onChange={escolherConta} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(selecione a conta)" /></div>
         <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarArquivo(f); }} />
         <Button label="&Importar .ofx" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />

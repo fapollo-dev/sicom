@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';

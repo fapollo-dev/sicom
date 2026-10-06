@@ -223,7 +223,7 @@ export function EtiquetaPage() {
           <b className="text-body-sm">Aplicar a todos os produtos</b>
           <div className="flex items-end gap-gp-xs">
             <div className="flex-1"><SelectField label="&Modelo da etiqueta" value={modeloGeral} onChange={aplicarModeloGeral} options={opcoesModelo} placeholder="escolha o modelo" /></div>
-            <Button label="Etiqueta ú&nica" variant="ghost" disabled={unicaUsada || !linhas.length} onClick={() => { setLinhas((xs) => xs.map((l) => ({ ...l, qtdeEdit: 1 }))); setUnicaUsada(true); }} />
+            <Button label="Etiqueta única" variant="ghost" disabled={unicaUsada || !linhas.length} onClick={() => { setLinhas((xs) => xs.map((l) => ({ ...l, qtdeEdit: 1 }))); setUnicaUsada(true); }} />
           </div>
           <div className="w-64"><SelectField label="&Descrição na impressão" value={descricaoPor} onChange={(v) => setDescricaoPor(v === 'grupo' ? 'grupo' : 'produto')} options={[{ value: 'grupo', label: 'Grupo de preço' }, { value: 'produto', label: 'Descrição do produto' }]} /></div>
         </div>

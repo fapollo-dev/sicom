@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Modal,
-  DataTable,
-  type DataTableColumnDef,
-  type GridSelectionState,
-} from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef, type GridSelectionState } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { useMensagem } from '../../shared/mensagem';
 import { listAreceber, type AreceberRow } from './lotesCobrancaApi';
 

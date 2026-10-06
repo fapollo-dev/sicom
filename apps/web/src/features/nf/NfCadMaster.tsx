@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Layers, RefreshCw } from 'lucide-react';
-import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import {
   nfSchema,
   NF_FINALIDADE_OPCOES,
@@ -51,7 +52,7 @@ import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParc
 import { transmitirNf, cancelarNf, cceNf, xmlDaNota } from './nfNfeApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
-import { useShortcut } from '../../shared/keyboard';
+import { ShortcutScope, useShortcut } from '../../shared/keyboard';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -272,11 +273,11 @@ function NfForm({
 
   // strip de abas do legado (2 linhas → flex-wrap). Abas de fase futura entram como `disabled`.
   const mainTabs: TabDef[] = [
-    { id: 'calc', label: 'Cálculo de impostos' },
-    { id: 'itens', label: 'Itens da nota' },
+    { id: 'calc', label: 'Cá&lculo de impostos' },
+    { id: 'itens', label: 'Itens da &nota' },
     { id: 'fin', label: 'Financeiro' },
     { id: 'ref', label: "NF's Referência" },
-    { id: 'dados', label: 'Dados Gerais / Obs' },
+    { id: 'dados', label: '&Dados Gerais / Obs' },
     { id: 'transp', label: 'Transporte' },
     { id: 'contabil', label: 'Lançamentos contábeis' },
     { id: 'pedidos', label: 'Pedidos', disabled: true },
@@ -390,7 +391,7 @@ function CabecalhoBand({
           )}
         />
         <Field
-          label="&Número"
+          label="Número"
           inputMode="numeric"
           error={err.nronf?.message as string | undefined}
           {...form.register('nronf')}
@@ -401,7 +402,7 @@ function CabecalhoBand({
           name="dtemissao"
           render={({ field }) => (
             <DateField
-              label="&Emissão"
+              label="Emissão"
               value={(field.value as string) || undefined}
               onChange={(v) => field.onChange(v ?? '')}
               error={err.dtemissao?.message as string | undefined}
@@ -413,7 +414,7 @@ function CabecalhoBand({
           name="dtcontabil"
           render={({ field }) => (
             <DateField
-              label="Data &contábil"
+              label="Data contábil"
               value={(field.value as string) || undefined}
               onChange={(v) => field.onChange(v ?? '')}
               error={err.dtcontabil?.message as string | undefined}
@@ -445,7 +446,7 @@ function CabecalhoBand({
             name={'validatotalnf' as never}
             render={({ field }) => (
               <CurrencyField
-                label="Total N&F"
+                label="Total NF"
                 value={field.value != null && String(field.value) !== '' ? Number(field.value) : undefined}
                 onChange={(v) => field.onChange(v)}
                 disabled={String(form.watch('nf_importacao_nfe' as never) ?? '') === 'S' && Number(field.value) > 0}
@@ -466,7 +467,7 @@ function CabecalhoBand({
           name="cfop"
           render={({ field }) => (
             <SelectField
-              label="C&FOP"
+              label="CFOP"
               options={opts.cfopOptions}
               value={field.value ?? undefined}
               onChange={(v) => field.onChange(v || undefined)}
@@ -494,7 +495,7 @@ function CabecalhoBand({
           name="finalidade"
           render={({ field }) => (
             <SelectField
-              label="&Finalidade da nota"
+              label="Finalidade da nota"
               options={NF_FINALIDADE_OPCOES as unknown as Opcao[]}
               value={field.value ?? undefined}
               onChange={(v) => field.onChange(v || undefined)}
@@ -783,16 +784,19 @@ function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>;
     <div className="flex min-w-56 flex-1 flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
       <span className="text-body-sm font-semibold text-fg-default">Gerar nota</span>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        <Button label="C&lonar nota" variant="soft" disabled={executando} onClick={() => setPergunta('CLONAR')} />
+        <Button label="Clonar nota" variant="soft" disabled={executando} onClick={() => setPergunta('CLONAR')} />
         {tipoNota === 'S' && <Button label="Nota de &transferência entre lojas" variant="soft" disabled={executando} onClick={() => setPergunta('TRANSFERENCIA')} />}
-        <Button label="Imprimir e&tiquetas" variant="soft" disabled={executando || codnf == null} onClick={imprimirEtiquetas} />
+        <Button label="Imprimir etiquetas" variant="soft" disabled={executando || codnf == null} onClick={imprimirEtiquetas} />
       </div>
       {pergunta && (
-        <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">
-          <span className="text-body-sm">{pergunta === 'CLONAR' ? 'Deseja clonar a nota selecionada?' : 'Deseja gerar nota fiscal de transferencia entre lojas?'}</span>
-          <Button label="&Sim" variant="soft" disabled={executando} onClick={() => void gerar(pergunta)} />
-          <Button label="&Não" variant="ghost" disabled={executando} onClick={() => setPergunta(null)} />
-        </div>
+        // a pergunta é o MessageDlg do legado: escopo próprio, o &Sim/&Não dela vem antes das letras da tela
+        <ShortcutScope>
+          <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">
+            <span className="text-body-sm">{pergunta === 'CLONAR' ? 'Deseja clonar a nota selecionada?' : 'Deseja gerar nota fiscal de transferencia entre lojas?'}</span>
+            <Button label="&Sim" variant="soft" disabled={executando} onClick={() => void gerar(pergunta)} />
+            <Button label="&Não" variant="ghost" disabled={executando} onClick={() => setPergunta(null)} />
+          </div>
+        </ShortcutScope>
       )}
     </div>
   );
@@ -907,7 +911,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
     <div className="flex min-w-56 flex-1 flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
       <span className="text-body-sm font-semibold text-fg-default">Processamento (estoque)</span>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => (tipoNota === 'E' ? setProcessando(true) : void processar())} />}
+        {proc !== 'S' && <Button label="Processar nota" variant="soft" onClick={() => (tipoNota === 'E' ? setProcessando(true) : void processar())} />}
         {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
         {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens [F7]" variant="soft" onClick={() => void analisarItens()} />}
         {proc !== 'S' && podeLiberar && (
@@ -1098,17 +1102,17 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
       <span className="text-body-sm font-semibold text-fg-default">{modoFin ? 'Parcelas da nota — processar financeiro' : 'Parcelas da nota'}</span>
       <div className="flex flex-wrap items-end gap-gp-sm">
         <div className="w-28">
-          <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} disabled={!podeGerar} />
+          <NumberField label="Nº parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} disabled={!podeGerar} />
         </div>
         <div className="w-40">
-          <DateField label="1º &vencimento" value={vencimento} onChange={setVencimento} disabled={!podeGerar} />
+          <DateField label="1º vencimento" value={vencimento} onChange={setVencimento} disabled={!podeGerar} />
         </div>
         <div className="w-28">
-          <NumberField label="&Dia venc." value={diaVenc} decimais={0} min={0} max={31} disabled={!podeGerar}
+          <NumberField label="Dia venc." value={diaVenc} decimais={0} min={0} max={31} disabled={!podeGerar}
             onChange={(v) => { setDiaVenc(v); if ((v ?? 0) > 0) { setTipoCalc('D'); setVencimento((d) => diaNoMes(d ?? hojeISO(), Number(v))); } }} />
         </div>
         <div className="w-28">
-          <NumberField label="&Intervalo" value={intervalo} decimais={0} min={0} disabled={!podeGerar}
+          <NumberField label="Intervalo" value={intervalo} decimais={0} min={0} disabled={!podeGerar}
             onChange={(v) => { setIntervalo(v); setTipoCalc('I'); setVencimento(somaDias(hojeISO(), Number(v) || 0)); }} />
         </div>
         {cfg?.nroDupHabilitado && (
@@ -1120,7 +1124,7 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
           </>
         )}
         <Button label={cfg?.legenda ?? 'Ge&rar financeiro'} variant="soft" disabled={!podeGerar} onClick={() => void gerar()} />
-        <Button label="&Limpar" variant="soft" disabled={!podeGerar || !linhas.length} onClick={limpar} />
+        <Button label="Limpar" variant="soft" disabled={!podeGerar || !linhas.length} onClick={limpar} />
         {modoFin && <Button label="Gra&var faturas" variant="soft" disabled={!podeGerar || !linhas.length} onClick={() => void gravarFaturas()} />}
       </div>
       <small className="text-fg-muted">
@@ -1215,7 +1219,7 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
   return (
     <div className="flex flex-wrap items-center gap-gp-sm">
       <Button label="&Faturamento" variant="soft" onClick={() => void abrirFaturamento()} />
-      <Button label="E&xcluir documentos financeiros" variant="soft" onClick={() => void excluirFinanceiro()} />
+      <Button label="Excluir documentos financeiros" variant="soft" onClick={() => void excluirFinanceiro()} />
       <small className="text-fg-muted">As parcelas viram títulos em {modalidade} na tela do Faturamento.</small>
     </div>
   );
@@ -1309,13 +1313,13 @@ function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
         {naoEnviada && <Button label="&Transmitir NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => void transmitir()} />}
         {autorizada && (
           <>
-            <Button label="&Cancelar NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => { setModo('cancelar'); setTexto(''); }} />
+            <Button label="Cancelar NFe" variant="soft" disabled={!podeNf('GERARNFE1')} onClick={() => { setModo('cancelar'); setTexto(''); }} />
             <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
           </>
         )}
         {/* "Imprimir DANFE" do menu NF-e (ImprimirDANFE1, Tag 1, sob GerarNFe1): o layout uRptNFE da loja */}
         {chavenfe && (
-          <Button label="Imprimir &DANFE" variant="soft" disabled={!podeNf('GERARNFE1') || !podeNf('IMPRIMIRDANFE1')}
+          <Button label="Imprimir DANFE" variant="soft" disabled={!podeNf('GERARNFE1') || !podeNf('IMPRIMIRDANFE1')}
             onClick={() => { imprimirRelatorio(`/fiscal/nf/${codnf}/danfe`).catch((e) => mensagem.erro(e)); }} />
         )}
         {denegada && <small className="text-fg-danger">NFe denegada pela SEFAZ — emita uma nova nota.</small>}
@@ -1703,7 +1707,7 @@ function ItensSection({
             <Button label="Importar &vendas" variant="soft" onClick={() => setVendasAberto(true)} />
           )}
           {form.getValues('tipo') === 'E' && (
-            <Button label="Importar &devolução de vendas" variant="soft" onClick={() => setDevolucaoAberto(true)} />
+            <Button label="Importar devolução de vendas" variant="soft" onClick={() => setDevolucaoAberto(true)} />
           )}
         </div>
         {devolucaoAberto && (
@@ -1855,7 +1859,7 @@ function TransporteSection({
             name="codtransp"
             render={({ field }) => (
               <SelectField
-                label="&Transportadora"
+                label="Transportadora"
                 options={transpOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -1865,8 +1869,8 @@ function TransporteSection({
             )}
           />
         </div>
-        <Field label="&Placa" maxLength={10} {...form.register('placatransp')} />
-        <Field label="&Espécie" maxLength={30} {...form.register('especie')} />
+        <Field label="Placa" maxLength={10} {...form.register('placatransp')} />
+        <Field label="Espécie" maxLength={30} {...form.register('especie')} />
         <Field label="&Marca (volume)" maxLength={30} {...form.register('marca')} />
         <Controller
           control={form.control}
@@ -1886,7 +1890,7 @@ function TransporteSection({
           name="pesobruto"
           render={({ field }) => (
             <NumberField
-              label="Peso &bruto"
+              label="Peso bruto"
               value={field.value as number | undefined}
               onChange={field.onChange}
               decimais={3}
@@ -1899,7 +1903,7 @@ function TransporteSection({
           name="pesoliquido"
           render={({ field }) => (
             <NumberField
-              label="Peso &líquido"
+              label="Peso líquido"
               value={field.value as number | undefined}
               onChange={field.onChange}
               decimais={3}
@@ -2150,7 +2154,7 @@ function ContabilModal({
           onChange={(v) => set('codcc', v ? Number(v) : undefined)}
           placeholder="Selecione o centro de custo…"
         />
-        <CurrencyField label="&Valor" value={item.valor} onChange={(v) => set('valor', v)} />
+        <CurrencyField label="Valor" value={item.valor} onChange={(v) => set('valor', v)} />
       </div>
     </Modal>
   );
@@ -2275,13 +2279,13 @@ function ReferenciaModal({
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
         <NumberField
-          label="&NF referenciada (código)"
+          label="NF referenciada (código)"
           value={item.codnf_ref}
           onChange={(v) => set('codnf_ref', v)}
           decimais={0}
           min={0}
         />
-        <CurrencyField label="&Valor" value={item.valor_ref} onChange={(v) => set('valor_ref', v)} />
+        <CurrencyField label="Valor" value={item.valor_ref} onChange={(v) => set('valor_ref', v)} />
         <div className="sm:col-span-2">
           <Field
             label="&Chave de acesso (44)"
@@ -2302,7 +2306,7 @@ function DadosGeraisTab({ form, editavel }: { form: UseFormReturn<CriarNfDto>; e
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-form-gap">
-        <TextArea label="&Observações" rows={3} {...form.register('obs')} />
+        <TextArea label="Observações" rows={3} {...form.register('obs')} />
         <TextArea label="Observações &fiscais" rows={2} {...form.register('obsnf')} />
       </div>
     </fieldset>

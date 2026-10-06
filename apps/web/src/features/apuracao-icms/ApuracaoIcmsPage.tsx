@@ -103,12 +103,12 @@ export function ApuracaoIcmsPage() {
 
       <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-44"><DateField label="&De" value={dataini} onChange={setDataini} /></div>
-          <div className="w-44"><DateField label="&Até" value={datafin} onChange={setDatafin} /></div>
+          <div className="w-44"><DateField label="De" value={dataini} onChange={setDataini} /></div>
+          <div className="w-44"><DateField label="Até" value={datafin} onChange={setDatafin} /></div>
           <Button label="&Apurar" variant="soft" disabled={busy} onClick={() => void processar(false)} />
           <Button label="&Reprocessar" variant="ghost" disabled={busy} onClick={() => void reprocessar()} />
           <Button label="&Consultar gravada" variant="ghost" disabled={busy} onClick={() => void consultar()} />
-          <div className="w-24"><Field label="Nrº &Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
+          <div className="w-24"><Field label="Nrº Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
           <div className="w-24"><Field label="Nrº &Folha" value={folha} inputMode="numeric" onChange={(e) => setFolha(e.target.value.replace(/\D/g, ''))} /></div>
           <Button label="&Imprimir livro" variant="ghost" disabled={busy || !c} onClick={() => void imprimir()} />
         </div>
@@ -118,11 +118,11 @@ export function ApuracaoIcmsPage() {
         </div>
         <div className="flex flex-wrap items-end gap-gp-sm border-t border-border pt-pad-sm">
           <div className="text-body-sm font-semibold text-fg-muted">Ajustes do quadro</div>
-          <div className="w-40"><NumberField label="Outros &créditos" value={outrosCreditos} decimais={2} min={0} onChange={setOutrosCreditos} /></div>
-          <div className="w-40"><NumberField label="Estorno de dé&bitos" value={estornoDebitos} decimais={2} min={0} onChange={setEstornoDebitos} /></div>
-          <div className="w-40"><NumberField label="Outros dé&bitos" value={outrosDebitos} decimais={2} min={0} onChange={setOutrosDebitos} /></div>
-          <div className="w-40"><NumberField label="Estorno de cré&ditos" value={estornoCreditos} decimais={2} min={0} onChange={setEstornoCreditos} /></div>
-          <div className="w-40"><NumberField label="De&duções" value={deducoes} decimais={2} min={0} onChange={setDeducoes} /></div>
+          <div className="w-40"><NumberField label="&Outros créditos" value={outrosCreditos} decimais={2} min={0} onChange={setOutrosCreditos} /></div>
+          <div className="w-40"><NumberField label="Estorno de &débitos" value={estornoDebitos} decimais={2} min={0} onChange={setEstornoDebitos} /></div>
+          <div className="w-40"><NumberField label="O&utros débitos" value={outrosDebitos} decimais={2} min={0} onChange={setOutrosDebitos} /></div>
+          <div className="w-40"><NumberField label="Estorno de créditos" value={estornoCreditos} decimais={2} min={0} onChange={setEstornoCreditos} /></div>
+          <div className="w-40"><NumberField label="D&eduções" value={deducoes} decimais={2} min={0} onChange={setDeducoes} /></div>
         </div>
       </div>
 

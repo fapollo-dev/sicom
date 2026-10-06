@@ -107,9 +107,9 @@ export function RelVendasPage() {
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
         <div className="w-44"><SelectField label="&Canceladas" value={canceladas} onChange={setCanceladas} options={[{ value: 'N', label: 'Não canceladas' }, { value: 'S', label: 'Só canceladas' }, { value: 'T', label: 'Todas' }]} /></div>
-        <div className="w-36"><SelectField label="&Promoção" value={promocao} onChange={setPromocao} options={[{ value: 'T', label: 'Todos' }, { value: 'S', label: 'Em promoção' }, { value: 'N', label: 'Sem promoção' }]} /></div>
+        <div className="w-36"><SelectField label="Promoção" value={promocao} onChange={setPromocao} options={[{ value: 'T', label: 'Todos' }, { value: 'S', label: 'Em promoção' }, { value: 'N', label: 'Sem promoção' }]} /></div>
         <div className="w-48"><Field label="&Produto (descrição)" value={produto} onChange={(e) => setProduto(e.target.value)} placeholder="contém…" /></div>
-        <div className="w-48"><Field label="For&necedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} placeholder="contém…" /></div>
+        <div className="w-48"><Field label="Fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} placeholder="contém…" /></div>
         <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={custoRep} onChange={(e) => setCustoRep(e.target.checked)} /> Custo de reposição</label>
         {/* o legado rotula "Filtrar Hora diariamente", mas o SQL dele é UMA janela contínua — o rótulo aqui diz o
             que a query faz de verdade, sem mudar o comportamento (a fidelidade é com o SQL, não com a legenda). */}

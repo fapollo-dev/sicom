@@ -74,7 +74,7 @@ export function ExtratoFuncionarioPage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">O extrato do convênio de funcionários: débitos (compras no convênio, quebras de caixa, estornos) e créditos (adiantamentos, acertos). O tipo de cada lançamento vem do texto da observação do título, como no legado. Convênio obrigatório quando o tipo é "Todos".</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <Sel label="Relatório" k="tipo" opts={[['sintetico', '1 - Extrato de funcionário'], ['analitico', '2 - Extrato de funcionário analítico'], ['analitico_sintetico', '3 - Extrato de funcionário sintético']]} />
           {f.tipo === 'analitico' && <Sel label="Níveis expandidos" k="niveis" opts={[['0', ''], ['1', '1 nível'], ['2', '2 níveis']]} />}
           <div className="w-80">
@@ -84,7 +84,7 @@ export function ExtratoFuncionarioPage() {
               {convenios.map((c) => <option key={c.codparceiro} value={c.codparceiro}>{c.codparceiro} · {c.razao} ({c.funcionarios})</option>)}
             </select>
           </div>
-          <div className="w-28"><Field label="&Operador" value={f.codoperador} onChange={(e) => setF({ ...f, codoperador: e.target.value })} /></div>
+          <div className="w-28"><Field label="Operador" value={f.codoperador} onChange={(e) => setF({ ...f, codoperador: e.target.value })} /></div>
           <Sel label="Situação" k="situacao" opts={[['todos', 'Todos'], ['quitados', 'Quitados'], ['abertos', 'Abertos']]} />
           <Sel label="Tipo" k="filtro" opts={[['todos', 'Todos'], ['compra', 'Compra'], ['adiantamento', 'Adiantamento'], ['quebra', 'Quebra'], ['estorno', 'Estorno indevido']]} />
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />

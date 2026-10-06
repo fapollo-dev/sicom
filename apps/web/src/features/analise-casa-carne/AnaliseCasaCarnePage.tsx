@@ -73,8 +73,8 @@ export function AnaliseCasaCarnePage() {
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-56"><Field label="&Produto" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.somenteDecomposicao === 'S'}
               onChange={(e) => setF({ ...f, somenteDecomposicao: e.target.checked ? 'S' : 'N' })} />
@@ -82,9 +82,9 @@ export function AnaliseCasaCarnePage() {
           </label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           {/* o Imprimir é a única saída do legado: os filtros dele são por código (dpto, grupo, subgrupo, produto) e a alíquota */}
-          <div className="w-28"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+          <div className="w-28"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
           <div className="w-28"><Field label="Cód. pr&oduto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value.replace(/\D/g, '') })} /></div>
-          <div className="w-24"><Field label="A&líquota" value={f.aliquota} onChange={(e) => setF({ ...f, aliquota: e.target.value })} /></div>
+          <div className="w-24"><Field label="Alíquota" value={f.aliquota} onChange={(e) => setF({ ...f, aliquota: e.target.value })} /></div>
           <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
             const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim });

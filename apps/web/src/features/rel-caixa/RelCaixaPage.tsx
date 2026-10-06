@@ -145,17 +145,17 @@ export function RelCaixaPage() {
 
       <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-56"><SelectField label="&Tipo de relatório" options={MODELOS.map((m) => ({ value: m.id, label: m.label }))} value={modelo} onChange={(v) => setModelo((v as Modelo) ?? 'DIVERGENCIAS')} /></div>
-          <div className="w-40"><Field label="Data &inicial" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
-          <div className="w-40"><Field label="Data &final" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
+          <div className="w-56"><SelectField label="Tipo de relatório" options={MODELOS.map((m) => ({ value: m.id, label: m.label }))} value={modelo} onChange={(v) => setModelo((v as Modelo) ?? 'DIVERGENCIAS')} /></div>
+          <div className="w-40"><Field label="Data inicial" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
+          <div className="w-40"><Field label="Data final" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
           <div className="w-36"><Field label="&Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
-          <div className="w-28"><Field label="&Operador" value={codoperador} onChange={(e) => setCodoperador(e.target.value.replace(/\D/g, ''))} /></div>
+          <div className="w-28"><Field label="Operador" value={codoperador} onChange={(e) => setCodoperador(e.target.value.replace(/\D/g, ''))} /></div>
           <div className="w-20"><Field label="&PDV" value={codpdv} onChange={(e) => setCodpdv(e.target.value.replace(/\D/g, ''))} /></div>
           {comRecurso && (
-            <div className="w-44"><SelectField label="&Recurso" options={[{ value: '', label: '' }, ...recursos.map((r) => ({ value: r, label: r }))]} value={recurso} onChange={(v) => setRecurso(v ?? '')} /></div>
+            <div className="w-44"><SelectField label="Recurso" options={[{ value: '', label: '' }, ...recursos.map((r) => ({ value: r, label: r }))]} value={recurso} onChange={(v) => setRecurso(v ?? '')} /></div>
           )}
           {niveisDoModelo > 0 && (
-            <div className="w-36"><SelectField label="Níveis e&xpandidos" options={[{ value: '0', label: '' }, ...Array.from({ length: niveisDoModelo }, (_, i) => ({ value: String(i + 1), label: i === 0 ? '1 nível' : `${i + 1} níveis` }))]}
+            <div className="w-36"><SelectField label="Níveis expandidos" options={[{ value: '0', label: '' }, ...Array.from({ length: niveisDoModelo }, (_, i) => ({ value: String(i + 1), label: i === 0 ? '1 nível' : `${i + 1} níveis` }))]}
               value={String(niveis)} onChange={(v) => setNiveis(Number(v ?? 0))} /></div>
           )}
         </div>

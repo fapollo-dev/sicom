@@ -44,7 +44,7 @@ export function FormasPgtoCadMaster() {
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <Field
-            label="&Modalidade"
+            label="Modalidade"
             maxLength={30}
             disabled={!editavel}
             error={form.formState.errors.modalidade?.message as string | undefined}
@@ -102,7 +102,7 @@ export function FormasPgtoCadMaster() {
             name="codplanocontas"
             render={({ field }) => (
               <SelectField
-                label="Conta contá&bil (débito)"
+                label="Conta contábil (débito)"
                 options={contaContabilOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -115,7 +115,7 @@ export function FormasPgtoCadMaster() {
               control={form.control}
               name="recebe_pdv"
               render={({ field }) => (
-                <CheckboxField label="&Recebe no PDV" value={field.value ?? 'S'} onChange={field.onChange} disabled={!editavel} />
+                <CheckboxField label="Recebe no PDV" value={field.value ?? 'S'} onChange={field.onChange} disabled={!editavel} />
               )}
             />
             <Controller

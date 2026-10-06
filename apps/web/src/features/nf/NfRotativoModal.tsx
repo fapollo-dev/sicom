@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import type { NfItemDto } from '@apollo/shared';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { SelectField } from '../../shared/ui/SelectField';

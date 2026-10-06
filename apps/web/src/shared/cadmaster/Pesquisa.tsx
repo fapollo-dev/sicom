@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, DataTable, type FilterModel } from '@apollosg/design-system';
+import { DataTable, type FilterModel } from '@apollosg/design-system';
+import { Modal } from '../ui/Modal';
 import { ShortcutScope, useShortcut } from '../keyboard';
 import { createResourceApi } from './resourceApi';
 

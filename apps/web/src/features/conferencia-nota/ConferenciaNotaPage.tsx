@@ -187,7 +187,7 @@ export function ConferenciaNotaPage() {
           <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={rel.tipo === 'fornecedor'} onChange={() => setRel({ ...rel, tipo: 'fornecedor' })} />Fornecedor</label>
           <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={rel.tipo === 'produto'} onChange={() => setRel({ ...rel, tipo: 'produto' })} />Produto</label>
           <Button label="&Imprimir" variant="soft" onClick={imprimirDiferencas} />
-          <Button label="Sair" variant="ghost" onClick={() => setPainelRel(false)} />
+          <Button label="&Sair" variant="ghost" onClick={() => setPainelRel(false)} />
         </div>
       )}
 

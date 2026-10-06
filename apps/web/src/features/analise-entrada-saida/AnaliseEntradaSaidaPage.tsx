@@ -103,9 +103,9 @@ export function AnaliseEntradaSaidaPage() {
             </select>
           </label>
           {/* o edtFornecedor do legado é CharCase maiúsculo; grupo e departamento vão como digitados */}
-          <div className="w-48"><Field label="&Fornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value.toUpperCase() })} /></div>
-          <div className="w-44"><Field label="G&rupo" value={f.grupo} onChange={(e) => setF({ ...f, grupo: e.target.value })} /></div>
-          <div className="w-44"><Field label="De&partamento" value={f.departamento} onChange={(e) => setF({ ...f, departamento: e.target.value })} /></div>
+          <div className="w-48"><Field label="Fornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value.toUpperCase() })} /></div>
+          <div className="w-44"><Field label="Grupo" value={f.grupo} onChange={(e) => setF({ ...f, grupo: e.target.value })} /></div>
+          <div className="w-44"><Field label="Departamento" value={f.departamento} onChange={(e) => setF({ ...f, departamento: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <label className="flex items-center gap-gp-xs self-center text-body-sm">
             <input type="checkbox" checked={f.mostrarItens} onChange={(e) => setF({ ...f, mostrarItens: e.target.checked })} /> Mostrar itens

@@ -328,7 +328,7 @@ export function ProdutosRelPage() {
                   <option value="<">Menor que</option>
                 </select>
               </label>
-              <div className="w-24"><Field label="&Qtde" value={f.estoqueQtde} onChange={(e) => setF({ ...f, estoqueQtde: e.target.value })} /></div>
+              <div className="w-24"><Field label="Qtde" value={f.estoqueQtde} onChange={(e) => setF({ ...f, estoqueQtde: e.target.value })} /></div>
             </>
           )}
           {usa.periodo && (
@@ -349,13 +349,13 @@ export function ProdutosRelPage() {
           {usa.empresas && (
             <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value })} /></div>
           )}
-          <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
-          {usa.secao && <div className="w-32"><Field label="Seçã&o" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>}
-          {usa.fornecedor && <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>}
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+          {usa.secao && <div className="w-32"><Field label="Seção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>}
+          {usa.fornecedor && <div className="w-32"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>}
           <div className="w-56"><Field label="Produto ou &cód. barra" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
-          {usa.local && <div className="w-32"><Field label="&Local" value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} /></div>}
+          {usa.local && <div className="w-32"><Field label="Local" value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} /></div>}
           {usa.lotes && <div className="w-56"><Field label="Lo&tes (separe com ;)" value={f.lotes} onChange={(e) => setF({ ...f, lotes: e.target.value })} /></div>}
           {EXPANDE.includes(f.tipo) && (
             <label className="flex items-center gap-gp-xs self-center text-body-sm">

@@ -71,7 +71,7 @@ export function GerarFinanceiroLotePage() {
         <p className="mb-form-gap text-body-sm text-fg-muted">Um título a receber por cliente, no valor fixo cadastrado nele. Simule antes: a simulação mostra quem entraria e quem seria descartado por já ter título igual.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&Vencimento" type="date" value={f.dtvenc} onChange={(e) => setF({ ...f, dtvenc: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Banco" value={f.codbco} onChange={(e) => setF({ ...f, codbco: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-28"><Field label="Banco" value={f.codbco} onChange={(e) => setF({ ...f, codbco: e.target.value.replace(/\D/g, '') })} /></div>
           <label className="flex items-center gap-1 pb-2 text-body-sm"><input type="checkbox" checked={f.usarVencimentoCliente} onChange={(e) => setF({ ...f, usarVencimentoCliente: e.target.checked })} /> usar o dia de vencimento do cliente</label>
           <Button label="&Simular" variant="outline" disabled={ocupado} onClick={() => void executar(true)} />
           <Button label="&Gerar financeiro" disabled={ocupado} onClick={() => void executar(false)} />

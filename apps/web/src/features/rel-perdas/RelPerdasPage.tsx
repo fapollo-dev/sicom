@@ -61,11 +61,11 @@ export function RelPerdasPage() {
             </select>
           </div>
           <div className="w-28"><Field label="C. &custo" value={f.codplc} onChange={(e) => setF({ ...f, codplc: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Motivo" value={f.codmotivoop} onChange={(e) => setF({ ...f, codmotivoop: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Setor" value={f.codsetor} onChange={(e) => setF({ ...f, codsetor: e.target.value })} /></div>
+          <div className="w-28"><Field label="Motivo" value={f.codmotivoop} onChange={(e) => setF({ ...f, codmotivoop: e.target.value })} /></div>
+          <div className="w-28"><Field label="Setor" value={f.codsetor} onChange={(e) => setF({ ...f, codsetor: e.target.value })} /></div>
           <div className="w-28"><Field label="&Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
-          <div className="w-28"><Field label="&Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
+          <div className="w-28"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-28"><Field label="Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
           <div className="w-28"><Field label="Scra&p" value={f.codscrap} onChange={(e) => setF({ ...f, codscrap: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
         </div>

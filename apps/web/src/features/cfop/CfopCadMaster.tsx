@@ -122,16 +122,16 @@ export function CfopCadMaster() {
             {grupo('CFOP', editavel, (
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <Field label="&Descrição" disabled={!editavel} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
+                  <Field label="Descrição" disabled={!editavel} error={form.formState.errors.descricao?.message as string | undefined} {...form.register('descricao')} />
                 </div>
                 <Controller control={form.control} name="tipo" render={({ field }) => (
-                  <SelectField label="T&ipo" options={TIPOS} value={field.value ?? undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="Pelo 1º dígito" />
+                  <SelectField label="Tipo" options={TIPOS} value={field.value ?? undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="Pelo 1º dígito" />
                 )} />
                 <Controller control={form.control} name="tipoestado" render={({ field }) => (
-                  <SelectField label="D&estino" options={DESTINOS} value={field.value ?? undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="Selecione…" />
+                  <SelectField label="Destino" options={DESTINOS} value={field.value ?? undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="Selecione…" />
                 )} />
                 <Controller control={form.control} name="cfop_devolucao" render={({ field }) => (
-                  <SelectField label="CFOP para de&volução de compra" options={devolucoes} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Selecione…" />
+                  <SelectField label="CFOP para devolução de compra" options={devolucoes} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Selecione…" />
                 )} />
                 <Controller control={form.control} name="aliquota" render={({ field }) => (
                   <SelectField label="&Alíquota de saída" options={aliquotas} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!pode('CMBALIQUOTA')} />

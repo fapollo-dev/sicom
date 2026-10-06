@@ -159,12 +159,12 @@ export function EmpresasCadMaster() {
             <fieldset className="rounded-radius-md border border-border p-pad-md">
               <legend className="px-pad-xs text-fg-muted">Identificação</legend>
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-                <NumCampo form={form} name="idempresa" label="&Código" decimais={0} />
+                <NumCampo form={form} name="idempresa" label="Código" decimais={0} />
                 <div className="sm:col-span-2">
                   <Field label="&Razão social" disabled={!editavel} error={err('razao_social')} {...form.register('razao_social')} />
                 </div>
-                <Field label="&Fantasia" disabled={!editavel} error={err('fantasia')} {...form.register('fantasia')} />
-                <Field label="C&NPJ" disabled={!editavel} error={err('cnpj')} {...form.register('cnpj')} />
+                <Field label="Fantasia" disabled={!editavel} error={err('fantasia')} {...form.register('fantasia')} />
+                <Field label="CNPJ" disabled={!editavel} error={err('cnpj')} {...form.register('cnpj')} />
                 <Field label="&IE (Inscrição Estadual)" disabled={!editavel} error={err('insc')} {...form.register('insc')} />
                 <Field label="Inscrição &Municipal" disabled={!editavel} error={err('im')} {...form.register('im')} />
                 <Field label="&Telefone" disabled={!editavel} error={err('fone1')} {...form.register('fone1')} />
@@ -176,14 +176,14 @@ export function EmpresasCadMaster() {
               <legend className="px-pad-xs text-fg-muted">Endereço</legend>
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
                 <div className="sm:col-span-2">
-                  <Field label="&Endereço" disabled={!editavel} error={err('endereco')} {...form.register('endereco')} />
+                  <Field label="Endereço" disabled={!editavel} error={err('endereco')} {...form.register('endereco')} />
                 </div>
-                <Field label="Nú&mero" disabled={!editavel} error={err('numero')} {...form.register('numero')} />
-                <Field label="Com&plemento" disabled={!editavel} error={err('complemento')} {...form.register('complemento')} />
-                <Field label="&Bairro" disabled={!editavel} error={err('bairro')} {...form.register('bairro')} />
-                <Field label="C&idade" disabled={!editavel} error={err('cidade')} {...form.register('cidade')} />
-                <SelCampo form={form} name="uf" label="&UF" options={UF_SIGLA_OPCOES} placeholder="Selecione…" />
-                <Field label="CE&P" disabled={!editavel} error={err('cep')} {...form.register('cep')} />
+                <Field label="Número" disabled={!editavel} error={err('numero')} {...form.register('numero')} />
+                <Field label="Complemento" disabled={!editavel} error={err('complemento')} {...form.register('complemento')} />
+                <Field label="Bairro" disabled={!editavel} error={err('bairro')} {...form.register('bairro')} />
+                <Field label="Cidade" disabled={!editavel} error={err('cidade')} {...form.register('cidade')} />
+                <SelCampo form={form} name="uf" label="UF" options={UF_SIGLA_OPCOES} placeholder="Selecione…" />
+                <Field label="CEP" disabled={!editavel} error={err('cep')} {...form.register('cep')} />
                 <NumCampo form={form} name="idcidade" label="Código IBGE (cM&un)" decimais={0} />
               </div>
             </fieldset>
@@ -194,10 +194,10 @@ export function EmpresasCadMaster() {
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
                 <SelCampo form={form} name="classfiscal" label="&Regime" options={CLASSFISCAL_OPCOES} placeholder="Selecione…" />
                 <SelCampo form={form} name="figurafiscal" label="Figura &fiscal" options={FIGURAFISCAL_OPCOES} placeholder="—" />
-                <SelCampo form={form} name="contribuinte_icms" label="Contribuinte &ICMS" options={SN_OPCOES} placeholder="—" />
+                <SelCampo form={form} name="contribuinte_icms" label="Contribuinte ICMS" options={SN_OPCOES} placeholder="—" />
                 <NumCampo form={form} name="alqsimplesnac" label="Alíq. Simples &Nac. (%)" />
                 <Field label="&Série NF-e" disabled={!editavel} error={err('serie_nfe')} {...form.register('serie_nfe')} />
-                <SelCampo form={form} name="ambiente" label="&Ambiente" options={AMBIENTE_OPCOES} placeholder="—" />
+                <SelCampo form={form} name="ambiente" label="Ambiente" options={AMBIENTE_OPCOES} placeholder="—" />
                 <NumCampo form={form} name="aliquota_estado" label="Alíq. estadual (%)" />
               </div>
             </fieldset>
@@ -208,7 +208,7 @@ export function EmpresasCadMaster() {
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
                 <NumCampo form={form} name="despoperacional" label="Desp. &operacional (%)" />
                 <NumCampo form={form} name="margem_venda" label="Margem de &venda (%)" />
-                <NumCampo form={form} name="margem_contribuicao" label="Margem de &contribuição (%)" />
+                <NumCampo form={form} name="margem_contribuicao" label="Margem de contribuição (%)" />
                 <NumCampo form={form} name="txjuropadrao" label="&Taxa de juro padrão (%)" />
                 <NumCampo form={form} name="tx_juro_apagar" label="Taxa juro a pagar (%)" />
                 <NumCampo form={form} name="descmax" label="&Desconto máx. (%)" />

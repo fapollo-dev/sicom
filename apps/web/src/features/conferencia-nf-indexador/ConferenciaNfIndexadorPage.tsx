@@ -152,7 +152,7 @@ export function ConferenciaNfIndexadorPage() {
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="Emissão &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Tipo de nota
             <select className="rounded border border-border px-1 py-1" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>

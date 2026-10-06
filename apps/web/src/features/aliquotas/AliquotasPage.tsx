@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Modal, PageHeader } from '@apollosg/design-system';
+import { PageHeader } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { isErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { SelectField } from '../../shared/ui/SelectField';

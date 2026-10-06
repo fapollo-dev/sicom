@@ -83,8 +83,8 @@ export function RelCartoesPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="Venda &de" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
-          <div className="w-44"><Field label="&Operadora" value={operadora} onChange={(e) => setOperadora(e.target.value.toUpperCase())} /></div>
+          <div className="w-40"><Field label="até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
+          <div className="w-44"><Field label="Operadora" value={operadora} onChange={(e) => setOperadora(e.target.value.toUpperCase())} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Filtro
             <select className="rounded border border-border px-1 py-1" value={modoOperadora} onChange={(e) => setModoOperadora(e.target.value)}>

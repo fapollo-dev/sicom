@@ -119,14 +119,14 @@ export function LancamentoCaixaPage() {
         <section className="flex flex-col gap-form-gap rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <strong>{form.codcx ? `Lançamento ${form.codcx}` : 'Novo lançamento'}</strong>
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
-            <DateField label="&Movimento" value={form.data} onChange={(v) => setForm({ ...form, data: v ?? hoje() })} />
-            <NumberField label="&Valor" value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} decimais={2} min={0} />
-            <SelectField label="&Situação do documento" options={situacoes} value={form.idsituacao_nf} onChange={(v) => setForm({ ...form, idsituacao_nf: v || undefined })} placeholder="Selecione…" />
-            <SelectField label="&Centro de custo" options={plcs} value={form.codplc} onChange={(v) => setForm({ ...form, codplc: v || undefined })} placeholder="Selecione o centro de custo…" />
-            <SelectField label="&Parceiro" options={parceiros} value={form.codparceiro} onChange={(v) => setForm({ ...form, codparceiro: v || undefined })} placeholder="Selecione o parceiro…" />
-            <SelectField label="Conta &bancária" options={contas} value={form.codconta} onChange={(v) => setForm({ ...form, codconta: v || undefined })} placeholder="Selecione a conta…" />
+            <DateField label="Movimento" value={form.data} onChange={(v) => setForm({ ...form, data: v ?? hoje() })} />
+            <NumberField label="Valor" value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} decimais={2} min={0} />
+            <SelectField label="Situação do documento" options={situacoes} value={form.idsituacao_nf} onChange={(v) => setForm({ ...form, idsituacao_nf: v || undefined })} placeholder="Selecione…" />
+            <SelectField label="Centro de custo" options={plcs} value={form.codplc} onChange={(v) => setForm({ ...form, codplc: v || undefined })} placeholder="Selecione o centro de custo…" />
+            <SelectField label="Parceiro" options={parceiros} value={form.codparceiro} onChange={(v) => setForm({ ...form, codparceiro: v || undefined })} placeholder="Selecione o parceiro…" />
+            <SelectField label="Conta bancária" options={contas} value={form.codconta} onChange={(v) => setForm({ ...form, codconta: v || undefined })} placeholder="Selecione a conta…" />
           </div>
-          <TextArea label="&Observações" value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value.toUpperCase().slice(0, 300) })} />
+          <TextArea label="Observações" value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value.toUpperCase().slice(0, 300) })} />
           <small className="text-fg-muted">O centro de custo decide o sinal: despesa sai do caixa (e gera o título a pagar já quitado), receita entra.</small>
           <div className="flex flex-wrap gap-gp-sm">
             <Button label="&Gravar" onClick={() => void gravar()} disabled={ocupado} />

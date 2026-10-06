@@ -206,10 +206,10 @@ export function BaixaApagarPage() {
         {lote && (
           <>
             <strong className="text-sm">Lote {lote}{loteManutencao ? ` · manutenção do lote ${loteManutencao}` : ''}</strong>
-            <div className="w-44"><DateField label="&Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
+            <div className="w-44"><DateField label="Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
             {avisoData && <small className="text-warning">{avisoData}</small>}
             <div className="flex-1" />
-            <Button label="Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
+            <Button label="&Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
             <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length} />
           </>
         )}
@@ -227,7 +227,7 @@ export function BaixaApagarPage() {
               <div className="w-44"><Field label="Empresas (códigos)" value={(filtro.empresas ?? []).join(',')} onChange={(e) => setFiltro({ ...filtro, empresas: e.target.value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) })} /></div>
             )}
             <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
-            <Button label="&Adicionar marcados" variant="ghost" onClick={adicionar} disabled={ocupado || marcados.size === 0} />
+            <Button label="Adicionar marcados" variant="ghost" onClick={adicionar} disabled={ocupado || marcados.size === 0} />
           </div>
           {pesquisa && (pesquisa.length === 0
             ? <small className="text-fg-muted">Nenhum documento em aberto com esses filtros.</small>
@@ -323,7 +323,7 @@ export function BaixaApagarPage() {
             <strong className="text-sm">Recursos</strong>
             <span className="text-sm">Restante <strong className="tabular-nums">{moeda(restante)}</strong></span>
             <div className="flex-1" />
-            {!novo && <Button label="Adicionar &recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} />}
+            {!novo && <Button label="&Adicionar recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} />}
           </div>
           {novo && (
             <div className="grid grid-cols-1 gap-gp-sm rounded-md border border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -334,7 +334,7 @@ export function BaixaApagarPage() {
               <Field label="Valor" inputMode="decimal" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} />
               <div className="sm:col-span-2 lg:col-span-4"><Field label="Histórico" value={novo.historico} onChange={(e) => setNovo({ ...novo, historico: e.target.value })} /></div>
               <div className="flex justify-end gap-gp-sm sm:col-span-2 lg:col-span-4">
-                <Button label="Cancelar" variant="ghost" onClick={() => setNovo(null)} />
+                <Button label="&Cancelar" variant="ghost" onClick={() => setNovo(null)} />
                 <Button label="&Salvar recurso" onClick={salvarRecurso} />
               </div>
             </div>

@@ -51,7 +51,7 @@ export function NcmCadMaster() {
         return (
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
             <Field
-              label="&NCM SH"
+              label="NCM SH"
               value={ncmshDerivado}
               readOnly
               disabled
@@ -62,7 +62,7 @@ export function NcmCadMaster() {
               name="un_tributada"
               render={({ field }) => (
                 <SelectField
-                  label="&Unidade tributada"
+                  label="Unidade tributada"
                   options={UN_TRIBUTADA}
                   value={field.value ?? undefined}
                   onChange={field.onChange}
@@ -73,7 +73,7 @@ export function NcmCadMaster() {
             />
             <div className="sm:col-span-2">
               <TextArea
-                label="&Descrição"
+                label="Descrição"
                 disabled={!editavel}
                 error={form.formState.errors.descricao?.message as string | undefined}
                 {...form.register('descricao')}
@@ -81,7 +81,7 @@ export function NcmCadMaster() {
             </div>
             <div className="sm:col-span-2">
               <TextArea
-                label="&Categoria"
+                label="Categoria"
                 disabled={!editavel}
                 error={form.formState.errors.categoria?.message as string | undefined}
                 {...form.register('categoria')}
@@ -114,7 +114,7 @@ export function NcmCadMaster() {
             />
             <div className="sm:col-span-2">
               <TextArea
-                label="&Observação"
+                label="Observação"
                 disabled={!editavel}
                 error={form.formState.errors.observacao?.message as string | undefined}
                 {...form.register('observacao')}

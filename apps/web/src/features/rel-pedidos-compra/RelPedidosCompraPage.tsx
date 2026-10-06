@@ -122,7 +122,7 @@ export function RelPedidosCompraPage() {
             </select>
           </label>
           <div className="w-40"><Field label="&Período" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Status do pedido
             <select className={sel} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as Status })}>

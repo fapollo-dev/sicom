@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Modal, PageHeader } from '@apollosg/design-system';
+import { PageHeader } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
@@ -331,13 +332,13 @@ export function FechamentoCaixaPage() {
                   variant="ghost"
                   onClick={() => setMarcadosRel((m) => (m.size === turnos.length ? new Set() : new Set(turnos.map(chaveTurno))))}
                 />
-                <Button label="&Imprimir marcados" variant="ghost" onClick={imprimirMarcados} disabled={ocupado || marcadosRel.size === 0} />
+                <Button label="Imprimir marcados" variant="ghost" onClick={imprimirMarcados} disabled={ocupado || marcadosRel.size === 0} />
               </>
             )}
             {/* F6 dos caixas em aberto: a transferência de espécie é a do controle de contas correntes (Utransferencia) */}
             <Button label="&Transferência" variant="ghost" onClick={() => navigate('/financeiro/contas-correntes')} />
             {/* Imprimir › "Relatório de caixa": só um atalho para a tela do relatório (FRMRELATORIOCAIXA, já migrada) */}
-            <Button label="&Relatório de caixa" variant="ghost" onClick={() => navigate('/relatorios/caixa-dre')} />
+            <Button label="Relatório de caixa" variant="ghost" onClick={() => navigate('/relatorios/caixa-dre')} />
           </div>
           {turnos && (turnos.length === 0
             ? <small className="text-fg-muted">Nenhum movimento de PDV nesta data.</small>
@@ -401,7 +402,7 @@ export function FechamentoCaixaPage() {
               <Button label="Análise totalizada" variant="ghost" onClick={() => imprimirRelAnalise('totalizado')} disabled={ocupado} />
               <Button label="Análise descritiva" variant="ghost" onClick={() => imprimirRelAnalise('descritivo')} disabled={ocupado} />
               <Button label="Comprovante de &quebra" variant="ghost" onClick={imprimirQuebra} disabled={ocupado} />
-              <Button label="&Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />
+              <Button label="Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
             </div>
           </section>
@@ -511,7 +512,7 @@ export function FechamentoCaixaPage() {
           onClose={() => setObsTurno(null)}
           title={`Observação de divergência — PDV ${obsTurno.t.nropdv}, operador(a) ${obsTurno.t.codoperadora}`}
           primaryAction={{ label: 'OK', onClick: () => void gravarObs() }}
-          secondaryAction={{ label: 'Sair', onClick: () => setObsTurno(null) }}
+          secondaryAction={{ label: '&Sair', onClick: () => setObsTurno(null) }}
         >
           <TextArea label="Observação" rows={6} value={obsTurno.texto} onChange={(e) => setObsTurno((s) => (s ? { ...s, texto: e.target.value } : s))} />
         </Modal>
@@ -531,7 +532,7 @@ export function FechamentoCaixaPage() {
           onClose={() => setLeitura(null)}
           size="lg"
           title={leitura.tipo === 'cancelamentos' ? 'Vendas canceladas' : 'Vendas com descontos'}
-          primaryAction={{ label: 'Sair', onClick: () => setLeitura(null) }}
+          primaryAction={{ label: '&Sair', onClick: () => setLeitura(null) }}
         >
           {leitura.tipo === 'cancelamentos' ? (
             <div className="flex flex-col gap-gp-sm">
@@ -683,7 +684,7 @@ export function FechamentoCaixaPage() {
               </section>
             )}
             <div className="flex justify-end gap-gp-sm">
-              <Button label="Imprimir" variant="ghost" onClick={imprimirDocs} disabled={ocupado} />
+              <Button label="&Imprimir" variant="ghost" onClick={imprimirDocs} disabled={ocupado} />
               {docs.d.insercao && !edicao && <Button label={rotuloIncluir} variant="outline" onClick={inserir} disabled={ocupado} />}
             </div>
             {docs.d.documentos.length === 0

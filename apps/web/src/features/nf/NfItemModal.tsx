@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { ORIGEM_OPCOES, type NfItemDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';

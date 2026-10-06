@@ -149,7 +149,7 @@ export function AdiantamentoFornPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-72">
             <SelectField
-              label="&Situação do documento"
+              label="Situação do documento"
               value={situacao}
               onChange={setSituacao}
               disabled={editando != null}
@@ -167,13 +167,13 @@ export function AdiantamentoFornPage() {
               placeholder="(conta)"
             />
           </div>
-          <div className="w-40"><NumberField label="&Parceiro" value={parceiro} decimais={0} min={1} onChange={setParceiro} placeholder="código" /></div>
+          <div className="w-40"><NumberField label="Parceiro" value={parceiro} decimais={0} min={1} onChange={setParceiro} placeholder="código" /></div>
           <div className="w-44"><DateField label="&Data" value={dtAdto} onChange={setDtAdto} /></div>
           <div className="w-44"><DateField label="&Vencimento" value={dtVenc} onChange={setDtVenc} /></div>
-          <div className="w-40"><NumberField label="&Valor" value={valor} decimais={2} min={0} onChange={setValor} /></div>
+          <div className="w-40"><NumberField label="Valor" value={valor} decimais={2} min={0} onChange={setValor} /></div>
           <div className="min-w-64 flex-1">
             <Field
-              label="&Observação"
+              label="Observação"
               value={obs}
               onChange={(e) => setObs(e.target.value.toUpperCase())}
               onFocus={() => { if (!obs && tipo) setObs(prefixoObs(tipo, razaoSel)); }}
@@ -189,7 +189,7 @@ export function AdiantamentoFornPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        <div className="w-56"><SelectField label="&Tipo" value={fTipo} onChange={setFTipo} options={[{ value: 'D', label: 'Débito (a receber)' }, { value: 'C', label: 'Crédito (a pagar)' }, { value: 'E', label: 'Crédito de fornecedor' }]} placeholder="(todos)" /></div>
+        <div className="w-56"><SelectField label="Tipo" value={fTipo} onChange={setFTipo} options={[{ value: 'D', label: 'Débito (a receber)' }, { value: 'C', label: 'Crédito (a pagar)' }, { value: 'E', label: 'Crédito de fornecedor' }]} placeholder="(todos)" /></div>
         <div className="w-56"><SelectField label="&Situação" value={fQuitada} onChange={setFQuitada} options={[{ value: 'N', label: 'Em aberto' }, { value: 'S', label: 'Quitado' }]} placeholder="(todos)" /></div>
       </div>
 

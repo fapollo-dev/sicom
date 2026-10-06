@@ -117,14 +117,14 @@ export function TrocaPage() {
       <div className="flex flex-col gap-gp-md p-pad-md">
         <PageHeader title={`Troca nº ${sel.codtroca}${fechada ? ' — FECHADA' : ''}${sel.fornecedor ? ' — ' + sel.fornecedor : ''}`} />
         <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <div className="w-96"><Field label="&Descrição" value={sel.descricao ?? ''} onChange={(e) => { setSel({ ...sel, descricao: e.target.value }); setDirty(true); }} placeholder="descrição da troca" disabled={fechada} /></div>
-          <Button label="&Salvar" variant="soft" disabled={busy || fechada} onClick={() => void salvar()} />
+          <div className="w-96"><Field label="Descrição" value={sel.descricao ?? ''} onChange={(e) => { setSel({ ...sel, descricao: e.target.value }); setDirty(true); }} placeholder="descrição da troca" disabled={fechada} /></div>
+          <Button label="Salvar" variant="soft" disabled={busy || fechada} onClick={() => void salvar()} />
           {!fechada && <Button label="&Fechar" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void fechar()} />}
           {fechada && <Button label="&Reabrir" variant="soft" disabled={busy} onClick={() => void reabrir()} />}
           <Button label="&Imprimir troca" variant="ghost" disabled={busy || !itens.length} onClick={() => void imprimir()} />
           <Button label="E&xcluir" variant="ghost" disabled={busy || fechada} onClick={() => void excluir()} />
           {/* o "Imprimir" da troca abre o relatório de trocas preso nela (TfrmTrocaMercadoriaFor.btnImprimirClick) */}
-          <Button label="&Imprimir" variant="ghost" onClick={() => navigate(`/relatorios/troca-mercadoria?codtroca=${sel.codtroca}&daTroca=1`)} />
+          <Button label="Imprimir" variant="ghost" onClick={() => navigate(`/relatorios/troca-mercadoria?codtroca=${sel.codtroca}&daTroca=1`)} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregar(); }} />
           <small className="w-full text-fg-muted">Valor = quantidade × custo (MULTI_PRECO). {dirty && !fechada ? 'Salve antes de fechar. ' : ''}O estoque sai ao gravar os itens (alterar a quantidade estorna e retira de novo; excluir devolve). Para editar itens de uma troca fechada, reabra antes.</small>
         </div>
@@ -132,7 +132,7 @@ export function TrocaPage() {
         {!fechada && (
           <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
             <div className="w-32"><NumberField label="&Produto (id)" value={novoProd} decimais={0} min={1} onChange={setNovoProd} /></div>
-            <div className="w-32"><NumberField label="&Quantidade" value={novaQtde} decimais={3} min={0} onChange={setNovaQtde} /></div>
+            <div className="w-32"><NumberField label="Quantidade" value={novaQtde} decimais={3} min={0} onChange={setNovaQtde} /></div>
             <Button label="&Adicionar item" variant="soft" onClick={addItem} />
           </div>
         )}
@@ -175,7 +175,7 @@ export function TrocaPage() {
       <PageHeader title="Troca com Fornecedor" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-32"><NumberField label="&Fornecedor (cód)" value={novoForn} decimais={0} min={1} onChange={setNovoForn} /></div>
-        <div className="w-72"><Field label="&Descrição" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: avariados jul/2026" /></div>
+        <div className="w-72"><Field label="Descrição" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: avariados jul/2026" /></div>
         <Button label="&Nova troca" variant="soft" disabled={busy} onClick={() => void criar()} />
         <small className="text-fg-muted">Devolução de avariados/vencidos ao fornecedor (o estoque sai ao incluir o item).</small>
       </div>

@@ -318,10 +318,10 @@ export function PrecificacaoNfPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-32"><Field label="&Nº NF" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
           <div className="w-52"><Field label="&Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
-          <div className="w-52"><Field label="&Fornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
+          <div className="w-52"><Field label="F&ornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
           <div className="w-44"><Field label="&Grupo" value={f.grupo} onChange={(e) => setF({ ...f, grupo: e.target.value })} /></div>
           <div className="w-40"><Field label="Emissão &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-center gap-gp-md text-body-sm">

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { type UseFormReturn, useFieldArray } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
-import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import {
   type BancoParceiroDto,
   type CriarParceiroDto,

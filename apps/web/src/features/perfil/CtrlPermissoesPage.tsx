@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RegistrosLogModal } from '../../shared/log/RegistrosLogModal';
-import { DataTable, type DataTableColumnDef, PageHeader, Modal } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { ShieldCheck, ShieldOff } from 'lucide-react';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -141,7 +142,7 @@ export function CtrlPermissoesPage() {
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
           <SelectField label="&Operador" options={operadorOptions} value={operador != null ? String(operador) : undefined}
             onChange={(v) => setOperador(v ? Number(v) : undefined)} placeholder="Selecione o operador…" />
-          <SelectField label="&Empresa" options={empresaOptions} value={empresa != null ? String(empresa) : undefined}
+          <SelectField label="Empresa" options={empresaOptions} value={empresa != null ? String(empresa) : undefined}
             onChange={(v) => setEmpresa(v ? Number(v) : undefined)} placeholder="Empresa da sessão" />
           <SelectField label="&Tela" options={[{ value: '', label: 'Todas as telas' }, ...forms.map((f) => ({ value: f, label: f }))]}
             value={filtroForm} onChange={(v) => setFiltroForm(v ?? '')} />
@@ -200,7 +201,7 @@ export function CtrlPermissoesPage() {
                 onChange={(v) => setClone((c) => ({ ...c, de: v ? Number(v) : undefined }))} placeholder="Operador de origem…" />
               <SelectField label="Empresa de origem" options={empresaOptions} value={clone.de_empresa != null ? String(clone.de_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, de_empresa: v ? Number(v) : undefined }))} />
-              <SelectField label="&Para" options={operadorOptions} value={clone.para != null ? String(clone.para) : undefined}
+              <SelectField label="Para" options={operadorOptions} value={clone.para != null ? String(clone.para) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, para: v ? Number(v) : undefined }))} placeholder="Operador de destino…" />
               <SelectField label="Empresa de destino" options={empresaOptions} value={clone.para_empresa != null ? String(clone.para_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, para_empresa: v ? Number(v) : undefined }))} />

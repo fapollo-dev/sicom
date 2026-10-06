@@ -105,7 +105,7 @@ export function RelPrecosAlteradosPage() {
             </select>
           </label>
           <div className="w-52"><Field label="&Produto" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.semGrupoPreco === 'S'}
               onChange={(e) => setF({ ...f, semGrupoPreco: e.target.checked ? 'S' : 'N' })} />
@@ -127,7 +127,7 @@ export function RelPrecosAlteradosPage() {
             if (f.empresas) q.set('empresas', f.empresas);
             void imprimirRelatorio(`/relatorios/precos-alterados/impressao?${q.toString()}`).catch((e) => mensagem.erro(e));
           }} />
-          <Button variant="soft" label="E&tiquetas" disabled={ocupado} onClick={() => void etiquetas()} />
+          <Button variant="soft" label="Etiquetas" disabled={ocupado} onClick={() => void etiquetas()} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,

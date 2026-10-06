@@ -126,10 +126,10 @@ export function ConfIntegBancariaPage() {
           <h2 className="text-title-sm">{editando == null ? 'Nova configuração' : `Configuração ${editando}`}</h2>
 
           <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-32"><Field label="&Empresa" type="number" value={String(form.codempresa)} onChange={(e) => setForm({ ...form, codempresa: Number(e.target.value || 0) })} /></div>
+            <div className="w-32"><Field label="Empresa" type="number" value={String(form.codempresa)} onChange={(e) => setForm({ ...form, codempresa: Number(e.target.value || 0) })} /></div>
             <div className="w-32"><Field label="&Banco (interno)" type="number" value={String(form.codbco)} onChange={(e) => setForm({ ...form, codbco: Number(e.target.value || 0) })} /></div>
             <div className="w-40"><Field label="Cód. &FEBRABAN" value={form.codfornbco ?? ''} onChange={(e) => setForm({ ...form, codfornbco: e.target.value })} /></div>
-            <div className="w-32"><Field label="&Agência" value={form.agencia ?? ''} onChange={(e) => setForm({ ...form, agencia: e.target.value })} /></div>
+            <div className="w-32"><Field label="Agência" value={form.agencia ?? ''} onChange={(e) => setForm({ ...form, agencia: e.target.value })} /></div>
             <div className="w-36"><Field label="&Conta" value={form.nrconta ?? ''} onChange={(e) => setForm({ ...form, nrconta: e.target.value })} /></div>
           </div>
           <p className="text-body-sm text-fg-muted">
@@ -152,7 +152,7 @@ export function ConfIntegBancariaPage() {
                 {TIPOS_INTEG_BANCARIA.map((t) => <option key={t} value={t}>{t === 'B' ? 'Boleto' : 'Pagamento (a pagar)'}</option>)}
               </select>
             </label>
-            <div className="w-44"><Field label="Cód. da empresa no ban&co" value={form.identempresabco ?? ''} onChange={(e) => setForm({ ...form, identempresabco: e.target.value })} /></div>
+            <div className="w-44"><Field label="Cód. da empresa no banco" value={form.identempresabco ?? ''} onChange={(e) => setForm({ ...form, identempresabco: e.target.value })} /></div>
             <div className="w-36"><Field label="Empresa do ar&quivo" type="number" value={String(form.codempresa_arquivo ?? '')} onChange={(e) => setForm({ ...form, codempresa_arquivo: e.target.value ? Number(e.target.value) : null })} /></div>
             <div className="w-40"><Field label="&Dias p/ baixa do boleto" type="number" value={String(form.dias_baixa_boleto ?? '')} onChange={(e) => setForm({ ...form, dias_baixa_boleto: e.target.value ? Number(e.target.value) : null })} /></div>
             <div className="w-32"><Field label="&Iniciais do arquivo" value={form.iniciais_arquivo ?? ''} onChange={(e) => setForm({ ...form, iniciais_arquivo: e.target.value })} /></div>

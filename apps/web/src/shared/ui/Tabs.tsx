@@ -1,7 +1,9 @@
 import { type KeyboardEvent, type ReactNode } from 'react';
+import { useMnemonic } from '../keyboard/useMnemonic';
 
 export type TabDef = {
   id: string;
+  /** pode ter & — Alt+letra abre a aba, como a legenda do TTabSheet (ADR-010) */
   label: string;
   /** aba presente no layout do legado mas ainda inerte (fase futura) — some ações, não some a aba. */
   disabled?: boolean;
@@ -80,21 +82,31 @@ export function Tabs({
                 : 'border-transparent text-fg-muted hover:bg-bg-subtle hover:text-fg-default',
               t.disabled ? 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-fg-muted' : '',
             ];
-        return (
-          <div
-            key={t.id}
-            role="tab"
-            aria-selected={on}
-            aria-disabled={t.disabled || undefined}
-            tabIndex={on ? 0 : -1}
-            onClick={() => !t.disabled && onChange(t.id)}
-            onKeyDown={(e) => onKey(e, t)}
-            className={cls.join(' ')}
-          >
-            {t.label}
-          </div>
-        );
+        return <Aba key={t.id} t={t} on={on} cls={cls.join(' ')} onChange={onChange} onKey={onKey} />;
       })}
+    </div>
+  );
+}
+
+function Aba({ t, on, cls, onChange, onKey }: {
+  t: TabDef; on: boolean; cls: string; onChange: (id: string) => void; onKey: (e: KeyboardEvent<HTMLDivElement>, t: TabDef) => void;
+}) {
+  // a legenda com & abre a aba pelo Alt+letra (o CM_DIALOGCHAR do TPageControl); aba inerte deixa a letra passar
+  const { text } = useMnemonic(t.label, () => {
+    if (t.disabled) return false;
+    onChange(t.id);
+  });
+  return (
+    <div
+      role="tab"
+      aria-selected={on}
+      aria-disabled={t.disabled || undefined}
+      tabIndex={on ? 0 : -1}
+      onClick={() => !t.disabled && onChange(t.id)}
+      onKeyDown={(e) => onKey(e, t)}
+      className={cls}
+    >
+      {text}
     </div>
   );
 }

@@ -97,7 +97,7 @@ export function RelatorioRotativo() {
             </label>
           ))}
         </fieldset>
-        <div className="w-40"><Field label="Data &inicial" type="date" value={dataini} onChange={(e) => setDataini(e.target.value)} /></div>
+        <div className="w-40"><Field label="Data inicial" type="date" value={dataini} onChange={(e) => setDataini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={datafin} onChange={(e) => setDatafin(e.target.value)} /></div>
         <Button label="Atualizar &lotes" variant="ghost" onClick={() => void carregarLotes()} />
       </div>

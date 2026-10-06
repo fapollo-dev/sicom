@@ -212,7 +212,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 />
               </div>
               <Field
-                label="&Fantasia"
+                label="Fantasia"
                 disabled={!editavel}
                 error={form.formState.errors.fantasia?.message as string | undefined}
                 {...form.register('fantasia')}
@@ -222,7 +222,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 name="tipofj"
                 render={({ field }) => (
                   <SelectField
-                    label="&Tipo de pessoa"
+                    label="Tipo de pessoa"
                     options={TIPOFJ_OPCOES}
                     value={field.value ?? undefined}
                     onChange={field.onChange}
@@ -232,7 +232,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 )}
               />
               <Field
-                label="&E-mail"
+                label="E-mail"
                 disabled={!editavel}
                 error={form.formState.errors.email?.message as string | undefined}
                 {...form.register('email')}
@@ -299,7 +299,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                   name="bloqued"
                   render={({ field }) => (
                     <CheckboxField
-                      label="&Bloqueado"
+                      label="Bloqueado"
                       value={field.value}
                       onChange={field.onChange}
                       disabled={!editavel}
@@ -312,7 +312,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                   name="estrangeiro"
                   render={({ field }) => (
                     <CheckboxField
-                      label="E&strangeiro"
+                      label="Estrangeiro"
                       value={field.value}
                       onChange={field.onChange}
                       disabled={!editavel}
@@ -332,7 +332,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 name="credito"
                 render={({ field }) => (
                   <CurrencyField
-                    label="&Crédito"
+                    label="Crédito"
                     value={field.value as number | undefined}
                     onChange={field.onChange}
                     disabled={!editavel || !pode('CCDCREDITO')}
@@ -407,7 +407,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 name="codvendedor"
                 render={({ field }) => (
                   <SelectField
-                    label="&Vendedor"
+                    label="Vendedor"
                     options={vendedorOptions}
                     value={field.value != null ? String(field.value) : undefined}
                     onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -421,7 +421,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                 name="codconvenio"
                 render={({ field }) => (
                   <SelectField
-                    label="C&onvênio"
+                    label="Convênio"
                     options={convenioOptions}
                     value={field.value != null ? String(field.value) : undefined}
                     onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -465,7 +465,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
 
           {/* ===== Seção: Observação ===== */}
           <TextArea
-            label="O&bservação"
+            label="Observação"
             disabled={!editavel}
             error={form.formState.errors.obs?.message as string | undefined}
             {...form.register('obs')}
@@ -643,7 +643,7 @@ function CamposCondicionais({
               name="dtultcompra"
               render={({ field }) => (
                 <DateField
-                  label="&Última compra"
+                  label="Última compra"
                   value={field.value as string | undefined}
                   onChange={(v) => field.onChange(v ?? '')}
                   disabled={!editavel}
@@ -656,7 +656,7 @@ function CamposCondicionais({
               name="classfornecedor"
               render={({ field }) => (
                 <NumberField
-                  label="&Classificação"
+                  label="Classificação"
                   value={field.value as number | undefined}
                   onChange={field.onChange}
                   decimais={0}
@@ -740,7 +740,7 @@ function CamposCondicionais({
               )}
             />
             <Field
-              label="&Cargo"
+              label="Cargo"
               disabled={!editavel}
               error={form.formState.errors.cargo?.message as string | undefined}
               {...form.register('cargo')}
@@ -843,7 +843,7 @@ function FiscalSection({
             name="apuracao"
             render={({ field }) => (
               <SelectField
-                label="A&puração"
+                label="Apuração"
                 options={APURACAO_OPCOES}
                 value={field.value ?? undefined}
                 onChange={field.onChange}
@@ -857,7 +857,7 @@ function FiscalSection({
             name="classificacao"
             render={({ field }) => (
               <SelectField
-                label="Classi&ficação"
+                label="Classificação"
                 options={CLASSIFICACAO_OPCOES}
                 value={field.value ?? undefined}
                 onChange={field.onChange}
@@ -871,7 +871,7 @@ function FiscalSection({
             name="codparceiro_ent_issqn"
             render={({ field }) => (
               <SelectField
-                label="Entidade I&SSQN"
+                label="Entidade ISSQN"
                 options={entidadeIssqnOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
@@ -1101,12 +1101,12 @@ function ImpressoesCliente({ form }: { form: UseFormReturn<CriarParceiroDto> }) 
   const imprimir = (path: string) => imprimirRelatorio(`/cadastro/parceiros/${codparceiro}/impressao/${path}`).catch((e) => mensagem.erro(e));
   return (
     <div className="flex flex-wrap items-center gap-gp-sm">
-      <Button label="Ficha cadas&tral" variant="ghost" onClick={() => imprimir('ficha-cadastral')} />
+      <Button label="Ficha cadastral" variant="ghost" onClick={() => imprimir('ficha-cadastral')} />
       <select aria-label="Endereço do cartão" className="rounded border border-border px-1 py-0.5 text-body-sm" value={codend} onChange={(e) => setCodend(e.target.value)}>
         <option value="">Endereço padrão</option>
         {enderecos.map((e) => <option key={e.codend} value={String(e.codend)}>{e.endereco ?? e.codend}{e.endereco_padrao === 'S' ? ' (padrão)' : ''}</option>)}
       </select>
-      <Button label="Imprimir cartã&o" variant="ghost" onClick={() => imprimir(`cartao${codend ? `?codend=${codend}` : ''}`)} />
+      <Button label="Imprimir cartão" variant="ghost" onClick={() => imprimir(`cartao${codend ? `?codend=${codend}` : ''}`)} />
     </div>
   );
 }

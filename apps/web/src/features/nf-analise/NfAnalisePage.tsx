@@ -173,12 +173,12 @@ export function NfAnalisePage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="Contábil &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-36"><SelectField label="&Tipo" options={[{ value: 'T', label: 'Todas' }, { value: 'E', label: 'Entrada' }, { value: 'S', label: 'Saída' }]}
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-36"><SelectField label="Tipo" options={[{ value: 'T', label: 'Todas' }, { value: 'E', label: 'Entrada' }, { value: 'S', label: 'Saída' }]}
             value={f.tipo} onChange={(v) => setF({ ...f, tipo: (v ?? 'T') as 'T' })} /></div>
           <div className="w-36"><Field label="&Nº NF" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
-          <div className="w-56"><Field label="&Cliente / fornecedor" value={f.razao} onChange={(e) => setF({ ...f, razao: e.target.value })} placeholder="parte da razão social" /></div>
-          <div className="w-28"><Field label="C&FOP" value={f.cfop} onChange={(e) => setF({ ...f, cfop: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-56"><Field label="Cliente / fornecedor" value={f.razao} onChange={(e) => setF({ ...f, razao: e.target.value })} placeholder="parte da razão social" /></div>
+          <div className="w-28"><Field label="CFOP" value={f.cfop} onChange={(e) => setF({ ...f, cfop: e.target.value.replace(/\D/g, '') })} /></div>
           <div className="w-44"><SelectField label="&Processadas" options={[{ value: 'T', label: 'Todas' }, { value: 'S', label: 'Só processadas' }, { value: 'N', label: 'Só não processadas' }]}
             value={f.processadas} onChange={(v) => setF({ ...f, processadas: (v ?? 'T') as 'T' })} /></div>
         </div>

@@ -196,7 +196,7 @@ export function IntegracaoContabilPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="Período &de" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
+          <div className="w-40"><Field label="até" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
           {sel.rotuloCodigo && (
             <div className="w-52">
               <Field label={`${sel.rotuloCodigo} (opcional)`} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))} placeholder="todo o período" />

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
@@ -18,8 +18,8 @@ export function NfDecomposicaoModal({ pai, restantes, onFechar, onConfirmar }: {
   const [cfop, setCfop] = useState(pai.cfop != null ? String(pai.cfop) : '');
   return (
     <Modal open onClose={onFechar} size="md" title="Item de decomposição nota fiscal"
-      primaryAction={{ label: 'Confirmar decomposição', onClick: () => onConfirmar({ qtdTotal: Number(qtd ?? 0), valorTotal: Number(valor ?? 0), cfop: Number(cfop || 0) }) }}
-      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}>
+      primaryAction={{ label: '&Confirmar decomposição', onClick: () => onConfirmar({ qtdTotal: Number(qtd ?? 0), valorTotal: Number(valor ?? 0), cfop: Number(cfop || 0) }) }}
+      secondaryAction={{ label: 'Cance&lar', onClick: onFechar }}>
       <div className="flex flex-col gap-form-gap">
         <small className="text-warning">Produto com entrada em decomposição. Os produtos da decomposição serão lançados à nota. Deseja continuar?</small>
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">

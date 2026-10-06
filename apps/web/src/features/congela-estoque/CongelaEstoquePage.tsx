@@ -68,7 +68,7 @@ export function CongelaEstoquePage() {
             </div>
             <div className="mt-form-gap flex flex-wrap gap-gp-sm">
               <Button label="&Congelar estoque" disabled={ocupado || s.congelado} onClick={() => void agir('congelar')} />
-              <Button label="&Descongelar" variant="outline" disabled={ocupado || !s.congelado} onClick={() => void agir('descongelar')} />
+              <Button label="Descongelar" variant="outline" disabled={ocupado || !s.congelado} onClick={() => void agir('descongelar')} />
             </div>
           </>
         )}

@@ -181,14 +181,14 @@ export function ScrapPage() {
         <PageHeader title={sel.codscrap ? `Perda nº ${sel.codscrap}${aplicado ? ' — APLICADA (estoque baixado)' : ''}` : 'Nova perda'} />
         <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <div className="w-56"><SelectField label="Situaç&ão" value={situacao} onChange={(v) => { setSituacao(v); setDirty(true); }} disabled={aplicado || !!sel.codscrap} options={(apoio?.situacoes ?? []).map((x) => ({ value: String(x.idsituacao_nf), label: `${x.idsituacao_nf} · ${x.descricao}` }))} placeholder="(situação do documento)" /></div>
-          <div className="w-72"><SelectField label="&Centro de custo" value={codplc} onChange={(v) => { setCodplc(v); setDirty(true); }} disabled={aplicado}
+          <div className="w-72"><SelectField label="Centro de custo" value={codplc} onChange={(v) => { setCodplc(v); setDirty(true); }} disabled={aplicado}
             options={(apoio?.centros ?? []).filter((c) => { const lista = situacao ? apoio?.centrosDaSituacao?.[situacao] : undefined; return !lista?.length || lista.includes(c.codplc); }).map((c) => ({ value: String(c.codplc), label: `${c.desccodplc ?? c.codplc} · ${c.descricao}` }))} placeholder="(centro de custo de perda)" /></div>
           <div className="w-64"><Field label="Fornecedor" value={apoio?.parceiro?.razao ?? (apoio?.parceiro?.codparceiro ? String(apoio.parceiro.codparceiro) : '')} onChange={() => undefined} disabled /></div>
-          <div className="w-80"><Field label="&Observação" value={obs} onChange={(e) => { setObs(e.target.value); setDirty(true); }} placeholder="observação do lançamento" disabled={aplicado} /></div>
+          <div className="w-80"><Field label="Observação" value={obs} onChange={(e) => { setObs(e.target.value); setDirty(true); }} placeholder="observação do lançamento" disabled={aplicado} /></div>
           <Button label="&Gravar" variant="soft" disabled={busy || aplicado} onClick={() => void salvar()} />
           {apoio?.baixarEstoque && !!sel.codscrap && !aplicado && <Button label="&Aplicar (baixar estoque)" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void aplicar()} />}
           {aplicado && <Button label="&Estornar baixa" variant="soft" disabled={busy} onClick={() => void estornar()} />}
-          {!!sel.codscrap && <Button label="E&xcluir" variant="ghost" disabled={busy || aplicado} onClick={() => void excluir()} />}
+          {!!sel.codscrap && <Button label="Excluir" variant="ghost" disabled={busy || aplicado} onClick={() => void excluir()} />}
           {/* "Imprimir Scrap" (ImprimirScrap1Click): o extr - Scrap.fr3 do cliente com o lançamento gravado */}
           {!!sel.codscrap && <Button label="&Imprimir" variant="ghost" disabled={busy} onClick={() => { imprimirRelatorio(`/cadastro/scrap/${sel.codscrap}/impressao`).catch((e) => mensagem.erro(e)); }} />}
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />

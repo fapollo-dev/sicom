@@ -140,14 +140,14 @@ export function RelEntradasSaidasPage() {
             </select>
           </label>
           <div className="w-40"><Field label="Contábil &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
-          <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <div className="w-32"><Field label="Departamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
+          <div className="w-32"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
+          <div className="w-32"><Field label="Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
           {f.tipo === 'LISTAGEM'
             ? <div className="w-52"><Field label="Pr&oduto ou cód. barra" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
             : <>
-                <div className="w-32"><Field label="&Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+                <div className="w-32"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
                 <div className="w-32"><Field label="Pr&oduto (código)" value={f.codproduto} onChange={(e) => setF({ ...f, codproduto: e.target.value.replace(/\D/g, '') })} /></div>
                 <div className="w-24"><Field label="Hora inicial" value={f.horaIni} onChange={(e) => setF({ ...f, horaIni: e.target.value })} /></div>
                 <div className="w-24"><Field label="Hora final" value={f.horaFim} onChange={(e) => setF({ ...f, horaFim: e.target.value })} /></div>

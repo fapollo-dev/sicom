@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from '@apollosg/design-system';
+import { Modal } from '../../shared/ui/Modal';
 import { useMensagem } from '../../shared/mensagem';
 import { opcoesDoProcessarNf, pedeLiberacaoEstoqueNegativo, processarNf, type ModoPrecoProcessar, type OpcoesDoProcessar } from './nfProcessamentoApi';
 import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal';

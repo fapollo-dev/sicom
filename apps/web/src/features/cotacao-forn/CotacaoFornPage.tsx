@@ -194,9 +194,9 @@ export function CotacaoFornPage() {
                   <div><div className="text-fg-muted">Cotação</div><div className="text-body-lg">{cab.descricao ?? cab.codctc}</div></div>
                   <div><div className="text-fg-muted">Fornecedor</div><div className="text-body-lg">{cab.razao ?? cab.codparceiro}</div></div>
                   <div><div className="text-fg-muted">Itens</div><div className="text-body-lg tabular-nums">{itens.length}</div></div>
-                  <div className="w-72"><Field label="&Observação" value={obs} onChange={(e) => setObs(e.target.value)} /></div>
+                  <div className="w-72"><Field label="Observação" value={obs} onChange={(e) => setObs(e.target.value)} /></div>
                   <Button label="&Gravar preços" disabled={ocupado || itens.length === 0} onClick={() => void gravar()} />
-                  <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />
+                  <Button label="Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />
                 </div>
                 <p className="mt-form-gap text-body-sm text-fg-muted">
                   O <strong>total</strong> de cada item é o preço multiplicado pelo fator de embalagem. O
