@@ -1,9 +1,10 @@
-import { useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Printer } from 'lucide-react';
 import { imprimirPagina } from '../shared/print/imprimirPagina';
 import { AppShell } from '@apollosg/design-system';
 import { ShortcutScope } from '../shared/keyboard';
+import { MODULOS, contextosDoMenu, moduloDaRota } from './modulos';
 import { useAuth } from '../features/auth/AuthContext';
 import {
   Landmark,
@@ -268,6 +269,16 @@ export function AppLayout() {
   const atual = TELAS.find((t) => t.href === location.pathname);
   const conteudoRef = useRef<HTMLDivElement>(null);
 
+  // MÓDULOS (rail) — os do menu do legado; ver modulos.ts para a procedência.
+  // O rail segue a rota: entrou numa tela, o módulo dela abre. Clicar num ícone
+  // do rail só troca o painel (não navega), então guardamos essa escolha.
+  const contextos = useMemo(() => contextosDoMenu(TELAS), []);
+  const [moduloAberto, setModuloAberto] = useState<string | null>(null);
+  const moduloDaTela = atual ? moduloDaRota(atual.href) : null;
+  useEffect(() => setModuloAberto(null), [location.pathname]);
+  const moduloAtual = moduloAberto ?? moduloDaTela ?? contextos[0]?.id ?? MODULOS[0].id;
+  const moduloLabel = MODULOS.find((m) => m.id === moduloAtual)?.label;
+
   // IMPRIMIR (substituto do FastReport): fotografa o conteúdo da tela atual — janela aberta SÍNCRONA
   // no clique (popup-blocker) e o clone/print no helper compartilhado.
   const imprimir = () => {
@@ -287,19 +298,14 @@ export function AppLayout() {
 
   return (
     <AppShell
-      contexts={[
-        {
-          id: 'cadastros',
-          label: 'Cadastros',
-          icon: Landmark,
-          items: TELAS.map((t) => ({ name: t.name, href: t.href, icon: t.icon })),
-        },
-      ]}
+      contexts={contextos}
+      activeContextId={moduloAtual}
+      onContextChange={setModuloAberto}
       activeItemHref={location.pathname}
       onItemClick={(item) => {
         if (item.href) navigate(item.href);
       }}
-      breadcrumb={[{ label: 'Apollo ERP' }, { label: atual?.name ?? 'Cadastro' }]}
+      breadcrumb={[{ label: 'Apollo ERP' }, ...(moduloLabel ? [{ label: moduloLabel }] : []), { label: atual?.name ?? 'Cadastro' }]}
       user={user}
       onLogout={onLogout}
     >
