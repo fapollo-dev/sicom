@@ -40,7 +40,7 @@ export const textoVariavel = (s: string): string => `'${String(s).replace(/'/g, 
  */
 export async function empresaParaRelatorio(db: AnyDB, emp: number): Promise<RegistroFr3> {
   const r = (await sql<RegistroFr3>`SELECT * FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
-  const seguro = Object.fromEntries(Object.entries(r).filter(([k]) => !/senha|token|certificado|csc|autenticacao|hash/i.test(k)));
+  const seguro = Object.fromEntries(Object.entries(r).filter(([k]) => !/senha|token|certificado|csc|autenticacao|hash|auth/i.test(k)));
   const nums = await colunasNumericas(db, ['empresas']);
   return registroFr3({ ...seguro, codempresa: r.idempresa, razaosocial: r.razao_social, serie: r.serie_nfe, dados_automaticos: 'NÃO' }, new Set([...nums, 'codempresa']));
 }

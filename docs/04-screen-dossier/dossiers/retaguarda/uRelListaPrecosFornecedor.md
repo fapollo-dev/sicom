@@ -46,9 +46,26 @@ produto, o giro em períodos — com estoque, mínimo/máximo, última entrada e
   do Rel_CaixaAnual (montados com `UpperCase(MesExtenso(i))` — o `UpperCase` por fora indica que a função não devolve em maiúsculas: "Jan").
   `MesExtensoT` = o nome inteiro ("Janeiro") é inferência: é a outra função e é o texto dos nós de mês da árvore dos lançamentos contábeis.
 
-## 4. Falta
+## 4. ✅ Corte 06/10/2026 (2) — o "Habilita Período" pelos 6 SQLs do DM e a impressão dele
 
-- a impressão do "Habilita Período" (`AnaliseGiroMercPeriodo[Analitico].fr3`, com `cdsPorPeriodo`/`cdsMesesAnalitico` e as variáveis
-  MODELO/MESANO/QUANT/VIZUALIZARPROD/CRITERIO/TIPOQUERY) e as variantes Pedidos/Entradas-e-Saídas desse modo (`qryPeriodoDiasPedidos`,
-  `qryPeriodoDiasES`);
+`MontaSqlPorPeriodo` escolhe entre 6 SQLs guardados no `udmRelListaPrecosFornecedor.dfm` (Vendas/Pedidos/E-S × sintético/analítico); o
+corte 1 tinha um só (o de Vendas) e uma "divergência" falsa (VENDAS/NF_PROD têm DESCRICAO no destino — migs 160 e 133). Agora:
+- **Vendas sintético** (`qryPeriodoDias`): ⚠️ a perna de VENDAS **sem** `V.IDEMPRESA IN` — entram as vendas de todas as lojas dos
+  produtos que existem no ESTOQUE da loja; a descrição do cadastro. **Vendas analítico** (`fdMesesAnalitico`): com a loja; a descrição
+  da linha (venda / item da NF);
+- **Pedidos** (não existia): `qryPeriodoDiasPedidos` (a descrição do pedido, AVG(VRCUSTOREP)) e `fdAnaliticoPedidos`;
+- **Entradas e Saídas** (não existia): `qryPeriodoDiasES` — as duas pernas até o **SYSDATE** (não o fim da faixa), a saída com a
+  descrição do cadastro e a entrada com a do item, custo da entrada `CASE VL_CUSTO = 0 THEN VRCUSTO`, ordem TIPO, código;
+  `fdAnaliticoES` — ⚠️ a perna de VENDAS com `V.IDEMPRESA IN (1)` **fixo** no SQL do legado, ordem código, mês;
+- os dois analíticos de Pedidos e E/S não selecionam VRCUSTOREP, que é campo persistente do `cdsMesesAnalitico`: no legado o Open
+  falha ("Field 'VRCUSTOREP' not found"). Aqui saem com o custo de reposição vazio;
+- cancelado/cancelada estritos (`= 'N'`, como o SQL) e `CASE WHEN NP.VRVENDA = 0` sem coalesce, como o SQL;
+- **Imprimir**: `AnaliseGiroMercPeriodo.fr3` (sintético, `dbdPorPeriodo` agrupado por TIPO) ou `AnaliseGiroMercPeriodoAnalitico.fr3`
+  (`dbdAnalitico`, por produto e mês/ano), com as variáveis MODELO, MESANO/CRITERIO (0 dias, 1 semanas, 2 meses, 3 anos), QUANT,
+  VIZUALIZARPROD, TIPOQUERY (0 vendas, 1 pedidos, 2 E/S), Empresa, FORNECEDOR, MOSTRAR_CUSTO.
+- motor `.fr3`: a variável do **script** já atribuída vence a variável do relatório de mesmo nome (`tipoQuery := …` × `<TIPOQUERY>` no
+  layout 640 — no FastScript o identificador declarado resolve antes do OnGetValue).
+
+## 5. Falta
+
 - o "Exibe Grade" (a prévia em grade antes de imprimir) — a tela do Apollo já mostra a grade.

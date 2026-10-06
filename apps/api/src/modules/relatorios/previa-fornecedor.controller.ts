@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import {
-  previaFornecedorSchema, previaPeriodoSchema, previaFornecedorImpressaoSchema,
-  type PreviaFornecedorDto, type PreviaPeriodoDto, type PreviaFornecedorImpressaoDto,
+  previaFornecedorSchema, previaPeriodoSchema, previaFornecedorImpressaoSchema, previaPeriodoImpressaoSchema,
+  type PreviaFornecedorDto, type PreviaPeriodoDto, type PreviaFornecedorImpressaoDto, type PreviaPeriodoImpressaoDto,
 } from '@apollo/shared';
 import { PreviaFornecedorService } from './previa-fornecedor.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -46,5 +46,13 @@ export class PreviaFornecedorController {
   @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
   impressao(@Body(new ZodValidationPipe(previaFornecedorImpressaoSchema)) dto: PreviaFornecedorImpressaoDto) {
     return this.svc.impressao(dto);
+  }
+
+  /** o Imprimir do "Habilita Período" (AnaliseGiroMercPeriodo[Analitico].fr3) */
+  @Post('periodo/impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
+  impressaoPeriodo(@Body(new ZodValidationPipe(previaPeriodoImpressaoSchema)) dto: PreviaPeriodoImpressaoDto) {
+    return this.svc.impressaoPeriodo(dto);
   }
 }

@@ -342,6 +342,9 @@ class Relatorio {
     const [o, ...resto] = this.resolver(caminho);
     // um nome solto que é variável do relatório vence o objeto de mesmo nome (o `[DATA]` do FechamentoCaixa.fr3 × a página "Data"): o
     // `DoGetValue` do FastReport olha as Variables antes do script
+    // …mas a variável do SCRIPT já atribuída vence a do relatório de mesmo nome: no FastScript o identificador declarado no script
+    // resolve antes do OnGetValue (o `tipoQuery := …` do AnaliseGiroMercPeriodo.fr3 × a variável TIPOQUERY)
+    if (!resto.length && this.locais.has(o.toLowerCase())) return this.locais.get(o.toLowerCase())!;
     if (!resto.length && this.temVariavel(o.toLowerCase())) return this.valorVariavel(o.toLowerCase());
     const e = this.estados.get(o.toLowerCase());
     if (!e && resto.length === 1 && resto[0].toLowerCase() === 'count' && this.lista(o)) return this.lista(o)!.length;

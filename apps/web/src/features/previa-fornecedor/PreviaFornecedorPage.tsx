@@ -87,7 +87,7 @@ export function PreviaFornecedorPage() {
         // "Habilita Período": faixa livre, uma linha por produto, só quem teve movimento
         const r = await req<{ linhas: LinhaPeriodo[]; totais: Totais; filtro: Filtro }>(
           '/relatorios/previa-fornecedor/periodo',
-          { ...comum, unidade, quantidade: Number(quantidade) || 1, modelo },
+          { ...comum, unidade, quantidade: Number(quantidade) || 1, modelo, visualizar },
         );
         setPorPeriodo(r.linhas); setLinhas([]); setPeriodos([]); setTotais(r.totais); setFiltro(r.filtro);
         if (!r.linhas.length) mensagem.sucesso('Nenhum produto com movimento na faixa.');
@@ -104,7 +104,13 @@ export function PreviaFornecedorPage() {
 
   // o Imprimir dos modos de slots: o legado recalcula a consulta e imprime só os produtos com movimento (o Filtro do btnImprimir)
   const imprimir = () => {
-    if (periodizacao === 'PERIODO') { mensagem.erro('A impressão do "Habilita Período" ainda não foi convertida.'); return; }
+    if (periodizacao === 'PERIODO') {
+      void imprimirRelatorio('/relatorios/previa-fornecedor/periodo/impressao', {
+        dataAnalise, codfor: codfor ? Number(codfor) : undefined, ativo: ativo ? Number(ativo) : undefined,
+        unidade, quantidade: Number(quantidade) || 1, modelo, visualizar, mostrarCusto, codigo,
+      }).catch((e) => mensagem.erro(e));
+      return;
+    }
     void imprimirRelatorio('/relatorios/previa-fornecedor/impressao', {
       dataAnalise, codfor: codfor ? Number(codfor) : undefined, ativo: ativo ? Number(ativo) : undefined,
       periodizacao, visualizar, mostrarCusto, codigo,

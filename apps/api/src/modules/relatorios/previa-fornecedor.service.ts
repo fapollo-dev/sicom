@@ -502,17 +502,19 @@ export class PreviaFornecedorService {
    * 45 em estoque e 100 movimentos exibiria 4.500. Além de errado, `produtos.qtde` não existe no schema novo (o
    * saldo vive em `estoque`, por empresa). Aqui o estoque sai de `estoque` na empresa do escopo, uma vez.
    *
-   * DIVERGÊNCIA DELIBERADA (2) — auditoria do corte analítico: no `fdMesesAnalitico` o legado agrupa/ordena pela
-   * DESCRIÇÃO DA LINHA de movimento (`V.DESCRICAO`/`NP.DESCRICAO`), não pela do cadastro — produto renomeado no
-   * meio da faixa (ou NF com descrição própria) sai em MAIS de uma linha por (produto, mês). `vendas`/`nf_prod`
-   * não têm descrição no schema novo (não migrada) → aqui é sempre `p.descricao`, 1 linha por (produto, mês).
+   * (2) — corrigido em 06/10/2026: a "divergência" antiga dizia que VENDAS/NF_PROD não tinham descrição no destino — têm (migs 160 e
+   * 133). Agora a descrição sai de onde cada SQL tira: a do CADASTRO no Vendas sintético e na saída do E/S sintético, a da LINHA no
+   * analítico, no Pedidos e na entrada do E/S — produto renomeado no meio da faixa sai em mais de uma linha, como no legado.
+   *
+   * Vendas/Pedidos/E-S (06/10/2026): as 6 combinações seguem os 6 SQLs do DM — ver o comentário da `uniao` (o Vendas sintético sem
+   * filtro de loja nas VENDAS, o E/S sintético até o SYSDATE, o E/S analítico com a loja 1 fixa nas vendas).
    *
    * DIVERGÊNCIA DELIBERADA (3) — auditoria: o filtro ATIVO (multi_preco) é MORTO no caminho "Habilita Período"
    * do legado — `MontaSqlPorPeriodo` recebe o `pJoin` do GetFiltroIdxAtivo e NUNCA o injeta (as queries nem têm
    * o marcador substituído), embora o combo fique habilitado na tela. Aqui o filtro FUNCIONA nos dois modelos
    * (upgrade consciente: o operador que seleciona "Ativo p/ compra = S" espera o filtro aplicado, não ignorado).
    */
-  async porPeriodo(f: FiltroPrevPeriodo): Promise<{
+  async porPeriodo(f: FiltroPrevPeriodo, semLimite = false): Promise<{
     linhas: Record<string, unknown>[]; totais: Record<string, number | null>; filtro: Record<string, unknown>;
   }> {
     const emp = this.emp();
@@ -545,38 +547,88 @@ export class PreviaFornecedorService {
 
     const CFOP_SAIDA = [5102, 6102, 5402, 6402, 5403, 6403, 5405, 6405];
     const qtdeNf = sql`coalesce(np.quantidade * (case when (np.fatorembal is null or np.fatorembal = 0) then 1 else np.fatorembal end), 0)`;
+    const vis = f.visualizar ?? 'VENDAS';
+    // o "SYSDATE" das duas pernas do qryPeriodoDiasES (sintético): o fim é HOJE, não o fim da faixa
+    const fimEs = addDias(hojeLocal, 1);
+    const fimMov = vis === 'ENTRADAS_SAIDAS' && !analitico ? fimEs : fimExcl;
 
-    const movVendas = db.selectFrom('vendas as v')
+    // as pernas do movimento, cada uma com as colunas do SQL do legado (TIPO, descrição da linha, mês)
+    const vendas = (opts: { loja: 'TODAS' | 'ESCOPO' | 'LOJA1'; descricaoDaLinha: boolean; comCustoRep: boolean }) => db.selectFrom('vendas as v')
+      .innerJoin('produtos as pv', 'pv.idproduto', 'v.codproduto')
       .select([
         sql`v.codproduto`.as('codproduto'), sql`coalesce(v.qtde,0)`.as('qtde'),
         sql`coalesce(v.vrcusto,0)`.as('vrcusto'), sql`coalesce(v.vrvenda,0)`.as('vrvenda'),
-        sql`coalesce(v.vrcustorep,0)`.as('vrcustorep'),
-        mesVendas.as('mes'),
+        (opts.comCustoRep ? sql`coalesce(v.vrcustorep,0)` : sql`null::numeric`).as('vrcustorep'),
+        mesVendas.as('mes'), sql`'S'`.as('tipo'),
+        (opts.descricaoDaLinha ? sql`v.descricao` : sql`pv.descricao`).as('descricao'),
       ])
-      .where(sql`coalesce(v.cancelado,'N')`, '=', 'N')
-      .where('v.idempresa', 'in', empresas)
-      // limites no fuso do negócio (o balde de dia não existe aqui, mas a BORDA da faixa sim)
+      .where(sql`v.cancelado`, '=', 'N')
+      .$if(opts.loja === 'ESCOPO', (q) => q.where('v.idempresa', 'in', empresas))
+      .$if(opts.loja === 'LOJA1', (q) => q.where('v.idempresa', '=', 1))
       .where('v.dtvenda', '>=', sql`(${ini}::timestamp at time zone ${tz})`)
-      .where('v.dtvenda', '<', sql`(${fimExcl}::timestamp at time zone ${tz})`);
-
-    const movNf = db.selectFrom('nf as n')
+      .where('v.dtvenda', '<', sql`(${fimMov}::timestamp at time zone ${tz})`);
+    const nfSaida = (opts: { descricaoDaLinha: boolean; comCustoRep: boolean }) => db.selectFrom('nf as n')
       .innerJoin('nf_prod as np', 'np.codnf', 'n.codnf')
+      .innerJoin('produtos as pn', 'pn.idproduto', 'np.codproduto')
       .select([
-        sql`np.codproduto`.as('codproduto'), qtdeNf.as('qtde'),
-        sql`coalesce(np.vl_custo,0)`.as('vrcusto'),
-        sql`coalesce(case when coalesce(np.vrvenda,0) = 0 then np.vrcusto else np.vrvenda end, 0)`.as('vrvenda'),
-        sql`coalesce(np.vrcustorep,0)`.as('vrcustorep'),
-        mesNf.as('mes'),
+        sql`np.codproduto`.as('codproduto'), qtdeNf.as('qtde'), sql`coalesce(np.vl_custo,0)`.as('vrcusto'),
+        sql`coalesce(case when np.vrvenda = 0 then np.vrcusto else np.vrvenda end, 0)`.as('vrvenda'),
+        (opts.comCustoRep ? sql`coalesce(np.vrcustorep,0)` : sql`null::numeric`).as('vrcustorep'),
+        mesNf.as('mes'), sql`'S'`.as('tipo'),
+        (opts.descricaoDaLinha ? sql`np.descricao` : sql`pn.descricao`).as('descricao'),
       ])
-      .where(sql`coalesce(n.cancelada,'N')`, '=', 'N')
+      .where(sql`n.cancelada`, '=', 'N')
       .where(sql`n.proc`, '=', 'S').where(sql`n.tipo`, '=', 'S')
       .where('n.idempresa', 'in', empresas)
       .where('n.dtcontabil', '>=', sql`${ini}::date`)
-      .where('n.dtcontabil', '<', sql`${fimExcl}::date`)
+      .where('n.dtcontabil', '<', sql`${fimMov}::date`)
       .where('n.cfop', 'in', CFOP_SAIDA);
+    const nfEntrada = (comCustoRep: boolean) => db.selectFrom('nf as n')
+      .innerJoin('nf_prod as np', 'np.codnf', 'n.codnf')
+      .select([
+        sql`np.codproduto`.as('codproduto'), qtdeNf.as('qtde'),
+        sql`coalesce(case when np.vl_custo = 0 then np.vrcusto else np.vl_custo end, 0)`.as('vrcusto'),
+        sql`0`.as('vrvenda'),
+        (comCustoRep ? sql`coalesce(np.vrcustorep,0)` : sql`null::numeric`).as('vrcustorep'),
+        mesNf.as('mes'), sql`'E'`.as('tipo'), sql`np.descricao`.as('descricao'),
+      ])
+      .where(sql`n.cancelada`, '=', 'N')
+      .where(sql`n.proc`, '=', 'S').where(sql`n.tipo`, '=', 'E')
+      .where('n.idempresa', 'in', empresas)
+      .where('n.dtcontabil', '>=', sql`${ini}::date`)
+      .where('n.dtcontabil', '<', sql`${fimMov}::date`);
+    const pedidosMov = () => db.selectFrom('pedidos as v')
+      .select([
+        sql`v.codproduto`.as('codproduto'), sql`coalesce(v.qtde,0)`.as('qtde'),
+        sql`coalesce(v.vrcusto,0)`.as('vrcusto'), sql`coalesce(v.vrvenda,0)`.as('vrvenda'),
+        (analitico ? sql`null::numeric` : sql`coalesce(v.vrcustorep,0)`).as('vrcustorep'),
+        (analitico ? sql`extract(${campoData} from v.dtvenda)::int` : sql`0`).as('mes'), sql`'S'`.as('tipo'), sql`v.descricao`.as('descricao'),
+      ])
+      .where(sql`v.cancelado`, '=', 'N')
+      .where('v.idempresa', 'in', empresas)
+      .where('v.dtvenda', '>=', sql`${ini}::timestamp`)
+      .where('v.dtvenda', '<', sql`${fimExcl}::timestamp`);
+
+    // cada combinação é um SQL do udmRelListaPrecosFornecedor:
+    //  VENDAS     sintético qryPeriodoDias   — ⚠️ a perna de VENDAS sem `V.IDEMPRESA IN` (todas as lojas; o ESTOQUE da loja ancora o
+    //                                          produto), descrição do cadastro · analítico fdMesesAnalitico — com a loja, descrição da linha
+    //  PEDIDOS    sintético qryPeriodoDiasPedidos (V.DESCRICAO, AVG(VRCUSTOREP)) · analítico fdAnaliticoPedidos (sem VRCUSTOREP)
+    //  ENTR./SAÍD sintético qryPeriodoDiasES — as duas pernas até o SYSDATE, a saída com a descrição do cadastro, a entrada com a da
+    //             linha · analítico fdAnaliticoES — ⚠️ a perna de VENDAS com `V.IDEMPRESA IN (1)` FIXO no SQL, sem VRCUSTOREP, até o fim da faixa
+    //  (os dois analíticos de Pedidos e E/S não selecionam VRCUSTOREP, campo persistente do cdsMesesAnalitico: no legado o Open falha
+    //  com "Field 'VRCUSTOREP' not found" — aqui saem com o custo de reposição vazio)
+    const uniao = vis === 'PEDIDOS'
+      ? (pedidosMov() as any)
+      : vis === 'ENTRADAS_SAIDAS'
+        ? (analitico
+          ? vendas({ loja: 'LOJA1', descricaoDaLinha: true, comCustoRep: false }).unionAll(nfSaida({ descricaoDaLinha: true, comCustoRep: false }) as any).unionAll(nfEntrada(false) as any)
+          : vendas({ loja: 'ESCOPO', descricaoDaLinha: false, comCustoRep: true }).unionAll(nfSaida({ descricaoDaLinha: false, comCustoRep: true }) as any).unionAll(nfEntrada(true) as any))
+        : (analitico
+          ? vendas({ loja: 'ESCOPO', descricaoDaLinha: true, comCustoRep: true }).unionAll(nfSaida({ descricaoDaLinha: true, comCustoRep: true }) as any)
+          : vendas({ loja: 'TODAS', descricaoDaLinha: false, comCustoRep: true }).unionAll(nfSaida({ descricaoDaLinha: false, comCustoRep: true }) as any));
 
     let q = db
-      .selectFrom(movVendas.unionAll(movNf).as('mov'))
+      .selectFrom(uniao.as('mov'))
       .innerJoin('produtos as p', 'p.idproduto', 'mov.codproduto')
       // ESTOQUE é INNER como no legado (é ele que ancora a empresa na lista de produtos)
       .innerJoin('estoque as e', (j) => j.onRef('e.idproduto', '=', 'p.idproduto').on('e.idempresa', 'in', empresas))
@@ -584,8 +636,8 @@ export class PreviaFornecedorService {
       .leftJoin('marcas as ma', 'ma.idmarca', 'p.idmarca')
       .leftJoin('multi_preco as m', (j) => j.onRef('m.idproduto', '=', 'e.idproduto').onRef('m.idempresa', '=', 'e.idempresa'))
       .select([
-        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), 'p.unidade', 'p.fatorcx', 'p.codfor',
-        sql`pa.fantasia`.as('fornecedor'),
+        'p.idproduto', 'p.codbarra', sql`mov.descricao`.as('descricao'), 'p.unidade', 'p.fatorcx', 'p.codfor',
+        sql`pa.fantasia`.as('fornecedor'), sql`mov.tipo`.as('tipo'),
         sql`mov.mes`.as('mes'), // 0 no sintético (grupo único); mês/ano no analítico
         sql`sum(mov.qtde)`.as('qtde'),
         sql`avg(mov.vrcusto)`.as('vrcusto'),
@@ -596,7 +648,7 @@ export class PreviaFornecedorService {
         sql`to_char(max(e.dtent) at time zone ${tz},'YYYY-MM-DD')`.as('dtultent'),
         sql`max(e.qtde_ent)`.as('qtdeultent'),
       ])
-      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'p.fatorcx', 'p.codfor', 'pa.fantasia', sql`mov.mes`]);
+      .groupBy(['p.idproduto', 'p.codbarra', sql`mov.descricao`, 'p.unidade', 'p.fatorcx', 'p.codfor', 'pa.fantasia', sql`mov.tipo`, sql`mov.mes`]);
 
     // filtros de valor ÚNICO, iguais aos da matriz (MontaFiltroSQL é compartilhado pelos dois caminhos)
     if (f.codfor != null) q = q.where('pa.codparceiro', '=', Number(f.codfor));
@@ -616,8 +668,12 @@ export class PreviaFornecedorService {
     if (f.ativo != null) q = q.where('m.idproduto', 'is not', null);
 
     const MAX_LINHAS = 20000;
-    // ordem fiel: ORDER BY DESCRICAO (sintético) / DESCRICAO, mes (analítico — fdMesesAnalitico)
-    const brutas = (await q.orderBy(sql`p.descricao`).orderBy(sql`mov.mes`).limit(MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
+    // a ordem de cada SQL: DESCRICAO (Vendas/Pedidos sintético), DESCRICAO, mes (Vendas/Pedidos analítico), TIPO, CODPRODUTO (E/S
+    // sintético), CODPRODUTO, mes (E/S analítico) — o código como desempate onde o legado deixa ao acaso
+    const ordenada = vis === 'ENTRADAS_SAIDAS'
+      ? (analitico ? q.orderBy('p.idproduto').orderBy(sql`mov.mes`).orderBy(sql`mov.tipo`, 'desc') : q.orderBy(sql`mov.tipo`).orderBy('p.idproduto'))
+      : q.orderBy(sql`mov.descricao`).orderBy(sql`mov.mes`).orderBy('p.idproduto');
+    const brutas = (await ordenada.limit(semLimite ? 10_000_000 : MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
     const truncado = brutas.length > MAX_LINHAS;
     const linhas = (truncado ? brutas.slice(0, MAX_LINHAS) : brutas).map((r) => {
       const qt = r3(num(r.qtde));
@@ -777,6 +833,45 @@ export class PreviaFornecedorService {
       }
       default: return [];
     }
+  }
+
+  /**
+   * O Imprimir do "Habilita Período" (`fIsPorPeriodo`): `MontaSqlPorPeriodo` e o layout `AnaliseGiroMercPeriodo.fr3` com o
+   * `cdsPorPeriodo` no `dbdPorPeriodo` (agrupado por TIPO — "Saídas:"/"Entradas:" no E/S), ou `AnaliseGiroMercPeriodoAnalitico.fr3` com o
+   * `cdsMesesAnalitico` no `dbdAnalitico` (agrupado por produto, uma linha por mês/ano). Variáveis MODELO (0 sintético / 1 analítico),
+   * MESANO e CRITERIO (o `cbPeriodo`: 0 dias, 1 semanas, 2 meses, 3 anos), QUANT, VIZUALIZARPROD (0 código / 1 barras), TIPOQUERY (0
+   * vendas, 1 pedidos, 2 entradas e saídas), Empresa, FORNECEDOR e MOSTRAR_CUSTO. Sem movimento: "Não há movimento no filtro informado.
+   * Verifique!".
+   */
+  async impressaoPeriodo(f: FiltroPrevPeriodo & { mostrarCusto?: boolean; codigo?: 'PRODUTO' | 'BARRAS' }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.porPeriodo(f, true);
+    const linhas = r.linhas as Array<Record<string, any>>;
+    if (!linhas.length) throw new BusinessRuleError('SEM_MOVIMENTO', {}, 'Não há movimento no filtro informado. Verifique!');
+    const analitico = r.filtro.modelo === 'ANALITICO';
+    const reg = (l: Record<string, any>) => ({
+      TIPO: l.tipo ?? 'S', CODPRODUTO: Number(l.idproduto), DESCRICAO: l.descricao ?? '', QTD: num(l.qtde), CUSTO: num(l.vrcusto),
+      VALOR: num(l.vrvenda), VRCUSTOREP: l.vrcustorep == null ? null : num(l.vrcustorep), ESTOQUE: num(l.estoque),
+      UNIDADE: l.unidade ?? '', FATORCX: l.fatorcx == null ? null : num(l.fatorcx), CODBARRA: l.codbarra ?? '',
+      ...(analitico ? { MES: Number(l.mes) } : {}),
+    });
+    const criterio = ({ DIAS: 0, SEMANAS: 1, MESES: 2, ANOS: 3 } as Record<string, number>)[String(r.filtro.unidade)] ?? 0;
+    const tipoQuery = ({ VENDAS: 0, PEDIDOS: 1, ENTRADAS_SAIDAS: 2 } as Record<string, number>)[f.visualizar ?? 'VENDAS'] ?? 0;
+    const forn = f.codfor != null
+      ? (await sql<{ razao: string | null }>`SELECT razao FROM parceiros WHERE codparceiro = ${Number(f.codfor)}`.execute(db)).rows[0]?.razao ?? ''
+      : null;
+    return {
+      titulo: 'Análise de giro por período',
+      modelo: await modeloFr3(db, analitico ? 'AnaliseGiroMercPeriodoAnalitico.fr3' : 'AnaliseGiroMercPeriodo.fr3'),
+      datasets: analitico ? { dbdAnalitico: linhas.map(reg) } : { dbdPorPeriodo: linhas.map(reg) },
+      variaveis: {
+        MODELO: analitico ? '1' : '0', MESANO: String(criterio), CRITERIO: String(criterio), QUANT: String(r.filtro.quantidade),
+        VIZUALIZARPROD: f.codigo === 'BARRAS' ? '1' : '0', TIPOQUERY: String(tipoQuery),
+        Empresa: textoVariavel((r.filtro.empresas as number[]).join(',')),
+        FORNECEDOR: textoVariavel(forn != null ? `${f.codfor} - ${forn}` : ''),
+        MOSTRAR_CUSTO: textoVariavel(f.mostrarCusto ? '1' : '0'),
+      },
+    };
   }
 }
 

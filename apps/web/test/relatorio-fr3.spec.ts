@@ -1831,3 +1831,19 @@ describe('prévia do fornecedor (ListaPrecFornecedorVendas.fr3, FRMRELLISTAPRECO
   });
 });
 
+describe('análise de giro por período (AnaliseGiroMercPeriodo.fr3, o "Habilita Período")', () => {
+  it('agrupa por TIPO (Entradas/Saídas) com a soma da quantidade e o tipo da consulta no cabeçalho', () => {
+    const l = (TIPO: string, CODPRODUTO: number, DESCRICAO: string, QTD: number, CUSTO: number) => ({
+      TIPO, CODPRODUTO, DESCRICAO, QTD, CUSTO, VALOR: 0, VRCUSTOREP: 1.5, ESTOQUE: 100, UNIDADE: 'FD', FATORCX: 12, CODBARRA: '789',
+    });
+    const t = texto(paginasDoModelo(modelo('analise-giro-periodo.fr3'), {
+      dbdPorPeriodo: [l('E', 990700, 'ARROZ RV 5KG', 30, 7), l('S', 990700, 'ARROZ RV 5KG', 24, 4), l('S', 990701, 'FEIJAO RV 1KG', 337, 4)],
+    }, agora, { MODELO: '0', MESANO: '0', CRITERIO: '0', QUANT: '15', VIZUALIZARPROD: '0', TIPOQUERY: '2', Empresa: "'1'", FORNECEDOR: "'990002 - FORN PREVIA LTDA'", MOSTRAR_CUSTO: "'1'" }));
+    expect(t).toContain('Entradas:');
+    expect(t).toContain('Saídas:');
+    expect(t).toContain('ENTRADA E SA');
+    expect(t).toContain('FEIJAO RV 1KG');
+    expect(t).toContain('361'); // a soma das saídas (24 + 337)
+  });
+});
+

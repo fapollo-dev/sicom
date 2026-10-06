@@ -71,3 +71,10 @@ export const previaFornecedorImpressaoSchema = previaFornecedorSchema.omit({ som
 });
 export type PreviaFornecedorImpressaoDto = z.infer<typeof previaFornecedorImpressaoSchema>;
 
+/** o Imprimir do "Habilita Período": os mesmos parâmetros, o "Mostrar Custo" e o código (VIZUALIZARPROD) */
+export const previaPeriodoImpressaoSchema = previaPeriodoSchema.extend({
+  mostrarCusto: z.boolean().optional(),
+  codigo: z.enum(['PRODUTO', 'BARRAS']).optional(),
+});
+export type PreviaPeriodoImpressaoDto = z.infer<typeof previaPeriodoImpressaoSchema>;
+

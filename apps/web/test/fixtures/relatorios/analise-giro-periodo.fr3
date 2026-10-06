@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.16" DotMatrixReport="False" IniFile="\Software\Fast Reports" OldStyleProgress="True" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="39973,488821794" ReportOptions.Description.Text="" ReportOptions.LastChange="43815,4924183218" ScriptLanguage="PascalScript" ScriptText.Text="var&#13;&#10;  tipoQuery : String;                                                    &#13;&#10;  &#13;&#10;procedure GroupHeader1OnBeforePrint(Sender: TfrxComponent);&#13;&#10;begin&#13;&#10;   if   &#60;MODELO&#62;  = 0 then&#13;&#10;  begin                 &#13;&#10; if &#60;dbdPorPeriodo.&#34;TIPO&#34;&#62; = 'S' then                 &#13;&#10;    mAgrupamento.text := 'Saídas:';                                       &#13;&#10;&#13;&#10;  if &#60;dbdPorPeriodo.&#34;TIPO&#34;&#62; = 'E' then&#13;&#10;    mAgrupamento.text := 'Entradas:';   &#13;&#10;  end;&#13;&#10;    &#13;&#10;  if &#60;VIZUALIZARPROD&#62; = 0 then&#13;&#10;    memo3.text := 'Cód. Produto'&#13;&#10;  else&#13;&#10;    memo3.text := 'Cód. Barras';&#13;&#10;    &#13;&#10;end;&#13;&#10;  &#13;&#10;  &#13;&#10;  &#13;&#10;procedure PageHeader1OnBeforePrint(Sender: TfrxComponent);&#13;&#10;begin                                                                                 &#13;&#10;            &#13;&#10;end;&#13;&#10;  &#13;&#10;procedure MasterData1OnBeforePrint(Sender: TfrxComponent);&#13;&#10;begin&#13;&#10; if &#60;VIZUALIZARPROD&#62; = 0 then&#13;&#10;  memo10.text := &#60;dbdPorPeriodo.&#34;CODPRODUTO&#34;&#62;&#13;&#10; else&#13;&#10;   memo10.text := &#60;dbdPorPeriodo.&#34;CODBARRA&#34;&#62;&#13;&#10;             &#13;&#10;{   if Frac(&#60;Line&#62; / 2) = 0.5 then&#13;&#10;      Memo22.Color :=  $00d9e5e3          // $00d9eef0  &#13;&#10;   else&#13;&#10;    Memo22.Color := clWhite; }              &#13;&#10;end;    &#13;&#10;  begin&#13;&#10;                                                &#13;&#10;   if &#60;TIPOQUERY&#62; = 0 then&#13;&#10;       tipoQuery := ' VENDAS'&#13;&#10;   else if &#60;TIPOQUERY&#62; = 1 then&#13;&#10;       tipoQuery := ' PEDIDOS'&#13;&#10;   else&#13;&#10;       tipoQuery := ' ENTRADA E SAÍDAS ';          &#13;&#10;&#13;&#10;  memo8.text :=  tipoQuery ;&#13;&#10;&#13;&#10;&#13;&#10; if &#60;MOSTRAR_CUSTO&#62; = 0 then&#13;&#10; begin                &#13;&#10;   dbdPorPeriodoCUSTO.Visible := False;&#13;&#10;   dbdPorPeriodoVRCUSTOREP.Visible := False;                                                &#13;&#10;   memo13.visible := false;&#13;&#10;   memo14.Visible := false;                                                                 &#13;&#10; end              &#13;&#10;  else&#13;&#10;  begin&#13;&#10;   dbdPorPeriodoCUSTO.Visible := True;&#13;&#10;   dbdPorPeriodoVRCUSTOREP.Visible := True;       &#13;&#10;   memo13.visible := True;&#13;&#10;   memo14.Visible := True;       &#13;&#10;  end;                    &#13;&#10;&#13;&#10;                               &#13;&#10;                                  &#13;&#10;end.">
+  <Datasets>
+    <item DataSet="dbdAnalitico" DataSetName="dbdAnalitico"/>
+    <item DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo"/>
+  </Datasets>
+  <Variables>
+    <item Name="Empresa" Value="'1'"/>
+    <item Name="FORNECEDOR" Value="''"/>
+    <item Name="MOSTRAR_CUSTO" Value="'1'"/>
+    <item Name="MODELO" Value="0"/>
+    <item Name="QUANT" Value="5"/>
+    <item Name="VIZUALIZARPROD" Value="0"/>
+    <item Name="CRITERIO" Value="2"/>
+    <item Name="TIPOQUERY" Value="0"/>
+    <item Name="MESANO" Value="2"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="210" PaperHeight="297" PaperSize="9" LeftMargin="5" RightMargin="5" TopMargin="5" BottomMargin="5" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="">
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="121,93700787" Left="0" Top="18,89765" Width="755,906" OnBeforePrint="PageHeader1OnBeforePrint">
+      <TfrxMemoView Name="Memo1" Left="8" Top="19,77953" Width="763,46506" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" HAlign="haCenter" ParentFont="False" Text="ANÁLISE DE GIRO DE MERCADORIAS "/>
+      <TfrxLineView Name="Line1" Left="0,77953" Top="120,93700787" Width="752,12647" Height="0" Color="8421504" Frame.Color="8421504" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo4" Left="-1" Top="102,10235" Width="94,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="Empresa(s): "/>
+      <TfrxMemoView Name="Empresa" Left="90" Top="103,10235" Width="79,37013" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[Empresa]"/>
+      <TfrxMemoView Name="FORNECEDOR" Left="-1" Top="81,10235" Width="170,37013" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" ParentFont="False" Text="[FORNECEDOR]"/>
+      <TfrxMemoView Name="Date" Left="616" Top="3,10235" Width="79,37013" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[Date]"/>
+      <TfrxMemoView Name="Time" Left="697" Top="3,10235" Width="50,37013" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Arial" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[Time]"/>
+      <TfrxMemoView Name="Memo8" Left="294" Top="51,10235" Width="176,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="1" HAlign="haCenter" ParentFont="False" Text=""/>
+    </TfrxPageHeader>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="45,35436" Left="0" Top="377,953" Width="755,906">
+      <TfrxLineView Name="Line3" Left="0" Top="0" Width="755,906" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Page" Left="488,97681" Top="2" Width="262,72449" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-9" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" Text="Página [PAGE#] de [TOTALPAGES#]"/>
+      <TfrxMemoView Name="Memo11" Left="1" Top="1,29901" Width="279,48825" Height="36,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="courier New" Font.Style="1" ParentFont="False" Text="APOLLO - Automação Comercial&#13;&#10;Fone : (34) 3229-3291"/>
+    </TfrxPageFooter>
+    <TfrxGroupHeader Name="GroupHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="34,01577" Left="0" Top="200,31509" Width="755,906" OnBeforePrint="GroupHeader1OnBeforePrint" Condition="dbdPorPeriodo.&#34;TIPO&#34;">
+      <TfrxMemoView Name="Memo7" Left="0,77953" Top="15,11812" Width="789,92177" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="Memo2" Left="113,50402" Top="14,89765" Width="243,14193" Height="15,11811024" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" ParentFont="False" Text="Descrição"/>
+      <TfrxMemoView Name="Memo3" Left="2,77953" Top="14,89765" Width="94,48825" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" ParentFont="False" Text="Cód. Produto"/>
+      <TfrxMemoView Name="Memo5" Left="660,59091" Top="14,89765" Width="94,48825" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Quant."/>
+      <TfrxMemoView Name="Memo6" Left="370,20501" Top="15,89765" Width="77,48825" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" ParentFont="False" Text="Unidade"/>
+      <TfrxMemoView Name="mAgrupamento" Left="0,77953" Top="0" Width="789,92177" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" ParentFont="False" Text=""/>
+      <TfrxLineView Name="Line4" Left="5" Top="31,68491" Width="749,98423" Height="0" Color="0" Frame.Style="fsDot" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo13" Left="566" Top="14,89765" Width="78,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Custo"/>
+      <TfrxMemoView Name="Memo14" Left="466" Top="14,89765" Width="78,48825" Height="18,89765" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="1" HAlign="haRight" ParentFont="False" Text="Custo Rep"/>
+    </TfrxGroupHeader>
+    <TfrxGroupFooter Name="GroupFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="22,67718" Left="0" Top="294,80334" Width="755,906">
+      <TfrxLineView Name="Line2" Left="3,33859" Top="0,22047" Width="752,12647" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="Memo9" Left="660,59091" Top="0" Width="94,48825" Height="18,89765" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="128" Font.Height="-12" Font.Name="Courier New" Font.Style="1" HAlign="haRight" ParentFont="False" Text="[SUM(&#60;dbdPorPeriodo.&#34;QTD&#34;&#62;,MasterData1)]"/>
+    </TfrxGroupFooter>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="15,11812" Left="0" Top="257,00804" Width="755,906" OnBeforePrint="MasterData1OnBeforePrint" ColumnWidth="0" ColumnGap="0" DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo" RowCount="0">
+      <TfrxMemoView Name="Memo22" Left="0" Top="0" Width="789,92177" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-13" Font.Name="Arial" Font.Style="0" Highlight.Font.Charset="1" Highlight.Font.Color="255" Highlight.Font.Height="-13" Highlight.Font.Name="Arial" Highlight.Font.Style="0" Highlight.Condition="&#60;Line#&#62; mod 2" Highlight.FillType="ftBrush" Highlight.Fill.BackColor="-16777199" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="dbdPorPeriodoDESCRICAO" Left="114,50402" Top="0" Width="243,14193" Height="15,11812" DataField="DESCRICAO" DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Courier New" Font.Style="0" ParentFont="False" Text="[dbdPorPeriodo.&#34;DESCRICAO&#34;]"/>
+      <TfrxMemoView Name="dbdPorPeriodoQTD" Left="675,70903" Top="0" Width="79,37013" Height="15,11812" DataField="QTD" DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.3n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[dbdPorPeriodo.&#34;QTD&#34;]"/>
+      <TfrxMemoView Name="Memo12" Left="372" Top="1,24397" Width="76,48825" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Courier New" Font.Style="0" ParentFont="False" Text="[&#60;dbdPorPeriodo.&#34;UNIDADE&#34;&#62;]/[&#60;dbdPorPeriodo.&#34;FATORCX&#34;&#62;]">
+        <Formats>
+          <item/>
+          <item/>
+        </Formats>
+      </TfrxMemoView>
+      <TfrxMemoView Name="Memo10" Left="2,77953" Top="0" Width="106,48825" Height="15,11812" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Courier New" Font.Style="0" ParentFont="False" Text=""/>
+      <TfrxMemoView Name="dbdPorPeriodoCUSTO" Left="565,11812" Top="0,24397" Width="79,37013" Height="15,11812" DataField="CUSTO" DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-12" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[dbdPorPeriodo.&#34;CUSTO&#34;]"/>
+      <TfrxMemoView Name="dbdPorPeriodoVRCUSTOREP" Left="465,11812" Top="1,24397" Width="79,37013" Height="15,11812" DataField="VRCUSTOREP" DataSet="dbdPorPeriodo" DataSetName="dbdPorPeriodo" DisplayFormat.DecimalSeparator="," DisplayFormat.FormatStr="%2.2n" DisplayFormat.Kind="fkNumeric" Font.Charset="1" Font.Color="-16777208" Font.Height="-11" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" Text="[dbdPorPeriodo.&#34;VRCUSTOREP&#34;]"/>
+    </TfrxMasterData>
+  </TfrxReportPage>
+</TfrxReport>
