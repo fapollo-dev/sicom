@@ -3,6 +3,9 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -20,6 +23,8 @@ export interface FiltroEntSai {
   agruparProdutos?: boolean;
   /** o `rdgPesquisa`: saídas da venda do PDV ('vendas') ou dos pedidos de venda digitados ('pedidos') */
   modo?: 'vendas' | 'pedidos';
+  /** as lojas do `GetMultiEmpresa` (recortadas às do operador; vazio = a do login) */
+  empresas?: number[] | null;
 }
 
 /**
@@ -49,6 +54,13 @@ export interface FiltroEntSai {
  *
  * ⚠️ o legado repete aqui o `NP.DESCONTO` **sem `coalesce`** no frete e no seguro (`:513`), o mesmo descuido
  * do §105: com desconto nulo a parcela vira NULL e a linha some da soma. Protegido.
+ *
+ * ── Fidelidade (06/10/2026) ─────────────────────────────────────────────────────────────────────────────
+ * As lojas do `GetMultiEmpresa`; a venda com `CANCELADO = 'N'` (o nulo fica fora) e a descrição DA VENDA (`V.DESCRICAO`: o produto
+ * que mudou de nome sai em duas linhas, a da venda e a da nota — o agrupamento externo é por descrição); o departamento sem filtro de
+ * tipo (`F.CODFAMILIA = P.CODDPTO`); a nota de entrada só por `TIPO = 'E' AND PROC = 'S'` (a cancelada processada conta — 3 na
+ * produção); o fornecedor pelo parceiro (`PA.CODPARCEIRO`); nos pedidos, o departamento filtra o do PEDIDO (`F` é `PE.CODDPTO`); o dia
+ * da venda é o da loja.
  */
 @Injectable()
 export class RelEntSaiService {
@@ -63,17 +75,20 @@ export class RelEntSaiService {
   async gerar(f: FiltroEntSai): Promise<{
     linhas: Array<Record<string, unknown>>;
     totais: { entradas: number; saidas: number; totalCompras: number; totalVenda: number; itens: number };
+    empresas: number[];
   }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     if (f.dataIni > f.dataFim) throw new BusinessRuleError('DATA_INICIAL_MAIOR', { dataIni: f.dataIni, dataFim: f.dataFim });
+    const emps = f.empresas?.length ? await empresasDoOperador(db, f.empresas) : [emp];
 
+    // o AndWhere do fonte (o mesmo nas duas pernas): PA.CODPARCEIRO, F.CODFAMILIA, P.CODGRUPO, P.CODSUBGRUPO, P.IDPRODUTO
     const fp = [] as ReturnType<typeof sql>[];
-    if (f.coddpto) fp.push(sql`p.coddpto = ${f.coddpto}`);
+    if (f.codfor) fp.push(sql`pa.codparceiro = ${f.codfor}`);
+    if (f.coddpto) fp.push(sql`d.codfamilia = ${f.coddpto}`);
     if (f.codgrupo) fp.push(sql`p.codgrupo = ${f.codgrupo}`);
     if (f.codsubgrupo) fp.push(sql`p.codsubgrupo = ${f.codsubgrupo}`);
     if (f.idproduto) fp.push(sql`p.idproduto = ${f.idproduto}`);
-    if (f.codfor) fp.push(sql`p.codfor = ${f.codfor}`);
     const prod = fp.length ? sql`AND ${sql.join(fp, sql` AND `)}` : sql``;
 
     // a base do custo de entrada: desconto em PERCENTUAL, com coalesce em todas as parcelas
@@ -94,13 +109,14 @@ export class RelEntSaiService {
           FROM pedidos pe
           LEFT JOIN familias_prod d ON d.codfamilia = pe.coddpto
           LEFT JOIN produtos p      ON p.idproduto = pe.codproduto
-         WHERE pe.idempresa = ${emp}
+          LEFT JOIN parceiros pa    ON pa.codparceiro = p.codfor
+         WHERE pe.idempresa = ANY(${emps})
            AND pe.cancelado = 'N'
            AND pe.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${prod}
          GROUP BY pe.idempresa, p.idproduto, pe.descricao, d.descricao`
       : sql`
-        SELECT d.descricao AS dpto, v.idempresa, p.idproduto AS codproduto, p.descricao,
+        SELECT d.descricao AS dpto, v.idempresa, p.idproduto AS codproduto, v.descricao,
                0::numeric AS entradas, sum(v.qtde) AS saidas,
                sum(CASE WHEN v.iat = 'A' THEN round((v.qtde * v.vrvenda)::numeric, 2)
                         ELSE trunc((v.qtde * v.vrvenda)::numeric * 100) / 100 END)
@@ -110,13 +126,14 @@ export class RelEntSaiService {
                      + GREATEST(-coalesce(v.desc_acre_item, 0), 0)) AS total_venda,
                0::numeric AS total_compras
           FROM vendas v
-          JOIN produtos p           ON p.idproduto = v.codproduto
-          LEFT JOIN familias_prod d ON d.codfamilia = p.coddpto AND d.tipo = 'D'
-         WHERE v.idempresa = ${emp}
-           AND coalesce(v.cancelado, 'N') = 'N'
-           AND v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+          LEFT JOIN produtos p      ON p.idproduto = v.codproduto
+          LEFT JOIN familias_prod d ON d.codfamilia = p.coddpto
+          LEFT JOIN parceiros pa    ON pa.codparceiro = p.codfor
+         WHERE v.idempresa = ANY(${emps})
+           AND v.cancelado = 'N'
+           AND (v.dtvenda AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${prod}
-         GROUP BY d.descricao, v.idempresa, p.idproduto, p.descricao`;
+         GROUP BY d.descricao, v.idempresa, p.idproduto, v.descricao`;
 
     const linhas = (await sql<Record<string, unknown>>`
       WITH mov AS (
@@ -125,7 +142,7 @@ export class RelEntSaiService {
         UNION ALL
         -- ENTRADAS: a compra por nota, em unidade de venda (quantidade × fator de embalagem)
         SELECT d.descricao, nf.idempresa, np.codproduto, p.descricao,
-               sum(np.quantidade * coalesce(nullif(np.fatorembal, 0), 1)), 0, 0,
+               sum(np.quantidade * np.fatorembal), 0, 0,
                (sum(${baseNf})
                 + sum(coalesce(np.vricmst, 0))
                 + sum((coalesce(np.ipi, 0)    * ${baseArred}) / 100)
@@ -134,11 +151,11 @@ export class RelEntSaiService {
                 + sum((coalesce(np.seguro, 0) * ${baseArred}) / 100))::numeric(15,2)
           FROM nf_prod np
           JOIN nf                   ON nf.codnf = np.codnf
-          JOIN produtos p           ON p.idproduto = np.codproduto
-          LEFT JOIN familias_prod d ON d.codfamilia = p.coddpto AND d.tipo = 'D'
-         WHERE nf.idempresa = ${emp}
-           AND nf.tipo = 'E' AND coalesce(nf.proc, 'N') = 'S'
-           AND coalesce(nf.cancelada, 'N') = 'N'
+          ${pedidos ? sql`LEFT JOIN` : sql`JOIN`} produtos p ON p.idproduto = np.codproduto
+          LEFT JOIN parceiros pa    ON pa.codparceiro = p.codfor
+          LEFT JOIN familias_prod d ON d.codfamilia = p.coddpto
+         WHERE nf.idempresa = ANY(${emps})
+           AND nf.tipo = 'E' AND nf.proc = 'S'
            AND nf.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${prod}
          GROUP BY d.descricao, nf.idempresa, np.codproduto, p.descricao
@@ -154,7 +171,8 @@ export class RelEntSaiService {
              (sum(m.saidas) - sum(m.entradas)) AS dif_qtde,
              round((sum(m.total_venda) - sum(m.total_compras))::numeric, 2) AS dif_valor
         FROM mov m
-       GROUP BY m.dpto, ${agrupar ? sql`0` : sql`m.idempresa`}, m.codproduto, trim(m.descricao)
+       -- ⚠️ no agrupar a loja sai 0 e fica FORA do GROUP BY (um GROUP BY 0 seria posição de coluna no PostgreSQL)
+       GROUP BY m.dpto, ${agrupar ? sql`` : sql`m.idempresa,`} m.codproduto, trim(m.descricao)
        ORDER BY ${pedidos ? sql`2, 4` : agrupar ? sql`4` : sql`4, 2`}
        LIMIT 20001
     `.execute(db)).rows;
@@ -168,6 +186,25 @@ export class RelEntSaiService {
         totalVenda: r2(linhas.reduce((s, l) => s + num(l.total_venda), 0)),
         itens: linhas.length,
       },
+      empresas: emps,
+    };
+  }
+
+  /**
+   * O Imprimir (`btnImprimirClick`): `Relatorios\Rel_Analise_Compra_Venda2.fr3` com o `cdsConsulta` no `dbdConsulta` (o script do layout
+   * esconde a coluna da loja quando IDEMPRESA = 0, o agrupar por produto) e as variáveis DtInicial/DtFinal (o texto das datas) e Empresa
+   * (o texto do `GetMultiEmpresa`). Sem linhas: "Não há movimento no filtro informado. Verifique!".
+   */
+  async impressao(f: FiltroEntSai) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.gerar(f);
+    if (!r.linhas.length) throw new BusinessRuleError('COMPRA_VENDA_SEM_DADOS', {}, 'Não há movimento no filtro informado. Verifique!');
+    const br = (d: string) => d.slice(0, 10).split('-').reverse().join('/');
+    return {
+      titulo: 'Análise de compra × venda',
+      modelo: await modeloFr3(db, 'Rel_Analise_Compra_Venda2.fr3'),
+      datasets: { dbdConsulta: r.linhas.map((l) => registroFr3(l, new Set(['idempresa', 'codproduto', 'entradas', 'saidas', 'total_venda', 'total_compras', 'dif_qtde', 'dif_valor']))) },
+      variaveis: { DtInicial: textoVariavel(br(f.dataIni)), DtFinal: textoVariavel(br(f.dataFim)), Empresa: textoVariavel(r.empresas.join(',')) },
     };
   }
 }

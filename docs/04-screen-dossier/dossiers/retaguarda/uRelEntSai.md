@@ -36,17 +36,38 @@ qual está certo.
 ⚠️ o legado repete nesta tela o `NP.DESCONTO` **sem `coalesce`** no frete e no seguro (`:513`), o mesmo
 descuido do relatório de compras: com desconto nulo a parcela vira NULL e a linha some da soma. Protegido.
 
-## 4. O que não conta
+## 4. O que não conta — e o que conta (corrigido em 06/10/2026)
 
 Nota de entrada **não processada** e venda **cancelada** ficam de fora dos dois lados. Contá-las inverteria o
 sinal da diferença e mandaria o comprador repor o que já está na prateleira.
 
-## 5. Cobertura (§117 do smoke, 4 checks)
+⚠️ O corte de 09/2026 tinha seis diferenças do fonte, corrigidas:
+- **lojas**: as do `GetMultiEmpresa` (era só a do login);
+- **NF cancelada processada**: o fonte filtra só `TIPO = 'E' AND PROC = 'S'` — ela **conta** (3 na produção); o Apollo a tirava;
+- **venda**: `V.CANCELADO = 'N'` (o nulo fica fora; nenhum no último ano) e a **descrição da venda** (`V.DESCRICAO`), com
+  `LEFT JOIN PRODUTOS` — o produto que mudou de nome sai em duas linhas (a da venda com o nome antigo e a da nota com o atual),
+  porque o agrupamento externo é por descrição;
+- **departamento**: `F.CODFAMILIA = P.CODDPTO` sem filtro de tipo; nos **pedidos**, o filtro de departamento é o do PEDIDO
+  (`F` é `PE.CODDPTO`);
+- **fornecedor**: `PA.CODPARCEIRO` (o parceiro do produto);
+- **o dia** da venda é o da loja.
+
+## 4b. A impressão (`btnImprimirClick`) ✅ 06/10/2026
+
+`Relatorios\Rel_Analise_Compra_Venda2.fr3` (934) com o `cdsConsulta` no `dbdConsulta` e as variáveis DtInicial, DtFinal (o layout lê
+`[Dtfinal]` — o FastReport não distingue maiúsculas) e Empresa. O script do layout esconde a coluna da loja quando IDEMPRESA = '0'
+(o agrupar por produto). Sem linhas: "Não há movimento no filtro informado. Verifique!". O `CkbExibirGrade` (mostrar a grade antes de
+imprimir) é a própria grade da tela.
+
+## 5. Cobertura (§117 do smoke, 7 checks; teste de renderização do 934)
 
 1. as duas pontas na mesma unidade: 10 caixas de 12 = 120 entradas contra 90 saídas, diferença −30;
 2. o desconto como percentual (800,00 de compra) e a venda líquida com promoção (1.340,00);
 3. nota não processada e venda cancelada fora;
-4. data invertida recusada.
+4. data invertida recusada;
+5. a visão por pedidos;
+6. a NF cancelada processada, a descrição da venda, as lojas e o agrupar;
+7. o Imprimir e o "sem movimento".
 
 ## 6. O que ficou de fora
 

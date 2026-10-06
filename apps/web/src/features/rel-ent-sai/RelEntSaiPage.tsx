@@ -8,6 +8,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -35,17 +36,22 @@ const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 export function RelEntSaiPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    dataIni: diaUm(), dataFim: hoje(), coddpto: '', codgrupo: '', idproduto: '', codfor: '',
+    dataIni: diaUm(), dataFim: hoje(), coddpto: '', codgrupo: '', codsubgrupo: '', idproduto: '', codfor: '', empresas: '',
     agruparProdutos: false, modo: 'vendas' as 'vendas' | 'pedidos',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const params = () => {
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '' && v !== false) q.set(k, String(v)); });
+    return q;
+  };
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '' && v !== false) q.set(k, String(v)); });
+      const q = params();
       const r = await fetch(`${BASE}/relatorios/compra-venda?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -58,6 +64,7 @@ export function RelEntSaiPage() {
   };
 
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => [
+    { field: 'idempresa', headerName: 'Loja', type: 'text', width: 70 },
     { field: 'codproduto', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
     { field: 'descricao', headerName: 'Produto', type: 'text' },
     { field: 'dpto', headerName: 'Departamento', type: 'text', width: 165 },
@@ -92,8 +99,13 @@ export function RelEntSaiPage() {
           <div className="w-32"><Field label="De&partamento" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value })} /></div>
           <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
           <div className="w-32"><Field label="Pro&duto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
+          <div className="w-32"><Field label="&Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
           <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/relatorios/compra-venda/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
             exportarGradeCsv(res.linhas, [

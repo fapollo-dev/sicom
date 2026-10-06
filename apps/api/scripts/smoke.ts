@@ -13675,8 +13675,8 @@ async function main() {
           VALUES ($1,$2,10,100.00,20,12,'T01')`, [nfCv, pCv]);
 
         // SAÍDA: 90 unidades a 15,00, com 10,00 de desconto de promoção
-        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado, desc_promocao)
-          VALUES (1,'2055-06-12','CV-1',910001,910001,$1,90,15.00,8.00,'A','N',10.00)`, [pCv]);
+        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, descricao, qtde, vrvenda, vrcusto, iat, cancelado, desc_promocao)
+          VALUES (1,'2055-06-12 10:00-03','CV-1',910001,910001,$1,'PROD COMPRA VENDA',90,15.00,8.00,'A','N',10.00)`, [pCv]);
 
         const r = await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991`, { headers: H });
         const j = (await r.json().catch(() => ({}))) as any;
@@ -13701,8 +13701,8 @@ async function main() {
            VALUES (1,'E',55,'1','999002','2055-06-15','2055-06-15',2,'N','N',9999,'1102') RETURNING codnf`)).rows[0].codnf);
         await pgE2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, fatorembal, aliquota)
           VALUES ($1,$2,50,100.00,0,12,'T01')`, [nfNp, pCv]);
-        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
-          VALUES (1,'2055-06-16','CV-2',910002,910002,$1,500,15.00,8.00,'A','S')`, [pCv]);
+        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, descricao, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2055-06-16 10:00-03','CV-2',910002,910002,$1,'PROD COMPRA VENDA',500,15.00,8.00,'A','S')`, [pCv]);
         const r2x = await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991`, { headers: H });
         const j2 = (await r2x.json().catch(() => ({}))) as any;
         const l2 = (j2.linhas ?? [])[0] as any;
@@ -13727,9 +13727,51 @@ async function main() {
         check('COMPRA × VENDA §117.4: data invertida é recusada com mensagem',
           inv.status >= 400, { status: inv.status });
 
-        await pgE2.query(`DELETE FROM vendas WHERE codvendas_legado IN (910001,910002)`);
-        await pgE2.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2)`, [nfCv, nfNp]);
-        await pgE2.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfCv, nfNp]);
+        // §117.6 — a fidelidade de 06/10: a NF processada e cancelada conta (o fonte só pede TIPO/PROC), a venda guarda a descrição do
+        // momento (V.DESCRICAO: o nome antigo vira outra linha), e as lojas do GetMultiEmpresa (com o agrupar, a loja vira 0)
+        const tinhaRel2Cv = Number((await pgE2.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Cv) await pgE2.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const nfCanc = Number((await pgE2.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','999003','2055-06-17','2055-06-17',2,'S','S',500,'1102') RETURNING codnf`)).rows[0].codnf);
+        await pgE2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, fatorembal, aliquota) VALUES ($1,$2,5,100.00,0,12,'T01')`, [nfCanc, pCv]);
+        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, descricao, qtde, vrvenda, vrcusto, iat, cancelado) VALUES
+          (1,'2055-06-18 10:00-03','CV-3',910003,910003,$1,'NOME ANTIGO',4,15.00,8.00,'A','N'),
+          (2,'2055-06-18 10:00-03','CV-4',910004,910004,$1,'PROD COMPRA VENDA',3,15.00,8.00,'A','N')`, [pCv]);
+        const r6 = (await (await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991`, { headers: H })).json().catch(() => ({}))) as any;
+        const l6 = (r6.linhas ?? []) as any[];
+        const r6L = (await (await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991&empresas=1,2`, { headers: H })).json().catch(() => ({}))) as any;
+        const r6A = (await (await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991&empresas=1,2&agruparProdutos=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const atual = l6.find((x) => x.descricao === 'PROD COMPRA VENDA');
+        const antigo = l6.find((x) => x.descricao === 'NOME ANTIGO');
+        const lojas6 = ((r6L.linhas ?? []) as any[]).filter((x) => x.descricao === 'PROD COMPRA VENDA');
+        const agr6 = ((r6A.linhas ?? []) as any[]).filter((x) => x.descricao === 'PROD COMPRA VENDA');
+        check('COMPRA × VENDA §117.6 [a fidelidade]: a NF de entrada processada e CANCELADA conta (o fonte só pede TIPO = E e PROC = S; 3 na produção) — entradas 120 + 60 = 180; a venda guarda a DESCRIÇÃO do momento (`V.DESCRICAO`), então o produto vendido com o nome antigo sai em outra linha (4 un.); as lojas do GetMultiEmpresa dão uma linha por loja (a 2 com 3 un.), e o "agrupar produtos" junta tudo com a loja 0 (93 saídas)',
+          Math.abs(Number(atual?.entradas) - 180) < 0.005 && Math.abs(Number(atual?.saidas) - 90) < 0.005
+          && !!antigo && Number(antigo.codproduto) === pCv && Math.abs(Number(antigo.saidas) - 4) < 0.005
+          && lojas6.length === 2 && Number(lojas6[0].idempresa) === 1 && Number(lojas6[1].idempresa) === 2 && Math.abs(Number(lojas6[1].saidas) - 3) < 0.005
+          && agr6.length === 1 && Number(agr6[0].idempresa) === 0 && Math.abs(Number(agr6[0].saidas) - 93) < 0.005,
+          { linhas: l6.map((x) => [x.descricao, x.entradas, x.saidas]), lojas: lojas6.map((x) => [x.idempresa, x.saidas]), agrupado: agr6.map((x) => [x.idempresa, x.saidas]) });
+
+        // §117.7 — o Imprimir (Rel_Analise_Compra_Venda2.fr3)
+        await pgE2.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992959, 1, 'Rel_Analise_Compra_Venda2.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="CompraVenda_stub"/></TfrxReport>').toString('base64')]);
+        const imp7 = await fetch(`${base}/${ES2}/impressao?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991&empresas=1,2&agruparProdutos=true`, { headers: H });
+        const ij7 = (await imp7.json().catch(() => ({}))) as any;
+        const vz7 = await fetch(`${base}/${ES2}/impressao?dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const vzj7 = (await vz7.json().catch(() => ({}))) as any;
+        await pgE2.query(`DELETE FROM relatorios WHERE codrelatorio = 992959`);
+        const ds7 = (ij7.datasets?.dbdConsulta ?? []) as any[];
+        check('COMPRA × VENDA §117.7 [o Imprimir]: o Rel_Analise_Compra_Venda2.fr3 do cliente com o cdsConsulta no dbdConsulta (IDEMPRESA 0 no agrupar, que o script do layout usa para esconder a coluna da loja), DtInicial/DtFinal e Empresa ("1,2"); sem movimento, a mensagem do legado',
+          imp7.status === 200 && String(ij7.modelo).includes('CompraVenda_stub') && ds7.some((x) => Number(x.IDEMPRESA) === 0 && x.DESCRICAO === 'PROD COMPRA VENDA' && Math.abs(Number(x.SAIDAS) - 93) < 0.005)
+            && ij7.variaveis?.DtInicial === "'01/06/2055'" && ij7.variaveis?.DtFinal === "'30/06/2055'" && ij7.variaveis?.Empresa === "'1,2'"
+          && vz7.status === 422 && String(vzj7.message ?? '').includes('Não há movimento no filtro informado'),
+          { st: imp7.status, ds: ds7, v: ij7.variaveis, vazio: [vz7.status, vzj7.message] });
+        if (!tinhaRel2Cv) await pgE2.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+
+        await pgE2.query(`DELETE FROM vendas WHERE codvendas_legado IN (910001,910002,910003,910004)`);
+        await pgE2.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3)`, [nfCv, nfNp, nfCanc]);
+        await pgE2.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfCv, nfNp, nfCanc]);
         await pgE2.query(`DELETE FROM produtos WHERE idproduto=$1`, [pCv]);
         await pgE2.query(`DELETE FROM familias_prod WHERE codfamilia=9991`);
       } finally {

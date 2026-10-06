@@ -663,6 +663,8 @@ export const relEntSaiSchema = z.object({
   agruparProdutos: boolQuery.optional(),
   /** o `rdgPesquisa`: as saídas da VENDA do PDV (0) ou dos PEDIDOS de venda digitados (1, `GeraConsultaPedidos`). */
   modo: z.enum(['vendas', 'pedidos']).optional(),
+  /** as lojas do GetMultiEmpresa, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).nullish(),
 });
 export type RelEntSaiDto = z.infer<typeof relEntSaiSchema>;
 

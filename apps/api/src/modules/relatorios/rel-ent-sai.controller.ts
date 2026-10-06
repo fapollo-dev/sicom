@@ -14,11 +14,23 @@ export class RelEntSaiController {
   @Get()
   @RequerAcesso('FRMRELENTSAI', 'FRMRELENTSAI')
   gerar(@Query(new ZodValidationPipe(relEntSaiSchema)) q: RelEntSaiDto) {
-    return this.svc.gerar({
+    return this.svc.gerar(this.filtro(q));
+  }
+
+  /** o Imprimir no layout do cliente (Rel_Analise_Compra_Venda2.fr3) */
+  @Get('impressao')
+  @RequerAcesso('FRMRELENTSAI', 'FRMRELENTSAI')
+  impressao(@Query(new ZodValidationPipe(relEntSaiSchema)) q: RelEntSaiDto) {
+    return this.svc.impressao(this.filtro(q));
+  }
+
+  private filtro(q: RelEntSaiDto) {
+    return {
       dataIni: q.dataIni, dataFim: q.dataFim, coddpto: q.coddpto ?? null,
       codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null,
       idproduto: q.idproduto ?? null, codfor: q.codfor ?? null,
       agruparProdutos: q.agruparProdutos ?? false, modo: q.modo ?? 'vendas',
-    });
+      empresas: q.empresas ? q.empresas.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) : null,
+    };
   }
 }

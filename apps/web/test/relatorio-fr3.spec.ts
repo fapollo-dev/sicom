@@ -1503,3 +1503,23 @@ describe('fluxo de cartões (Rel_Fluxo_Cartoes.fr3, FRMFLUXOCARTOES)', () => {
     expect(t).toContain('750,00');
   });
 });
+
+describe('análise de compra × venda (Rel_Analise_Compra_Venda2.fr3, FRMRELENTSAI)', () => {
+  const l = (IDEMPRESA: number, DESCRICAO: string, ENTRADAS: number, SAIDAS: number, TOTAL_COMPRAS: number, TOTAL_VENDA: number) =>
+    ({ DPTO: 'MERCEARIA', IDEMPRESA, CODPRODUTO: 501, DESCRICAO, ENTRADAS, SAIDAS, TOTAL_COMPRAS, TOTAL_VENDA });
+  const vars = { DtInicial: "'01/06/2055'", DtFinal: "'30/06/2055'", Empresa: "'1,2'" };
+  it('o período (a variável DtFinal lida como [Dtfinal]), as lojas e uma linha por produto e loja', () => {
+    const t = texto(paginasDoModelo(modelo('compra-venda.fr3'), { dbdConsulta: [l(1, 'ARROZ 5KG', 180, 90, 1300, 1340), l(2, 'ARROZ 5KG', 0, 3, 0, 45)] }, agora, vars));
+    expect(t).toContain('RELATÓRIO ANÁLISE DE COMPRA E VENDA');
+    expect(t).toContain('01/06/2055 até 30/06/2055');
+    expect(t).toContain('1,2');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('MERCEARIA');
+    expect(t).toContain('Empresa');
+  });
+  it('agrupado (IDEMPRESA 0): o script esconde a coluna da loja', () => {
+    const t = texto(paginasDoModelo(modelo('compra-venda.fr3'), { dbdConsulta: [l(0, 'ARROZ 5KG', 180, 93, 1300, 1385)] }, agora, vars));
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).not.toMatch(/\bEmpresa\b(?!\(s\))/);
+  });
+});
