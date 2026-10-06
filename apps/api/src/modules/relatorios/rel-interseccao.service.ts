@@ -3,6 +3,9 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -16,6 +19,8 @@ export interface FiltroInterseccao {
   ordenarPor?: 'QTDE' | 'CUPOM' | null;
   /** o "Qtde itens analisados" da tela: quantas linhas trazer. */
   limite?: number | null;
+  /** as lojas do `TrocarEmpresa(true)` (recortadas às do operador; vazio = a do login) */
+  empresas?: number[] | null;
 }
 
 /**
@@ -78,42 +83,43 @@ export class RelInterseccaoService {
     `.execute(db)).rows[0] ?? null;
     if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: f.idproduto });
 
+    // as lojas escolhidas (o `TrocarEmpresa(true)` → `cdsMultiEmpresa`), recortadas às do operador; sem escolha, a do login
+    const emps = f.empresas?.length ? await empresasDoOperador(db, f.empresas) : [emp];
+    const dia = sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`;
+    // o fonte NÃO filtra item cancelado em nenhuma das duas consultas (o `sqqVendas` e o `cdsVendas_Inter`, :150-195)
     const linhas = (await sql<Record<string, unknown>>`
       WITH cupons AS (
-        -- os cupons que levaram o produto: é o recorte que o legado gravava em VENDAS_INTER
-        SELECT DISTINCT v.codvendas_legado, sum(v.qtde) OVER () AS qtde_produto
+        -- os cupons que levaram o produto (o sqqVendas: GROUP BY CODVENDAS) — o recorte que o legado gravava em VENDAS_INTER
+        SELECT v.codvendas_legado, sum(v.qtde) AS qtde
           FROM vendas v
-         WHERE v.codproduto = ${f.idproduto}
-           AND v.idempresa = ${emp}
-           AND v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
-           AND coalesce(v.cancelado, 'N') = 'N'
+         WHERE ${dia} BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           AND v.codproduto = ${f.idproduto} AND v.idempresa = ANY(${emps})
+         GROUP BY v.codvendas_legado
       )
-      SELECT b.codproduto, p.codbarra, p.descricao, p.unidade,
-             sum(b.qtde) AS qtde,
-             -- ⚠️ quantidade VEZES preço: o dfm guarda a versão sem a quantidade, que é resíduo
-             round(sum(b.qtde * b.vrvenda)::numeric, 2) AS vrvenda,
-             count(DISTINCT b.codvendas_legado)::numeric(13,2) AS qtdecupom,
-             -- em quantos por cento dos cupons do produto este item apareceu junto
-             round((count(DISTINCT b.codvendas_legado)::numeric
-                    / nullif((SELECT count(*) FROM cupons), 0) * 100), 2) AS pct_cupons
+      SELECT sum(b.qtde) AS qtde, sum(b.qtde * b.vrvenda) AS vrvenda, b.codproduto, p.codbarra, p.descricao, p.unidade,
+             -- QTDECUPOM = CAST(COUNT(B.NROCUPOM) AS NUMERIC(13,2)): as LINHAS do item nesses cupons (o item duas vezes no cupom conta 2)
+             count(b.nrocupom)::numeric(13,2) AS qtdecupom,
+             -- em quantos por cento dos cupons do produto este item apareceu junto (informativo da grade; não vai para a impressão)
+             round((count(DISTINCT b.codvendas_legado)::numeric / nullif((SELECT count(*) FROM cupons), 0) * 100), 2) AS pct_cupons
         FROM cupons c
         JOIN vendas b         ON b.codvendas_legado = c.codvendas_legado
         LEFT JOIN produtos p  ON p.idproduto = b.codproduto
-       WHERE coalesce(b.cancelado, 'N') = 'N'
-         -- o próprio produto sai: está em 100% dos cupons e ocuparia o topo sem dizer nada
+       WHERE b.idempresa = ANY(${emps})
+         -- o próprio produto sai (o Filter CODPRODUTO <> … do cdsVendas_Inter)
          AND b.codproduto <> ${f.idproduto}
        GROUP BY b.codproduto, p.codbarra, p.descricao, p.unidade
-       ORDER BY ${f.ordenarPor === 'CUPOM' ? sql`count(DISTINCT b.codvendas_legado)` : sql`sum(b.qtde)`} DESC
+       -- o índice do cds (Indice_Qtde / Indice_QtdeCupom, descendentes) e o RangeEndCount = "Qtde itens analisados"
+       ORDER BY ${f.ordenarPor === 'CUPOM' ? sql`count(b.nrocupom)` : sql`sum(b.qtde)`} DESC
        LIMIT ${limite}
     `.execute(db)).rows;
 
+    // QtdeVendida e QtdeCupom do laço do `sqqVendas`: a soma da quantidade e o número de cupons
     const cab = (await sql<{ cupons: number; qtde: number }>`
-      SELECT count(DISTINCT v.codvendas_legado)::int AS cupons, coalesce(sum(v.qtde), 0) AS qtde
-        FROM vendas v
-       WHERE v.codproduto = ${f.idproduto}
-         AND v.idempresa = ${emp}
-         AND v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
-         AND coalesce(v.cancelado, 'N') = 'N'
+      SELECT count(*)::int AS cupons, coalesce(sum(qtde), 0) AS qtde FROM (
+        SELECT v.codvendas_legado, sum(v.qtde) AS qtde FROM vendas v
+         WHERE ${dia} BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           AND v.codproduto = ${f.idproduto} AND v.idempresa = ANY(${emps})
+         GROUP BY v.codvendas_legado) x
     `.execute(db)).rows[0];
 
     return {
@@ -121,8 +127,34 @@ export class RelInterseccaoService {
       linhas,
       totais: {
         cupons: Number(cab?.cupons ?? 0),
-        qtdeProduto: r2(num(cab?.qtde)),
+        qtdeProduto: num(cab?.qtde),
         itensRelacionados: linhas.length,
+      },
+    };
+  }
+
+  /**
+   * A IMPRESSÃO (`btnPesquisarClick`, :232-271): `extr - Interseccao produtos qtde vendida.fr3` (frxDBDtsProdQtdeVendida) ou
+   * `... qtde cupom.fr3` (frxDBDtsQtdeCupom) pelo tipo de análise, com as N primeiras linhas (o RangeEndCount); variáveis DtIncial/DtFinal
+   * (o texto das datas), CODBARRA/DESCRICAO/UNIDADE do produto, QTDE (`FormatFloat('0.000')`) e QTDE_CUPOM (`FormatFloat('0')`).
+   * Sem linhas: "Não existe dados para esta pesquisa. Verifique!".
+   */
+  async impressao(f: FiltroInterseccao) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.gerar(f);
+    if (!r.linhas.length) throw new BusinessRuleError('INTERSECCAO_SEM_DADOS', {}, 'Não existe dados para esta pesquisa. Verifique!');
+    const porCupom = f.ordenarPor === 'CUPOM';
+    const ds = porCupom ? 'frxDBDtsQtdeCupom' : 'frxDBDtsProdQtdeVendida';
+    const p = r.produto ?? {};
+    const br = (d: string) => d.slice(0, 10).split('-').reverse().join('/');
+    return {
+      titulo: `Intersecção de produtos — ${String(p.descricao ?? '')}`,
+      modelo: await modeloFr3(db, porCupom ? 'extr - Interseccao produtos qtde cupom.fr3' : 'extr - Interseccao produtos qtde vendida.fr3'),
+      datasets: { [ds]: r.linhas.map((l) => registroFr3(l, new Set(['qtde', 'vrvenda', 'codproduto', 'qtdecupom', 'pct_cupons']))) },
+      variaveis: {
+        DtIncial: textoVariavel(br(f.dataIni)), DtFinal: textoVariavel(br(f.dataFim)),
+        CODBARRA: textoVariavel(String(p.codbarra ?? '')), DESCRICAO: textoVariavel(String(p.descricao ?? '')), UNIDADE: textoVariavel(String(p.unidade ?? '')),
+        QTDE: textoVariavel(r.totais.qtdeProduto.toFixed(3).replace('.', ',')), QTDE_CUPOM: textoVariavel(String(r.totais.cupons)),
       },
     };
   }

@@ -611,6 +611,8 @@ export const relInterseccaoSchema = z.object({
   ordenarPor: z.enum(['QTDE', 'CUPOM']).nullish(),
   /** o "Qtde itens analisados" da tela. */
   limite: z.coerce.number().int().min(1).max(5000).nullish(),
+  /** as lojas (o TrocarEmpresa do legado), separadas por vírgula; vazio = a do login */
+  empresas: z.string().regex(/^[\d,\s]*$/).nullish(),
 });
 export type RelInterseccaoDto = z.infer<typeof relInterseccaoSchema>;
 

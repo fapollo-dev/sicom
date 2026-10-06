@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { movimentoDaTroca, type ItemTroca } from './troca-estoque';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -58,5 +60,46 @@ export class TrocaService {
       }
       return { codtroca, itens: itens.length };
     });
+  }
+
+  /**
+   * IMPRIMIR a troca (`ImprimirTroca1Click`, uTrocaMercadoriaFor.pas:1003) — `Relatorios\extr - Troca.fr3`: o frxDBDatasetTroca (o
+   * `sqqTroca` da troca aberta), o frxDBDatasetItens_Troca (os itens, `sqqItens_Troca`), e no sub-relatório de cada item o
+   * frxDBDatasetQtde (`sqqITENS_TROCA_QTDE`: a quantidade por empresa e o TOTAL = VRCUSTO × QTDE em 3 casas). A `ITENS_TROCA_QTDE` é
+   * cópia 1:1 do item (mig 118) — no Apollo a quantidade e a empresa são as do próprio item. A empresa vai no frxDBEmpresa. A grade de
+   * conferência que o legado abre antes (`TfrmRelGrid`, só mostra e pergunta) não veio: a troca já está na tela.
+   */
+  async impressao(id: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cab = (await sql<Record<string, unknown>>`
+      SELECT t.codtroca, t.codparceiro, t.data, t.status, p.razao, t.idempresa AS codempresa, t.descricao,
+             coalesce(e.fantasia, e.razao_social) AS empresa
+        FROM troca t
+        LEFT JOIN parceiros p ON p.codparceiro = t.codparceiro
+        LEFT JOIN empresas e ON e.idempresa = t.idempresa
+       WHERE t.codtroca = ${id} AND t.idempresa = ${emp}`.execute(db)).rows[0];
+    if (!cab) throw new BusinessRuleError('TROCA_NAO_ENCONTRADA', { codtroca: id });
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT i.coditenstroca, i.idproduto, i.codtroca, i.qtde, i.vrcusto, p.codbarra, p.descricao, i.estoqueretirada, i.idempresa AS codempresa, i.fechado,
+             CASE WHEN i.fechado = 'S' THEN 'N' ELSE 'S' END AS editavel
+        FROM itens_troca i
+        LEFT JOIN produtos p ON p.idproduto = i.idproduto
+       WHERE i.codtroca = ${id}
+       ORDER BY i.coditenstroca`.execute(db)).rows;
+    const nums = new Set(['codtroca', 'codparceiro', 'codempresa', 'coditenstroca', 'idproduto', 'qtde', 'vrcusto']);
+    return {
+      titulo: `Troca ${id}`,
+      modelo: await modeloFr3(db, 'extr - Troca.fr3'),
+      datasets: {
+        frxDBDatasetTroca: [registroFr3(cab, nums)],
+        frxDBDatasetItens_Troca: itens.map((it) => ({ ...registroFr3(it, nums), __MESTRE: 0 })),
+        frxDBDatasetQtde: itens.map((it, k) => ({
+          CODITENSTROCA: Number(it.coditenstroca), QTDE: Number(it.qtde ?? 0), CODEMPRESA: Number(it.codempresa),
+          STATUS: it.fechado === 'S' ? 'F' : null, TOTAL: Math.round(Number(it.vrcusto ?? 0) * Number(it.qtde ?? 0) * 1000) / 1000, __DETALHE: k,
+        })),
+        frxDBEmpresa: [await empresaParaRelatorio(db, emp)],
+      },
+    };
   }
 }

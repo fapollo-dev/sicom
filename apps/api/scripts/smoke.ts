@@ -4685,6 +4685,23 @@ async function main() {
         check('TROCA: alterar a quantidade do item (5 → 8) estorna a antiga e retira a nova: estoque 45 → 42 e QTDETROCA 8',
           alt.status === 200 && (await saldoTr()) === 42 && (await qtdetrocaTr()) === 8, { alt: alt.status, saldo: await saldoTr(), qtdetroca: await qtdetrocaTr() });
 
+        // 47d.1b) o "Imprimir troca" (`ImprimirTroca1Click`): o extr - Troca.fr3 com a troca, os itens e, no sub-relatório de cada item, a
+        // quantidade por empresa (a ITENS_TROCA_QTDE é cópia 1:1 do item) com o TOTAL = custo × quantidade — o 3º nível vai por __DETALHE
+        const stubTr = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="ExtrTroca"/></TfrxReport>').toString('base64');
+        await pgTr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992952, 1, 'extr - Troca.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubTr]);
+        const trImp = await fetch(`${base}/${TR}/${codtroca}/impressao`, { headers: H });
+        const trImpJ = (await trImp.json().catch(() => ({}))) as any;
+        await pgTr.query(`DELETE FROM relatorios WHERE codrelatorio = 992952`);
+        const trQ = trImpJ.datasets?.frxDBDatasetQtde?.[0] ?? {};
+        check('TROCA [o Imprimir]: o extr - Troca.fr3 recebe a troca (fornecedor), o item (custo 10, quantidade 8) aninhado nela e o 3º nível — a quantidade 8 da empresa 1 com o TOTAL 80 ligado ao item por __DETALHE — e a empresa',
+          trImp.status === 200 && String(trImpJ.modelo ?? '').includes('ExtrTroca')
+          && Number(trImpJ.datasets?.frxDBDatasetTroca?.[0]?.CODPARCEIRO) === FORN
+          && (trImpJ.datasets?.frxDBDatasetItens_Troca ?? []).length === 1 && Number(trImpJ.datasets.frxDBDatasetItens_Troca[0].VRCUSTO) === 10
+          && Number(trQ.QTDE) === 8 && Number(trQ.TOTAL) === 80 && trQ.__DETALHE === 0 && Number(trQ.CODEMPRESA) === 1
+          && (trImpJ.datasets?.frxDBEmpresa ?? []).length === 1,
+          { st: trImp.status, ds: trImpJ.datasets && { troca: trImpJ.datasets.frxDBDatasetTroca, itens: trImpJ.datasets.frxDBDatasetItens_Troca, qtde: trImpJ.datasets.frxDBDatasetQtde }, msg: trImpJ.message });
+
         // 47d.2) fechar → o estoque NÃO se mexe (já saiu); só sai do QTDETROCA (8 → 0); status FECHADA.
         const fc = await fetch(`${base}/${TR}/${codtroca}/fechar`, { method: 'POST', headers: H });
         const detFc = (await (await fetch(`${base}/${TR}/${codtroca}`, { headers: H })).json().catch(() => ({}))) as any;
@@ -13241,7 +13258,7 @@ async function main() {
         for (const c of [810001, 810002, 810003]) await venda(c, pJunto, 1, 12.00);
         await venda(810004, pRaro, 3, 2.00);
         await venda(810009, pSozinho, 1, 7.00);
-        // um cupom CANCELADO com a cerveja e o guardanapo: não pode entrar na conta
+        // um cupom CANCELADO com a cerveja e o guardanapo: o fonte NÃO filtra cancelado (nem o sqqVendas nem o cdsVendas_Inter) — entra
         await pgIp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
           VALUES (1,'2051-02-10','P-810005',810005,810005,$1,9,5.00,1.00,'A','S'),
                  (1,'2051-02-10','P-810005',810005,810005,$2,9,2.00,1.00,'A','S')`, [pAlvo, pRaro]);
@@ -13251,18 +13268,17 @@ async function main() {
         const junto = (j.linhas ?? []).find((l: any) => Number(l.codproduto) === pJunto);
         const raro = (j.linhas ?? []).find((l: any) => Number(l.codproduto) === pRaro);
 
-        check('INTERSECÇÃO §113.1 [o que o cliente leva junto, e em que proporção]: a conta pega os cupons que contêm o produto e soma o que estava neles. A cerveja saiu em **4 cupons**; o carvão apareceu em 3 deles (**75%**) e o guardanapo em 1 (**25%**). O percentual é a leitura que decide gôndola e combo — "quantidade vendida" sozinha não diz se foi um cliente levando muito ou muitos clientes levando pouco',
-          r.status === 200 && Number(j.totais.cupons) === 4
-          && Number(junto?.qtdecupom) === 3 && Math.abs(Number(junto?.pct_cupons) - 75) < 0.02
-          && Number(raro?.qtdecupom) === 1 && Math.abs(Number(raro?.pct_cupons) - 25) < 0.02,
-          { cupons: j.totais?.cupons, carvao: junto && { cup: junto.qtdecupom, pct: junto.pct_cupons },
+        check('INTERSECÇÃO §113.1 [o que o cliente leva junto, como o legado conta]: a cerveja saiu em **5 cupons** — o cancelado entra, porque o fonte não filtra cancelado em nenhuma das duas consultas (o Apollo filtrava, por conta própria) —; o carvão apareceu em 3 (60%) e o guardanapo em 2 (40%). QTDECUPOM é o COUNT(NROCUPOM) das linhas do item nesses cupons',
+          r.status === 200 && Number(j.totais.cupons) === 5 && Number(j.totais.qtdeProduto) === 17
+          && Number(junto?.qtdecupom) === 3 && Math.abs(Number(junto?.pct_cupons) - 60) < 0.02
+          && Number(raro?.qtdecupom) === 2 && Math.abs(Number(raro?.pct_cupons) - 40) < 0.02,
+          { cupons: j.totais?.cupons, qtde: j.totais?.qtdeProduto, carvao: junto && { cup: junto.qtdecupom, pct: junto.pct_cupons },
             guardanapo: raro && { cup: raro.qtdecupom, pct: raro.pct_cupons } });
 
-        check('INTERSECÇÃO §113.2 [o valor multiplica pela quantidade, e o cancelado não entra]: o carvão vendeu 3 unidades a 12,00 = **36,00**. ⚠️ o SQL guardado no `.dfm` soma `VRVENDA` SEM a quantidade — mas é o texto montado no `.pas` que roda, e ele multiplica; copiar do `.dfm` erraria todo item vendido em quantidade maior que 1. E o cupom CANCELADO com a cerveja não conta: ele não existiu para o cliente',
+        check('INTERSECÇÃO §113.2 [o valor multiplica pela quantidade]: o carvão vendeu 3 unidades a 12,00 = **36,00**. ⚠️ o SQL guardado no `.dfm` soma `VRVENDA` SEM a quantidade — mas é o texto montado no `.pas` que roda, e ele multiplica; e o produto que vende sozinho não aparece',
           Math.abs(Number(junto?.vrvenda) - 36) < 0.005
-          && Number(j.totais.cupons) === 4
           && !(j.linhas ?? []).some((l: any) => Number(l.codproduto) === pSozinho),
-          { valorCarvao: junto?.vrvenda, cupons: j.totais?.cupons });
+          { valorCarvao: junto?.vrvenda });
 
         check('INTERSECÇÃO §113.3 [o próprio produto sai da lista]: ele está em 100% dos cupons por definição e ocuparia o topo de toda análise sem dizer nada — o legado o filtra depois de consultar (`:196`), e aqui ele sai na própria consulta',
           !(j.linhas ?? []).some((l: any) => Number(l.codproduto) === pAlvo)
@@ -13276,6 +13292,23 @@ async function main() {
           && Number(porCupom.linhas[0]?.codproduto) === pJunto
           && semProd.status === 422,
           { primeiro: porCupom.linhas?.[0]?.descricao, produtoInexistente: semProd.status });
+
+        // 113.5) a IMPRESSÃO (o Pesquisar do legado imprime): "qtde vendida" → frxDBDtsProdQtdeVendida (o guardanapo, 12 unidades, na frente
+        // do carvão), "qtde cupom" → frxDBDtsQtdeCupom; QTDE = FormatFloat('0.000') da quantidade do produto e QTDE_CUPOM = os cupons
+        const stubIp = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        await pgIp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992953, 1, 'extr - Interseccao produtos qtde vendida.fr3', 'x', 'DEFAULT', $1), (992954, 1, 'extr - Interseccao produtos qtde cupom.fr3', 'x', 'DEFAULT', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubIp('IntVendida'), stubIp('IntCupom')]);
+        const ipV = (await (await fetch(`${base}/${IP}/impressao?idproduto=${pAlvo}&dataIni=2051-02-01&dataFim=2051-02-28&limite=10`, { headers: H })).json().catch(() => ({}))) as any;
+        const ipC = (await (await fetch(`${base}/${IP}/impressao?idproduto=${pAlvo}&dataIni=2051-02-01&dataFim=2051-02-28&limite=10&ordenarPor=CUPOM`, { headers: H })).json().catch(() => ({}))) as any;
+        const ipVazio = await fetch(`${base}/${IP}/impressao?idproduto=${pSozinho}&dataIni=2051-02-01&dataFim=2051-02-28&limite=10`, { headers: H });
+        await pgIp.query(`DELETE FROM relatorios WHERE codrelatorio IN (992953, 992954)`);
+        check('INTERSECÇÃO §113.5 [a impressão]: qtde vendida no layout dele (o guardanapo, 12 unidades, à frente do carvão), qtde cupom no outro (o carvão, 3 linhas, à frente), as variáveis do produto, QTDE 17,000, QTDE_CUPOM 5 e o período; sem itens relacionados → "Não existe dados para esta pesquisa. Verifique!"',
+          String(ipV.modelo ?? '').includes('IntVendida') && Number(ipV.datasets?.frxDBDtsProdQtdeVendida?.[0]?.CODPRODUTO) === pRaro
+          && String(ipC.modelo ?? '').includes('IntCupom') && Number(ipC.datasets?.frxDBDtsQtdeCupom?.[0]?.CODPRODUTO) === pJunto
+          && ipV.variaveis?.QTDE === "'17,000'" && ipV.variaveis?.QTDE_CUPOM === "'5'" && ipV.variaveis?.DtIncial === "'01/02/2051'"
+          && ipVazio.status === 422,
+          { v: ipV.datasets?.frxDBDtsProdQtdeVendida?.map((x: any) => x.CODPRODUTO), c: ipC.datasets?.frxDBDtsQtdeCupom?.map((x: any) => x.CODPRODUTO), vars: ipV.variaveis, vazio: ipVazio.status });
 
         await pgIp.query(`DELETE FROM vendas WHERE codvendas_legado IN (810001,810002,810003,810004,810005,810009)`);
         await pgIp.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pAlvo, pJunto, pRaro, pSozinho]]);

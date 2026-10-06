@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { useNavigate } from 'react-router-dom';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -90,6 +91,12 @@ export function TrocaPage() {
     setBusy(true);
     try { const r = await fecharTroca(sel.codtroca); mensagem.sucesso(`Troca fechada — ${r.itens} item(ns) encerrado(s).`); await abrir(sel.codtroca); await carregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+  /** "Imprimir troca" (`ImprimirTroca1Click`): a troca gravada no extr - Troca.fr3 do cliente (o menu só habilita com itens) */
+  const imprimir = async () => {
+    if (!sel || !itens.length) return;
+    if (dirty) { mensagem.erro(new Error('Grave as alterações antes de imprimir a troca.')); return; }
+    try { await imprimirRelatorio(`/cadastro/troca/${sel.codtroca}/impressao`); } catch (e) { mensagem.erro(e); }
+  };
   const reabrir = async () => {
     if (!sel || busy) return;
     if (!window.confirm('Reabrir a troca? Os itens voltam à reserva de troca (o estoque não se altera).')) return;
@@ -114,6 +121,7 @@ export function TrocaPage() {
           <Button label="&Salvar" variant="soft" disabled={busy || fechada} onClick={() => void salvar()} />
           {!fechada && <Button label="&Fechar" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void fechar()} />}
           {fechada && <Button label="&Reabrir" variant="soft" disabled={busy} onClick={() => void reabrir()} />}
+          <Button label="&Imprimir troca" variant="ghost" disabled={busy || !itens.length} onClick={() => void imprimir()} />
           <Button label="E&xcluir" variant="ghost" disabled={busy || fechada} onClick={() => void excluir()} />
           {/* o "Imprimir" da troca abre o relatório de trocas preso nela (TfrmTrocaMercadoriaFor.btnImprimirClick) */}
           <Button label="&Imprimir" variant="ghost" onClick={() => navigate(`/relatorios/troca-mercadoria?codtroca=${sel.codtroca}&daTroca=1`)} />

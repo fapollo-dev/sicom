@@ -143,6 +143,8 @@ class Relatorio {
   private bandaAtual: No | null = null;
   private readonly inicioGrupo = new Map<No, Map<string, number>>();
   private readonly inicioGrupoPercorridas = new Map<No, Map<string, number>>();
+  /** o começo da execução corrente de cada banda de dados nas impressas e nas percorridas (o rodapé TfrxFooter soma só a execução) */
+  private readonly inicioRodada = new Map<string, [number, number]>();
   private pagina = 0;
   /** o objeto do evento em curso (o `Sender` do script) */
   private remetente = '';
@@ -264,7 +266,17 @@ class Relatorio {
     // primeiro da linha do mestre — o script da banda do mestre lê `<detalhe."CAMPO">` dele
     if (this.unico) return;
     const linhas = this.conjuntos.get(chave);
-    if (!linhas?.length || '__MESTRE' in linhas[0]) return;
+    if (!linhas?.length) return;
+    // o terceiro nível (`__DETALHE`) não é mestre de ninguém; o detalhe (`__MESTRE`) é mestre do terceiro nível: este acompanha a linha
+    if ('__DETALHE' in linhas[0]) return;
+    if ('__MESTRE' in linhas[0]) {
+      for (const [nome, det] of this.conjuntos) {
+        if (nome === chave || !det.length || !('__DETALHE' in det[0])) continue;
+        const k = det.findIndex((r) => Number(r.__DETALHE) === i);
+        this.cursor.set(nome, k < 0 ? det.length : k);
+      }
+      return;
+    }
     for (const [nome, det] of this.conjuntos) {
       if (nome === chave || !det.length || !('__MESTRE' in det[0])) continue;
       const k = det.findIndex((r) => Number(r.__MESTRE) === i);
@@ -382,7 +394,8 @@ class Relatorio {
     const todas = (contaInvisiveis ? this.percorridas : this.impressas).get(banda) ?? [];
     // no rodapé de um grupo, a agregada é do grupo (o FastReport zera os acumuladores no cabeçalho do grupo), salvo o total acumulado
     const inicio = this.bandaAtual?.tag === 'TfrxGroupFooter' && (flags & 2) !== 2
-      ? (contaInvisiveis ? this.inicioGrupoPercorridas : this.inicioGrupo).get(this.bandaAtual)?.get(banda) : undefined;
+      ? (contaInvisiveis ? this.inicioGrupoPercorridas : this.inicioGrupo).get(this.bandaAtual)?.get(banda)
+      : this.bandaAtual?.tag === 'TfrxFooter' && (flags & 2) !== 2 ? this.inicioRodada.get(banda)?.[contaInvisiveis ? 1 : 0] : undefined;
     const linhas = inicio != null ? todas.slice(inicio) : todas;
     if (f === 'count') return linhas.length;
     const ds = this.dsDaBanda.get(banda) ?? '';
@@ -780,7 +793,7 @@ class Relatorio {
       const c = { atual: null as PaginaSaida | null, y: 0, fechando: false };
       const emitir = (html: string) => c.atual!.html.push(html);
       // definido mais abaixo (precisa do processador das bandas); o título da primeira página sai antes
-      let subrelatorios: (b: No, y0: number, altura: number, mestre?: number) => Set<string> = () => new Set();
+      let subrelatorios: (b: No, y0: number, altura: number, mestre?: number, detalhe?: number) => Set<string> = () => new Set();
       const mostrar = (b: No) => { const y0 = c.y; const r = this.banda(b, n(b.a.Left)); if (r) { emitir(r.html); c.y += r.altura; subrelatorios(b, y0, r.altura); } };
       const fechar = () => {
         if (!c.atual || c.fechando) return;
@@ -821,19 +834,24 @@ class Relatorio {
           const proximo = dadosP.find((d) => n(d.a.Top) > n(b.a.Top));
           return bandasP.filter((x) => x.tag === 'TfrxDetailData' && n(x.a.Top) > n(b.a.Top) && (!proximo || n(x.a.Top) < n(proximo.a.Top)));
         };
-        const processar = (b: No, mestre?: number) => {
+        // `chave`: a ligação com a linha de fora — `__MESTRE` (a linha do mestre) ou `__DETALHE` (a linha da DetailData onde o
+        // sub-relatório roda: o terceiro nível, o nested dataset do item)
+        const processar = (b: No, mestre?: number, chave: '__MESTRE' | '__DETALHE' = '__MESTRE') => {
           const cols = Math.max(1, Math.trunc(n(b.a.Columns, 1)));
           const cw = n(b.a.ColumnWidth), gap = n(b.a.ColumnGap);
           const ds = b.a.DataSetName || b.a.DataSet || '';
           const todas = ds ? this.linhas(ds) : [];
           const indices = ds
-            ? todas.map((_, i) => i).filter((i) => mestre == null || !('__MESTRE' in (todas[i] ?? {})) || Number(todas[i].__MESTRE) === mestre)
+            ? todas.map((_, i) => i).filter((i) => mestre == null || !(chave in (todas[i] ?? {})) || Number(todas[i][chave]) === mestre)
             : Array.from({ length: Math.trunc(n(b.a.RowCount)) }, (_, i) => i);
           const nomeBanda = (b.a.Name ?? '').toLowerCase();
           const impressas = this.impressas.get(nomeBanda) ?? [];
           this.impressas.set(nomeBanda, impressas);
           const percorridas = this.percorridas.get(nomeBanda) ?? [];
           this.percorridas.set(nomeBanda, percorridas);
+          // onde começa esta execução da banda: o rodapé dela (TfrxFooter) soma só a execução — a de um sub-relatório, por linha de fora —
+          // e o resumo, que não é rodapé, soma todas
+          this.inicioRodada.set(nomeBanda, [impressas.length, percorridas.length]);
           this.dsDaBanda.set(nomeBanda, ds);
           let col = 0;
           let alturaLinha = 0;
@@ -934,7 +952,7 @@ class Relatorio {
             if (col >= cols) { col = 0; c.y += alturaLinha; alturaLinha = 0; }
             if (cols === 1) {
             // o mestre do sub-relatório: a linha desta banda (na DetailData, a linha do mestre dela)
-            const usados = subrelatorios(b, y0, r.altura, b.tag === 'TfrxDetailData' ? mestre : i);
+            const usados = subrelatorios(b, y0, r.altura, b.tag === 'TfrxDetailData' ? mestre : i, b.tag === 'TfrxDetailData' ? i : undefined);
             if (ds) this.posicionar(ds, i);
             // o sub-relatório percorreu o MESMO dataset desta banda: no FastReport ele termina no fim (Eof) e o laço de fora acaba
             if (ds && usados.has(nomeDs(ds))) break;
@@ -963,7 +981,7 @@ class Relatorio {
       };
       const principal = criarProcessador(bandas);
       // `TfrxSubreport` numa banda: as bandas da página dele correm a partir da posição do objeto; a banda cresce até o fim delas
-      subrelatorios = (b: No, y0: number, altura: number, mestre?: number) => {
+      subrelatorios = (b: No, y0: number, altura: number, mestre?: number, detalhe?: number) => {
         const usados = new Set<string>();
         const subs = b.filhos.filter((o) => o.tag === 'TfrxSubreport' && o.a.Page).sort((a, z) => n(a.a.Top) - n(z.a.Top));
         if (!subs.length) return usados;
@@ -978,7 +996,13 @@ class Relatorio {
           c.y = Math.max(y0 + n(sr.a.Top), fim);
           const sub = criarProcessador(pagina.filhos.filter((x) => BANDAS.has(x.tag)).sort((a, z) => n(a.a.Top) - n(z.a.Top)));
           // dentro de uma linha de dados, o sub-relatório vê só os detalhes daquela linha do mestre (o nested dataset do Delphi)
-          for (const d of sub.dados) { sub.processar(d, mestre); usados.add(nomeDs(d.a.DataSetName || d.a.DataSet || '')); }
+          for (const d of sub.dados) {
+            // o dataset ligado à linha da DetailData (`__DETALHE`) segue o item; os demais, o mestre
+            const dsSub = d.a.DataSetName || d.a.DataSet || '';
+            const peloDetalhe = detalhe != null && dsSub && this.linhas(dsSub).some((x) => '__DETALHE' in (x ?? {}));
+            if (peloDetalhe) sub.processar(d, detalhe, '__DETALHE'); else sub.processar(d, mestre);
+            usados.add(nomeDs(dsSub));
+          }
           fim = c.y;
         }
         c.y = Math.max(fim, y0 + altura);

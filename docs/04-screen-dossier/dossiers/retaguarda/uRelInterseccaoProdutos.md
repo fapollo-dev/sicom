@@ -57,3 +57,21 @@ relatório voltaria **sempre vazio, sem erro**. Foi exatamente o que o smoke peg
 
 **Ainda falta:** a análise para **vários produtos de uma vez** (o legado aceita um só) — não é do legado, é
 uma extensão óbvia que ficou anotada.
+
+## Auditoria de fidelidade e a impressão (06/10/2026)
+
+Ao converter a impressão, o SQL do Apollo foi conferido contra o `.pas` (`btnPesquisarClick`, :77-271). Quatro correções:
+
+- **As lojas**: o legado chama `TrocarEmpresa(true)` e usa as lojas escolhidas (`cdsMultiEmpresa`) nas duas consultas; o Apollo usava
+  só a do login. Agora "Empresas" na tela, recortadas às do operador.
+- **Cancelado entra**: nem o `sqqVendas` nem o `cdsVendas_Inter` filtram item cancelado — o Apollo filtrava por conta própria (e o smoke
+  afirmava isso). Corrigido, com o smoke dizendo o que o legado faz.
+- **QTDECUPOM = `CAST(COUNT(B.NROCUPOM) AS NUMERIC(13,2))`**: as LINHAS do item nesses cupons (o item lançado duas vezes no mesmo cupom
+  conta 2), não os cupons distintos. O `% dos cupons` da grade (informativo do Apollo) segue pelos cupons distintos.
+- **A data no fuso da loja** (`TRUNC(B.DTVENDA)`): o `dtvenda::date` usava o fuso da sessão.
+
+A impressão: o "Pesquisar" do legado imprime direto (a opção "consultar antes" está comentada) — `extr - Interseccao produtos qtde
+vendida.fr3` (742, frxDBDtsProdQtdeVendida) ou `... qtde cupom.fr3` (741, frxDBDtsQtdeCupom) pelo tipo de análise, com as N primeiras
+linhas (`RangeEndCount` = "Qtde itens analisados") na ordem do índice descendente; variáveis DtIncial/DtFinal, CODBARRA/DESCRICAO/UNIDADE
+do produto, QTDE (`FormatFloat('0.000')` da quantidade) e QTDE_CUPOM (os cupons). Sem linhas: "Não existe dados para esta pesquisa.
+Verifique!". API `relatorios/interseccao-produtos/impressao`, botão "Imprimir". Smoke §113.1-113.5; testes de renderização dos dois layouts.

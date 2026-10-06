@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -35,7 +36,7 @@ const diasAtras = (n: number) => new Date(Date.now() - n * 864e5).toISOString().
 export function RelInterseccaoPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    idproduto: '', dataIni: diasAtras(30), dataFim: hoje(), ordenarPor: 'QTDE', limite: '200',
+    idproduto: '', dataIni: diasAtras(30), dataFim: hoje(), ordenarPor: 'QTDE', limite: '200', empresas: '',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -55,6 +56,15 @@ export function RelInterseccaoPage() {
       }
       setRes((await r.json()) as Resultado);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  /** o "Pesquisar" do legado imprime: o layout do tipo de análise com as N primeiras linhas */
+  const imprimir = async () => {
+    if (!f.idproduto) { mensagem.erro('Favor informar o produto.'); return; }
+    if (!(Number(f.limite) > 0)) { mensagem.erro('Favor informar Qtde de itens para análise.'); return; }
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+    try { await imprimirRelatorio(`/relatorios/interseccao-produtos/impressao?${q.toString()}`); } catch (e) { mensagem.erro(e); }
   };
 
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => [
@@ -98,7 +108,9 @@ export function RelInterseccaoPage() {
             </select>
           </label>
           <div className="w-40"><Field label="Qtde itens &analisados" value={f.limite} onChange={(e) => setF({ ...f, limite: e.target.value })} /></div>
+          <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Pesquisar" disabled={ocupado} onClick={() => void gerar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => void imprimir()} />
           <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
             exportarGradeCsv(res.linhas, [

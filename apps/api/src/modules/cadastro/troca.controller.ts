@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { TrocaService } from './troca.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -12,6 +12,15 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 @UseGuards(AcessoGuard)
 export class TrocaController {
   constructor(private readonly svc: TrocaService) {}
+
+  /**
+   * o "Imprimir troca" do botão Relatório: a troca no extr - Troca.fr3 do cliente. Sem opção própria: a mesma regra de LER a troca
+   * (o GET do agregado), e a produção não tem nenhuma linha de PERMISSOES para este formulário.
+   */
+  @Get(':id/impressao')
+  impressao(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.impressao(id);
+  }
 
   @Post(':id/fechar')
   @HttpCode(200)

@@ -14,9 +14,20 @@ export class RelInterseccaoController {
   @Get()
   @RequerAcesso('FRMRELINTERSECCAOPRODUTOS', 'FRMRELINTERSECCAOPRODUTOS')
   gerar(@Query(new ZodValidationPipe(relInterseccaoSchema)) q: RelInterseccaoDto) {
-    return this.svc.gerar({
-      idproduto: q.idproduto, dataIni: q.dataIni, dataFim: q.dataFim,
-      ordenarPor: q.ordenarPor ?? null, limite: q.limite ?? null,
-    });
+    return this.svc.gerar(this.filtro(q));
+  }
+
+  /** o "Pesquisar" do legado imprime: os dois layouts do cliente pelo tipo de análise */
+  @Get('impressao')
+  @RequerAcesso('FRMRELINTERSECCAOPRODUTOS', 'FRMRELINTERSECCAOPRODUTOS')
+  impressao(@Query(new ZodValidationPipe(relInterseccaoSchema)) q: RelInterseccaoDto) {
+    return this.svc.impressao(this.filtro(q));
+  }
+
+  private filtro(q: RelInterseccaoDto) {
+    return {
+      idproduto: q.idproduto, dataIni: q.dataIni, dataFim: q.dataFim, ordenarPor: q.ordenarPor ?? null, limite: q.limite ?? null,
+      empresas: q.empresas ? q.empresas.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) : null,
+    };
   }
 }

@@ -81,3 +81,17 @@ Aplicação direta da lição "em tela de estoque o valor está no Kardex + sald
 - [uCadSCRAP.md](uCadSCRAP.md) — o molde direto (documento + baixa decoplada + custo server-auth + trava no PUT).
 - [uAjusteEstoque.md](uAjusteEstoque.md) — a origem do movimento relativo + Kardex.
 - [uInventario.md](uInventario.md) — o precedente do "aplicar decoplado do gravar".
+
+## A impressão "Imprimir troca" (06/10/2026)
+
+`ImprimirTroca1Click` (uTrocaMercadoriaFor.pas:1003): `Relatorios\extr - Troca.fr3` (PERSONALIZADO 745) — o frxDBDatasetTroca (o
+`sqqTroca` da troca aberta: código, data, fornecedor), o frxDBDatasetItens_Troca aninhado (`sqqItens_Troca`: produto, código de barras,
+descrição, custo) e, num sub-relatório **dentro de cada item**, o frxDBDatasetQtde (`sqqITENS_TROCA_QTDE`: a quantidade por empresa e o
+TOTAL = custo × quantidade em 3 casas), com o total do item no rodapé do sub-relatório e o geral no resumo. A `ITENS_TROCA_QTDE` é cópia
+1:1 do item (mig 118), então a quantidade e a empresa são as do próprio item. API `GET cadastro/troca/:id/impressao`, botão "Imprimir
+troca" (com itens e gravada). A grade de conferência que o legado abre antes (`TfrmRelGrid`, que só mostra a troca e pergunta) não veio.
+
+**O motor** ganhou o terceiro nível: o dataset ligado à linha da DetailData (`__DETALHE`) segue o item dentro do sub-relatório — antes o
+sub-relatório de uma DetailData só via o mestre, e posicionar o 3º nível deslocava o cursor dos itens (o custo do 2º item saía 0). E o
+rodapé (`TfrxFooter`) de uma banda passa a somar só a execução corrente dela (o sub-relatório roda uma vez por item), enquanto o resumo
+soma todas — como no FastReport.

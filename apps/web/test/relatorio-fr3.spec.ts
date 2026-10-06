@@ -1357,3 +1357,50 @@ describe('preenchimento da cotação (cot_pree_da_cotacao.fr3, FRMCADCOTACAOFORN
     expect(t).toContain('29,63');      // SUM(VALOR) sem formato do layout: 22,5 + 7,125
   });
 });
+
+describe('troca de mercadorias (extr - Troca.fr3, FRMTROCAMERCADORIAFOR) e o terceiro nível no motor', () => {
+  it('cada item com a SUA quantidade por empresa no sub-relatório (__DETALHE), o total do item e o geral', () => {
+    const t = texto(paginasDoModelo(modelo('troca.fr3'), {
+      frxDBDatasetTroca: [{ CODTROCA: 55, DATA: '2026-10-01T00:00:00', CODPARCEIRO: 77, RAZAO: 'LATICINIOS TREVO LTDA' }],
+      frxDBDatasetItens_Troca: [
+        { IDPRODUTO: 101, CODBARRA: '7891', DESCRICAO: 'IOGURTE MORANGO', VRCUSTO: 2.5, __MESTRE: 0 },
+        { IDPRODUTO: 102, CODBARRA: '7892', DESCRICAO: 'BEBIDA LACTEA', VRCUSTO: 4, __MESTRE: 0 },
+      ],
+      frxDBDatasetQtde: [
+        { CODEMPRESA: 1, QTDE: 6, TOTAL: 15, __DETALHE: 0 },
+        { CODEMPRESA: 1, QTDE: 3, TOTAL: 12, __DETALHE: 1 },
+      ],
+      frxDBEmpresa: [{ FANTASIA: 'HIPER PINHEIRAO', CNPJ: '37.954.975/0001-69', BAIRRO: 'MARTINS', CIDADE: 'UBERLANDIA', UF: 'MG', ENDERECO: 'AV SACRAMENTO' }],
+    }, agora));
+    expect(t).toContain('Troca de Mercadorias');
+    expect(t).toContain('LATICINIOS TREVO LTDA');
+    expect(t).toContain('IOGURTE MORANGO');
+    expect(t).toContain('6,00');      // a quantidade do 1º item — o 2º não aparece debaixo dele
+    expect(t).toContain('15,00');     // 6 × 2,50
+    expect(t).toContain('3,00');
+    expect(t).toContain('12,00');     // 3 × 4,00
+    // o item 1 não traz a linha do item 2: "6,00 15,00" e não "6,00 15,00 1 3,00"
+    expect(t).not.toMatch(/IOGURTE MORANGO[^B]*3,00/);
+  });
+});
+
+describe('intersecção de produtos (extr - Interseccao produtos qtde vendida/cupom.fr3, FRMRELINTERSECCAOPRODUTOS)', () => {
+  const vars = { DtIncial: "'01/09/2026'", DtFinal: "'30/09/2026'", CODBARRA: "'7891000'", DESCRICAO: "'CERVEJA LATA'", UNIDADE: "'UN'", QTDE: "'17,000'", QTDE_CUPOM: "'5'" };
+  const l = (CODBARRA: string, DESCRICAO: string, QTDE: number, QTDECUPOM: number, VRVENDA: number) => ({ CODPRODUTO: 1, CODBARRA, DESCRICAO, UNIDADE: 'UN', QTDE, QTDECUPOM, VRVENDA });
+  it('qtde vendida: o item analisado no cabeçalho, as linhas com a quantidade em 3 casas e o valor', () => {
+    const t = texto(paginasDoModelo(modelo('interseccao-vendida.fr3'), { frxDBDtsProdQtdeVendida: [l('7892', 'GUARDANAPO', 12, 2, 24), l('7893', 'CARVAO', 3, 3, 36)] }, agora, vars));
+    expect(t).toContain('Intersecção de Produtos - Qtde vendida');
+    expect(t).toContain('EAN: 7891000');
+    expect(t).toContain('CERVEJA LATA');
+    expect(t).toContain('Cupons Analisados: 5');
+    expect(t).toContain('Qtde: 17,000');
+    expect(t).toContain('12,000');
+    expect(t).toContain('36,00');
+  });
+  it('qtde cupom: a contagem sem casas', () => {
+    const t = texto(paginasDoModelo(modelo('interseccao-cupom.fr3'), { frxDBDtsQtdeCupom: [l('7893', 'CARVAO', 3, 3, 36), l('7892', 'GUARDANAPO', 12, 2, 24)] }, agora, vars));
+    expect(t).toContain('Intersecção de Produtos - Qtde cupom');
+    expect(t).toContain('CARVAO');
+    expect(t).toContain('24,00');
+  });
+});
