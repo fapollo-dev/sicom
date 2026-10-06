@@ -641,6 +641,8 @@ export const fluxoCartoesSchema = z.object({
   dataIni: dataISO,
   dataFim: dataISO,
   codoperadora: z.coerce.number().int().positive().nullish(),
+  /** as lojas do GetMultiEmpresa, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).nullish(),
 });
 export type FluxoCartoesDto = z.infer<typeof fluxoCartoesSchema>;
 

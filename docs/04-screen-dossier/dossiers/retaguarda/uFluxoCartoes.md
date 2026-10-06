@@ -1,4 +1,4 @@
-# FLUXO DE CARTÕES (`FRMFLUXOCARTOES`) — completa
+# FLUXO DE CARTÕES (`FRMFLUXOCARTOES`) — completa (impressão e fidelidade em 06/10/2026)
 
 `uFluxoCartoes.pas` + `udmFluxoCartoes`. **98 acessos, 7 operadores.**
 
@@ -10,38 +10,47 @@ dia, por operadora. É a leitura que o extrato bancário não dá: o dinheiro ex
 `CARTAO` tem **2.059.893 linhas** em 2.201 dias, a última de hoje (15/09/2026). `LIBERADO = 'S'` é o que a
 operadora já pagou.
 
-## 2. ⚠️ O legado mostra o mesmo dia duas vezes — e chama as duas de "total"
+## 2. A grade: uma linha por dia (corrigido em 06/10/2026)
 
 ```sql
-SELECT TRUNC(C.DTVENDA), SUM(C.VALOR) TOTALVENDASMES, ...
-  FROM CARTAO C
- GROUP BY TRUNC(C.DTVENDA), C.LIBERADO      -- ← LIBERADO no GROUP BY
+SELECT TRUNC(C.DTVENDA), SUM(C.VALOR) TOTALVENDASMES,
+       COALESCE(CASE WHEN C.LIBERADO = 'N' THEN SUM(C.VALOR) END, 0) VENDASNAORECEBIDAS,
+       COALESCE(CASE WHEN C.LIBERADO = 'S' THEN SUM(C.VALOR) END, 0) VENDASRECEBIDAS
+  FROM CARTAO C WHERE TRUNC(C.DTVENDA) BETWEEN :DTINI AND :DTFIM AND C.IDEMPRESA IN (GetMultiEmpresa)
+ GROUP BY TRUNC(C.DTVENDA), C.LIBERADO
 ```
 
-Como `LIBERADO` entra no agrupamento, **todo dia com parte recebida e parte pendente vira duas linhas** — e
-em nenhuma delas `TOTALVENDASMES` é o total do dia: é o total daquele status.
+O SQL sai com uma linha por status, mas o `btnPesquisarClick` **soma as do mesmo dia** no `cdsMontaGridFluxoCartao`
+(`Locate('DTVENDA')` + Edit): a grade do legado já é uma linha por dia. ⚠️ **O dossiê de 15/09 dizia que o legado mostrava o dia
+duplicado — errado** (leu só o SQL, não o laço que monta a grade). O resultado do Apollo era o mesmo; o texto foi corrigido.
 
-Medido na produção: **1.485 dos 2.201 dias (67%)** saem duplicados. O operador vê o dia repetido e soma na
-cabeça.
-
-Aqui é **uma linha por dia**, com as três colunas que o nome delas promete — vendido, recebido, a receber —
-e a soma fecha.
+O que estava diferente e foi corrigido:
+- **LIBERADO nulo** (1.969 cartões na produção): entra no TOTAL e em nenhuma das duas colunas — o Apollo o contava como "a receber";
+- **as lojas**: as do `GetMultiEmpresa` (o Apollo usava só a do login);
+- **o dia**: o da loja (o Oracle guarda a hora local; `TRUNC`), não o do UTC.
 
 ## 3. O detalhe por operadora
 
 A segunda consulta da tela quebra o dia por bandeira (`LEFT JOIN OPERADORAS`). É assim que se descobre qual
 operadora está atrasando o repasse — a informação que justifica a ligação para a adquirente.
 
-Operadora sem cadastro aparece como `(SEM OPERADORA)` em vez de linha em branco.
+Agrupa pelo **nome** da operadora (`GROUP BY … O.OPERADORA` + `Locate('DTVENDA;OPERADORA')`), em ordem de nome
+(`IndexFieldNames := 'OPERADORA'`); operadora sem cadastro sai com o nome vazio, como no legado.
 
-## 4. Cobertura (§115 do smoke, 4 checks)
+## 4. A impressão (`btnImprimirClick`) ✅ 06/10/2026
 
-1. o dia que o legado duplicaria sai em **uma** linha, com vendido/recebido/a receber fechando;
-2. o total do período separando o que caiu do que falta cair;
-3. o detalhe por operadora;
-4. o filtro por operadora e a recusa de data invertida.
+`Relatorios\Rel_Fluxo_Cartoes.fr3` (974) com a grade no `frxFluxoCartao` e as variáveis `DtIncial` (sic), `DtFinal` e `Empresa`
+(o texto do `GetMultiEmpresa`, "1,2").
 
-## 5. O que ficou de fora
+## 5. Cobertura (§115 do smoke, 5 checks; teste de renderização do 974)
+
+1. uma linha por dia, com o dia da loja;
+2. LIBERADO nulo só no total;
+3. o detalhe por operadora pelo nome, com as lojas;
+4. as lojas, o filtro por operadora e a data invertida;
+5. o Imprimir no layout do cliente e o "sem dados".
+
+## 6. O que ficou de fora
 
 **Resolvido de outro jeito:** a exportação é o CSV da grade.
 

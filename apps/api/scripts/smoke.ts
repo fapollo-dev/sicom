@@ -13511,39 +13511,44 @@ async function main() {
       }
     }
 
-    // ===== §115) FLUXO DE CARTÕES (FRMFLUXOCARTOES) — quanto já caiu e quanto ainda vai cair. O legado
-    // duplica 67% dos dias na grade; aqui é uma linha por dia. ====
+    // ===== §115) FLUXO DE CARTÕES (FRMFLUXOCARTOES) — quanto já caiu e quanto ainda vai cair: uma linha por dia (a grade do legado
+    // soma as linhas de cada status), as lojas do GetMultiEmpresa e a impressão. ====
     {
       const FC = 'cobranca/fluxo-cartoes';
       const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         await pgFc.query(`INSERT INTO operadoras (codoperadoras, operadora) VALUES (9911,'OPERADORA A'),(9912,'OPERADORA B')
           ON CONFLICT (codoperadoras) DO NOTHING`);
-        const addC = async (dia: string, oper: number, valor: number, liberado: string) =>
+        const tinhaRel2Fc = Number((await pgFc.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Fc) await pgFc.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const addC = async (dia: string, oper: number, valor: number, liberado: string | null, emp = 1, hora = '10:00') =>
           pgFc.query(`INSERT INTO cartao (idempresa, dtvenda, codoperadora, valor, liberado)
-            VALUES (1,$1::date,$2,$3,$4)`, [dia, oper, valor, liberado]);
-        // dia 1: metade recebida, metade não — é o dia que o legado DUPLICA
+            VALUES ($5,$1::timestamptz,$2,$3,$4)`, [`${dia} ${hora}-03`, oper, valor, liberado, emp]);
+        // dia 1: metade recebida, metade não — duas linhas no SQL do legado, uma na grade (o Locate soma)
         await addC('2053-04-10', 9911, 1000.00, 'S');
         await addC('2053-04-10', 9912, 400.00, 'N');
-        // dia 2: tudo recebido
+        // dia 2: tudo recebido, e um cartão com LIBERADO nulo às 23:30 da loja (é do dia 11, não do 12 em UTC)
         await addC('2053-04-11', 9911, 700.00, 'S');
+        await addC('2053-04-11', 9911, 50.00, null, 1, '23:30');
         // dia 3: nada recebido
         await addC('2053-04-12', 9912, 250.00, 'N');
+        // a loja 2 (só com as lojas marcadas)
+        await addC('2053-04-10', 9911, 300.00, 'S', 2);
 
         const r = await fetch(`${base}/${FC}?dataIni=2053-04-01&dataFim=2053-04-30`, { headers: H });
         const j = (await r.json().catch(() => ({}))) as any;
-        const d10 = (j.linhas ?? []).find((l: any) => String(l.dtvenda).startsWith('2053-04-10'));
+        const dl = (d: string, jj: any = j) => (jj.linhas ?? []).filter((l: any) => String(l.dtvenda).startsWith(d));
 
-        check('FLUXO DE CARTÕES §115.1 [o legado mostra o mesmo dia duas vezes, e chama as duas de "total"]: o SQL original agrupa por `TRUNC(DTVENDA), LIBERADO` e calcula `SUM(VALOR) AS TOTALVENDASMES` dentro do grupo — então todo dia com parte recebida e parte pendente sai em DUAS linhas, e em nenhuma delas o total é o do dia. Medido na produção: **1.485 dos 2.201 dias (67%)** saem duplicados. Aqui o dia 10/04 é **uma linha**: vendido 1.400,00, recebido 1.000,00, a receber 400,00 — e as três fecham',
-          r.status === 200
-          && (j.linhas ?? []).filter((l: any) => String(l.dtvenda).startsWith('2053-04-10')).length === 1
-          && Math.abs(Number(d10?.total_vendas) - 1400) < 0.005
-          && Math.abs(Number(d10?.recebidas) - 1000) < 0.005
-          && Math.abs(Number(d10?.nao_recebidas) - 400) < 0.005,
-          { dia10: d10 });
+        check('FLUXO DE CARTÕES §115.1 [uma linha por dia, como a grade do legado]: o SQL agrupa por `TRUNC(DTVENDA), LIBERADO` (uma linha por status) e o `btnPesquisarClick` soma as do mesmo dia no `cdsMontaGridFluxoCartao` (`Locate(\'DTVENDA\')`) — o dia 10/04 é uma linha: vendido 1.400,00, recebido 1.000,00, a receber 400,00. O cartão de 23:30 da loja fica no dia 11 (o dia é o da loja)',
+          r.status === 200 && dl('2053-04-10').length === 1
+          && Math.abs(Number(dl('2053-04-10')[0]?.total_vendas) - 1400) < 0.005
+          && Math.abs(Number(dl('2053-04-10')[0]?.recebidas) - 1000) < 0.005
+          && Math.abs(Number(dl('2053-04-10')[0]?.nao_recebidas) - 400) < 0.005
+          && Math.abs(Number(dl('2053-04-11')[0]?.total_vendas) - 750) < 0.005,
+          { dias: j.linhas });
 
-        check('FLUXO DE CARTÕES §115.2 [o que o extrato não mostra]: o total do período separa o que já caiu do que ainda vai cair — 1.950,00 vendidos, 1.700,00 na conta e **650,00 a receber**. É a leitura que o extrato bancário não dá: o dinheiro existe, mas ainda não está lá',
-          Math.abs(Number(j.totais.total) - 2350) < 0.005
+        check('FLUXO DE CARTÕES §115.2 [LIBERADO nulo entra no total e em nenhuma das duas colunas]: o legado soma VENDASNAORECEBIDAS só de `LIBERADO = \'N\'` e VENDASRECEBIDAS só de `\'S\'` — o cartão sem status (1.969 na produção) fica só no TOTALVENDASMES. Período: 2.400,00 vendidos, 1.700,00 recebidos, 650,00 a receber (o Apollo contava o nulo como a receber)',
+          Math.abs(Number(j.totais.total) - 2400) < 0.005
           && Math.abs(Number(j.totais.recebido) - 1700) < 0.005
           && Math.abs(Number(j.totais.aReceber) - 650) < 0.005
           && Number(j.totais.dias) === 3,
@@ -13551,22 +13556,41 @@ async function main() {
 
         const opR = await fetch(`${base}/${FC}/dia?data=2053-04-10`, { headers: H });
         const opJ = (await opR.json().catch(() => ([]))) as any[];
-        check('FLUXO DE CARTÕES §115.3 [abrir o dia mostra por operadora]: a segunda consulta da tela quebra o dia por bandeira — a operadora A trouxe 1.000,00 já recebidos e a B tem 400,00 pendentes. É assim que se descobre qual operadora está atrasando o repasse',
-          opR.status === 200 && opJ.length === 2
-          && Math.abs(Number(opJ.find((o: any) => o.codoperadora === 9911)?.recebidas) - 1000) < 0.005
-          && Math.abs(Number(opJ.find((o: any) => o.codoperadora === 9912)?.nao_recebidas) - 400) < 0.005,
-          { operadoras: opJ.map((o: any) => ({ op: o.operadora, rec: o.recebidas, pend: o.nao_recebidas })) });
+        const opL = (await (await fetch(`${base}/${FC}/dia?data=2053-04-10&empresas=1,2`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('FLUXO DE CARTÕES §115.3 [o dia por operadora]: o `sqqFluxoCartoesBandeiras` agrupa pelo NOME da operadora, em ordem de nome — a A trouxe 1.000,00 já recebidos e a B tem 400,00 pendentes; com as duas lojas, a A soma os 300,00 da loja 2',
+          opR.status === 200 && opJ.length === 2 && opJ[0].operadora === 'OPERADORA A'
+          && Math.abs(Number(opJ.find((o: any) => o.operadora === 'OPERADORA A')?.recebidas) - 1000) < 0.005
+          && Math.abs(Number(opJ.find((o: any) => o.operadora === 'OPERADORA B')?.nao_recebidas) - 400) < 0.005
+          && Math.abs(Number(opL.find((o: any) => o.operadora === 'OPERADORA A')?.recebidas) - 1300) < 0.005,
+          { operadoras: opJ.map((o: any) => ({ op: o.operadora, rec: o.recebidas, pend: o.nao_recebidas })), lojas: opL.map((o: any) => [o.operadora, o.recebidas]) });
 
         const soA = (await (await fetch(`${base}/${FC}?dataIni=2053-04-01&dataFim=2053-04-30&codoperadora=9911`, { headers: H })).json().catch(() => ({}))) as any;
+        const lj = (await (await fetch(`${base}/${FC}?dataIni=2053-04-01&dataFim=2053-04-30&empresas=1,2`, { headers: H })).json().catch(() => ({}))) as any;
         const inv = await fetch(`${base}/${FC}?dataIni=2053-04-30&dataFim=2053-04-01`, { headers: H });
-        check('FLUXO DE CARTÕES §115.4: o filtro por operadora reduz ao que é dela (1.700,00, todos recebidos) e a data invertida é recusada com mensagem',
-          Math.abs(Number(soA.totais?.total) - 1700) < 0.005
-          && Math.abs(Number(soA.totais?.aReceber)) < 0.005
+        check('FLUXO DE CARTÕES §115.4: as lojas do GetMultiEmpresa (o dia 10 com a loja 2: 1.700,00); o filtro por operadora (1.750,00, 1.700,00 recebidos); data invertida recusada',
+          Math.abs(Number(dl('2053-04-10', lj)[0]?.total_vendas) - 1700) < 0.005 && (lj.empresas ?? []).join(',') === '1,2'
+          && Math.abs(Number(soA.totais?.total) - 1750) < 0.005 && Math.abs(Number(soA.totais?.recebido) - 1700) < 0.005
           && inv.status >= 400,
-          { soOperadoraA: soA.totais, dataInvertida: inv.status });
+          { lojas: lj.totais, soOperadoraA: soA.totais, dataInvertida: inv.status });
 
-        await pgFc.query(`DELETE FROM cartao WHERE dtvenda::date BETWEEN '2053-04-01' AND '2053-04-30'`);
+        await pgFc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992958, 1, 'Rel_Fluxo_Cartoes.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Fluxo_stub"/></TfrxReport>').toString('base64')]);
+        const imp = await fetch(`${base}/${FC}/impressao?dataIni=2053-04-01&dataFim=2053-04-30&empresas=1,2`, { headers: H });
+        const ij = (await imp.json().catch(() => ({}))) as any;
+        const ir = (ij.datasets?.frxFluxoCartao ?? []) as any[];
+        const vz = await fetch(`${base}/${FC}/impressao?dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const vzj = (await vz.json().catch(() => ({}))) as any;
+        await pgFc.query(`DELETE FROM relatorios WHERE codrelatorio = 992958`);
+        check('FLUXO DE CARTÕES §115.5 [o Imprimir]: o Rel_Fluxo_Cartoes.fr3 do cliente com a grade no frxFluxoCartao (DTVENDA, TOTALVENDASMES, VENDASNAORECEBIDAS, VENDASRECEBIDAS) e as variáveis DtIncial (sic), DtFinal e Empresa ("1,2", o texto do GetMultiEmpresa); sem dados, a mensagem da pesquisa',
+          imp.status === 200 && String(ij.modelo).includes('Fluxo_stub') && ir.length === 3 && Math.abs(Number(ir[0].TOTALVENDASMES) - 1700) < 0.005
+            && Math.abs(Number(ir[1].VENDASNAORECEBIDAS)) < 0.005 && Math.abs(Number(ir[1].VENDASRECEBIDAS) - 700) < 0.005
+            && ij.variaveis?.DtIncial === "'01/04/2053'" && ij.variaveis?.DtFinal === "'30/04/2053'" && ij.variaveis?.Empresa === "'1,2'"
+          && vz.status === 422 && String(vzj.message ?? '').includes('Não existe informações para este período'),
+          { st: imp.status, linhas: ir, v: ij.variaveis, vazio: [vz.status, vzj.message] });
+
+        await pgFc.query(`DELETE FROM cartao WHERE codoperadora IN (9911,9912) AND dtvenda BETWEEN '2053-04-01' AND '2053-05-01'`);
         await pgFc.query(`DELETE FROM operadoras WHERE codoperadoras IN (9911,9912)`);
+        if (!tinhaRel2Fc) await pgFc.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
       } finally {
         await pgFc.end();
       }

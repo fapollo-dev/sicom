@@ -14,13 +14,26 @@ export class FluxoCartoesController {
   @Get()
   @RequerAcesso('FRMFLUXOCARTOES', 'FRMFLUXOCARTOES')
   porDia(@Query(new ZodValidationPipe(fluxoCartoesSchema)) q: FluxoCartoesDto) {
-    return this.svc.porDia({ dataIni: q.dataIni, dataFim: q.dataFim, codoperadora: q.codoperadora ?? null });
+    return this.svc.porDia(this.filtro(q));
   }
 
-  /** o detalhe de um dia, por operadora — o duplo clique na linha. */
+  /** o detalhe de um dia, por operadora — o Enter na linha. */
   @Get('dia')
   @RequerAcesso('FRMFLUXOCARTOES', 'FRMFLUXOCARTOES')
-  porOperadora(@Query('data') data: string) {
-    return this.svc.porOperadora(String(data ?? ''));
+  porOperadora(@Query('data') data: string, @Query('empresas') empresas?: string) {
+    return this.svc.porOperadora(String(data ?? ''), lojas(empresas));
+  }
+
+  /** o Imprimir no layout do cliente (Rel_Fluxo_Cartoes.fr3) */
+  @Get('impressao')
+  @RequerAcesso('FRMFLUXOCARTOES', 'FRMFLUXOCARTOES')
+  impressao(@Query(new ZodValidationPipe(fluxoCartoesSchema)) q: FluxoCartoesDto) {
+    return this.svc.impressao(this.filtro(q));
+  }
+
+  private filtro(q: FluxoCartoesDto) {
+    return { dataIni: q.dataIni, dataFim: q.dataFim, codoperadora: q.codoperadora ?? null, empresas: lojas(q.empresas) };
   }
 }
+
+const lojas = (s?: string | null) => (s && /^[\d,\s]+$/.test(s) ? s.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) : null);

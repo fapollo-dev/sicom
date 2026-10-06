@@ -8,11 +8,12 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 interface Dia { dtvenda: string; total_vendas: number; recebidas: number; nao_recebidas: number; lancamentos: number }
-interface PorOperadora extends Dia { operadora: string; codoperadora: number }
+interface PorOperadora extends Dia { operadora: string | null }
 interface Resultado { linhas: Dia[]; totais: { total: number; recebido: number; aReceber: number; dias: number } }
 
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -26,12 +27,11 @@ const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
  * Quanto a loja vendeu no cartão, **quanto já caiu na conta e quanto ainda vai cair**. Clicar num dia abre
  * o detalhe por operadora.
  *
- * O legado mostrava o mesmo dia em duas linhas (uma para o recebido, outra para o pendente) e chamava as
- * duas de "total". Aqui é uma linha por dia, e a soma fecha.
+ * Uma linha por dia, como a grade do legado (que soma as linhas de cada status); as lojas do GetMultiEmpresa.
  */
 export function FluxoCartoesPage() {
   const mensagem = useMensagem();
-  const [f, setF] = useState({ dataIni: diaUm(), dataFim: hoje(), codoperadora: '' });
+  const [f, setF] = useState({ dataIni: diaUm(), dataFim: hoje(), codoperadora: '', empresas: '' });
   const [res, setRes] = useState<Resultado | null>(null);
   const [dia, setDia] = useState<{ data: string; linhas: PorOperadora[] } | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -47,11 +47,16 @@ export function FluxoCartoesPage() {
     return r.json();
   };
 
+  const params = () => {
+    const q = new URLSearchParams();
+    Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+    return q;
+  };
+
   const gerar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
+      const q = params();
       setRes((await chamar(`cobranca/fluxo-cartoes?${q}`)) as Resultado);
       setDia(null);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
@@ -60,7 +65,7 @@ export function FluxoCartoesPage() {
   const abrirDia = async (data: string) => {
     setOcupado(true);
     try {
-      setDia({ data, linhas: (await chamar(`cobranca/fluxo-cartoes/dia?data=${data.slice(0, 10)}`)) as PorOperadora[] });
+      setDia({ data, linhas: (await chamar(`cobranca/fluxo-cartoes/dia?data=${data.slice(0, 10)}${f.empresas ? `&empresas=${f.empresas}` : ''}`)) as PorOperadora[] });
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -91,7 +96,7 @@ export function FluxoCartoesPage() {
   ], []);
 
   const colsOp = useMemo<DataTableColumnDef<PorOperadora>[]>(() => [
-    { field: 'operadora', headerName: 'Operadora', type: 'text', isPrimary: true },
+    { field: 'operadora', headerName: 'Operadora', type: 'text', isPrimary: true, valueGetter: (d) => d.operadora ?? '' },
     { field: 'total_vendas', headerName: 'Vendido', type: 'text', width: 150, valueGetter: (d) => moeda(d.total_vendas) },
     { field: 'recebidas', headerName: 'Já recebido', type: 'text', width: 150, valueGetter: (d) => moeda(d.recebidas) },
     { field: 'nao_recebidas', headerName: 'A receber', type: 'text', width: 150, valueGetter: (d) => moeda(d.nao_recebidas) },
@@ -110,7 +115,11 @@ export function FluxoCartoesPage() {
           <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-40"><Field label="&Operadora (cód.)" value={f.codoperadora} onChange={(e) => setF({ ...f, codoperadora: e.target.value })} /></div>
+          <div className="w-40"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
+          <Button label="&Imprimir" variant="soft" disabled={!res || ocupado} onClick={() => {
+            void imprimirRelatorio(`/cobranca/fluxo-cartoes/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
             exportarGradeCsv(res.linhas, [
@@ -146,7 +155,7 @@ export function FluxoCartoesPage() {
             <Button label="&Fechar" variant="soft" onClick={() => setDia(null)} />
           </div>
           <DataTable persistId="fluxo-cartoes-operadora" savedViewsService={gradeLayoutService}
-            rows={dia.linhas} columns={colsOp} getRowId={(d: PorOperadora) => String(d.codoperadora)} />
+            rows={dia.linhas} columns={colsOp} getRowId={(d: PorOperadora) => String(d.operadora ?? '')} />
         </section>
       )}
     </div>

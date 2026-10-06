@@ -1484,3 +1484,22 @@ describe('produção (Producao.fr3, FRMCADPRODUCAO)', () => {
     expect(t).toContain('9,00');       // 4 UN × 2,25 (o total vai pela quantidade comercial)
   });
 });
+
+describe('fluxo de cartões (Rel_Fluxo_Cartoes.fr3, FRMFLUXOCARTOES)', () => {
+  it('o período, as lojas e uma linha por dia com as três colunas', () => {
+    const t = texto(paginasDoModelo(modelo('fluxo-cartoes.fr3'), {
+      frxFluxoCartao: [
+        { DTVENDA: '2053-04-10', TOTALVENDASMES: 1700, VENDASNAORECEBIDAS: 400, VENDASRECEBIDAS: 1300 },
+        { DTVENDA: '2053-04-11', TOTALVENDASMES: 750, VENDASNAORECEBIDAS: 0, VENDASRECEBIDAS: 700 },
+      ],
+    }, agora, { DtIncial: "'01/04/2053'", DtFinal: "'30/04/2053'", Empresa: "'1,2'" }));
+    expect(t).toContain('Fluxo de Cartões');
+    expect(t).toContain('01/04/2053');
+    expect(t).toContain('30/04/2053');
+    expect(t).toContain('1,2');
+    expect(t).toContain('10/04/2053');
+    expect(t).toContain('1.700,00');
+    expect(t).toContain('1.300,00');
+    expect(t).toContain('750,00');
+  });
+});
