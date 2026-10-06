@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -40,13 +41,23 @@ export function RelFinalizadorasPage() {
   const [totais, setTotais] = useState<Totais | null>(null);
   const [part, setPart] = useState<Record<string, number | null>>({});
   const [busy, setBusy] = useState(false);
+  // o `RgpOrientacaoFP` do legado: as formas em colunas (horizontal) ou uma linha por forma (vertical)
+  const [vertical, setVertical] = useState(false);
+  const [empresas, setEmpresas] = useState('');
+
+  const listaEmpresas = () => empresas.split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  // o "Imprimir" no layout do cliente (o botão do legado só habilita depois de uma consulta com dados)
+  const imprimir = () => {
+    imprimirRelatorio('/relatorios/finalizadoras/impressao', { dtini, dtfim, vertical, ...(listaEmpresas().length ? { empresas: listaEmpresas() } : {}) })
+      .catch((e) => mensagem.erro(e));
+  };
 
   const consultar = async () => {
     if (busy) return;
     setBusy(true);
     try {
       const r = await req<{ modalidades: Modalidade[]; linhas: Linha[]; totais: Totais; participacao: Record<string, number | null> }>(
-        '/relatorios/finalizadoras/consultar', { dtini, dtfim },
+        '/relatorios/finalizadoras/consultar', { dtini, dtfim, ...(listaEmpresas().length ? { empresas: listaEmpresas() } : {}) },
       );
       setMods(r.modalidades); setLinhas(r.linhas); setTotais(r.totais); setPart(r.participacao ?? {});
       if (!r.linhas.length) mensagem.sucesso('Nenhum movimento no período.');
@@ -72,7 +83,11 @@ export function RelFinalizadorasPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
+        <div className="w-40"><Field label="&Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={!vertical} onChange={() => setVertical(false)} /> Horizontal</label>
+        <label className="flex items-center gap-gp-xs text-body-sm"><input type="radio" checked={vertical} onChange={() => setVertical(true)} /> Vertical</label>
+        <Button label="&Imprimir" variant="soft" disabled={busy || !linhas.length} onClick={imprimir} />
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
         <small className="w-full text-fg-muted">
           Uma linha por dia. As colunas de pagamento saem das formas cadastradas na empresa; o total soma

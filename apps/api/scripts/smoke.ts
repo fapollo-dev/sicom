@@ -6363,6 +6363,31 @@ async function main() {
           && rfInv.status === 422 && rfBr.status === 400 && rfRb.status === 403,
           { inv: rfInv.status, br: rfBr.status, rb: rfRb.status });
 
+        // o "Imprimir" (btnImprimirClick): horizontal com um memo por forma criado no layout; vertical com os rótulos do Corrigegrid
+        await pgRv.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+            (991141, 1, 'Rel_Finalizadoras.fr3', 'x', 'DEFAULT', $1), (991142, 1, 'Rel_Finalizadoras_Vertical.fr3', 'x', 'DEFAULT', $2)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [
+          Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Horizontal"><TfrxPageHeader Name="PageHeader1" Top="20" Height="26,45671"/><TfrxMasterData Name="MasterData1" Top="80" Height="18,51968504" DataSetName="FrxFinalizadoras"/></TfrxReportPage></TfrxReport>').toString('base64'),
+          Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Vertical"/></TfrxReport>').toString('base64')]);
+        const rfImp = async (corpo: Record<string, unknown>) => { const x = await fetch(`${base}/relatorios/finalizadoras/impressao`, { method: 'POST', headers: H, body: JSON.stringify(corpo) }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const rfH = await rfImp({ dtini: '2026-08-20', dtfim: '2026-08-21' });
+        const rfV = await rfImp({ dtini: '2026-08-20', dtfim: '2026-08-21', vertical: true });
+        const rfVazio = await rfImp({ dtini: '2001-08-20', dtfim: '2001-08-21' });
+        await pgRv.query(`DELETE FROM relatorios WHERE codrelatorio IN (991141, 991142)`);
+        const fh = (rfH.j.datasets?.FrxFinalizadoras ?? []) as any[];
+        const fv = (rfV.j.datasets?.FrxFinalizadoras ?? []) as any[];
+        const rotulos = new Set(fv.map((x) => x.FORMA_PGTO));
+        check('REL-FINALIZADORAS: o "Imprimir" — horizontal no Rel_Finalizadoras.fr3 com um memo por forma criado no PageHeader1 (a MODALIDADE) e no MasterData1 (formatFloat do campo GetForma), de Left 398 em 90; o dataset é o cdsTemp com os 2 dias, a linha dos TOTAIS e a da PARTICIPAÇÃO (cartão 15 ÷ 67 = 22,39%); vertical com uma linha por campo do dia e o rótulo que o Corrigegrid dá à coluna ("Total venda", "Descontos", "Acréscimos", "Cancelamentos", "Dinheiro smoke"), os totais no FrxDBTotais e V_TOTAL_VENDA 67; sem dados, a mensagem',
+          rfH.status === 200 && /MemoTituloP\d+"[^>]*Left="398"/.test(String(rfH.j.modelo)) && String(rfH.j.modelo).includes('Text="DINHEIRO SMOKE"')
+            && String(rfH.j.modelo).includes('&lt;FrxFinalizadoras.&quot;DINHEIRO_SMOKE&quot;&gt;')
+            && fh.length === 4 && fh[2].DATA === null && Number(fh[2].TOTAL_VENDA) === 67 && Math.abs(Number(fh[3].CARTAO_SMOKE) - 22.388) < 0.01
+            && rfH.j.variaveis?.PERIODO === "'Periodo: 20/08/2026 até 21/08/2026'"
+          && rfV.status === 200 && ['Total venda', 'Descontos', 'Acréscimos', 'Cancelamentos', 'Dinheiro smoke', 'Cartao smoke'].every((r) => rotulos.has(r))
+            && fv.some((x) => x.FORMA_PGTO === 'Dinheiro smoke' && Number(x.VALOR) === 46) && (rfV.j.datasets?.FrxDBTotais ?? []).some((x: any) => x.FORMA_PGTO === 'Total venda' && Number(x.VALOR) === 67)
+            && rfV.j.variaveis?.V_TOTAL_VENDA === '67'
+          && rfVazio.status === 422,
+          { h: [rfH.status, fh.length, fh[2], fh[3]?.CARTAO_SMOKE], v: [rfV.status, [...rotulos].slice(0, 8), rfV.j.variaveis?.V_TOTAL_VENDA], vazio: rfVazio.status });
+
         await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-08-20' AND data < '2026-08-22'`);
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
         await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('DINHEIRO SMOKE','CARTAO SMOKE')`);

@@ -211,6 +211,7 @@ class Relatorio {
       agregado: (f, args) => this.agregado(f, args),
       procedimento: (nome, args) => this.procedimento(nome, args),
       funcao: (nome, args) => this.funcaoDeObjeto(nome, args),
+      ehObjeto: (nome) => this.estados.has(nome.toLowerCase()),
     };
     // variáveis do relatório (<Variables>): o valor é uma expressão ('S' entre aspas)
     for (const v of this.raiz.filhos.filter((x) => x.tag === 'Variables').flatMap((x) => x.filhos)) {
@@ -402,6 +403,10 @@ class Relatorio {
   private funcaoDeObjeto(nome: string, args: Valor[]): Valor | undefined {
     const item = /^(\w+)\[\]$/.exec(nome);
     if (item) return this.lista(item[1])?.[Math.trunc(Number(args[0]) || 0)] ?? null;
+    // `Lista.IndexOf(Texto)` da TStringList do script: a posição (base 0) ou −1 — o Compras1.fr3 guarda os totais dos grupos na 1ª passada
+    // e os acha pela chave do grupo na final
+    const io = /^(\w+)\.indexof$/.exec(nome);
+    if (io && this.lista(io[1])) return this.lista(io[1])!.indexOf(texto(args[0] ?? ''));
     // `Banda.FindObject('Nome')`: o objeto (pelo nome) ou nil
     if (/^\w+\.findobject$/.test(nome)) { const e = this.estados.get(texto(args[0] ?? '').toLowerCase()); return e ? e.no.a.Name ?? null : null; }
     const m = /^(\w+)\.dataset\.hasfield$/.exec(nome);

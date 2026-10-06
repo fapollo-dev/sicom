@@ -640,15 +640,18 @@ describe('relatórios do legado com vários datasets', () => {
 
   it('relatórios de compras (Compras1 e ComprasVendasPorDepartamento, esquema do TFrmRelMaster): os níveis abrem a árvore de categorias; "apenas vendas" troca os títulos pelo Tabela', () => {
     const v = (n: number, tab = 0) => [{ IDEmpresas: '1', DataInicial: '2045-03-01T00:00:00', DataFinal: '2045-03-31T00:00:00', NiveisExpandidos: n, Tabela: tab }];
-    const l = (gr: string, sg: string, tot: number) => ({ IDEMPRESA: 1, FANTASIA: 'HIPER', DATA: '2045-03-10T00:00:00', DESC_SECAO: 'MERCEARIA', CODSECAO: 1, DESCRICAO_DEPARTAMENTO: 'BEBIDAS', CODDPTO: 2,
-      DESC_GRUPO: gr, CODGRUPO: 3, DESC_SUBGRUPO: sg, CODSUBGRUPO: 4, TOTAL_COMPRA: tot, TOTAL_PORC: 0 });
-    const linhas = [l('REFRIGERANTES', 'COLA', 100), l('SUCOS', 'LARANJA', 50)];
+    // cada grupo com o seu código: o script do layout acha o total do grupo pela chave dos CÓDIGOS (subgrupo|grupo|depto|seção|data|empresa)
+    const l = (gr: string, cg: number, sg: string, csg: number, tot: number) => ({ IDEMPRESA: 1, FANTASIA: 'HIPER', DATA: '2045-03-10T00:00:00', DESC_SECAO: 'MERCEARIA', CODSECAO: 1, DESCRICAO_DEPARTAMENTO: 'BEBIDAS', CODDPTO: 2,
+      DESC_GRUPO: gr, CODGRUPO: cg, DESC_SUBGRUPO: sg, CODSUBGRUPO: csg, TOTAL_COMPRA: tot, TOTAL_PORC: 0 });
+    const linhas = [l('REFRIGERANTES', 3, 'COLA', 4, 100), l('SUCOS', 5, 'LARANJA', 6, 50)];
     const c0 = texto(paginasDoModelo(modelo('compras1-categoria.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v(0) }, agora));
     expect(c0).toContain('Periodo: 01/03/2045 até 31/03/2045 Empresa(s): 1');
     expect(c0).toContain('Total Geral: 150,00');
     expect(c0).not.toContain('Subgrupo: COLA');
     const c5 = texto(paginasDoModelo(modelo('compras1-categoria.fr3'), { DBDRelatorio: linhas, DBDVariaveisAdicionais: v(5) }, agora));
-    expect(c5).toContain('Seção: MERCEARIA Departamento: BEBIDAS Grupo: REFRIGERANTES Subgrupo: COLA 100,00 Grupo: SUCOS Subgrupo: LARANJA 50,00');
+    // os totais nos CABEÇALHOS dos grupos (o Add/SetTotal do script nas duas passadas, com o IndexOf da TStringList)
+    expect(c5).toContain('Seção: MERCEARIA 150,00 Departamento: BEBIDAS 150,00 Grupo: REFRIGERANTES 100,00 Subgrupo: COLA 100,00');
+    expect(c5).toContain('Grupo: SUCOS 50,00 Subgrupo: LARANJA 50,00');
     const ve = texto(paginasDoModelo(modelo('compras-vendas-depto.fr3'), { DBDRelatorio: [{ CODDPTO: 2, DESCRICAO_DEPARTAMENTO: 'BEBIDAS', TOTAL_COMPRA: 200 }], DBDVariaveisAdicionais: v(0, 1) }, agora));
     expect(ve).toContain('Total Vendas');
     expect(ve).toContain('2 BEBIDAS 200,00');
@@ -1069,5 +1072,47 @@ describe('análise de entrada × saída (extr - AnaliseEntradaXSaida*.fr3)', () 
     expect(t).not.toContain('FEIJAO 1KG');
     expect(t).toContain('140,000');
     expect(t).toContain('CEREALISTA SUL');
+  });
+});
+
+describe('vendas e finalizadoras (Rel_Finalizadoras[_Vertical].fr3)', () => {
+  const emp = [{ RAZAOSOCIAL: 'HIPER PINHEIRAO LTDA', CNPJ: '37954975000169' }];
+  const vars = { PERIODO: "'Periodo: 20/08/2026 até 21/08/2026'", V_TOTAL_VENDA: '67' };
+  it('horizontal: as colunas por forma que o legado cria no layout, com os totais e a participação', () => {
+    // o que o servidor faz (rel-finalizadoras.service.ts): um memo por forma no PageHeader1 e no MasterData1, de Left 398 em 90
+    const memo = (nome: string, left: number, top: number, h: number, texto: string) =>
+      `<TfrxMemoView Name="${nome}" Left="${left}" Top="${top}" Width="90" Height="${h}" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" WordWrap="False" Text="${texto}"/>`;
+    let xml = modelo('finalizadoras.fr3');
+    xml = xml.replace(/(<TfrxPageHeader[^>]*Name="PageHeader1"[^>]*>)/, `$1${memo('MemoTituloP1', 398, 3.45671, 26.45671, 'DINHEIRO')}`);
+    xml = xml.replace(/(<TfrxMasterData[^>]*Name="MasterData1"[^>]*>)/, `$1${memo('MemoCampo1', 398, -0.48, 18.51968504, "[formatFloat(',0.00',&lt;FrxFinalizadoras.&quot;DINHEIRO&quot;&gt;)]")}`);
+    const rows = [
+      { DATA: '2026-08-20T00:00:00', TOTAL_VENDA: 46, DESCONTO: 4, ACRESCIMO: 0, CANCELAMENTO: 0, DINHEIRO: 1046 },
+      { DATA: '2026-08-21T00:00:00', TOTAL_VENDA: 21, DESCONTO: 0, ACRESCIMO: 1, CANCELAMENTO: 99, DINHEIRO: 0 },
+      { DATA: null, TOTAL_VENDA: 67, DESCONTO: 4, ACRESCIMO: 1, CANCELAMENTO: 99, DINHEIRO: 1046 },
+      { DATA: null, TOTAL_VENDA: null, DESCONTO: null, ACRESCIMO: null, CANCELAMENTO: null, DINHEIRO: 1561.19 },
+    ];
+    const t = texto(paginasDoModelo(xml, { FrxFinalizadoras: rows, FrxEmpresas: emp }, agora, vars));
+    expect(t).toContain('RELATÓRIO DE FINALIZADORAS DIÁRIO');
+    expect(t).toContain('Periodo: 20/08/2026 até 21/08/2026');
+    expect(t).toContain('DINHEIRO');
+    expect(t).toContain('1.046,00');
+    expect(t).toContain('1.561,19');
+    expect(t).toContain('20/08/2026');
+    expect(t).toContain('99,00');
+  });
+  it('vertical: a lista por dia sem as quatro medidas (o script as tira e usa nos totais) e a página dos totais com o % do total', () => {
+    const lin = (dia: string, f: string, v: number) => ({ DATA: `${dia}T00:00:00`, FORMA_PGTO: f, VALOR: v });
+    const rows = [
+      lin('2026-08-20', 'Total venda', 46), lin('2026-08-20', 'Descontos', 4), lin('2026-08-20', 'Acréscimos', 0), lin('2026-08-20', 'Cancelamentos', 0), lin('2026-08-20', 'Dinheiro', 46),
+      lin('2026-08-21', 'Total venda', 21), lin('2026-08-21', 'Descontos', 0), lin('2026-08-21', 'Acréscimos', 1), lin('2026-08-21', 'Cancelamentos', 99), lin('2026-08-21', 'Cartoes', 15),
+    ];
+    const tot = [{ FORMA_PGTO: 'Total venda', VALOR: 67 }, { FORMA_PGTO: 'Descontos', VALOR: 4 }, { FORMA_PGTO: 'Acréscimos', VALOR: 1 }, { FORMA_PGTO: 'Cancelamentos', VALOR: 99 }, { FORMA_PGTO: 'Dinheiro', VALOR: 46 }, { FORMA_PGTO: 'Cartoes', VALOR: 15 }];
+    const t = texto(paginasDoModelo(modelo('finalizadoras-vertical.fr3'), { FrxFinalizadoras: rows, FrxDBTotais: tot, FrxEmpresas: emp }, agora, vars));
+    expect(t).toContain('Dinheiro');
+    expect(t).toContain('Cartoes');
+    expect(t).not.toContain('Total venda');
+    expect(t).toContain('Total: 46,00'); // o TotalVendas do script, tirado da linha "Total venda" do dia
+    expect(t).toContain('Cancelamentos: 99,00');
+    expect(t).toContain('22,39 %'); // 15 ÷ V_TOTAL_VENDA 67
   });
 });

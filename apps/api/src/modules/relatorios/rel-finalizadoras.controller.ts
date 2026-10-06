@@ -20,4 +20,12 @@ export class RelFinalizadorasController {
   consultar(@Body(new ZodValidationPipe(relFinalizadorasSchema)) dto: RelFinalizadorasDto) {
     return this.svc.consultar(dto);
   }
+
+  /** o "Imprimir": Rel_Finalizadoras.fr3 (horizontal, colunas por forma) ou Rel_Finalizadoras_Vertical.fr3 */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELFINALIZADORAS', 'BTNCONSULTA')
+  impressao(@Body(new ZodValidationPipe(relFinalizadorasSchema)) dto: RelFinalizadorasDto) {
+    return this.svc.impressao(dto, !!dto.vertical);
+  }
 }

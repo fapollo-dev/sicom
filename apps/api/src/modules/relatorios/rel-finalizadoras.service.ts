@@ -4,6 +4,30 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, textoVariavel } from '../../shared/relatorios/registro-fr3';
+
+/**
+ * O `CorrigePalavra` do legado (FuncoesApollo, ausente do repositório), pelo que o dado prova: o fechamento de caixa grava
+ * `' em ' + CorrigePalavra(AnsiLowerCase(OPERACAO))` no histórico da MOV_CONTAS_BANCARIAS e a produção (2026) tem "convênio", "devolução",
+ * e "cartoes", "pos", "pix", "pix pos", "dinheiro" sem mudança — a função devolve o acento das palavras que conhece, mantendo a caixa.
+ */
+const ACENTOS: Record<string, string> = { convenio: 'convênio', devolucao: 'devolução' };
+export function corrigePalavra(s: string): string {
+  return s.replace(/[A-Za-zÀ-ÿ]+/g, (w) => {
+    const a = ACENTOS[w.toLowerCase()];
+    if (!a) return w;
+    if (w === w.toUpperCase()) return a.toUpperCase();
+    if (w[0] === w[0].toUpperCase()) return a[0].toUpperCase() + a.slice(1);
+    return a;
+  });
+}
+
+/** o título da coluna do `Corrigegrid` (uComunPesquisaRel.pas:131), que na grade sem colunas fixas vira o DisplayLabel do campo */
+const tituloGrade = (s: string) => (s.charAt(0).toUpperCase() + s.slice(1).replace(/[A-Z]/g, (c) => c.toLowerCase())).replace(/_/g, ' ');
+const xmlAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const frNum = (v: number) => String(Math.round(v * 1e6) / 1e6).replace('.', ',');
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -67,8 +91,8 @@ export class RelFinalizadorasService {
     if (!f.dtini || !f.dtfim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
     if (String(f.dtini) > String(f.dtfim)) throw new BusinessRuleError('PERIODO_INVERTIDO', { dtini: f.dtini, dtfim: f.dtfim });
     const db = this.dbp.forTenantRead() as AnyDB;
-    const empresas = (f.empresas?.length ? f.empresas.map(Number) : [emp]).filter((e) => e === emp);
-    if (!empresas.length) throw new BusinessRuleError('EMPRESA_FORA_DO_ESCOPO', { empresas: f.empresas });
+    // as lojas marcadas, recortadas às do operador (o GetMultiEmpresa) — antes valia só a do login
+    const empresas = await empresasDoOperador(db, f.empresas?.map(Number));
 
     // FUSO — `dtvenda` e `cx_vendas.data` são timestamptz, então o balde do dia E os limites têm de ser
     // resolvidos no fuso do NEGÓCIO. Sem isto, com a sessão do PG em UTC, 4,02% das 11,9M vendas e R$4,29M das
@@ -233,5 +257,83 @@ export class RelFinalizadorasService {
     }
 
     return { modalidades: cols, linhas, totais, participacao, filtro: { ...f, empresas, de: f.dtini, ate: f.dtfim, fuso: tz } };
+  }
+
+  /**
+   * O "Imprimir" (`btnImprimirClick`, UrelFinalizadoras.pas:587): o `cdsTemp` da consulta — uma linha por dia com movimento, a linha dos
+   * totais e a da participação (as duas sem DATA) — em um dos dois layouts do `RgpOrientacaoFP`:
+   *  · HORIZONTAL (`Rel_Finalizadoras.fr3`): o legado CRIA um memo por forma de pagamento no PageHeader1 (o título, a MODALIDADE) e no
+   *    MasterData1 (`[formatFloat(',0.00',<FrxFinalizadoras."FORMA">)]`), a partir de Left 398, de 90 em 90, largura = tamanho da
+   *    MODALIDADE (30) × 3, Courier New 8, alinhado à direita — feito aqui no XML do layout, como o relatorio-geral-fr3 do construtor;
+   *  · VERTICAL (`Rel_Finalizadoras_Vertical.fr3`): cada campo do dia vira uma linha (DATA, FORMA_PGTO, VALOR) e a linha dos totais vai
+   *    no FrxDBTotais; o nome é o `CorrigePalavra(DisplayLabel)` — e o DisplayLabel é o título que o `Corrigegrid` deu à coluna ("Total
+   *    venda", "Descontos", "Acréscimos", "Cancelamentos", "Pix pos"…), que o script do layout reconhece para tirar as quatro medidas da
+   *    lista; V_TOTAL_VENDA = o total de venda (o "% do total" da segunda página).
+   * PERIODO "Periodo: dd/mm/aaaa até dd/mm/aaaa". O botão só existe depois de uma consulta com dados (sem dados: a mensagem do legado).
+   */
+  async impressao(f: FiltroRelFinalizadoras, vertical: boolean) {
+    const r = await this.consultar(f);
+    if (!r.linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados registros para imprimir o relatório.');
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cols = r.modalidades;
+    // o cdsTemp: DATA, TOTAL_VENDA, DESCONTO, ACRESCIMO, CANCELAMENTO e um campo por forma (GetForma)
+    const linhaTemp = (l: Record<string, unknown>) => ({
+      DATA: `${String(l.dia)}T00:00:00`, TOTAL_VENDA: num(l.total_venda), DESCONTO: num(l.desconto), ACRESCIMO: num(l.acrescimo), CANCELAMENTO: num(l.cancelamento),
+      ...Object.fromEntries(cols.map((c) => [c.campo, num(l[`fin_${c.campo}`])])),
+    });
+    const dias = r.linhas.map(linhaTemp);
+    const totais: Record<string, unknown> = {
+      DATA: null, TOTAL_VENDA: r.totais.total_venda, DESCONTO: r.totais.desconto, ACRESCIMO: r.totais.acrescimo, CANCELAMENTO: r.totais.cancelamento,
+      ...Object.fromEntries(cols.map((c) => [c.campo, num(r.totais[`fin_${c.campo}`])])),
+    };
+    // a participação: só as formas; `TotalVenda <> 0` senão 0 (:552-566)
+    const participacao: Record<string, unknown> = {
+      DATA: null, TOTAL_VENDA: null, DESCONTO: null, ACRESCIMO: null, CANCELAMENTO: null,
+      ...Object.fromEntries(cols.map((c) => [c.campo, r.totais.total_venda !== 0 ? (num(r.totais[`fin_${c.campo}`]) / r.totais.total_venda) * 100 : 0])),
+    };
+    const empresa = await empresaParaRelatorio(db, this.emp());
+    const dmy = (d: string) => d.split('-').reverse().join('/');
+    const variaveis: Record<string, string> = { PERIODO: textoVariavel(`Periodo: ${dmy(f.dtini)} até ${dmy(f.dtfim)}`), V_TOTAL_VENDA: '0' };
+
+    if (!vertical) {
+      let modelo = await modeloFr3(db, 'Rel_Finalizadoras.fr3');
+      const altura = (banda: string) => {
+        const m = new RegExp(`<${banda === 'PageHeader1' ? 'TfrxPageHeader' : 'TfrxMasterData'}[^>]*Name="${banda}"[^>]*>`).exec(modelo);
+        const h = m ? /\bHeight="([^"]+)"/.exec(m[0]) : null;
+        return h ? Number(h[1].replace(',', '.')) : 0;
+      };
+      const hCab = altura('PageHeader1'), hDados = altura('MasterData1');
+      const memo = (nome: string, left: number, top: number, h: number, texto: string) =>
+        `<TfrxMemoView Name="${nome}" Left="${frNum(left)}" Top="${frNum(top)}" Width="90" Height="${frNum(h)}" ShowHint="False" Font.Charset="1" Font.Color="0" Font.Height="-11" Font.Name="Courier New" Font.Style="0" HAlign="haRight" ParentFont="False" WordWrap="False" Text="${xmlAttr(texto)}"/>`;
+      let cab = '', dados = '';
+      cols.forEach((c, k) => {
+        const left = 398 + 90 * k;
+        cab += memo(`MemoTituloP${k + 1}`, left, hCab - 23, hCab, c.modalidade);
+        dados += memo(`MemoCampo${k + 1}`, left, hDados - 19, hDados, `[formatFloat(',0.00',<FrxFinalizadoras."${c.campo}">)]`);
+      });
+      const inserir = (xml: string, tag: string, nome: string, filhos: string) => {
+        const re = new RegExp(`(<${tag}[^>]*Name="${nome}"[^>]*?)(/?)>`);
+        const m = re.exec(xml);
+        if (!m) return xml;
+        if (m[2] === '/') return xml.replace(m[0], `${m[1]}>${filhos}</${tag}>`);
+        const fim = xml.indexOf(`</${tag}>`, m.index);
+        return fim < 0 ? xml : xml.slice(0, fim) + filhos + xml.slice(fim);
+      };
+      modelo = inserir(modelo, 'TfrxPageHeader', 'PageHeader1', cab);
+      modelo = inserir(modelo, 'TfrxMasterData', 'MasterData1', dados);
+      return { titulo: 'Finalizadoras', modelo, datasets: { FrxFinalizadoras: [...dias, totais, participacao], FrxEmpresas: [empresa] }, variaveis };
+    }
+
+    // VERTICAL: os campos na ordem do cdsTemp, com o rótulo do Corrigegrid passado pelo CorrigePalavra
+    const campos: Array<[string, string]> = [['TOTAL_VENDA', 'TOTAL_VENDA'], ['DESCONTO', 'Descontos'], ['ACRESCIMO', 'Acréscimos'], ['CANCELAMENTO', 'Cancelamentos'],
+      ...cols.map((c) => [c.campo, c.campo] as [string, string])];
+    const rotulo = (label: string) => corrigePalavra(tituloGrade(label));
+    const linhasVert = dias.flatMap((d) => campos.map(([campo, label]) => ({ DATA: d.DATA, FORMA_PGTO: rotulo(label), VALOR: num((d as Record<string, unknown>)[campo]) })));
+    const linhasTot = campos.map(([campo, label]) => ({ FORMA_PGTO: rotulo(label), VALOR: num(totais[campo]) }));
+    variaveis.V_TOTAL_VENDA = String(r.totais.total_venda);
+    return {
+      titulo: 'Finalizadoras', modelo: await modeloFr3(db, 'Rel_Finalizadoras_Vertical.fr3'),
+      datasets: { FrxFinalizadoras: linhasVert, FrxDBTotais: linhasTot, FrxEmpresas: [empresa] }, variaveis,
+    };
   }
 }

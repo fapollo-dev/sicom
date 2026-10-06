@@ -32,7 +32,7 @@ export type Stmt =
   | { k: 'caso'; e: Expr; ramos: Array<{ vals: Expr[]; corpo: Stmt }>; senao?: Stmt }
   | { k: 'nada' };
 
-export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt }
+export interface Programa { procedimentos: Map<string, Stmt>; principal: Stmt; parametros?: Map<string, string[]> }
 
 /** o que o avaliador pede ao mundo de fora (o registro corrente, as variáveis, os objetos do relatório). */
 export interface Ambiente {
@@ -46,6 +46,8 @@ export interface Ambiente {
   procedimento?(nome: string, args: Expr[]): boolean;
   /** as funções de objeto do relatório (`MasterData1.DataSet.HasField('X')`); undefined = não é dela */
   funcao?(nome: string, args: Valor[]): Valor | undefined;
+  /** o nome é um objeto do relatório (o argumento `MasterData1` de `VerificaFP(MasterData1, …)` passa a referência, não o valor) */
+  ehObjeto?(nome: string): boolean;
   agora: Date;
 }
 
@@ -126,12 +128,26 @@ class Parser {
 
   programa(): Programa {
     const procedimentos = new Map<string, Stmt>();
+    const parametros = new Map<string, string[]>();
     let principal: Stmt = { k: 'nada' };
     while (!this.fim()) {
       if (this.eh('procedure') || this.eh('function')) {
         this.p++;
         const nome = this.t.v; this.p++;
-        if (this.aceita('(')) { let n = 1; while (n > 0 && !this.fim()) { if (this.eh('(')) n++; if (this.eh(')')) n--; this.p++; } }
+        // os parâmetros: `(A: TfrxMasterData; B, C: string; var D: Currency)` — os nomes antes de cada ':'
+        const params: string[] = [];
+        if (this.aceita('(')) {
+          let n = 1; let grupo: string[] = []; let tipo = false;
+          while (n > 0 && !this.fim()) {
+            if (this.eh('(')) n++;
+            else if (this.eh(')')) { n--; if (n === 0) { this.p++; break; } }
+            else if (n === 1 && this.eh(':')) { params.push(...grupo); grupo = []; tipo = true; }
+            else if (n === 1 && this.eh(';')) { tipo = false; }
+            else if (n === 1 && !tipo && this.t.t === 'id' && !['var', 'const', 'out'].includes(this.t.v.toLowerCase())) grupo.push(this.t.v);
+            this.p++;
+          }
+        }
+        parametros.set(nome.toLowerCase(), params);
         if (this.aceita(':')) this.p++; // tipo de retorno de function
         this.aceita(';');
         this.pulaDeclaracoes();
@@ -144,7 +160,7 @@ class Parser {
       if (this.eh('begin')) { principal = this.bloco(); this.aceita('.'); continue; }
       this.p++; // o que não entendemos fora de bloco é ignorado
     }
-    return { procedimentos, principal };
+    return { procedimentos, principal, parametros };
   }
 
   private pulaDeclaracoes(): void {
@@ -416,8 +432,18 @@ export function executar(s: Stmt, amb: Ambiente, funcoes: Record<string, (args: 
     case 'bloco': for (const c of s.corpo) executar(c, amb, funcoes, prog, prof + 1); return;
     case 'chamada': {
       const p = prog.procedimentos.get(s.nome.toLowerCase());
-      if (p) executar(p, amb, funcoes, prog, prof + 1);
-      else amb.procedimento?.(s.nome.toLowerCase(), s.args);
+      if (p) {
+        // os argumentos ligados aos parâmetros (o objeto vai por referência: o nome dele); o valor anterior do nome volta depois
+        const params = prog.parametros?.get(s.nome.toLowerCase()) ?? [];
+        const antes = params.map((nm) => { try { return amb.ler([nm]); } catch { return null; } });
+        params.forEach((nm, i) => {
+          const a = s.args[i];
+          if (!a) return;
+          const v = a.k === 'id' && a.caminho.length === 1 && amb.ehObjeto?.(a.caminho[0]) ? a.caminho[0] : avaliar(a, amb, funcoes);
+          amb.gravar([nm], v);
+        });
+        try { executar(p, amb, funcoes, prog, prof + 1); } finally { params.forEach((nm, i) => amb.gravar([nm], antes[i])); }
+      } else amb.procedimento?.(s.nome.toLowerCase(), s.args);
       return;
     }
     case 'enquanto': {
