@@ -488,6 +488,16 @@ export const relEntradasSaidasSchema = z.object({
   codsubgrupo: z.coerce.number().int().positive().nullish(),
   codfor: z.coerce.number().int().positive().nullish(),
   produto: z.string().max(150).nullish(),
+  /** o edtCodProd (código do produto) — o filtro do comparativo */
+  codproduto: z.coerce.number().int().positive().nullish(),
+  /** as lojas do GetMultiEmpresa, "1,2" */
+  empresas: z.string().regex(/^[\d,\s]*$/).nullish(),
+  /** edtHora1/edtHora2 do legado (00:00 e 23:59 por padrão) */
+  horaIni: z.string().regex(/^\d{2}:\d{2}$/).nullish(),
+  horaFim: z.string().regex(/^\d{2}:\d{2}$/).nullish(),
+  /** rgCusto / rgVenda (0 = médio, 1 = reposição / valor atual) — só a impressão usa */
+  custo: z.coerce.number().int().min(0).max(1).nullish(),
+  venda: z.coerce.number().int().min(0).max(1).nullish(),
 });
 export type RelEntradasSaidasDto = z.infer<typeof relEntradasSaidasSchema>;
 

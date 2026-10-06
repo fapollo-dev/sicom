@@ -1428,3 +1428,34 @@ describe('pedido de venda (PedidoRetaguarda[A4][_Transferencia].fr3, FRMDIGITACA
     expect(t).toContain('6,00');      // 2 × custo 3,00
   });
 });
+
+describe('entradas e saídas · comparativo (Rel_EntradasESaidas_Comparativo.fr3, FRMRELENTRADASSAIDAS)', () => {
+  const l = (IDEMPRESA: number, FANTASIA: string, DESCRICAO: string, extra: Record<string, unknown> = {}) => ({
+    IDEMPRESA, FANTASIA, CODBARRA: '7009000007771', CODPRODUTO: 501, DESCRICAO, FATORCX: 12, QTDE_ENTRADA: 100, VALOR_ENTRADA: 1000, MEDIA_CUSTO: 10.214,
+    QTDE_SAIDA: 65, VALOR_SAIDA: 700, MEDIA_VENDA: 10.769, QTDE_DIF: -35, VALOR_DIF: -300, QTDE_ESTOQUE_TOTAL: 47, VRCUSTOREP: 11.375, VRVENDA: 20.55, ...extra,
+  });
+  const vars = (c: string, v: string) => ({ DtInicial: "'01/06/2048'", DtFinal: "'30/06/2048'", Empresas: "'(1,2)'", OutrosFiltros: "'Grupo: GRUPO ES;'", CCusto: c, CVenda: v });
+  const dados = { frxDBDRelComparativo: [l(1, 'LOJA CENTRO', 'PROD ENTRA SAI'), l(2, 'LOJA BAIRRO', 'PROD ENTRA SAI', { QTDE_ENTRADA: 24, VALOR_ENTRADA: 12, QTDE_SAIDA: 0, VALOR_SAIDA: 0 })] };
+  it('o cabeçalho com período, lojas e filtros, um grupo por loja, e os rádios médio/médio', () => {
+    const t = texto(paginasDoModelo(modelo('entradas-saidas-comparativo.fr3'), dados, agora, vars('0', '0')));
+    expect(t).toContain('RELATÓRIO DE ENTRADAS E SAÍDAS - COMPARATIVO');
+    expect(t).toContain('01/06/2048 a 30/06/2048');
+    expect(t).toContain('(1,2)');
+    expect(t).toContain('Grupo: GRUPO ES;');
+    expect(t).toContain('LOJA CENTRO');
+    expect(t).toContain('LOJA BAIRRO');
+    expect(t).toContain('Custo Médio');
+    expect(t).toContain('10,214');     // MEDIA_CUSTO em 3 casas
+    expect(t).toContain('Venda Média');
+    expect(t).toContain('10,77');      // MEDIA_VENDA em 2 casas
+    expect(t).toContain('1.012,00');   // o total geral do valor de entrada (1.000 + 12)
+  });
+  it('custo de reposição e valor de venda atual: o script troca título e campo', () => {
+    const t = texto(paginasDoModelo(modelo('entradas-saidas-comparativo.fr3'), dados, agora, vars('1', '1')));
+    expect(t).toContain('Custo Rep');
+    expect(t).toContain('11,375');
+    expect(t).toContain('Venda Valor');
+    expect(t).toContain('20,55');
+    expect(t).not.toContain('10,214');
+  });
+});

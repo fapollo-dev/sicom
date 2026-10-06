@@ -39,7 +39,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 11 | `FRMRELENTRADAS_FINAN` | Notas_Fiscais_Entradas_Finan | ⏳ |
 | 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ⏳ |
 | — | `FRMCONSULTORIAATM`, `FRMRELPERDAS`, `FRMSALDOEMPRESA` | | ⛔ aguardam o SQL do binário novo (vigias do V$SQL) |
-| 148 | `FRMRELENTRADASSAIDAS` | Rel_EntradasESaidas[_Comparativo][_2] | ⛔ o layout vivo prova binário novo; aguardando o SQL |
+| 148 | `FRMRELENTRADASSAIDAS` | Rel_EntradasESaidas[_Comparativo][_2] | ✅ comparativo 06/10 (SQL do binário novo capturado no V$SQL: PDV nas saídas, CFOPs, por loja) · ⛔ listagem aguarda o SQL |
 
 Já feitas antes deste levantamento: produtos-rel (13), pedidos de compra (5), apuração PIS/COFINS, dados do pagamento/recebimento,
 análise entrada × saída (2) e as demais telas do `TFrmRelMaster`.

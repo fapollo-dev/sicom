@@ -12828,8 +12828,8 @@ async function main() {
       }
     }
 
-    // ===== §109) ENTRADAS E SAÍDAS (FRMRELENTRADASSAIDAS) — a listagem e o comparativo por produto.
-    // 148 acessos, 20 operadores. O legado erra o desconto em R$ 178.994,93/ano; aqui é corrigido. ====
+    // ===== §109) ENTRADAS E SAÍDAS (FRMRELENTRADASSAIDAS) — a listagem e o comparativo por produto e loja (o do binário novo).
+    // 148 acessos, 20 operadores. Na listagem (fonte de 2020) o legado erra o desconto em R$ 178.994,93/ano; aqui é corrigido. ====
     {
       const ES = 'relatorios/entradas-saidas';
       const pgEs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
@@ -12841,27 +12841,44 @@ async function main() {
         await pgEs.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcustorep) VALUES ($1,1,20.00,11.00)`, [pEs]);
         await pgEs.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,1,40)`, [pEs]);
 
-        const mkNfEs = async (nro: string, tipo: string, proc: string) => Number((await pgEs.query(
+        const tinhaRel2Es = Number((await pgEs.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Es) await pgEs.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgEs.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcustorep) VALUES ($1,2,30.00,12.00)`, [pEs]);
+        await pgEs.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES ($1,1,7)`, [pEs]);
+
+        const mkNfEs = async (nro: string, tipo: string, proc: string, cfop = '1102', emp = 1) => Number((await pgEs.query(
           `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
-           VALUES (1,$2,55,'1',$1,'2048-06-10','2048-06-10',2,$3,'N',1000,'1102') RETURNING codnf`, [nro, tipo, proc])).rows[0].codnf);
+           VALUES ($4,$2,55,'1',$1,'2048-06-10','2048-06-10',2,$3,'N',1000,$5) RETURNING codnf`, [nro, tipo, proc, emp, cfop])).rows[0].codnf);
         // ENTRADA: 100 × 10,00 = 1.000,00 bruto, com 20% de desconto → VRDESCPROD 200,00 → líquido 800,00
         const nfE = await mkNfEs('997001', 'E', 'S');
         await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrdescprod, fatorembal, aliquota)
           VALUES ($1,$2,100,10.00,20,200.00,1,'T01')`, [nfE, pEs]);
-        // SAÍDA: 60 × 20,00 = 1.200,00
-        const nfS = await mkNfEs('997002', 'S', 'S');
+        // SAÍDA: 60 × 20,00 = 1.200,00 (a NF vale 60 × custo 10,00 = 600,00 no comparativo do binário novo)
+        const nfS = await mkNfEs('997002', 'S', 'S', '5102');
         await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrvenda, fatorembal, aliquota)
           VALUES ($1,$2,60,10.00,20.00,1,'T01')`, [nfS, pEs]);
-        // uma entrada ainda NÃO PROCESSADA: é o "a entrar" do comparativo, e não entra no período
+        // uma entrada ainda NÃO PROCESSADA: não entra em nada
         const nfAb = await mkNfEs('997003', 'E', 'N');
         await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota)
           VALUES ($1,$2,25,10.00,1,'T01')`, [nfAb, pEs]);
+        // fora das listas de CFOP do comparativo: a saída 5949 e a devolução de venda 1202 (que é a ÚLTIMA NF de entrada do produto)
+        const nfS2 = await mkNfEs('997004', 'S', 'S', '5949');
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrvenda, fatorembal, aliquota) VALUES ($1,$2,9,10.00,20.00,1,'T01')`, [nfS2, pEs]);
+        const nfDv = await mkNfEs('997005', 'E', 'S', '1202');
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota) VALUES ($1,$2,3,10.00,1,'T01')`, [nfDv, pEs]);
+        // a entrada da loja 2 (outra linha do comparativo)
+        const nfL2 = await mkNfEs('997006', 'E', 'S', '1102', 2);
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota) VALUES ($1,$2,2,6.00,12,'T01')`, [nfL2, pEs]);
+        // as vendas do PDV: 5 × 20,00 (IAT T: truncado) e uma CANCELADA
+        await pgEs.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2048-06-11 21:30:00-03','001',997001,1,$1,5,20.00,10.00,'T',5102,'N','S','P'),
+          (1,'2048-06-11 21:31:00-03','001',997002,1,$1,4,20.00,10.00,'T',5102,'S','S','P')`, [pEs]);
 
         const lst = await fetch(`${base}/${ES}?tipo=LISTAGEM&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961`, { headers: H });
         const lj = (await lst.json().catch(() => ({}))) as any;
         const ent = (lj.linhas ?? []).find((l: any) => l.tipo === 'E' && String(l.nronf) === '997001');
 
-        check('ENTRADAS E SAÍDAS §109.1 [o bug de 179 mil reais por ano]: o legado calcula o valor do item como `(QUANTIDADE × VRCUSTO) − NP.DESCONTO`, mas **`DESCONTO` é PERCENTUAL**, não valor — o dado prova de três formas (máximo exatamente 100, mediana 13,36, e `qtde × custo × desconto/100` batendo casa a casa com `VRDESCPROD`). Com 100 × 10,00 e 20% de desconto o certo é **800,00**; o legado devolve **980,00**, porque subtrai o número 20 como se fossem 20 reais. Somando as entradas de 2026 do cliente, são **R$ 178.994,93** a mais',
+        check('ENTRADAS E SAÍDAS §109.1 [o bug de 179 mil reais por ano, na listagem]: o legado calcula o valor do item como `(QUANTIDADE × VRCUSTO) − NP.DESCONTO`, mas **`DESCONTO` é PERCENTUAL**, não valor — o dado prova de três formas (máximo exatamente 100, mediana 13,36, e `qtde × custo × desconto/100` batendo casa a casa com `VRDESCPROD`). Com 100 × 10,00 e 20% de desconto o certo é **800,00**; o legado devolve **980,00**, porque subtrai o número 20 como se fossem 20 reais. Somando as entradas de 2026 do cliente, são **R$ 178.994,93** a mais',
           lst.status === 200 && !!ent
           && Math.abs(Number(ent.valor) - 800) < 0.005
           && Math.abs(Number(ent.valor_legado) - 980) < 0.005,
@@ -12870,25 +12887,60 @@ async function main() {
         const cmp = await fetch(`${base}/${ES}?tipo=COMPARATIVO&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961`, { headers: H });
         const cj = (await cmp.json().catch(() => ({}))) as any;
         const lc = (cj.linhas ?? [])[0] as any;
-        check('ENTRADAS E SAÍDAS §109.2 [o comparativo põe as duas pontas na mesma unidade]: entrou 100 a 800,00 (custo médio **8,00**) e saiu 60 a 1.200,00 (venda média **20,00**); a diferença de quantidade é **−40** e a de valor **+400,00**. A quantidade é `QUANTIDADE × FATOREMBAL` nos dois lados — a nota vem em caixa, e sem isso entrada e saída não se comparam',
-          cmp.status === 200 && !!lc
-          && Math.abs(Number(lc.qtde_entrada) - 100) < 0.005 && Math.abs(Number(lc.valor_entrada) - 800) < 0.005
-          && Math.abs(Number(lc.media_custo) - 8) < 0.005
-          && Math.abs(Number(lc.qtde_saida) - 60) < 0.005 && Math.abs(Number(lc.media_venda) - 20) < 0.005
-          && Math.abs(Number(lc.qtde_dif) + 40) < 0.005 && Math.abs(Number(lc.valor_dif) - 400) < 0.005,
-          { linha: lc && { qe: lc.qtde_entrada, ve: lc.valor_entrada, mc: lc.media_custo, qs: lc.qtde_saida, mv: lc.media_venda, qd: lc.qtde_dif, vd: lc.valor_dif } });
+        check('ENTRADAS E SAÍDAS §109.2 [o comparativo do BINÁRIO NOVO, pelo SQL capturado no V$SQL da produção]: a entrada vale QUANTIDADE × VRCUSTO sem desconto (100 → **1.000,00**), a saída de NF vale pelo CUSTO (60 × 10,00 = 600,00) e as VENDAS do PDV entram nas saídas (5 × 20,00 = 100,00; a cancelada não) — saída **65 / 700,00**, venda média 700 ÷ 65 = **10,769**; diferenças −35 e −300,00. Ficam fora a saída 5949 e a devolução 1202 (as listas de CFOP da captura) e a nota não processada (25)',
+          cmp.status === 200 && (cj.linhas ?? []).length === 1 && !!lc
+          && Math.abs(Number(lc.qtde_entrada) - 100) < 0.005 && Math.abs(Number(lc.valor_entrada) - 1000) < 0.005
+          && Math.abs(Number(lc.media_custo) - 10) < 0.0005
+          && Math.abs(Number(lc.qtde_saida) - 65) < 0.005 && Math.abs(Number(lc.valor_saida) - 700) < 0.005
+          && Math.abs(Number(lc.media_venda) - 10.769) < 0.0005
+          && Math.abs(Number(lc.qtde_dif) + 35) < 0.005 && Math.abs(Number(lc.valor_dif) + 300) < 0.005,
+          { linha: lc && { qe: lc.qtde_entrada, ve: lc.valor_entrada, mc: lc.media_custo, qs: lc.qtde_saida, vs: lc.valor_saida, mv: lc.media_venda, qd: lc.qtde_dif, vd: lc.valor_dif } });
 
-        check('ENTRADAS E SAÍDAS §109.3 [a nota não processada estava contada DUAS VEZES]: o `WHERE` do legado é só `TIPO=E AND DTCONTABIL BETWEEN` — não filtra `PROC` nem `CANCELADA`. Só que o próprio comparativo tem `VABERTO`, que soma justamente as notas com `PROC=N`: a mesma mercadoria aparecia como entrada do período E como "a entrar", e viraria entrada de novo no dia em que a nota fosse processada. Nota não processada não movimentou estoque. Aqui o movimento exige `PROC=S` (entrada fica em 100, não 125) e as 25 aparecem só no "a entrar", ao lado do estoque da loja (40)',
-          Math.abs(Number(lc?.vaberto) - 25) < 0.005
-          && Math.abs(Number(lc?.qtde_estoque_loja) - 40) < 0.005
-          && Math.abs(Number(lc?.qtde_entrada) - 100) < 0.005,
-          { aEntrar: lc?.vaberto, estoqueLoja: lc?.qtde_estoque_loja, entradaNoPeriodo: lc?.qtde_entrada });
+        check('ENTRADAS E SAÍDAS §109.3 [as colunas que só o binário novo tem]: estoque da loja (40), do depósito (7) e o total (47); custo de reposição 11,00 e preço 20,00 com MARKUP (20−11)/11 = **81,82** e MARGEM (20−11)/20 = **45,00**; a ÚLTIMA NF de entrada processada do produto na loja (sem filtro de CFOP nem de período: a devolução 997005); a loja (FANTASIA), o grupo e o fornecedor; a última data com movimento (a venda de 11/06). O "a entrar" (VABERTO) do fonte de 2020 não existe mais',
+          Math.abs(Number(lc?.qtde_estoque_loja) - 40) < 0.005 && Math.abs(Number(lc?.qtde_estoque_deposito) - 7) < 0.005 && Math.abs(Number(lc?.qtde_estoque_total) - 47) < 0.005
+          && Math.abs(Number(lc?.markup) - 81.82) < 0.005 && Math.abs(Number(lc?.margem) - 45) < 0.005
+          && String(lc?.ultima_nf_entrada) === '997005' && String(lc?.data_ultima_nf_entrada ?? '').startsWith('2048-06-10')
+          && lc?.grupo === 'GRUPO ES' && Number(lc?.codfor) === 2 && String(lc?.fantasia ?? '').length > 0
+          && String(lc?.dtvenda ?? '').startsWith('2048-06-11') && !('vaberto' in (lc ?? {})),
+          { est: [lc?.qtde_estoque_loja, lc?.qtde_estoque_deposito, lc?.qtde_estoque_total], mk: [lc?.markup, lc?.margem], ult: [lc?.ultima_nf_entrada, lc?.data_ultima_nf_entrada], dt: lc?.dtvenda, g: lc?.grupo });
+
+        const cmpL = await fetch(`${base}/${ES}?tipo=COMPARATIVO&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961&empresas=1,2`, { headers: H });
+        const cl = ((await cmpL.json().catch(() => ({}))) as any).linhas ?? [];
+        const cmpF = await fetch(`${base}/${ES}?tipo=COMPARATIVO&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961&codfor=999999`, { headers: H });
+        const cf = ((await cmpF.json().catch(() => ({}))) as any).linhas ?? [];
+        const cmpH = await fetch(`${base}/${ES}?tipo=COMPARATIVO&dataIni=2048-06-10&dataFim=2048-06-30&codgrupo=9961&horaIni=08:00`, { headers: H });
+        const ch = (((await cmpH.json().catch(() => ({}))) as any).linhas ?? [])[0];
+        check('ENTRADAS E SAÍDAS §109.4 [lojas, filtros e a hora]: as lojas do GetMultiEmpresa viram uma linha por loja, em ordem de loja (a 2: 2 cx × 12 = 24 un a 12,00 = 12,00 e o preço dela); o fornecedor filtra a entrada por N.CODPARCEIRO e a saída/venda por P.CODFOR (999999: nada); e a hora inicial depois de 00:00 TIRA o primeiro dia (o legado compara TRUNC(data) com data+hora): de 10/06 08:00, as notas de 10/06 saem e fica só a venda de 11/06. Data invertida é recusada; a listagem segue com as notas processadas e não canceladas da loja',
+          cl.length === 2 && Number(cl[0].idempresa) === 1 && Number(cl[1].idempresa) === 2
+          && Math.abs(Number(cl[1].qtde_entrada) - 24) < 0.005 && Math.abs(Number(cl[1].valor_entrada) - 12) < 0.005 && Math.abs(Number(cl[1].vrvenda) - 30) < 0.005
+          && cf.length === 0
+          && !!ch && Math.abs(Number(ch.qtde_entrada)) < 0.005 && Math.abs(Number(ch.qtde_saida) - 5) < 0.005
+          && Number(lj.totais?.itens) === 4,
+          { lojas: cl.map((l: any) => [l.idempresa, l.qtde_entrada, l.valor_entrada, l.vrvenda]), forn: cf.length, hora: ch && [ch.qtde_entrada, ch.qtde_saida], itensListagem: lj.totais?.itens });
 
         const dInv = await fetch(`${base}/${ES}?tipo=LISTAGEM&dataIni=2048-06-30&dataFim=2048-06-01`, { headers: H });
-        check('ENTRADAS E SAÍDAS §109.4: data invertida é recusada com mensagem, e a nota CANCELADA não entra em nenhum dos dois relatórios',
-          dInv.status >= 400 && Number(lj.totais?.itens) === 2,
-          { dataInvertida: dInv.status, itensListagem: lj.totais?.itens });
+        // §109.5 — o Imprimir do comparativo no layout do cliente
+        await pgEs.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992956, 1, 'Rel_EntradasESaidas_Comparativo.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Comparativo_stub"/></TfrxReport>').toString('base64')]);
+        const impEs = await fetch(`${base}/${ES}/impressao?tipo=COMPARATIVO&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961&empresas=1,2&custo=1&venda=0`, { headers: H });
+        const ie = (await impEs.json().catch(() => ({}))) as any;
+        const ieR = (ie.datasets?.frxDBDRelComparativo ?? []) as any[];
+        const impVz = await fetch(`${base}/${ES}/impressao?tipo=COMPARATIVO&dataIni=2001-01-01&dataFim=2001-01-02`, { headers: H });
+        const ivz = (await impVz.json().catch(() => ({}))) as any;
+        await pgEs.query(`DELETE FROM relatorios WHERE codrelatorio = 992956`);
+        check('ENTRADAS E SAÍDAS §109.5 [o Imprimir do comparativo]: o Rel_EntradasESaidas_Comparativo.fr3 do cliente com o cdsRelComparativo no frxDBDRelComparativo (os campos em maiúsculas), DtInicial/DtFinal, Empresas "(1,2)", OutrosFiltros pelo FiltrosUtilizados ("Grupo: GRUPO ES;") e os rádios CCusto/CVenda que o script do layout usa para trocar as colunas; sem dados, a mensagem do GeraConsulta',
+          impEs.status === 200 && String(ie.modelo).includes('Comparativo_stub') && ieR.length === 2 && Math.abs(Number(ieR[0].VALOR_SAIDA) - 700) < 0.005
+            && ie.variaveis?.DtInicial === "'01/06/2048'" && ie.variaveis?.DtFinal === "'30/06/2048'" && ie.variaveis?.Empresas === "'(1,2)'"
+            && ie.variaveis?.OutrosFiltros === "'Grupo: GRUPO ES;'" && ie.variaveis?.CCusto === '1' && ie.variaveis?.CVenda === '0'
+          && impVz.status === 422 && String(ivz.message ?? '').includes('Não foram encontrados dados para construir o relatório'),
+          { st: impEs.status, n: ieR.length, v: ie.variaveis, vazio: [impVz.status, ivz.message] });
+        check('ENTRADAS E SAÍDAS §109.6: data invertida é recusada com mensagem', dInv.status >= 400, { dataInvertida: dInv.status });
 
+        await pgEs.query(`DELETE FROM vendas WHERE codproduto=$1`, [pEs]);
+        await pgEs.query(`DELETE FROM nf_prod WHERE codnf = ANY($1)`, [[nfS2, nfDv, nfL2]]);
+        await pgEs.query(`DELETE FROM nf WHERE codnf = ANY($1)`, [[nfS2, nfDv, nfL2]]);
+        await pgEs.query(`DELETE FROM estoque_dep WHERE idproduto=$1`, [pEs]);
+        if (!tinhaRel2Es) await pgEs.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
         await pgEs.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3)`, [nfE, nfS, nfAb]);
         await pgEs.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfE, nfS, nfAb]);
         await pgEs.query(`DELETE FROM estoque WHERE idproduto=$1`, [pEs]);
