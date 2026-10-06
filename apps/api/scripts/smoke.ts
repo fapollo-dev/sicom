@@ -345,6 +345,70 @@ async function main() {
     );
     check('lote-md/:id expõe RAZAO do cobrador (JOIN parceiros)', typeof aggRead?.razao === 'string' && aggRead.razao.length > 0, aggRead?.razao);
 
+    // 13b.2) o Imprimir do lote (geral / agrupado por bairro) e os dias do JUROS/TOTAL como o Oracle conta (mig 409): o CURRENT_DATE do
+    // Oracle tem a hora e o CAST(... AS INTEGER) arredonda — o juro conta de TRUNC(DTVENC), o total do DTVENC com a hora.
+    {
+      const pgLc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      await pgLc.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con, tolerancia) VALUES
+        (993901, 1, 'ZULMIRA LC', 'ZL', 'F', 993901, 'S', 'N', 'N', 'N', 0), (993902, 1, 'ANTONIO LC', 'AL', 'F', 993902, 'S', 'N', 'N', 'N', NULL),
+        (993903, 1, 'MARIA LC', 'ML', 'F', 993903, 'S', 'N', 'N', 'N', 15) ON CONFLICT (codparceiro) DO NOTHING`);
+      await pgLc.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, endereco_padrao, ativado) VALUES
+        (993901, 993901, 'RUA A', 'CENTRO', 'UBERLANDIA', 'MG', 'S', 'S'), (993902, 993902, 'RUA B', NULL, 'UBERLANDIA', 'MG', 'S', 'S'),
+        (993903, 993903, 'RUA C', 'CENTRO', 'UBERLANDIA', 'MG', 'S', 'S') ON CONFLICT (codend) DO NOTHING`);
+      const venc = (horas: number) => `(date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo') - interval '10 days' + interval '${horas} hours') AT TIME ZONE 'America/Sao_Paulo'`;
+      const titulo = async (par: number, dup: string, horas: number, valor: number) => Number((await pgLc.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada)
+        VALUES (1, ${par}, '${dup}', '2026-01-01', ${venc(horas)}, ${valor}, 3, 'N') RETURNING codrcb`)).rows[0].codrcb);
+      const rA = await titulo(993901, 'LC-A', 18, 300); // vence há 10 dias às 18h, carência 0
+      const rB = await titulo(993902, 'LC-B', 0, 100); // há 10 dias à meia-noite, carência nula
+      const rC = await titulo(993903, 'LC-C', 0, 50); // carência 15: sem juro
+      const stub = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"/></TfrxReport>`).toString('base64');
+      await pgLc.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+        (992976, 1, 'lote_cobranca.fr3', 'x', 'PERSONALIZADO', $1), (992977, 1, 'lote_cobrancaBairro.fr3', 'x', 'PERSONALIZADO', $2)
+        ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stub('LoteGeral_stub'), stub('LoteBairro_stub')]);
+      const lc = (await (await fetch(`${base}/cobranca/lotes-md`, { method: 'POST', headers: H,
+        body: JSON.stringify({ codparceiro: 1, data: '2026-06-25', itens: [{ codrcb: rA }, { codrcb: rB }, { codrcb: rC }] }) })).json()) as any;
+      const lcId = Number(lc.codlotecob);
+      // a hora de São Paulo agora, em fração do dia
+      const [hh, mm] = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
+      const h = ((hh % 24) + mm / 60) / 24;
+      const jdA = h >= 0.5 ? 11 : 10, tdA = h >= 0.25 ? 10 : 9, dB = h >= 0.5 ? 11 : 10;
+      const ger = (await (await fetch(`${base}/cobranca/lotes-md/${lcId}/impressao`, { headers: H })).json().catch(() => ({}))) as any;
+      const bai = (await (await fetch(`${base}/cobranca/lotes/${lcId}/impressao?agrupado=BAIRRO`, { headers: H })).json().catch(() => ({}))) as any;
+      const inexistente = await fetch(`${base}/cobranca/lotes-md/999999999/impressao`, { headers: H });
+      const ti = (ger.datasets?.frxDBDtsTemp ?? []) as any[];
+      const p = (c: number) => ti.find((x) => Number(x.CODRCB) === c) ?? {};
+      const perto = (a: unknown, b: number) => Math.abs(Number(a) - b) < 0.005;
+      check('LOTE DE COBRANÇA §13b.2 [o Imprimir + os dias do Oracle]: geral → lote_cobranca.fr3 com o lote (RAZAO do cobrador), os itens na ordem do lote e a empresa; o JUROS conta round(agora − TRUNC(DTVENC)) e o TOTAL round(agora − DTVENC) — o vencimento às 18h cobra no total um dia a menos que no juro; carência nula cobra, carência 15 não; o agrupado → lote_cobrancaBairro.fr3 em BAIRRO (nulo primeiro), RAZAO; lote inexistente → erro PT',
+        String(ger.modelo).includes('LoteGeral_stub') && String(bai.modelo).includes('LoteBairro_stub')
+          && ti.map((x) => Number(x.CODRCB)).join(',') === [rA, rB, rC].join(',')
+          && (bai.datasets?.frxDBDtsTemp ?? []).map((x: any) => Number(x.CODRCB)).join(',') === [rB, rC, rA].join(',')
+          && perto(p(rA).JUROS, 0.3 * jdA) && perto(p(rA).TOTAL, 300 + 0.3 * tdA)
+          && perto(p(rB).JUROS, 0.1 * dB) && perto(p(rB).TOTAL, 100 + 0.1 * dB)
+          && perto(p(rC).JUROS, 0) && perto(p(rC).TOTAL, 50) && p(rA).BAIRRO === 'CENTRO' && p(rA).ENDERECO === 'RUA A'
+          && Number(ger.datasets?.frxDBDatasetPrincipal?.[0]?.CODLOTECOB) === lcId && typeof ger.datasets?.frxDBDatasetPrincipal?.[0]?.RAZAO === 'string'
+          && (ger.datasets?.frxDBDtsEmpresa ?? []).length === 1 && inexistente.status >= 400 && inexistente.status !== 500,
+        { h, modelo: [String(ger.modelo).slice(0, 60), String(bai.modelo).slice(0, 60)], itens: ti.map((x) => [x.CODRCB, x.JUROS, x.TOTAL, x.BAIRRO]), esperado: { jdA, tdA, dB },
+          bairro: (bai.datasets?.frxDBDtsTemp ?? []).map((x: any) => x.CODRCB), principal: ger.datasets?.frxDBDatasetPrincipal, inexistente: inexistente.status });
+      // a GET_ARECEBER da produção (mig 410): o JURO com a taxa diária arredondada a 2 casas (2% a.m. → 0,07), o TOTAL com a cheia
+      // (0,0667), os dias do DTVENC com a hora, arredondados; o picker do lote só lista o título em aberto e não agrupado
+      const rD = await titulo(993901, 'LC-D', 0, 300);
+      await pgLc.query(`UPDATE areceber SET txjuros = 2 WHERE codrcb = ${rD}`);
+      const rE = await titulo(993901, 'LC-E', 0, 10);
+      await pgLc.query(`UPDATE areceber SET quitada = 'S' WHERE codrcb = ${rE}`);
+      const vD = (await pgLc.query(`SELECT juro, total, dias_atrazo FROM get_areceber WHERE codrcb = ${rD}`)).rows[0] as any;
+      const pick = (await (await fetch(`${base}/cobranca/areceber`, { headers: H })).json().catch(() => [])) as any[];
+      check('CONTAS A RECEBER §13b.3 [a GET_ARECEBER da produção]: JURO = taxa diária arredondada (0,07) × dias × valor/100 e TOTAL com a taxa cheia (2/30) — diferem como no legado; DIAS_ATRAZO arredondado do vencimento com a hora; o picker do lote sem o título quitado (a view do cliente filtra QUITADA = N e não agrupado)',
+        Number(vD?.dias_atrazo) === dB && perto(vD?.juro, Math.round(0.07 * dB * 3 * 100) / 100) && perto(vD?.total, Math.round((300 + (2 / 30) * dB * 3) * 100) / 100)
+          && pick.some((x) => Number(x.codrcb) === rD) && !pick.some((x) => Number(x.codrcb) === rE),
+        { vD, esperado: { dias: dB, juro: 0.07 * dB * 3, total: 300 + (2 / 30) * dB * 3 }, pickD: pick.some((x) => Number(x.codrcb) === rD), pickE: pick.some((x) => Number(x.codrcb) === rE) });
+      await fetch(`${base}/cobranca/lotes-md/${lcId}`, { method: 'DELETE', headers: H });
+      await pgLc.query(`DELETE FROM relatorios WHERE codrelatorio IN (992976, 992977)`);
+      await pgLc.query(`DELETE FROM areceber WHERE codrcb IN (${rA}, ${rB}, ${rC}, ${rD}, ${rE})`);
+      await pgLc.query(`DELETE FROM parceiros_end WHERE codend IN (993901, 993902, 993903)`);
+      await pgLc.query(`DELETE FROM parceiros WHERE codparceiro IN (993901, 993902, 993903)`);
+      await pgLc.end();
+    }
+
     // 13c) Picker ARECEBER (multi-select da inclusão de item): títulos da empresa do contexto
     const arRes = await fetch(`${base}/cobranca/areceber`, { headers: H });
     const ar = (await arRes.json().catch(() => [])) as any[];

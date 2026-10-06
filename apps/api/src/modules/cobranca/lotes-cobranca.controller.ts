@@ -55,6 +55,12 @@ export class LotesCobrancaController {
     return this.service.read(cod);
   }
 
+  /** o Imprimir (geral / agrupado por bairro) — o mesmo do `cobranca/lotes-md/:id/impressao` */
+  @Get('lotes/:cod/impressao')
+  impressao(@Param('cod', ParseIntPipe) cod: number, @Query('agrupado') agrupado?: string) {
+    return this.service.impressao(cod, agrupado === 'BAIRRO' ? 'BAIRRO' : 'GERAL');
+  }
+
   @Post('lotes')
   @RequerAcesso('FRMCADLOTECOBRANCA', 'BTNGRAVAR')
   criar(@Body(new ZodValidationPipe(loteCobrancaSchema)) dto: CriarLoteCobrancaDto) {

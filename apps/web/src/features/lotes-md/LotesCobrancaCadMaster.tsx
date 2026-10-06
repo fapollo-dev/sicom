@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Trash2 } from 'lucide-react';
@@ -12,6 +12,8 @@ import { loteCobrancaSchema, type CriarLoteCobrancaDto } from '@apollo/shared';
 import { AddTitulosModal } from './AddTitulosModal';
 import type { AreceberRow, ItemLote } from './lotesCobrancaApi';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { useMensagem } from '../../shared/mensagem';
 
 /** hoje em ISO 'YYYY-MM-DD' (legado DefaultToday=True no campo Emissão). */
 const hojeISO = () => hojeNaLoja();
@@ -32,6 +34,15 @@ type LoteForm = Omit<CriarLoteCobrancaDto, 'itens'> & { itens: ItemLote[] };
  * AggregateEngineService (uma só chamada de save).
  */
 export function LotesCobrancaCadMaster() {
+  const mensagem = useMensagem();
+  // o lote carregado, para o Imprimir do menu Outros (fora do fieldset desabilitado no browse)
+  const formRef = useRef<UseFormReturn<LoteForm> | null>(null);
+  // o Imprimir do legado: "Relatório geral" (lote_cobranca.fr3) e "Relatório agrupado por bairro" (lote_cobrancaBairro.fr3)
+  const imprimir = (agrupado: 'GERAL' | 'BAIRRO') => {
+    const cod = (formRef.current?.getValues() as any)?.codlotecob as number | undefined;
+    if (cod == null) { mensagem.erro('Carregue um lote para imprimir.'); return; }
+    void imprimirRelatorio(`/cobranca/lotes-md/${cod}/impressao?agrupado=${agrupado}`).catch((e) => mensagem.erro(e));
+  };
   // LOOKUP/FK do Cobrador — parceiros FUN='S' (mostra "cod - razão", não o id cru).
   const { data: cobradorOptions = [] } = useResourceOptions('cobranca/cobradores', (c: any) => ({
     value: String(c.codparceiro),
@@ -51,7 +62,13 @@ export function LotesCobrancaCadMaster() {
         { campo: 'razao', label: 'Razão', tipo: 'text' },
         { campo: 'data', label: 'Emissão', tipo: 'date', largura: 130 },
       ]}
-      campos={({ form, editavel }) => (
+      outros={[
+        { label: 'Relatório &geral', onClick: () => imprimir('GERAL') },
+        { label: 'Relatório agrupado por &bairro', onClick: () => imprimir('BAIRRO') },
+      ]}
+      campos={({ form, editavel }) => {
+        formRef.current = form;
+        return (
         <div className="flex flex-col gap-form-gap">
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
             <Controller
@@ -85,7 +102,8 @@ export function LotesCobrancaCadMaster() {
 
           <ItensSection form={form} editavel={editavel} />
         </div>
-      )}
+        );
+      }}
     />
   );
 }

@@ -19,6 +19,7 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { loteCobrancaAggregateConfig } from './lote-cobranca.aggregate';
 import { LoteCobrancaRepository } from './lote-cobranca.repository';
+import { LotesCobrancaService } from './lotes-cobranca.service';
 
 /**
  * Controller MESTRE-DETALHE de "Lotes de Cobrança" no caminho `cobranca/lotes-md` (alvo do
@@ -36,6 +37,7 @@ export class LotesMdController {
   constructor(
     private readonly engine: AggregateEngineService,
     private readonly repo: LoteCobrancaRepository,
+    private readonly service: LotesCobrancaService,
   ) {}
 
   @Get()
@@ -54,6 +56,15 @@ export class LotesMdController {
       limite: query.limite ? Number(query.limite) : undefined,
     };
     return this.engine.list(this.cfg, pesquisa);
+  }
+
+  /**
+   * O Imprimir do legado (geral / agrupado por bairro) nos layouts do cliente. A PERMISSOES da produção não tem opção de impressão para
+   * o FRMCADLOTECOBRANCA: como as outras leituras da tela, sem @RequerAcesso.
+   */
+  @Get(':id/impressao')
+  impressao(@Param('id', ParseIntPipe) id: number, @Query('agrupado') agrupado?: string) {
+    return this.service.impressao(id, agrupado === 'BAIRRO' ? 'BAIRRO' : 'GERAL');
   }
 
   /** READ enriquecido (tela completa): master + RAZAO + itens com display columns + juros/total. */

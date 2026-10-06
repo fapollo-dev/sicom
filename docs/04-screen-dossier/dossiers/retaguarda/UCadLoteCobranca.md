@@ -11,6 +11,10 @@
 > **Por que esta tela:** é uma das **7 herdeiras mestre-detalhe** ([form-base-cadmaster.md §5b](../../03-legacy-analysis/recon/form-base-cadmaster.md)) e a **primeira documentada** dessa família. Ela exercita o que o CRUD de tabela única (uCadBancos/uCadOperacoesConta) não cobre: **save de agregado** (header `LOTE_COBRANCA` + N itens `ITENS_LOTECOB` numa transação), **exclusão em cascata**, e um detalhe cujo grid é **quase todo LIVE-JOIN** — só `CODRCB` é coluna persistida; duplicata, cliente, datas, valor e **juros/total** vêm de um JOIN `ARECEBER→PARCEIROS→PARCEIROS_END` com **cálculo financeiro embutido na própria SELECT**. Além disso introduz dois padrões novos: o **picker multi-seleção** (`btnAddIten` → `frmPesquisa('GET_ARECEBER')` com `HabilitaMultiselecao`) e o **lookup do "Cobrador"** (`SegFornecedor`/F3 sobre `PARCEIROS` com `FUN='S'`).
 >
 > ⚠️ **Limite desta versão:** o **valor financeiro** (JUROS/TOTAL) é o risco-coroa. A fórmula está **transcrita verbatim** do `sqqITENS_LOTECOB` (`.dfm`) para a view `get_itens_lotecob` (016) e a view `get_areceber` (015) — Oracle→Postgres com `CURRENT_DATE - TRUNC(DTVENC)` → `CURRENT_DATE - dtvenc::date`, `COALESCE`, `GREATEST(0,…)`. Mas **não foi vista rodando** com captura V$SQL: divergência de 1 centavo reprova paridade (risco financeiro). Marcar **"needs runtime golden"** até a captura.
+>
+> **Atualização 06/10/2026 (§12):** a transcrição estava errada nos dias — o `CURRENT_DATE` do Oracle tem hora e o `CAST(... AS INTEGER)`
+> arredonda (provado na produção); corrigido na mig 409 (itens) e na 410 (o picker `GET_ARECEBER`, que na produção é outra fórmula). Sem
+> captura V$SQL possível: a produção tem **0 lotes** (LOTE_COBRANCA e ITENS_LOTECOB vazias), a prova é o fonte + o dicionário.
 
 ---
 
@@ -426,3 +430,28 @@ Para o **cálculo BR-01**, a ordem de operações importa (financeiro): `(TXJURO
 - [../../03-legacy-analysis/dynamic-sql-extraction.md](../../03-legacy-analysis/dynamic-sql-extraction.md) — como fechar as seções 4 e 9 (runtime golden, esp. juros/total).
 - [../../03-legacy-analysis/business-rule-extraction.md](../../03-legacy-analysis/business-rule-extraction.md) — extrair a regra de cálculo com profundidade (seção 5).
 - [../../00-orientation/canonical-decisions.md](../../00-orientation/canonical-decisions.md) — ADR-008/010/011/012/014/015.
+
+## 12. ✅ Impressão e os dias do Oracle (06/10/2026)
+
+**Uso real:** 20 acessos no MENUEXPRESS, mas LOTE_COBRANCA e ITENS_LOTECOB estão **vazias** na produção — não há lote para conferir nem SQL
+no V$SQL. A prova é o fonte (`uDMCadLoteCobranca.dfm`) e o comportamento do Oracle medido com SELECT na produção.
+
+- **Os dias do JUROS/TOTAL (mig 409):** o `CURRENT_DATE` do Oracle tem a hora (14h23 → `CURRENT_DATE − TRUNC(CURRENT_DATE)` = 0,5997) e
+  `CAST(x AS INTEGER)` **arredonda** (`CAST(0.5)` = 1, `CAST(2.58)` = 3). O JUROS conta `round(agora − TRUNC(DTVENC))` (zero se o vencimento
+  com a hora ainda não passou); o TOTAL, `round(agora − DTVENC)` sem o TRUNC. Depois do meio-dia o título conta um dia a mais; com vencimento
+  às 18h o TOTAL conta um dia a menos que o JUROS. A 016 usava o dia cheio.
+- **O picker `GET_ARECEBER` (mig 410):** a view da produção não é a fórmula dos itens: o JURO usa a taxa diária **arredondada a 2 casas**
+  (`CAST(TXJUROS/30 AS NUMERIC(13,2))`: 2% a.m. → 0,07/dia) e o TOTAL a cheia; os dias do DTVENC com a hora, arredondados
+  (`NUMERIC(10)`). E ela só lista título **em aberto e não agrupado** — o picker do Apollo listava também os quitados (dava para pôr um
+  título pago no lote). A `get_areceber` também alimenta a lista/leitura do contas a receber, o juro padrão da baixa e o agrupamento, que
+  passam a ter o juro da produção. (A GET_RCB, mais nova, trunca os dias — a mig 388 está certa.)
+- **Imprimir** (menu Outros da tela): "Relatório geral" (`RelatrioGeral1Click`) → `lote_cobranca.fr3` (813); "Relatório agrupado por bairro"
+  (`RelatrioAgrupadopor1Click`) → `lote_cobrancaBairro.fr3` (814), com os itens em `BAIRRO;RAZAO` (o índice do ClientDataSet: nulo primeiro);
+  datasets `frxDBDatasetPrincipal` (o lote com a RAZAO do cobrador), `frxDBDtsTemp` (os itens da view, juro na hora da impressão) e
+  `frxDBDtsEmpresa`. Sem opção de impressão na PERMISSOES. Quirks fiéis: o "Cobrador :" do cabeçalho mostra o CODPARCEIRO do **item**; o
+  "Total Geral" do layout do bairro não tem DisplayFormat (sai "606,6"). Diferenças: o legado imprime o que está na tela (itens ainda não
+  gravados inclusive) e, depois de um agrupado, o geral herda a ordem por bairro (o IndexFieldNames não volta); o Apollo imprime o gravado,
+  o geral sempre na ordem do lote. O `lote_cobrancaTotalCliente.fr3` (226/815) existe na RELATORIOS mas o fonte não o carrega.
+- Cobertura: smoke §13b.2 (os dois layouts, a ordem, os dias do juro e do total, carência nula e 15) e §13b.3 (a GET_ARECEBER e o picker);
+  teste de renderização do 814.
+

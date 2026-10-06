@@ -107,12 +107,15 @@ export class LoteCobrancaRepository {
    * para adicionar ao lote, SEMPRE escopados à empresa do contexto (fail-closed: sem
    * empresaId, lança). Espelha o filtro legado IDEMPRESA = EmpresaCODEMPRESA e, quando há
    * fechamento de caixa, CONSILIADO='S'. Opcionalmente remove os codrcb já no lote.
+   * A GET_ARECEBER da produção só lista o título EM ABERTO e NÃO AGRUPADO (`WHERE R.QUITADA = 'N' AND COALESCE(R.AGRUPADO, 'N') = 'N'`);
+   * a get_areceber do Apollo traz todos (a lista do contas a receber usa os quitados), então o filtro fica aqui.
    */
   async listAreceber(opts: { consiliado?: 'S' | 'N'; excluirDoLote?: number } = {}) {
     const empresaId = currentTenant().empresaId;
     if (empresaId == null) throw new UnauthorizedTenantError(); // fail-closed (403)
     const db = this.dbp.forTenantRead() as AnyDB;
-    let q = db.selectFrom('get_areceber').selectAll().where('codempresa', '=', empresaId);
+    let q = db.selectFrom('get_areceber').selectAll().where('codempresa', '=', empresaId)
+      .where('quitada', '=', 'N').where(sql<string>`coalesce(agrupado, 'N')`, '=', 'N');
     if (opts.consiliado) q = q.where('consiliado', '=', opts.consiliado);
     if (opts.excluirDoLote != null) {
       q = q.where(

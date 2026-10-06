@@ -1694,3 +1694,23 @@ describe('movimento diário (movd- movimento diario.fr3, FRMMOVIMENTACOESDIA)', 
     expect(t).toContain('BAIXA MANUAL CONFERIDA');
   });
 });
+
+describe('lote de cobrança (FRMCADLOTECOBRANCA)', () => {
+  it('lote de cobrança agrupado por bairro (lote_cobrancaBairro.fr3 do cliente): o bairro, o cliente com o total dele e o total geral', () => {
+    const item = (CODRCB: number, CODPARCEIRO: number, RAZAO: string, BAIRRO: string | null, VALOR: number, JUROS: number) => ({
+      CODILOTCOB: CODRCB, CODLOTECOB: 5, CODRCB, CODPARCEIRO, RAZAO, DTVENDA: '2045-01-02T00:00:00', DTVENC: '2045-02-02T00:00:00',
+      DUPLICATA: `DP-${CODRCB}`, VALOR, TXJUROS: 3, JUROS, TOTAL: VALOR + JUROS, ENDERECO: `RUA ${CODRCB}`, BAIRRO, CIDADE: 'UBERLANDIA', UF: 'MG', TELEFONE: null,
+    });
+    const t = texto(paginasDoModelo(modelo('lote-cobranca-bairro.fr3'), {
+      frxDBDatasetPrincipal: [{ CODLOTECOB: 5, CODPARCEIRO: 1, DATA: '2045-03-01T00:00:00', RAZAO: 'COBRADOR JOSE' }],
+      frxDBDtsTemp: [item(11, 902, 'ANTONIO LC', 'BELA VISTA', 100, 1.1), item(12, 901, 'ZULMIRA LC', 'CENTRO', 300, 3.3), item(13, 901, 'ZULMIRA LC', 'CENTRO', 200, 2.2)],
+      frxDBDtsEmpresa: [{ FANTASIA: 'JF', ENDERECO: 'AV SACRAMENTO', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', CNPJ: '37.954.975/0001-69' }],
+    }, agora));
+    expect(t).toContain('Bairro: BELA VISTA');
+    expect(t).toContain('Bairro: CENTRO');
+    expect(t).toContain('Cliente: ZULMIRA LC');
+    expect(t).toContain('COBRADOR JOSE');
+    expect(t).toContain('505,50'); // o total da ZULMIRA (303,30 + 202,20)
+    expect(t).toContain('606,6 Total Geral'); // o total geral: o memo do layout não tem DisplayFormat
+  });
+});
