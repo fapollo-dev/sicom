@@ -456,6 +456,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('409_itens_lotecob_dias_oracle.sql'));
   await pool.query(sql('410_get_areceber_juro_producao.sql'));
   await pool.query(sql('411_colunas_novas_producao.sql'));
+  await pool.query(sql('412_config_status_tela.sql'));
   await pool.end();
   return pg;
 }

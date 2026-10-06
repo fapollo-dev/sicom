@@ -46,7 +46,6 @@ VEREDITOS = {
     'ATALHOS': ('AUX', 'lista de atalhos da UI; CONFIGURACAO_MENU.ATALHO_ID é fixo 1..6 (uConfiguracaoMenu.pas:246-321)'),
     'CONFIGURACAO_MENU': ('AUX', 'menu rápido de cada usuário (uConfiguracaoMenu.pas:150) — preferência de UI'),
     'MENUEXPRESS': ('AUX', 'contador de acessos por tela (uMenuSuperior.pas:728) — telemetria; usada offline p/ a FILA'),
-    'CONFIG_STATUS_TELA': ('AUX', 'filtros salvos das telas de pesquisa (JSON) — preferência de UI'),
     'CONFIG_GRID': ('AUX', 'layout de grade DevExpress por operador (binário novo) — preferência de UI'),
     'MODULOS': ('MORTA', 'nenhum SQL no fonte; ACESSO nulo nas 199 linhas'),
     'TABELA_CADASTRO': ('AUX', 'par view→form registrado sozinho pelo uCadMaster.pas:1051 — roteamento do legado'),

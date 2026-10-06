@@ -87,6 +87,8 @@ SELECT setval('seq_sugest_promo_prod', coalesce((SELECT max(idsugest_promo_prod)
 -- mig 339: a fila do manifesto (NFE_NAO_CADASTRADAS) e a esteira da nota (NF_STATUS_PROCESSO) depois da carga
 SELECT setval('seq_nfe_nao_cadastradas', coalesce((SELECT max(codnfe_naocad) FROM nfe_nao_cadastradas), 0)::bigint + 1, false);
 SELECT setval('seq_nf_status_processo', coalesce((SELECT max(codnfstatuspro) FROM nf_status_processo), 0)::bigint + 1, false);
+-- mig 412: o status da tela (Ctrl+Shift+S) segue a numeração do legado
+SELECT setval('id_codconfigtela', coalesce((SELECT max(codconfigtela) FROM config_status_tela), 0)::bigint + 1, false);
 -- mig 334: o cabeçalho do lançamento provisório do fechamento de caixa (DADOSCX, 133 linhas na produção)
 SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0)::bigint + 1, false);
 -- as PARCELAS da nota (FATURAMENTO, mig 246): a partir do corte A do faturamento a nota grava as parcelas — a sequência
