@@ -17106,6 +17106,24 @@ async function main() {
           (soDec.linhas ?? []).length === 3 && semGrant.status === 403 && invertido.status === 400,
           { soDecomposicao: soDec.linhas?.length, rbac: semGrant.status, invertido: invertido.status });
 
+        // §119.4 — o Imprimir, a única saída do legado (a tela não tem grade): a estrutura do sqqAnaliseCVCarne
+        await pgCc2.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992967, 1, 'Rel_Analise_Compra_Venda_Carne.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Carne_stub"/></TfrxReport>').toString('base64')]);
+        const icc = (await (await fetch(`${base}/${CC}/impressao?dataIni=2041-05-01&dataFim=2041-05-31`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgCc2.query(`DELETE FROM relatorios WHERE codrelatorio = 992967`);
+        const a0 = (icc.datasets?.dbdtsAnalise ?? []) as any[];
+        const a1 = (icc.datasets?.dbdtsAnalise2 ?? []) as any[];
+        const corteDaPeca = a0.find((x) => Number(x.CODPRODUTO) === 991201 && x.DECOMPOSICAO === 'S');
+        const corteVendido = a0.find((x) => Number(x.CODPRODUTO) === 991201 && x.DECOMPOSICAO !== 'S');
+        const somaPicanha = a1.find((x) => x.DESCRICAO_PRINCIPAL === 'PICANHA SMOKE CC');
+        check('ANÁLISE CASA DE CARNE §119.4 [o Imprimir com a estrutura do legado]: o Rel_Analise_Compra_Venda_Carne.fr3 recebe o sqqAnaliseCVCarne — a PEÇA comprada vira uma linha por CORTE (picanha: 100 kg × 60% = 60 kg e o custo corrigido 1.200,00, com a venda da PEÇA, 0) e o corte vendido aparece como produto próprio, sem compra (55 kg, 2.200,00); no dbdtsAnalise2, o corte que aparece duas vezes soma a compra (60 / 1.200,00); DTINICIO/DTFINAL e a empresa',
+          String(icc.modelo).includes('Carne_stub') && !!corteDaPeca && Math.abs(Number(corteDaPeca.QTDE_COMPRA) - 60) < 0.005 && Math.abs(Number(corteDaPeca.CUSTO_COMPRA) - 1200) < 0.005
+            && Math.abs(Number(corteDaPeca.QTDE_VENDA)) < 0.005 && corteDaPeca.PRODUTO === 'PICANHA SMOKE CC'
+          && !!corteVendido && Math.abs(Number(corteVendido.QTDE_VENDA) - 55) < 0.005 && Math.abs(Number(corteVendido.VALOR_VENDA) - 2200) < 0.005 && Math.abs(Number(corteVendido.QTDE_COMPRA)) < 0.005
+          && !!somaPicanha && Math.abs(Number(somaPicanha.QTDE_COMPRA) - 60) < 0.005 && Math.abs(Number(somaPicanha.CUSTO_COMPRA) - 1200) < 0.005
+          && icc.variaveis?.DTINICIO === "'01/05/2041'" && (icc.datasets?.dbdtsEmpresa ?? []).length === 1,
+          { a0: a0.filter((x) => [991200, 991201, 991202].includes(Number(x.CODPRODUTO))).map((x) => [x.CODPRODUTO, x.DECOMPOSICAO, x.PRODUTO, x.QTDE_COMPRA, x.CUSTO_COMPRA, x.QTDE_VENDA, x.VALOR_VENDA]), a1, v: icc.variaveis });
+
         await pgCc2.query(`DELETE FROM vendas WHERE codproduto IN (991201,991202)`);
         await pgCc2.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfc]);
         await pgCc2.query(`DELETE FROM nf WHERE codnf=$1`, [nfc]);

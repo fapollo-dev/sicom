@@ -16,4 +16,11 @@ export class AnaliseCasaCarneController {
   gerar(@Query(new ZodValidationPipe(analiseCasaCarneSchema)) q: AnaliseCasaCarneDto) {
     return this.svc.gerar(q);
   }
+
+  /** o Imprimir (a única saída do legado): Rel_Analise_Compra_Venda_Carne.fr3 */
+  @Get('impressao')
+  @RequerAcesso('FRMANALISECOMPRAVENDACASACARNE', 'FRMANALISECOMPRAVENDACASACARNE')
+  impressao(@Query(new ZodValidationPipe(analiseCasaCarneSchema)) q: AnaliseCasaCarneDto) {
+    return this.svc.impressao(q);
+  }
 }

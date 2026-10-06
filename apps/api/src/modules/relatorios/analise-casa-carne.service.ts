@@ -4,6 +4,9 @@ import type { AnaliseCasaCarneDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -134,5 +137,86 @@ export class AnaliseCasaCarneService {
     t.qtdeVenda = r2(t.qtdeVenda); t.valorVenda = r2(t.valorVenda);
     t.margem = r2(t.valorVenda - t.custoCompra);
     return { linhas: saida, totais: t };
+  }
+
+  /**
+   * O Imprimir — a ÚNICA saída do legado (a tela não tem grade): `Rel_Analise_Compra_Venda_Carne.fr3` com a estrutura do
+   * `sqqAnaliseCVCarne` sobre a tabela de trabalho do `CriaTabelaTemporaria` (aqui uma CTE):
+   *  - a tabela de trabalho: as VENDAS do período nas lojas marcadas (canceladas também — quem filtra é quem lê) e os itens das NF de
+   *    ENTRADA não canceladas pela emissão; os filtros de produto (departamento, grupo, subgrupo, código, alíquota) valem nas duas;
+   *  - `dbdtsAnalise` (INDICE 0): uma linha por produto da tabela — e, na peça com DECOMPOSICAO, uma por corte: PRODUTO = o corte,
+   *    QTDE_COMPRA = Σ (QTDE × FATOREMBAL × % ÷ 100) da peça (sem decomposição: Σ QTDE da nota), CUSTO_COMPRA, e a VENDA do produto da
+   *    tabela (na linha do corte, a venda da PEÇA — os cortes vendidos aparecem como produtos próprios, sem compra); ordem DECOMPOSICAO,
+   *    DESCRIÇÃO;
+   *  - `dbdtsAnalise2` (INDICE 1): por PRODUTO que aparece mais de uma vez (o corte da peça e o próprio corte), a soma da compra.
+   * ⚠️ O custo do corte é o da correção do §1 (o total da linha × % ÷ 100); o legado multiplica o UNITÁRIO pelo % sem dividir.
+   * `dbdtsEmpresa` = a empresa do login; DTINICIO/DTFINAL. Sem linhas: a mensagem do legado.
+   */
+  async impressao(f: AnaliseCasaCarneDto) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const pedidas = f.empresas ? f.empresas.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) : [];
+    const emps = pedidas.length ? await empresasDoOperador(db, pedidas) : [emp];
+    const filtro = sql`
+      AND (${f.coddpto ?? null}::int     IS NULL OR p.coddpto     = ${f.coddpto ?? null}::int)
+      AND (${f.codgrupo ?? null}::int    IS NULL OR p.codgrupo    = ${f.codgrupo ?? null}::int)
+      AND (${f.codsubgrupo ?? null}::int IS NULL OR p.codsubgrupo = ${f.codsubgrupo ?? null}::int)
+      AND (${f.idproduto ?? null}::int   IS NULL OR p.idproduto   = ${f.idproduto ?? null}::int)
+      AND (${f.aliquota ?? null}::text   IS NULL OR p.aliquota    = ${f.aliquota ?? null}::text)`;
+    const linhas = (await sql<Record<string, unknown>>`
+      WITH bruto AS (
+        SELECT 'VENDAS'::text AS origem, v.codproduto, v.qtde, (v.qtde * v.vrcusto)::numeric(13,2) AS t_vrcusto, 0::numeric AS t_qtde,
+               v.cancelado,
+               (CASE WHEN v.iat = 'A' THEN (v.qtde * v.vrvenda)::numeric(18,2) ELSE trunc((v.qtde * v.vrvenda)::numeric * 100) / 100 END
+                + greatest(coalesce(v.desc_acre_medio, 0), 0) + greatest(coalesce(v.desc_acre_item, 0), 0)
+                - (coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0) + abs(least(coalesce(v.desc_acre_medio, 0), 0))
+                   + abs(least(coalesce(v.desc_acre_item, 0), 0))))::numeric(13,2) AS t_vrvenda_liq,
+               0::numeric AS fatorembal
+          FROM vendas v
+         WHERE v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date AND v.idempresa = ANY(${emps})
+        UNION ALL
+        SELECT 'NF', np.codproduto, np.quantidade, (np.quantidade * np.vrcusto)::numeric(18,2), np.quantidade * np.fatorembal,
+               n.cancelada, 0, np.fatorembal
+          FROM nf n
+          LEFT JOIN nf_prod np ON np.codnf = n.codnf
+         WHERE n.dtemissao::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date AND n.idempresa = ANY(${emps})
+           AND n.tipo = 'E' AND n.cancelada = 'N'
+      ), tabela AS (
+        SELECT b.* FROM bruto b LEFT JOIN produtos p ON p.idproduto = b.codproduto WHERE 1 = 1 ${filtro}
+      ), temp AS (
+        SELECT (sum(n.qtde * n.fatorembal))::numeric(15,3) AS qtde, p.descricao AS descricao_principal, p.decomposicao, d.idproduto_01,
+               po.descricao AS descricao_dec,
+               CASE coalesce(d.idproduto_01, 0) WHEN 0 THEN p.descricao ELSE po.descricao END AS produto,
+               CASE p.decomposicao WHEN 'N' THEN sum(coalesce(n.qtde, 0)) ELSE sum(((n.t_qtde * d.percentual) / 100)::numeric(12,3)) END AS qtde_compra,
+               CASE p.decomposicao WHEN 'N' THEN sum(coalesce(n.t_vrcusto, 0)) ELSE sum(((n.t_vrcusto * d.percentual) / 100)::numeric(12,3)) END AS custo_compra,
+               (SELECT coalesce(sum(x.qtde), 0) FROM tabela x WHERE x.codproduto = a.codproduto AND x.origem = 'VENDAS' AND x.cancelado = 'N') AS qtde_venda,
+               (SELECT coalesce(sum(x.t_vrvenda_liq), 0) FROM tabela x WHERE x.codproduto = a.codproduto AND x.origem = 'VENDAS' AND x.cancelado = 'N') AS valor_venda,
+               CASE coalesce(d.idproduto_01, 0) WHEN 0 THEN a.codproduto ELSE d.idproduto_01 END AS codproduto
+          FROM (SELECT codproduto FROM tabela GROUP BY codproduto) a
+          LEFT JOIN tabela n ON n.codproduto = a.codproduto AND n.origem = 'NF' AND n.cancelado = 'N'
+          LEFT JOIN produtos p ON p.idproduto = a.codproduto
+          LEFT JOIN decomposicao d ON d.idproduto = a.codproduto
+          LEFT JOIN produtos po ON po.idproduto = d.idproduto_01
+         GROUP BY a.codproduto, p.descricao, p.decomposicao, d.idproduto_01, po.descricao
+      )
+      SELECT 0 AS indice, t.* FROM temp t
+      UNION ALL
+      SELECT 1, 0, produto, 'N', 0, '', '', sum(qtde_compra), sum(custo_compra), 0, 0, 0
+        FROM temp GROUP BY produto HAVING count(produto) > 1
+      ORDER BY 1, 4, 3
+    `.execute(db)).rows;
+    if (!linhas.length) throw new BusinessRuleError('CASA_CARNE_SEM_DADOS', {}, 'Não existe informações para serem impressas. Verifique por favor!!!');
+    const nums = new Set(['indice', 'qtde', 'idproduto_01', 'qtde_compra', 'custo_compra', 'qtde_venda', 'valor_venda', 'codproduto']);
+    const br = (x: string) => x.split('-').reverse().join('/');
+    return {
+      titulo: 'Análise compra × venda — casa de carne',
+      modelo: await modeloFr3(db, 'Rel_Analise_Compra_Venda_Carne.fr3'),
+      datasets: {
+        dbdtsAnalise: linhas.filter((l) => Number(l.indice) === 0).map((l) => registroFr3(l, nums)),
+        dbdtsAnalise2: linhas.filter((l) => Number(l.indice) === 1).map((l) => registroFr3(l, nums)),
+        dbdtsEmpresa: [await empresaParaRelatorio(db, emp)],
+      },
+      variaveis: { DTINICIO: textoVariavel(br(f.dataIni)), DTFINAL: textoVariavel(br(f.dataFim)) },
+    };
   }
 }

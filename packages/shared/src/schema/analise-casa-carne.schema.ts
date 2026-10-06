@@ -16,6 +16,10 @@ export const analiseCasaCarneSchema = z.object({
   produto: z.string().trim().max(120).optional(),
   /** só os produtos que se decompõem (as peças e seus cortes). */
   somenteDecomposicao: z.enum(['S', 'N']).default('N'),
+  /** o edtCodProduto do legado (o código do produto) — o filtro da impressão */
+  idproduto: z.coerce.number().int().positive().optional(),
+  /** as lojas marcadas, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).optional(),
   limite: z.coerce.number().int().positive().max(20000).default(3000),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 

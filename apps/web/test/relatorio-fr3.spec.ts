@@ -1603,3 +1603,24 @@ describe('extrato de fornecedores (extratoFornecedores3.fr3, FRMEXTRATOFORNECEDO
     expect(t).toContain('300,00');
   });
 });
+
+describe('análise compra × venda casa de carne (Rel_Analise_Compra_Venda_Carne.fr3)', () => {
+  it('a peça agrupa os cortes (cabeçalho só na decomposição), o produto avulso sem cabeçalho e as somas dos cortes repetidos', () => {
+    const r = (DECOMPOSICAO: string, DESCRICAO_PRINCIPAL: string, PRODUTO: string, QTDE_COMPRA: number, CUSTO_COMPRA: number, QTDE_VENDA: number, VALOR_VENDA: number, CODPRODUTO: number) =>
+      // a linha da peça mostra o corte pelo DESCRICAO_DEC (o script do memo); a avulsa, a DESCRICAO_PRINCIPAL
+      ({ INDICE: 0, QTDE: 0, DESCRICAO_PRINCIPAL, DECOMPOSICAO, IDPRODUTO_01: 0, DESCRICAO_DEC: DECOMPOSICAO === 'S' ? PRODUTO : '', PRODUTO, QTDE_COMPRA, CUSTO_COMPRA, QTDE_VENDA, VALOR_VENDA, CODPRODUTO });
+    const t = texto(paginasDoModelo(modelo('casa-carne.fr3'), {
+      dbdtsAnalise: [
+        r('N', 'PICANHA', 'PICANHA', 0, 0, 55, 2200, 2),
+        r('S', 'TRASEIRO', 'PICANHA', 60, 1200, 0, 0, 2),
+        r('S', 'TRASEIRO', 'COXAO', 40, 800, 0, 0, 3),
+      ],
+      dbdtsAnalise2: [{ INDICE: 1, QTDE: 0, DESCRICAO_PRINCIPAL: 'PICANHA', DECOMPOSICAO: 'N', IDPRODUTO_01: 0, DESCRICAO_DEC: '', PRODUTO: '', QTDE_COMPRA: 60, CUSTO_COMPRA: 1200, QTDE_VENDA: 0, VALOR_VENDA: 0, CODPRODUTO: 0 }],
+    }, agora, { DTINICIO: "'01/05/2041'", DTFINAL: "'31/05/2041'" }));
+    expect(t).toContain('TRASEIRO');
+    expect(t).toContain('PICANHA');
+    expect(t).toContain('COXAO');
+    expect(t).toContain('2.200,00');
+    expect(t).toContain('1.200,00');
+  });
+});

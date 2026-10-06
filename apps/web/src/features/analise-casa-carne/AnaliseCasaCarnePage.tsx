@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * ANÁLISE COMPRA × VENDA — CASA DE CARNE (`FRMANALISECOMPRAVENDACASACARNE`).
@@ -36,7 +37,7 @@ interface Resultado {
 export function AnaliseCasaCarnePage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
-    dataIni: diaUm(), dataFim: hoje(), produto: '', coddpto: '', codgrupo: '', somenteDecomposicao: 'N',
+    dataIni: diaUm(), dataFim: hoje(), produto: '', coddpto: '', codgrupo: '', codsubgrupo: '', idproduto: '', aliquota: '', empresas: '', somenteDecomposicao: 'N',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -80,6 +81,16 @@ export function AnaliseCasaCarnePage() {
             Só peças e cortes
           </label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          {/* o Imprimir é a única saída do legado: os filtros dele são por código (dpto, grupo, subgrupo, produto) e a alíquota */}
+          <div className="w-28"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
+          <div className="w-28"><Field label="Cód. pr&oduto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-24"><Field label="A&líquota" value={f.aliquota} onChange={(e) => setF({ ...f, aliquota: e.target.value })} /></div>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim });
+            for (const k of ['coddpto', 'codgrupo', 'codsubgrupo', 'idproduto', 'aliquota', 'empresas'] as const) if (f[k]) q.set(k, f[k]);
+            void imprimirRelatorio(`/relatorios/analise-casa-carne/impressao?${q.toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,
