@@ -68,7 +68,8 @@ Ao converter a impressão, o SQL do Apollo foi conferido contra o `.pas` (`btnPe
   afirmava isso). Corrigido, com o smoke dizendo o que o legado faz.
 - **QTDECUPOM = `CAST(COUNT(B.NROCUPOM) AS NUMERIC(13,2))`**: as LINHAS do item nesses cupons (o item lançado duas vezes no mesmo cupom
   conta 2), não os cupons distintos. O `% dos cupons` da grade (informativo do Apollo) segue pelos cupons distintos.
-- **A data no fuso da loja** (`TRUNC(B.DTVENDA)`): o `dtvenda::date` usava o fuso da sessão.
+- (A data: o `AT TIME ZONE 'America/Sao_Paulo'` explícito é o mesmo dia do `dtvenda::date` — a sessão do banco já roda nesse fuso;
+  não era diferença, só deixa o SQL independente da configuração.)
 
 A impressão: o "Pesquisar" do legado imprime direto (a opção "consultar antes" está comentada) — `extr - Interseccao produtos qtde
 vendida.fr3` (742, frxDBDtsProdQtdeVendida) ou `... qtde cupom.fr3` (741, frxDBDtsQtdeCupom) pelo tipo de análise, com as N primeiras

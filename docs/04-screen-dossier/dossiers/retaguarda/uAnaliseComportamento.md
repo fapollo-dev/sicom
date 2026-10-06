@@ -103,7 +103,9 @@ SELECT Sum(Abs(VALOR)) VLRIMPOSTOS FROM caixa C JOIN IMPOSTOS I ON (C.CODPLC = I
 ```
 
 No cliente, `IMPOSTOS` tem **0 linhas** — e `CAIXA ⋈ IMPOSTOS` nunca produziu uma linha em toda a história.
-Logo Lucro Final = Rentabilidade e Margem Final = Margem Bruta, sempre. A regra é viva (a tela tem o botão
+⚠️ **Errado no corte de 09/2026: "Lucro Final = Rentabilidade, sempre".** Com a lista vazia (`aqqImpostos.RecordCount = 0`,
+uAnaliseComportamento.pas:478) a linha vira **"Previsão Impostos" = faturamento da semana × 5,5%** e o Lucro Final a desconta —
+o cliente sempre viu a previsão. Ver §9. A regra é viva (a tela tem o botão
 "Selecionar Plano de Contas" e o "Excluir", que mantêm a lista pelo `GET_PLC`), então a tabela entra no
 destino e a manutenção vem junto: `GET/POST/DELETE …/impostos`. O legado só acrescenta o que ainda não está
 na lista (`Locate` antes do `Append`) — idem aqui.
@@ -124,3 +126,22 @@ Ao contrário da irmã (migration 250), que dividia pela referência, aqui a var
 - `REL_ANALISE_COMPORTAMENTO_GRID` (1.850 linhas) é o buffer que a tela grava para imprimir o `.fr3` —
   saída, não fonte: ignorada. Exportar para Excel e o `.fr3`: acessórios; o retorno traz a grade inteira.
 - A cache termina ontem (max `2026-09-17`); calculando, o dia corrente aparece.
+
+## 9. ✅ Corte 2 (06/10/2026): as regras do ProcessaAnalise e a impressão
+
+O corte 1 tinha quatro diferenças de regra (e o comentário "Lucro Final = Rentabilidade"), corrigidas:
+- **Previsão Impostos**: lista de contas vazia → faturamento × 5,5% por semana; o rótulo da linha muda ("Previsão Impostos" ×
+  "Impostos"); com contas, o Σ ABS(CAIXA.VALOR) da semana nas lojas marcadas.
+- **Margens do TOTAL**: Σ das cinco semanas ÷ 5 (÷ 4 em mês de até 28 dias, `iif(FDias > 28, 5, 4)`) — não a margem do mês.
+- **Comparativos**: o TOTAL é a soma das diferenças das semanas (só o Ticket Médio usa a diferença dos totais, :1934); o % é 0 (não
+  vazio) quando a diferença ou a base é 0.
+- **Lojas**: as do `GetMultiEmpresa` (era só a do login), na venda, na NF e no caixa.
+
+**A impressão** (`btnImprimirClick`): `Relatorios\Rel_Analise_comportamento_loja.fr3` (932) com o `cdsRelatorio` na ordem do
+ProcessaAnalise — mês anterior (título ID 0 + IDs 1-9), mês atual (0 + 10-18), "Compar. Mês Anterior" (sem ID) + 19-27, ano anterior
+(0 + 28-36), "Compar. Ano Anterior" + 37-45; TOTAL_PERC das linhas de valor sobre o faturamento do mês; SEMANA_n_PERC/TOTAL_PERC das
+diferenças sobre a base. Os gráficos (página 2): `dbdGraficoFaturamento` e `dbdGraficoLucroFinal`, um ponto por mês na ordem em que o
+legado acrescenta (IDs 2, 3, 1). O título da linha de clientes do mês anterior vem da cache: sem cupom na 1ª semana, sai vazio.
+DtInicial/DtFinal (o mês atual) e Empresa.
+
+Cobertura: smoke §128.2 (margens pela média), §128.6 (previsão, lojas, impressão); teste de renderização do 932 (com os gráficos).

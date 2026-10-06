@@ -14,6 +14,8 @@ export const analiseComportamentoSchema = z.object({
   codsubgrupo: z.coerce.number().int().positive().optional(),
   codsecao: z.coerce.number().int().positive().optional(),
   codfor: z.coerce.number().int().positive().optional(),
+  /** as lojas do GetMultiEmpresa, "1,2" (vazio = a do login) */
+  empresas: z.string().regex(/^[\d,\s]*$/).optional(),
 });
 export type AnaliseComportamentoDto = z.infer<typeof analiseComportamentoSchema>;
 

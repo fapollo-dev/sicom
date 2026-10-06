@@ -1542,3 +1542,28 @@ describe('consulta a receber por cliente (Rel_BaixaAReceber.fr3, FRMCONSCLIRCB)'
     expect(t).toContain('2.849,00');   // VALOR = 3.000 − 2 × 75,50 (o FooterOnBeforePrint também roda nas duas passadas)
   });
 });
+
+describe('análise de comportamento da loja (Rel_Analise_comportamento_loja.fr3, FRMANALISECOMPORTAMENTO)', () => {
+  it('os blocos com o título em negrito (ID 0), os valores sem casas, o cliente sem milhar, a diferença com o percentual, e os gráficos', () => {
+    const l = (TITULO: string, ID: number | null, v: number[], TOTAL: number, perc: Record<string, number> = {}) =>
+      ({ TITULO, ID, SEMANA_1: v[0], SEMANA_2: v[1], SEMANA_3: v[2], SEMANA_4: v[3], SEMANA_5: v[4], TOTAL, ...perc });
+    const rel = [
+      l('Maio de 2046', 0, [0, 0, 0, 0, 0], 0),
+      l('Faturamento', 10, [100000, 98000, 50000, 0, 99000], 347000),
+      l('Previsão Impostos', 13, [5500, 5390, 2750, 0, 5445], 19085, { TOTAL_PERC: 5.5 }),
+      l('Num. Clientes', 17, [1200, 1100, 900, 0, 1000], 4200),
+      l('Compar. Mês Anterior', null, [0, 0, 0, 0, 0], 0),
+      l('Dif Faturamento', 19, [10000, -2000, 0, 0, 5000], 13000, { SEMANA_1_PERC: 11.1, SEMANA_2_PERC: -2, TOTAL_PERC: 3.9 }),
+    ];
+    const graf = [{ ID: 2, TITULO: 'Abril de 2046', TOTAL: 334000 }, { ID: 3, TITULO: 'Maio de 2046', TOTAL: 347000 }, { ID: 1, TITULO: 'Maio de 2045', TOTAL: 300000 }];
+    const t = texto(paginasDoModelo(modelo('analise-comportamento-loja.fr3'), { dbdRelatorio: rel, dbdGraficoFaturamento: graf, dbdGraficoLucroFinal: graf }, agora,
+      { DtInicial: "'01/05/2046'", DtFinal: "'31/05/2046'", Empresa: "'1'" }));
+    expect(t).toContain('Maio de 2046');
+    expect(t).toContain('347.000');
+    expect(t).toContain('Previsão Impostos');
+    expect(t).toContain('19.085');
+    expect(t).toContain('4200');        // Num. Clientes: FormatFloat('0'), sem milhar
+    expect(t).toContain('Dif Faturamento');
+    expect(t).toContain('13.000');
+  });
+});

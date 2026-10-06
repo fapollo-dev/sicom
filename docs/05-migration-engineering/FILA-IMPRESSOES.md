@@ -19,13 +19,13 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 141 | `FRMRELINVENTARIOROTATIVO` | InvRotDetalhado/Produtos/Resumido | ✅ 06/10 (o relatório inteiro — as 5 opções, a grade e a impressão — não existia) |
 | 138 | `FRMCADCOTACAOFORN` | Cot_Pree_da_Cotacao | ✅ 06/10 (a tela como está; a ordem dos itens do fonte) |
 | 121 | `FRMTROCAMERCADORIAFOR` | extr - Troca | ✅ 06/10 (o 3º nível no motor) |
-| 120 | `FRMRELINTERSECCAOPRODUTOS` | extr - Interseccao produtos qtde cupom/vendida | ✅ 06/10 (e 4 correções de fidelidade: lojas, cancelado, COUNT(NROCUPOM), fuso) |
+| 120 | `FRMRELINTERSECCAOPRODUTOS` | extr - Interseccao produtos qtde cupom/vendida | ✅ 06/10 (e 3 correções de fidelidade: lojas, cancelado, COUNT(NROCUPOM)) |
 | 116 | `FRMDIGITACAOPEDIDOS` | PedidoRetaguarda[A4][_Transferencia] | ✅ 06/10 (e o total do pedido pela fórmula do fonte) |
 | 109 | `FRMCADPRODUCAO` | Producao, Producao_Lista_Transferencia | ✅ Producao 06/10 (QUANTIDADE_COMERCIAL pelos dois ramos de conversão) · ⛔ lista de transferência (ITENS_PRODUCAO_TRANSFERENCIA/ESTOQUE_PROD mortas) |
-| 98 | `FRMFLUXOCARTOES` | Rel_Fluxo_Cartoes | ✅ 06/10 (e 3 correções: LIBERADO nulo, lojas, dia da loja; o "legado duplica o dia" do dossiê era falso) |
-| 84 | `FRMRELENTSAI` | Rel_Analise_Compra_Venda2 | ✅ 06/10 (e 6 correções de fidelidade: lojas, NF cancelada processada, descrição da venda, dpto do pedido, fornecedor, fuso) |
+| 98 | `FRMFLUXOCARTOES` | Rel_Fluxo_Cartoes | ✅ 06/10 (e 2 correções: LIBERADO nulo, lojas; o "legado duplica o dia" do dossiê era falso) |
+| 84 | `FRMRELENTSAI` | Rel_Analise_Compra_Venda2 | ✅ 06/10 (e 5 correções de fidelidade: lojas, NF cancelada processada, descrição da venda, dpto do pedido, fornecedor; e o agrupar, que dava 500) |
 | 64 | `FRMCONSCLIRCB` | Rel_BaixaAReceber | ✅ 06/10 — e a tela refeita pelo fonte (juro pela taxa da tela, tolerância do cliente, agrupados fora, todas as lojas, seleção) |
-| 53 | `FRMANALISECOMPORTAMENTO` | Rel_Analise_Comportamento_Loja | ⏳ |
+| 53 | `FRMANALISECOMPORTAMENTO` | Rel_Analise_Comportamento_Loja | ✅ 06/10 — e o corte 2 (Previsão Impostos 5,5% com a lista vazia, margem do total pela média das semanas, lojas) |
 | 43 | `FRMRELFINANCEIRO` | (o TRelatorio da unit) | ⏳ |
 | 38 | `FRMEXTRATOFORNECEDORES` | ExtratoFornecedores1/2/3 | ⏳ |
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | Rel_Analise_Compra_Venda_Carne | ⏳ |

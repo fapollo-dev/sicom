@@ -41,7 +41,7 @@ descuido do relatório de compras: com desconto nulo a parcela vira NULL e a lin
 Nota de entrada **não processada** e venda **cancelada** ficam de fora dos dois lados. Contá-las inverteria o
 sinal da diferença e mandaria o comprador repor o que já está na prateleira.
 
-⚠️ O corte de 09/2026 tinha seis diferenças do fonte, corrigidas:
+⚠️ O corte de 09/2026 tinha cinco diferenças do fonte, corrigidas:
 - **lojas**: as do `GetMultiEmpresa` (era só a do login);
 - **NF cancelada processada**: o fonte filtra só `TIPO = 'E' AND PROC = 'S'` — ela **conta** (3 na produção); o Apollo a tirava;
 - **venda**: `V.CANCELADO = 'N'` (o nulo fica fora; nenhum no último ano) e a **descrição da venda** (`V.DESCRICAO`), com
@@ -50,7 +50,7 @@ sinal da diferença e mandaria o comprador repor o que já está na prateleira.
 - **departamento**: `F.CODFAMILIA = P.CODDPTO` sem filtro de tipo; nos **pedidos**, o filtro de departamento é o do PEDIDO
   (`F` é `PE.CODDPTO`);
 - **fornecedor**: `PA.CODPARCEIRO` (o parceiro do produto);
-- **o dia** da venda é o da loja.
+- (o dia da venda: o `AT TIME ZONE` explícito é o mesmo dia da sessão do banco — não era diferença.)
 
 ## 4b. A impressão (`btnImprimirClick`) ✅ 06/10/2026
 

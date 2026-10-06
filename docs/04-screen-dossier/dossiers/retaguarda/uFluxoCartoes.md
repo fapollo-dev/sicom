@@ -24,10 +24,11 @@ O SQL sai com uma linha por status, mas o `btnPesquisarClick` **soma as do mesmo
 (`Locate('DTVENDA')` + Edit): a grade do legado já é uma linha por dia. ⚠️ **O dossiê de 15/09 dizia que o legado mostrava o dia
 duplicado — errado** (leu só o SQL, não o laço que monta a grade). O resultado do Apollo era o mesmo; o texto foi corrigido.
 
-O que estava diferente e foi corrigido:
+O que estava diferente e foi corrigido (duas coisas):
 - **LIBERADO nulo** (1.969 cartões na produção): entra no TOTAL e em nenhuma das duas colunas — o Apollo o contava como "a receber";
 - **as lojas**: as do `GetMultiEmpresa` (o Apollo usava só a do login);
-- **o dia**: o da loja (o Oracle guarda a hora local; `TRUNC`), não o do UTC.
+- (o dia: o `AT TIME ZONE 'America/Sao_Paulo'` explícito dá o mesmo dia da sessão do banco, que já roda nesse fuso — não era
+  diferença, só deixa o SQL independente da configuração.)
 
 ## 3. O detalhe por operadora
 

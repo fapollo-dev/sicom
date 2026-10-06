@@ -20,6 +20,13 @@ export class AnaliseComportamentoController {
     return this.svc.gerar(q);
   }
 
+  /** o Imprimir no layout do cliente (Rel_Analise_comportamento_loja.fr3, com os dois gráficos) */
+  @Get('impressao')
+  @RequerAcesso('FRMANALISECOMPORTAMENTO', 'FRMANALISECOMPORTAMENTO')
+  impressao(@Query(new ZodValidationPipe(analiseComportamentoSchema)) q: AnaliseComportamentoDto) {
+    return this.svc.impressao(q);
+  }
+
   @Get('impostos')
   @RequerAcesso('FRMANALISECOMPORTAMENTO', 'FRMANALISECOMPORTAMENTO')
   listarImpostos() {

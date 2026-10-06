@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * ANÁLISE DE COMPORTAMENTO DA LOJA (`FRMANALISECOMPORTAMENTO`).
@@ -12,7 +13,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
  *
  * Um mês; três blocos (mês anterior, mês atual, ano anterior) × nove linhas × cinco "semanas" fixas de 7
  * dias + total; dois comparativos. O painel de impostos mantém a lista de contas que a linha "Previsão de
- * Impostos" soma.
+ * Impostos" soma; vazia, a linha é a previsão de 5,5% do faturamento.
  */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -24,7 +25,7 @@ interface Semana extends Linhas { n: number }
 interface Bloco { chave: string; rotulo: string; semanas: Semana[]; total: Linhas }
 interface Par { diferenca: number; variacao: number | null }
 interface Comparativo { rotulo: string; semanas: Array<{ n: number } & Record<string, Par | number>>; total: Record<string, Par> }
-interface Resultado { blocos: Bloco[]; comparativos: Comparativo[] }
+interface Resultado { blocos: Bloco[]; comparativos: Comparativo[]; impostosRotulo?: string }
 interface Imposto { codplc: number; descricao: string; desccodplc: string | null }
 
 const LINHAS: Array<{ k: string; rotulo: string; fmt: (v: unknown) => string }> = [
@@ -43,7 +44,7 @@ const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julh
 export function AnaliseComportamentoPage() {
   const mensagem = useMensagem();
   const hoje = new Date();
-  const [f, setF] = useState({ mes: String(hoje.getMonth() + 1), ano: String(hoje.getFullYear()), coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '' });
+  const [f, setF] = useState({ mes: String(hoje.getMonth() + 1), ano: String(hoje.getFullYear()), coddpto: '', codgrupo: '', codsubgrupo: '', codsecao: '', codfor: '', empresas: '' });
   const [res, setRes] = useState<Resultado | null>(null);
   const [impostos, setImpostos] = useState<Imposto[] | null>(null);
   const [novoCodplc, setNovoCodplc] = useState('');
@@ -60,12 +61,16 @@ export function AnaliseComportamentoPage() {
     return (await r.json()) as T;
   };
 
+  const params = () => {
+    const q = new URLSearchParams({ mes: f.mes, ano: f.ano });
+    for (const k of ['coddpto', 'codgrupo', 'codsubgrupo', 'codsecao', 'codfor', 'empresas'] as const) if (f[k].trim()) q.set(k, f[k].trim());
+    return q;
+  };
+
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ mes: f.mes, ano: f.ano });
-      for (const k of ['coddpto', 'codgrupo', 'codsubgrupo', 'codsecao', 'codfor'] as const) if (f[k].trim()) q.set(k, f[k].trim());
-      setRes(await pedir<Resultado>(`${BASE}/relatorios/analise-comportamento?${q}`));
+      setRes(await pedir<Resultado>(`${BASE}/relatorios/analise-comportamento?${params()}`));
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -105,7 +110,11 @@ export function AnaliseComportamentoPage() {
           <div className="w-28"><Field label="S&ubgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
           <div className="w-28"><Field label="&Seção" value={f.codsecao} onChange={(e) => setF({ ...f, codsecao: e.target.value })} /></div>
           <div className="w-28"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="Im&primir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/relatorios/analise-comportamento/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           <Button label="&Impostos" variant="outline" onClick={() => void carregarImpostos()} />
         </div>
       </section>
@@ -118,7 +127,7 @@ export function AnaliseComportamentoPage() {
             <Button label="&Adicionar" onClick={() => void adicionarImposto()} />
           </div>
           {impostos.length === 0 ? (
-            <p className="text-body-sm text-fg-muted">Nenhuma conta marcada — a linha de impostos fica em zero e o Lucro Final é igual à Rentabilidade.</p>
+            <p className="text-body-sm text-fg-muted">Nenhuma conta marcada — a linha vira "Previsão Impostos" = 5,5% do faturamento da semana, descontada do Lucro Final.</p>
           ) : (
             <table className="w-full border-collapse text-body-sm">
               <tbody>
@@ -149,7 +158,7 @@ export function AnaliseComportamentoPage() {
             <tbody>
               {LINHAS.map((l) => (
                 <tr key={l.k} className="border-b border-border">
-                  <td className="p-pad-xs text-fg-muted">{l.rotulo}</td>
+                  <td className="p-pad-xs text-fg-muted">{l.k === 'impostos' ? (res.impostosRotulo ?? l.rotulo) : l.rotulo}</td>
                   {b.semanas.map((s) => <td key={s.n} className="p-pad-xs text-right tabular-nums">{l.fmt(s[l.k])}</td>)}
                   <td className={`p-pad-xs text-right tabular-nums font-semibold ${l.k === 'lucroFinal' && Number(b.total[l.k]) < 0 ? 'text-fg-danger' : ''}`}>{l.fmt(b.total[l.k])}</td>
                 </tr>
@@ -176,7 +185,7 @@ export function AnaliseComportamentoPage() {
                 const tot = c.total[l.k];
                 return (
                   <tr key={l.k} className="border-b border-border">
-                    <td className="p-pad-xs text-fg-muted">Dif {l.rotulo}</td>
+                    <td className="p-pad-xs text-fg-muted">Dif {l.k === 'impostos' ? 'Impostos' : l.rotulo}</td>
                     {c.semanas.map((s) => {
                       const p = s[l.k] as Par | undefined;
                       return <td key={s.n} className={`p-pad-xs text-right tabular-nums ${p && p.diferenca < 0 ? 'text-fg-danger' : p && p.diferenca > 0 ? 'text-fg-success' : ''}`}>{cel(p)}</td>;

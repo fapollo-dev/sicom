@@ -17636,11 +17636,11 @@ async function main() {
           && Math.abs(Number(s3?.faturamentoNf) - 50) < 0.005 && Math.abs(Number(s5?.faturamento) - 99) < 0.005,
           { rotulo: atual?.rotulo, s1: s1?.faturamento, s2: s2?.faturamento, s3nf: s3?.faturamentoNf, s5: s5?.faturamento, janela5: [s5?.ini, s5?.fim] });
 
-        check('COMPORTAMENTO DA LOJA §128.2 [as nove linhas, no total do mês]: Faturamento 347 (297 de venda + 50 de NF) · CMV 180 · Rentabilidade (R$) 167 · Impostos 30 (só a conta marcada em `impostos`; a energia de 500 fica fora) · Lucro Final 137 · Margem Bruta 48,13% · Margem Final 39,48% · Num. Clientes **3** (o cupom 5001 aparece em dois dias e conta duas vezes — o número reinicia por dia) · Ticket médio 297/3 = 99,00',
+        check('COMPORTAMENTO DA LOJA §128.2 [as nove linhas, no total do mês]: Faturamento 347 (297 de venda + 50 de NF) · CMV 180 · Rentabilidade (R$) 167 · Impostos 30 (só a conta marcada em `impostos`; a energia de 500 fica fora) · Lucro Final 137 · as MARGENS do total são a MÉDIA das semanas (Σ ÷ 5 em mês de 31 dias, :683): bruta (40 + 38,78 + 100 + 0 + 39,39) ÷ 5 = **43,63%**, final (40 + 8,16 + 100 + 0 + 39,39) ÷ 5 = **37,51%** — não a margem do mês · Num. Clientes **3** (o cupom 5001 aparece em dois dias e conta duas vezes — o número reinicia por dia) · Ticket médio 297/3 = 99,00',
           Math.abs(Number(atual?.total?.faturamento) - 347) < 0.005 && Math.abs(Number(atual?.total?.cmv) - 180) < 0.005
           && Math.abs(Number(atual?.total?.rentabilidade) - 167) < 0.005 && Math.abs(Number(atual?.total?.impostos) - 30) < 0.005
-          && Math.abs(Number(atual?.total?.lucroFinal) - 137) < 0.005 && Math.abs(Number(atual?.total?.margemBruta) - 48.13) < 0.005
-          && Math.abs(Number(atual?.total?.margemFinal) - 39.48) < 0.005 && Number(atual?.total?.clientes) === 3
+          && Math.abs(Number(atual?.total?.lucroFinal) - 137) < 0.005 && Math.abs(Number(atual?.total?.margemBruta) - 43.63) < 0.005
+          && Math.abs(Number(atual?.total?.margemFinal) - 37.51) < 0.005 && Number(atual?.total?.clientes) === 3
           && Math.abs(Number(atual?.total?.ticketMedio) - 99) < 0.005,
           { total: atual?.total });
 
@@ -17673,11 +17673,41 @@ async function main() {
         const semGrantPost = await fetch(`${base}/${CL}/impostos`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ codplcs: [99129] }) });
         const semGrantGet = await fetch(`${base}/${CL}?mes=5&ano=2046`, { headers: H_SEM_ACESSO });
         const mesRuim = await fetch(`${base}/${CL}?mes=13&ano=2046`, { headers: H });
-        check('COMPORTAMENTO DA LOJA §128.5 [a "Previsão de Impostos" nunca teve dado — e a lista se mantém aqui]: no cliente, `IMPOSTOS` tem **0 linhas** e `CAIXA ⋈ IMPOSTOS` nunca produziu uma linha; Lucro Final sempre foi igual à Rentabilidade. A regra é viva: marcar a conta de energia como imposto sobe a linha de 30 para 530 na hora; o legado só acrescenta o que não está na lista (1 adicionado, depois 0); remover devolve. Sem `BTNGRAVAR`, 403; sem grant de tela, 403; mês 13, 400',
+        check('COMPORTAMENTO DA LOJA §128.5 [a lista de contas de imposto se mantém aqui]: marcar a conta de energia como imposto sobe a linha de 30 para 530 na hora; o legado só acrescenta o que não está na lista (1 adicionado, depois 0); remover devolve. Sem `BTNGRAVAR`, 403; sem grant de tela, 403; mês 13, 400',
           lista.some((l) => Number(l.codplc) === 99128) && Number(add1.adicionados) === 1 && Number(add2.adicionados) === 0
           && Math.abs(Number((comEnergia.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.impostos) - 530) < 0.005
           && del.status === 200 && semGrantPost.status === 403 && semGrantGet.status === 403 && mesRuim.status === 400,
           { lista: lista.length, add1: add1.adicionados, add2: add2.adicionados, impostos: (comEnergia.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.impostos, del: del.status, rbac: [semGrantPost.status, semGrantGet.status], mes13: mesRuim.status });
+
+        // §128.6 — a lista VAZIA vira a "Previsão Impostos" de 5,5% (a produção tem 0 linhas na IMPOSTOS), as lojas e a impressão
+        const impAntes = (await pgCl.query(`SELECT codplc, descricao FROM impostos`)).rows as Array<{ codplc: number; descricao: string | null }>;
+        await pgCl.query(`DELETE FROM impostos`);
+        const tinhaRel2Cl = Number((await pgCl.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Cl) await pgCl.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgCl.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, cancelado, desc_acre_medio, desc_promocao, coddpto) VALUES
+          (2,'2046-05-04 10:00','CL7','001',6001,1,${CP2},1,10.00,6.00,'N',0,0,78)`);
+        const prev = (await (await fetch(`${base}/${CL}?mes=5&ano=2046`, { headers: H })).json().catch(() => ({}))) as any;
+        const prevAt = (prev.blocos ?? []).find((b: any) => b.chave === 'mesAtual');
+        const lojas = (await (await fetch(`${base}/${CL}?mes=5&ano=2046&empresas=1,2`, { headers: H })).json().catch(() => ({}))) as any;
+        const lojasAt = (lojas.blocos ?? []).find((b: any) => b.chave === 'mesAtual');
+        await pgCl.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992961, 1, 'Rel_Analise_comportamento_loja.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Comportamento_stub"/></TfrxReport>').toString('base64')]);
+        const impr = (await (await fetch(`${base}/${CL}/impressao?mes=5&ano=2046`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgCl.query(`DELETE FROM relatorios WHERE codrelatorio = 992961`);
+        const rel = (impr.datasets?.dbdRelatorio ?? []) as any[];
+        const rid = (id: number) => rel.find((x) => Number(x.ID) === id);
+        const gf = (impr.datasets?.dbdGraficoFaturamento ?? []) as any[];
+        check('COMPORTAMENTO DA LOJA §128.6 [a lista VAZIA é a "Previsão Impostos" de 5,5%, e a impressão]: sem conta marcada (a produção tem 0 linhas na IMPOSTOS) o legado não zera — a linha vira "Previsão Impostos" = faturamento × 5,5% (347 × 5,5% = 19,09) e o Lucro Final a desconta (167 − 19,085 = 147,92); as lojas marcadas somam a loja 2 (357). O Rel_Analise_comportamento_loja.fr3 recebe o cdsRelatorio do ProcessaAnalise: 50 linhas — 3 blocos (título ID 0 + IDs 1-9 / 10-18 / 28-36) e 2 comparativos (título sem ID + 19-27 / 37-45); a previsão com TOTAL_PERC 5,5; a "Dif Faturamento" com 147 e 73,5% sobre a base; os gráficos com um ponto por mês (IDs 2, 3, 1, a ordem do legado); DtInicial/DtFinal do mês',
+          prev.impostosRotulo === 'Previsão Impostos' && Math.abs(Number(prevAt?.total?.impostos) - 19.09) < 0.006 && Math.abs(Number(prevAt?.total?.lucroFinal) - 147.92) < 0.006
+          && Math.abs(Number(lojasAt?.total?.faturamento) - 357) < 0.005
+          && rel.length === 50 && rid(13)?.TITULO === 'Previsão Impostos' && Math.abs(Number(rid(13)?.TOTAL_PERC) - 5.5) < 0.0001
+          && rel.some((x) => x.TITULO === 'Compar. Mês Anterior' && x.ID == null) && Math.abs(Number(rid(19)?.TOTAL) - 147) < 0.005 && Math.abs(Number(rid(19)?.TOTAL_PERC) - 73.5) < 0.005
+          && rel[0].TITULO === 'Abril de 2046' && Number(rel[0].ID) === 0 && rid(10)?.TITULO === 'Faturamento'
+          && gf.map((x) => Number(x.ID)).join(',') === '2,3,1' && Math.abs(Number(gf[1].TOTAL) - 347) < 0.005
+          && impr.variaveis?.DtInicial === "'01/05/2046'" && impr.variaveis?.DtFinal === "'31/05/2046'",
+          { rotulo: prev.impostosRotulo, total: prevAt?.total, lojas: lojasAt?.total?.faturamento, n: rel.length, r13: rid(13), r19: rid(19), gf, v: impr.variaveis });
+        for (const i of impAntes) await pgCl.query(`INSERT INTO impostos (codplc, descricao) VALUES ($1, $2) ON CONFLICT (codplc) DO NOTHING`, [i.codplc, i.descricao]);
+        if (!tinhaRel2Cl) await pgCl.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
 
         await pgCl.query(`DELETE FROM caixa WHERE codcx IN (991701, 991702)`);
         await pgCl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfCl]);
