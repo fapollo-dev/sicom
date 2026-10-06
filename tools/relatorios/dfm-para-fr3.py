@@ -25,6 +25,7 @@ APOLLO = Path(__file__).resolve().parents[2]
 # (formulário.objeto, arquivo .dfm) — o nome é a chave que o serviço pede em `modeloEmbutido`
 EMBUTIDOS = [
     ('frmRelBalanco.frxReport1', 'uRelBalanco.dfm'),
+    ('frmSimuladorVenda.frxReportDados', 'uSimuladorVenda.dfm'),
 ]
 
 CORES = {

@@ -1,98 +1,95 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
-import { lucroPercentual, type SimuladorVendaDto } from '@apollo/shared';
+import type { SimuladorVendaDto, SimuladorVendaImpressaoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
-import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloEmbutido } from '../../shared/relatorios/modelo-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
-const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /**
- * SIMULADOR DE VENDAS (`FRMSIMULADORVENDA`, `uSimuladorVenda.pas`). **42 acessos, 5 operadores.**
+ * SIMULADOR DE VENDAS (`FRMSIMULADORVENDA`, `uSimuladorVenda.pas` 252 + `udmSimuladorVenda`). **42 acessos, 5 operadores.**
  * Dossiê: `uSimuladorVenda.md`. Migration 239.
  *
- * Pega o que foi vendido num período, produto a produto, com custo, venda, descontos e acréscimos — e é sobre
- * essa base que o operador simula: "se eu tivesse vendido a tanto, quanto teria sobrado?".
- *
- * ── ⚠️ O legado soma TODAS as empresas ────────────────────────────────────────────────────────────────
- * A query (`sqqTotais`) filtra só a data e o cancelado: **não há `IDEMPRESA` em lugar nenhum**. Medido em
- * agosto/2026: a tela mostra **R$ 2.227.179,71** quando a empresa 1 vendeu **R$ 1.153.860,03** e a 2 vendeu
- * **R$ 1.073.319,68** — quase o dobro. Quem simula o preço da sua loja está olhando o volume das duas, e como
- * o lucro sai de médias, o número perde o significado. Aqui é tenant-scoped.
- *
- * ── As contas, copiadas linha a linha ─────────────────────────────────────────────────────────────────
- * ⚠️ **a venda TRUNCA e o custo ARREDONDA**, e isso é do legado: `trunc(qtde × vrvenda × 100)/100` contra
- *    `CAST(qtde × vrcusto AS NUMERIC(18,2))`. A assimetria muda centavos por linha e foi mantida.
- * · acréscimo = a parte POSITIVA de `DESC_ACRE_MEDIO` e `DESC_ACRE_ITEM`
- * · desconto  = `DESC_PROMOCAO` + `DESC_DEPARTAMENTO` + a parte NEGATIVA daqueles dois, em módulo
- * · venda total = subtotal + acréscimo − desconto · lucro = venda total − custo total
- * ⚠️ **o "Lucro %" é markup sobre o CUSTO**, não margem sobre a venda (`:156`): venda 150 sobre custo 100
- *    mostra 50%, não 33,3%. Mantido — trocar mudaria todo número que o operador conhece.
+ * Refeito pelo fonte em 06/10/2026. O `sqqVendas`, coluna a coluna:
+ *  - por produto (`GROUP BY CODPRODUTO, DESCRICAO, CODBARRA`, `ORDER BY DESCRICAO`), o período por `TRUNC(DTVENDA)`, sem o cancelado;
+ *  - VRVENDA e VRCUSTO = a MÉDIA (`CAST(AVG(..) AS NUMERIC(18,2))`); QTDE = a soma;
+ *  - TOTAL_CUSTO = Σ `CAST(QTDE × VRCUSTO AS NUMERIC(18,2))` (arredonda); SUB_TOTAL_VENDA = Σ `TRUNC(QTDE × VRVENDA × 100) / 100`
+ *    (trunca) — a assimetria é do legado;
+ *  - ACRÉSCIMO = a parte positiva de DESC_ACRE_MEDIO e DESC_ACRE_ITEM; DESCONTO = DESC_PROMOCAO + DESC_DEPARTAMENTO + a parte negativa
+ *    deles, em módulo; TOTAL_VENDA = subtotal + acréscimo − desconto; LUCRO_TOTAL = `CAST(TOTAL_VENDA − TOTAL_CUSTO AS NUMERIC(13,2))`.
+ * ⚠️ **o SQL não filtra loja nenhuma** — soma o banco inteiro (em agosto/2026: R$ 2,23 mi, as duas lojas). O Apollo soma todas as lojas
+ * que o operador alcança (a do login + RELACAO_OPERADOR_EMPRESA) — para quem enxerga todas, é o número do legado. O campo "Descrição"
+ * da tela não filtra (é um `Locate`) e não há limite de linhas: o corte 1 tinha filtro de produto, LIMIT 3000 e só a loja do login.
+ * A simulação (editar venda, custo, quantidade, desconto e acréscimo) é da tela, como no `cdsVendas`; o Imprimir recebe a grade como está.
  */
 @Injectable()
 export class SimuladorVendaService {
   constructor(private readonly dbp: DatabaseProvider) {}
 
-  private emp(): number {
-    const e = currentTenant().empresaId ?? null;
-    if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    return e;
-  }
-
-  async gerar(f: SimuladorVendaDto): Promise<{
-    linhas: Array<Record<string, unknown>>;
-    totais: { custo: number; subtotal: number; desconto: number; acrescimo: number; venda: number; lucro: number; lucroPerc: number };
-  }> {
-    const emp = this.emp();
+  async gerar(f: SimuladorVendaDto) {
     const db = this.dbp.forTenantRead() as AnyDB;
-    const produto = f.produto ? `%${f.produto.toUpperCase()}%` : null;
-
+    const emps = await todasAsEmpresasDoOperador(db);
+    const acre = sql`(CASE WHEN coalesce(v.desc_acre_medio, 0) > 0 THEN coalesce(v.desc_acre_medio, 0) ELSE 0 END
+                    + CASE WHEN coalesce(v.desc_acre_item, 0) > 0 THEN coalesce(v.desc_acre_item, 0) ELSE 0 END)`;
+    const desc = sql`(coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0)
+                    + CASE WHEN coalesce(v.desc_acre_medio, 0) < 0 THEN coalesce(v.desc_acre_medio, 0) * -1 ELSE 0 END
+                    + CASE WHEN coalesce(v.desc_acre_item, 0) < 0 THEN coalesce(v.desc_acre_item, 0) * -1 ELSE 0 END)`;
+    const sub = sql`(trunc((v.qtde * v.vrvenda)::numeric * 100)::numeric(13,2) / 100)`;
+    const custo = sql`(v.qtde * v.vrcusto)::numeric(18,2)`;
     const linhas = (await sql<Record<string, unknown>>`
-      SELECT v.codproduto, p.descricao, p.codbarra, p.unidade,
-             sum(v.qtde) AS qtde,
-             round(avg(v.vrvenda)::numeric, 2) AS vrvenda,
-             round(avg(v.vrcusto)::numeric, 2) AS vrcusto,
-             -- o custo ARREDONDA
-             sum(round((v.qtde * v.vrcusto)::numeric, 2)) AS total_custo,
-             -- a venda TRUNCA: trunc(x*100)/100, como o legado
-             sum(trunc((v.qtde * v.vrvenda)::numeric * 100) / 100) AS sub_total_venda,
-             sum(greatest(coalesce(v.desc_acre_medio, 0), 0)
-               + greatest(coalesce(v.desc_acre_item, 0), 0)) AS acrescimo,
-             sum(coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0)
-               + abs(least(coalesce(v.desc_acre_medio, 0), 0))
-               + abs(least(coalesce(v.desc_acre_item, 0), 0))) AS desconto
+      SELECT avg(v.vrvenda)::numeric(18,2) AS vrvenda, avg(v.vrcusto)::numeric(18,2) AS vrcusto, sum(v.qtde) AS qtde,
+             sum(${custo}) AS total_custo,
+             sum(${sub}) + sum(${acre}) - sum(${desc}) AS total_venda,
+             sum(${sub}) AS sub_total_venda,
+             (sum(${sub}) + sum(${acre}) - sum(${desc}) - sum(${custo}))::numeric(13,2) AS lucro_total,
+             v.codproduto, p.descricao, p.codbarra, sum(${desc}) AS desconto, sum(${acre}) AS acrescimo
         FROM vendas v
         LEFT JOIN produtos p ON p.idproduto = v.codproduto
-       -- ⚠️ o legado NÃO filtra empresa: em agosto/2026 isso somava as duas lojas (R$ 2,23 mi contra R$ 1,15 mi)
-       WHERE v.idempresa = ${emp}
-         AND v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
-         AND coalesce(v.cancelado, 'N') = 'N'
-         AND (${produto}::text IS NULL
-              OR upper(coalesce(p.descricao, '')) LIKE ${produto}::text
-              OR coalesce(p.codbarra, '') LIKE ${produto}::text)
-       GROUP BY v.codproduto, p.descricao, p.codbarra, p.unidade
-       ORDER BY p.descricao
-       LIMIT ${f.limite}
-    `.execute(db)).rows;
+       WHERE v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+         AND (v.cancelado = 'N' OR v.cancelado IS NULL)
+         AND v.idempresa = ANY(${emps})
+       GROUP BY v.codproduto, p.descricao, p.codbarra
+       ORDER BY p.descricao`.execute(db)).rows
+      .map((l) => ({
+        codproduto: l.codproduto == null ? null : Number(l.codproduto), descricao: (l.descricao as string | null) ?? null, codbarra: (l.codbarra as string | null) ?? null,
+        vrvenda: num(l.vrvenda), vrcusto: num(l.vrcusto), qtde: num(l.qtde), desconto: num(l.desconto), acrescimo: num(l.acrescimo),
+        total_custo: num(l.total_custo), total_venda: num(l.total_venda), sub_total_venda: num(l.sub_total_venda), lucro_total: num(l.lucro_total),
+      }));
+    if (!linhas.length) throw new BusinessRuleError('SIMULADOR_SEM_VENDAS', {}, 'Não foram encontradas vendas no período informado.');
+    return { empresas: emps, linhas, totais: SimuladorVendaService.totais(linhas) };
+  }
 
-    const t = { custo: 0, subtotal: 0, desconto: 0, acrescimo: 0, venda: 0, lucro: 0, lucroPerc: 0 };
-    const saida = linhas.map((l) => {
-      const custo = num(l.total_custo);
-      const sub = num(l.sub_total_venda);
-      const acre = num(l.acrescimo);
-      const desc = num(l.desconto);
-      const venda = r2(sub + acre - desc);
-      const lucro = r2(venda - custo);
-      t.custo += custo; t.subtotal += sub; t.acrescimo += acre; t.desconto += desc;
-      t.venda += venda; t.lucro += lucro;
-      return { ...l, total_venda: venda, lucro_total: lucro, lucro_perc: lucroPercentual(venda, custo) };
-    });
+  /**
+   * O `SetaTotais` sobre os agregados do `cdsVendas` (Σ SUB_TOTAL_VENDA, TOTAL_VENDA, ACRESCIMO, DESCONTO, TOTAL_CUSTO): lucro = venda −
+   * custo; lucro % = (venda / custo − 1) × 100 com venda e custo diferentes de zero — markup sobre o custo, não margem.
+   */
+  static totais(linhas: Array<{ sub_total_venda: number; total_venda: number; acrescimo: number; desconto: number; total_custo: number }>) {
+    const s = (k: 'sub_total_venda' | 'total_venda' | 'acrescimo' | 'desconto' | 'total_custo') => linhas.reduce((a, l) => a + num(l[k]), 0);
+    const venda = s('total_venda'), custo = s('total_custo');
+    return {
+      subtotal: s('sub_total_venda'), venda, acrescimo: s('acrescimo'), desconto: s('desconto'), custo, lucro: venda - custo,
+      lucroPerc: venda !== 0 && custo !== 0 ? ((venda / custo) - 1) * 100 : 0,
+    };
+  }
 
-    t.custo = r2(t.custo); t.subtotal = r2(t.subtotal); t.acrescimo = r2(t.acrescimo);
-    t.desconto = r2(t.desconto); t.venda = r2(t.venda); t.lucro = r2(t.lucro);
-    t.lucroPerc = lucroPercentual(t.venda, t.custo);
-    return { linhas: saida, totais: t };
+  /**
+   * O Imprimir (`btnImprimirClick` → `imprimir(frxReportDados)`): o relatório desenhado no próprio `uSimuladorVenda.dfm`, com o
+   * `cdsVendas` no `frxDBDatasetDados` como a grade está — os valores simulados e a ordem da coluna clicada. Sem linhas, a mensagem.
+   */
+  impressao(dto: SimuladorVendaImpressaoDto) {
+    return {
+      titulo: 'Simulador de vendas',
+      modelo: modeloEmbutido('frmSimuladorVenda.frxReportDados'),
+      datasets: {
+        frxDBDatasetDados: dto.linhas.map((l) => ({
+          VRVENDA: num(l.vrvenda), VRCUSTO: num(l.vrcusto), ACRESCIMO: num(l.acrescimo), DESCONTO: num(l.desconto), QTDE: num(l.qtde),
+          CODPRODUTO: l.codproduto ?? null, DESCRICAO: l.descricao ?? '', CODBARRA: l.codbarra ?? '', TOTAL_CUSTO: num(l.total_custo),
+          TOTAL_VENDA: num(l.total_venda), LUCRO_TOTAL: num(l.lucro_total), SUB_TOTAL_VENDA: num(l.sub_total_venda),
+        })),
+      },
+    };
   }
 }

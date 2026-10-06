@@ -16959,25 +16959,48 @@ async function main() {
         await pgSv.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, nropedido)
           VALUES (1, 771003, 991100, '2038-03-10', 50, 10.00, 6.00, 'S', '771003')`);
 
-        const r = (await (await fetch(`${base}/${SV}?dataIni=2038-03-01&dataFim=2038-03-31&produto=SMOKE%20SV`, { headers: H })).json().catch(() => ({}))) as any;
-        const l = (r.linhas ?? [])[0];
-        check('SIMULADOR §116.1 [o legado soma TODAS as empresas]: a query do original filtra só data e cancelado — não há `IDEMPRESA` em lugar nenhum, e em agosto/2026 isso mostrava R$ 2.227.179,71 onde a empresa 1 vendeu R$ 1.153.860,03. Aqui a venda da empresa 2 (100 unidades do mesmo produto, no mesmo dia) fica de fora, e a cancelada também: sobram as 3 unidades da loja da sessão',
-          (r.linhas ?? []).length === 1 && Math.abs(Number(l?.qtde) - 3) < 0.001,
-          { linhas: r.linhas?.length, qtde: l?.qtde });
+        const sv = async (qs: string) => { const x = await fetch(`${base}/${SV}?${qs}`, { headers: H }); return Object.assign((await x.json().catch(() => ({}))) as any, { _status: x.status }); };
+        const r = await sv('dataIni=2038-03-01&dataFim=2038-03-31');
+        const l = (r.linhas ?? []).find((x: any) => Number(x.codproduto) === 991100);
+        const tinhaRel2Sv = Number((await pgSv.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Sv) await pgSv.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const todas = await sv('dataIni=2038-03-01&dataFim=2038-03-31');
+        if (!tinhaRel2Sv) await pgSv.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        const lt = (todas.linhas ?? []).find((x: any) => Number(x.codproduto) === 991100);
+        check('SIMULADOR §116.1 [o SQL do legado não filtra loja]: o original soma o banco inteiro (em agosto/2026, as duas lojas); o Apollo soma TODAS as lojas que o operador alcança — só a do login: 3 unidades; com a loja 2 na relação do operador: 103 (a mesma conta do legado para quem vê tudo); a cancelada nunca entra; sem filtro de produto nem limite (o campo "Descrição" do legado só posiciona a grade)',
+          Math.abs(Number(l?.qtde) - 3) < 0.001 && Math.abs(Number(lt?.qtde) - 103) < 0.001 && (todas.empresas ?? []).join(',') === '1,2',
+          { so1: l?.qtde, todas: lt?.qtde, emps: todas.empresas });
 
         // custo 3×6 = 18,00 · subtotal 3×10 = 30,00 · +0,50 acréscimo −1,00 desconto = 29,50 · lucro 11,50
-        check('SIMULADOR §116.2 [as contas, linha a linha]: custo 18,00 (arredondado) · subtotal 30,00 (truncado) · acréscimo 0,50 (a parte POSITIVA de DESC_ACRE_ITEM) · desconto 1,00 (DESC_PROMOCAO) ⇒ venda **29,50** e lucro **11,50**. ⚠️ o "Lucro %" é markup sobre o CUSTO: 11,50/18,00 dá **63,89%**, não os 38,98% que a margem sobre a venda daria',
+        check('SIMULADOR §116.2 [as contas do sqqVendas, linha a linha]: custo 18,00 (arredondado) · subtotal 30,00 (truncado) · acréscimo 0,50 (a parte POSITIVA de DESC_ACRE_ITEM) · desconto 1,00 (DESC_PROMOCAO) ⇒ venda **29,50** e lucro **11,50**; venda e custo unitários pela MÉDIA',
           Math.abs(Number(l?.total_custo) - 18) < 0.005 && Math.abs(Number(l?.sub_total_venda) - 30) < 0.005
           && Math.abs(Number(l?.acrescimo) - 0.5) < 0.005 && Math.abs(Number(l?.desconto) - 1) < 0.005
           && Math.abs(Number(l?.total_venda) - 29.5) < 0.005 && Math.abs(Number(l?.lucro_total) - 11.5) < 0.005
-          && Math.abs(Number(l?.lucro_perc) - 63.89) < 0.01,
+          && Math.abs(Number(l?.vrvenda) - 10) < 0.005 && Math.abs(Number(l?.vrcusto) - 6) < 0.005,
           { linha: l, totais: r.totais });
 
         const semGrant = await fetch(`${base}/${SV}?dataIni=2038-03-01&dataFim=2038-03-31`, { headers: H_SEM_ACESSO });
         const invertido = await fetch(`${base}/${SV}?dataIni=2038-03-31&dataFim=2038-03-01`, { headers: H });
-        check('SIMULADOR §116.3: sem grant, 403; período invertido, 400',
-          semGrant.status === 403 && invertido.status === 400,
-          { rbac: semGrant.status, invertido: invertido.status });
+        const vazio = await sv('dataIni=2038-02-01&dataFim=2038-02-02');
+        check('SIMULADOR §116.3: sem grant, 403; período invertido, 400; período sem venda → "Não foram encontradas vendas no período informado."',
+          semGrant.status === 403 && invertido.status === 400 && vazio._status === 422 && String(vazio.message ?? '').includes('Não foram encontradas vendas'),
+          { rbac: semGrant.status, invertido: invertido.status, vazio: [vazio._status, vazio.message] });
+
+        // o Imprimir com a grade EDITADA (a quantidade 3 → 5: total custo 30, venda 49,50 pelas validações do cdsVendas), na ordem da tela
+        const editada = [{ ...l, qtde: 5, total_custo: 30, total_venda: 49.5, lucro_total: 19.5 }, { codproduto: 1, descricao: 'OUTRO', codbarra: '1', vrvenda: 1, vrcusto: 1, qtde: 1, desconto: 0, acrescimo: 0, total_custo: 1, total_venda: 1, sub_total_venda: 1, lucro_total: 0 }];
+        const post = (body: unknown) => fetch(`${base}/${SV}/impressao`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        const semOpcao = await post({ linhas: editada });
+        await pgSv.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMSIMULADORVENDA','BTNIMPRIMIR',7,1) ON CONFLICT DO NOTHING`);
+        const imp = (await (await post({ linhas: editada })).json().catch(() => ({}))) as any;
+        const impVazio = await post({ linhas: [] });
+        const impVazioB = (await impVazio.json().catch(() => ({}))) as any;
+        await pgSv.query(`DELETE FROM permissoes WHERE form = 'FRMSIMULADORVENDA' AND opcao = 'BTNIMPRIMIR' AND codoperador = 7`);
+        const d0 = imp.datasets?.frxDBDatasetDados?.[0] ?? {};
+        check('SIMULADOR §116.4 [o Imprimir: o relatório desenhado no uSimuladorVenda.dfm, com a grade como está]: o layout embutido, o frxDBDatasetDados com os valores SIMULADOS (QTDE 5, TOTAL_VENDA 49,50) na ordem da tela; sem a opção BTNIMPRIMIR, 403; grade vazia → a mensagem do legado',
+          String(imp.modelo).includes('Simulador de Vendas') && (imp.datasets?.frxDBDatasetDados ?? []).length === 2 && Number(d0.QTDE) === 5 && Number(d0.TOTAL_VENDA) === 49.5
+          && imp.datasets.frxDBDatasetDados[1].DESCRICAO === 'OUTRO' && semOpcao.status === 403
+          && impVazio.status === 400 && JSON.stringify(impVazioB).includes('Não foram encontradas vendas'),
+          { modelo: String(imp.modelo).slice(0, 60), d0, semOpcao: semOpcao.status, vazio: [impVazio.status, impVazioB.message] });
 
         await pgSv.query(`DELETE FROM vendas WHERE codproduto=991100`);
         await pgSv.query(`DELETE FROM produtos WHERE idproduto=991100`);

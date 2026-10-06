@@ -1756,3 +1756,20 @@ describe('balanço patrimonial (o relatório desenhado no uRelBalanco.dfm, conve
   });
 });
 
+describe('simulador de vendas (o relatório desenhado no uSimuladorVenda.dfm)', () => {
+  it('a grade como está (o valor simulado) e as somas do rodapé', () => {
+    const linha = (DESCRICAO: string, QTDE: number, VRVENDA: number, VRCUSTO: number, TOTAL_VENDA: number, TOTAL_CUSTO: number) => ({
+      VRVENDA, VRCUSTO, ACRESCIMO: 0, DESCONTO: 0, QTDE, CODPRODUTO: 1, DESCRICAO, CODBARRA: '789', TOTAL_CUSTO, TOTAL_VENDA,
+      LUCRO_TOTAL: TOTAL_VENDA - TOTAL_CUSTO, SUB_TOTAL_VENDA: TOTAL_VENDA,
+    });
+    const t = texto(paginasDoModelo(modelo('simulador-venda-embutido.fr3'), {
+      frxDBDatasetDados: [linha('ARROZ 5KG', 5, 10, 6, 49.5, 30), linha('FEIJAO 1KG', 2, 8, 5, 16, 10)],
+    }, agora));
+    expect(t).toContain('Simulador de Vendas');
+    expect(t).toContain('789 - ARROZ 5KG');
+    expect(t).toContain('49,50');
+    expect(t).toContain('65,50'); // Σ TOTAL_VENDA
+    expect(t).toContain('25,50'); // Σ LUCRO_TOTAL
+  });
+});
+
