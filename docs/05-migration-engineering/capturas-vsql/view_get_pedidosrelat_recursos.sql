@@ -1,0 +1,33 @@
+-- DEFINIÇÃO DA VIEW (ALL_VIEWS da produção, somente leitura), 06/10/2026 — GET_PEDIDOSRELAT_RECURSOS (lida pelo FRMMOVIMENTACOESDIA)
+SELECT X.NROPEDIDO,
+       V.cliente,
+       O.CODOPERADOR,
+       O.NOME,
+       V.IDEMPRESA,
+       X.DATA,
+       TRUNC(X.DATA),
+       CAST(X.DATA AS TIME),
+       V.CANCELADO,
+       X.VALOR,
+       X.OPERACAO,
+       V.TIPO,
+       CAST(0 AS NUMERIC(13,2)),
+       V.CODVENDEDOR,
+       P.RAZAO,
+       X.FATURADO,
+       X.DT_PROCESSAMENTO,
+       CAST(COALESCE((select F.comissao FROM formas_pgto F WHERE F.modalidade = X.operacao),0) *
+       (X.VALOR) / 100 AS NUMERIC(13, 2)),
+       COALESCE((select F.comissao FROM formas_pgto F WHERE F.modalidade = X.operacao), 0),
+       TRUNC(DT_FATU)
+  FROM CX_PEDIDOS X
+       LEFT JOIN PEDIDOS V ON (V.NROPEDIDO = X.NROPEDIDO)
+       LEFT JOIN PARCEIROS C ON (C.CODPARCEIRO = V.CODPARCEIRO)
+       LEFT JOIN PARCEIROS P ON (P.CODPARCEIRO = V.CODVENDEDOR)
+       LEFT JOIN OPERADORES O ON (O.CODOPERADOR = V.OPERADOR)
+WHERE X.OPERACAO NOT IN ('DESCONTO', 'ACRESCIMO')
+
+ 
+ 
+ 
+ 

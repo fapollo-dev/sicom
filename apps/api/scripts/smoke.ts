@@ -17460,6 +17460,48 @@ async function main() {
           semGrant.status === 403 && invertido.status === 400,
           { rbac: semGrant.status, invertido: invertido.status });
 
+        // §124.4 — o corte 2 pelas views do legado: os PEDIDOS são os pagamentos (CX_PEDIDOS) e perdem o filtro de operador/loja, a
+        // baixa do título não quitado não entra (GET_ARECEBERBX exige QUITADA = 'S'), o operador sai pelo LOGIN; e o Imprimir
+        await pgMd.query(`INSERT INTO pedidos (nropedido, idempresa, codproduto, descricao, qtde, vrvenda, cancelado, tipo, operador, codvendedor, cliente, dtvenda, dt_fatu) VALUES
+          ('MD124',1,1,'ITEM A',1,40,'N','P',8,22,'CLIENTE MD','2045-04-15 09:00','2045-04-16 08:00'),
+          ('MD124',1,1,'ITEM B',1,60,'N','P',8,22,'CLIENTE MD','2045-04-15 09:00','2045-04-16 08:00'),
+          ('MD125',1,1,'ITEM C',1,10,'N','P',8,22,'CLIENTE MD2','2045-04-15 09:00',NULL)`);
+        await pgMd.query(`INSERT INTO cx_pedidos (nropedido, operacao, valor, data, faturado, idempresa) VALUES
+          ('MD124','DINHEIRO',30,'2045-04-15 10:00','S',1), ('MD124','CARTAO',70,'2045-04-15 10:00','S',1),
+          ('MD124','DESCONTO',5,'2045-04-15 10:00','S',1), ('MD125','DINHEIRO',10,'2045-04-15 11:00','N',1)`);
+        const rcbAberto = Number((await pgMd.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 22, 'MD-PARCIAL', '2045-04-01', '2045-04-20', 300.00, 'N', 'DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgMd.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx) VALUES ($1, 1, '2045-04-15', 100.00, 0, 0, 'I', 7)`, [rcbAberto]);
+        const md = async (qs: string) => (await (await fetch(`${base}/${MD}?dataIni=2045-04-15&dataFim=2045-04-15&${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const fat = await md('codoperador=7');
+        const todos = await md('faturados=TODOS');
+        const porFatu = await md('dataPedido=FATURAMENTO');
+        const login7 = String((await pgMd.query(`SELECT login FROM operadores WHERE codoperador = 7`)).rows[0]?.login ?? '');
+        check('MOVIMENTAÇÕES DO DIA §124.4 [o corte 2 pelas views do legado]: os pedidos são os PAGAMENTOS do pedido (CX_PEDIDOS, sem DESCONTO/ACRESCIMO), deduplicados por operação + vendedor + pedido (os 2 itens do pedido não dobram) — DINHEIRO 30 e CARTÃO 70, só os faturados; o operador 7 NÃO recorta os pedidos (o rgFiltroFaturado reescreve o filtro no legado); "todos" traz o não faturado; pela data do faturamento (16/04), o dia 15 não acha; a baixa do título não quitado fica fora das recebidas (a view exige QUITADA = S); o operador da baixa pelo LOGIN',
+          (fat.pedidos ?? []).length === 2 && (fat.pgtos ?? []).map((x: any) => `${x.operacao}:${x.valor}`).join(',') === 'CARTAO:70,DINHEIRO:30'
+            && Math.abs(Number(fat.totais?.pedidos?.valor) - 100) < 0.005
+          && (todos.pedidos ?? []).some((x: any) => x.nropedido === 'MD125') && (porFatu.pedidos ?? []).length === 0
+          && Number(fat.totais?.recebidos?.itens) === 1 && (fat.recebidos ?? []).every((x: any) => Number(x.codrcb) !== rcbAberto)
+          && (fat.recebidos ?? [])[0]?.operador_baixa === login7,
+          { pedidos: (fat.pedidos ?? []).map((x: any) => [x.nropedido, x.operacao, x.valor]), pgtos: fat.pgtos, todos: (todos.pedidos ?? []).length, porFatu: (porFatu.pedidos ?? []).length, rec: fat.recebidos });
+
+        await pgMd.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992975, 1, 'movd- movimento diario.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="MovD_stub"/></TfrxReport>').toString('base64')]);
+        const semOpcao = await fetch(`${base}/${MD}/impressao?dataIni=2045-04-15&dataFim=2045-04-15`, { headers: H });
+        await pgMd.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMMOVIMENTACOESDIA','BTNIMPRIMIR',7,1) ON CONFLICT DO NOTHING`);
+        const imd = (await (await fetch(`${base}/${MD}/impressao?dataIni=2045-04-15&dataFim=2045-04-15`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgMd.query(`DELETE FROM relatorios WHERE codrelatorio = 992975`);
+        await pgMd.query(`DELETE FROM permissoes WHERE form = 'FRMMOVIMENTACOESDIA' AND opcao = 'BTNIMPRIMIR' AND codoperador = 7`);
+        check('MOVIMENTAÇÕES DO DIA §124.5 [o Imprimir]: movd- movimento diario.fr3 com o cdsBusca deduplicado no DBDbusca, o cdsPgtos no dbdPgtos, as recebidas, as pagas, o histórico, a empresa e o PERIODO; sem a opção BTNIMPRIMIR da tela (63 concessões na produção), 403',
+          String(imd.modelo).includes('MovD_stub') && (imd.datasets?.DBDbusca ?? []).length === 2 && (imd.datasets?.dbdPgtos ?? []).length === 2
+            && (imd.datasets?.dbdRecebidos ?? []).length === 1 && (imd.datasets?.dbdPagados ?? []).length === 1 && (imd.datasets?.frxDBDatasetHist ?? []).length === 2
+            && imd.variaveis?.PERIODO === "'Período de 15/04/2045 até 15/04/2045'" && semOpcao.status === 403,
+          { modelo: String(imd.modelo).slice(0, 80), n: Object.fromEntries(Object.entries(imd.datasets ?? {}).map(([k, v]) => [k, (v as any[]).length])), v: imd.variaveis, semOpcao: semOpcao.status });
+        await pgMd.query(`DELETE FROM cx_pedidos WHERE nropedido IN ('MD124','MD125')`);
+        await pgMd.query(`DELETE FROM pedidos WHERE nropedido IN ('MD124','MD125')`);
+        await pgMd.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcbAberto]);
+        await pgMd.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcbAberto]);
+
         await pgMd.query(`DELETE FROM historico WHERE data::date = '2045-04-15'`);
         await pgMd.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcb]);
         await pgMd.query(`DELETE FROM apagar_bx WHERE codapg=$1`, [apg]);

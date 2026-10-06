@@ -16,4 +16,18 @@ export class MovimentacoesDiaController {
   gerar(@Query(new ZodValidationPipe(movimentacoesDiaSchema)) q: MovimentacoesDiaDto) {
     return this.svc.gerar(q);
   }
+
+  /** os tipos de histórico da tela (PreencheHistoricos) */
+  @Get('tipos-historico')
+  @RequerAcesso('FRMMOVIMENTACOESDIA', 'FRMMOVIMENTACOESDIA')
+  tiposHistorico() {
+    return this.svc.tiposHistorico();
+  }
+
+  /** o Imprimir (movd- movimento diario.fr3) — o btnImprimir é controlado pela opção BTNIMPRIMIR (63 concessões na produção) */
+  @Get('impressao')
+  @RequerAcesso('FRMMOVIMENTACOESDIA', 'BTNIMPRIMIR')
+  impressao(@Query(new ZodValidationPipe(movimentacoesDiaSchema)) q: MovimentacoesDiaDto) {
+    return this.svc.impressao(q);
+  }
 }

@@ -32,7 +32,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ✅ 06/10 — Produtos e Lote, os 3 agrupamentos (loja em colunas) · ⛔ "Lote detalhado" (procedure com ROWNUM no ON, a medir) |
 | 34 | `FRMRELANALISEITENSNF` | Rel_AnaliseItensNF | ✅ 06/10 (e a nota escolhida ignora o período, como o legado) |
 | 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ✅ 06/10 (os três; o status com as parcelas aninhadas e o calc LIB/ATR/VHJ/AGD) |
-| 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ⏳ |
+| 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ✅ 06/10 — e o corte 2 pelas views do legado (os pedidos são os pagamentos da CX_PEDIDOS; recebidas só de título quitado) |
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ⏳ |
 | 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ⏳ |
 | 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ✅ 06/10 (MARGEM = markup fixo da grade) |
@@ -50,5 +50,5 @@ O legado controla o `btnImprimir` pela opção BTNIMPRIMIR do formulário quando
 telas: FRMAJUSTEPRECOS, FRMCADABASTECIMENTO, FRMCONSOLIDACAOPISCOFINS, FRMCOTACAOLISTAFORN, FRMDEVOLUCAOCH, FRMDIGITACAOPEDIDOSPRODUCAO,
 FRMFATURAMENTO2, FRMINVENTARIO, FRMMOVIMENTACOESDIA, FRMMOVPEDIDOS, FRMPROCESSAAPAGAR, FRMRELACORDOCOMERCIAL, FRMRELATORIO,
 FRMRELATORIOCAIXA, FRMRELATORIOCAIXADME, FRMRELATORIOINDUSTRIA, FRMRELPRECOSALTERADOS, FRMRELVENDEDORES, FRMSIMULADORVENDA. A impressão
-dessas telas exige `RequerAcesso(form, 'BTNIMPRIMIR')` — feito em FRMINVENTARIO, FRMFATURAMENTO2, FRMRELPRECOSALTERADOS e FRMRELATORIO
+dessas telas exige `RequerAcesso(form, 'BTNIMPRIMIR')` — feito em FRMINVENTARIO, FRMFATURAMENTO2, FRMRELPRECOSALTERADOS, FRMRELATORIO e FRMMOVIMENTACOESDIA
 (o construtor). As outras ganham a regra quando a impressão delas for feita/revisada.

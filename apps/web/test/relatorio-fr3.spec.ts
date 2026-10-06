@@ -1672,3 +1672,25 @@ describe('status de faturamento (fat_Relatorio_de_status_de_faturamento.fr3, FRM
     expect(t.indexOf('777,00')).toBeGreaterThan(t.indexOf('LATICINIOS SUL'));
   });
 });
+
+describe('movimento diário (movd- movimento diario.fr3, FRMMOVIMENTACOESDIA)', () => {
+  it('os pagamentos dos pedidos, o resumo por operação, recebidas, pagas e o histórico', () => {
+    const t = texto(paginasDoModelo(modelo('movimento-diario.fr3'), {
+      DBDbusca: [
+        { NROPEDIDO: 'MD124', CLIENTE: 'CLIENTE MD', OPERADOR: 'MARIA', DATA: '2045-04-15', VALOR: 70, OPERACAO: 'CARTAO', VENDEDOR: 'JOAO', COD_VENDEDOR: 22 },
+        { NROPEDIDO: 'MD124', CLIENTE: 'CLIENTE MD', OPERADOR: 'MARIA', DATA: '2045-04-15', VALOR: 30, OPERACAO: 'DINHEIRO', VENDEDOR: 'JOAO', COD_VENDEDOR: 22 },
+      ],
+      dbdPgtos: [{ OPERACAO: 'CARTAO', NROPEDIDO: 'MD124', VALOR: 70 }, { OPERACAO: 'DINHEIRO', NROPEDIDO: 'MD124', VALOR: 30 }],
+      dbdRecebidos: [{ CLIENTE: 'MERCADINHO BOM PRECO', DATA_PAGAMENTO: '2045-04-15', DATA_VENCEU: '2045-04-20', VALOR_PAGO: 400, VALOR_DOCUMENTO: 400, HISTORICO: 'RECEBIDO NO CAIXA', OPERADOR_BAIXA: 'maria' }],
+      dbdPagados: [{ FORNECEDOR: 'ATACADO NORTE', DATA_PAGAMENTO: '2045-04-15', DATA_VENCEU: '2045-04-18', VALOR_PAGO: 250, VALOR_DOCUMENTO: 250, HISTORICO: 'PAGO NO BANCO', OPERADOR_BAIXA: 'jose' }],
+      frxDBDatasetHist: [{ TABELA: 'ARECEBER', CODDOC: 1, DATA: '2045-04-15T10:00:00', HISTORICO: 'BAIXA MANUAL CONFERIDA', CODOPERADOR: 7, NOME: 'MARIA' }],
+      dbdEmpresa: [{ FANTASIA: 'JF', ENDERECO: 'AV SACRAMENTO', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', CNPJ: '37.954.975/0001-69' }],
+    }, agora, { PERIODO: "'Período de 15/04/2045 até 15/04/2045'" }));
+    expect(t).toContain('Período de 15/04/2045 até 15/04/2045');
+    expect(t).toContain('MD124');
+    expect(t).toContain('CARTAO');
+    expect(t).toContain('MERCADINHO BOM PRECO');
+    expect(t).toContain('ATACADO NORTE');
+    expect(t).toContain('BAIXA MANUAL CONFERIDA');
+  });
+});

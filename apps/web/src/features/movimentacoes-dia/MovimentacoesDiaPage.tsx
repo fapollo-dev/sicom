@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -40,17 +41,31 @@ const ABAS = [
 
 export function MovimentacoesDiaPage() {
   const mensagem = useMensagem();
-  const [f, setF] = useState({ dataIni: hoje(), dataFim: hoje(), codoperador: '' });
+  const [f, setF] = useState({ dataIni: hoje(), dataFim: hoje(), codoperador: '', empresas: '', faturados: 'FATURADOS', dataPedido: 'VENDA' });
+  // os tipos de histórico (ClbTiposHistorico): todos marcados ao abrir, como o PreencheHistoricos
+  const [tipos, setTipos] = useState<Array<{ tabela: string; rotulo: string; marcado: boolean }>>([]);
+  useEffect(() => {
+    void fetch(`${BASE}/relatorios/movimentacoes-dia/tipos-historico`, { headers: apiHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((l: Array<{ tabela: string; rotulo: string }>) => setTipos(l.map((t) => ({ ...t, marcado: true }))))
+      .catch(() => setTipos([]));
+  }, []);
   const [res, setRes] = useState<Resultado | null>(null);
   const [aba, setAba] = useState<string>('pedidos');
   const [ocupado, setOcupado] = useState(false);
 
+  const params = () => {
+    const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, faturados: f.faturados, dataPedido: f.dataPedido });
+    if (f.codoperador) q.set('codoperador', f.codoperador);
+    if (f.empresas) q.set('empresas', f.empresas);
+    if (tipos.length && tipos.some((t) => !t.marcado)) q.set('tabelas', tipos.filter((t) => t.marcado).map((t) => t.tabela).join(','));
+    return q;
+  };
+
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim });
-      if (f.codoperador) q.set('codoperador', f.codoperador);
-      const r = await fetch(`${BASE}/relatorios/movimentacoes-dia?${q}`, { headers: apiHeaders() });
+      const r = await fetch(`${BASE}/relatorios/movimentacoes-dia?${params()}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
         const b = await r.json().catch(() => ({}));
@@ -69,15 +84,42 @@ export function MovimentacoesDiaPage() {
 
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">
-          O que aconteceu no período e <strong>quem fez</strong>. Informando o operador, os quatro blocos
-          passam a mostrar só o que ele movimentou.
+          O que aconteceu no período e <strong>quem fez</strong>. O operador recorta as recebidas, as pagas e o histórico; os pedidos
+          (os pagamentos de cada pedido) não seguem o operador nem a loja — no sistema antigo esse filtro se perde.
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-40"><Field label="&De" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&Até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <div className="w-36"><Field label="&Operador" value={f.codoperador} onChange={(e) => setF({ ...f, codoperador: e.target.value })} /></div>
+          <div className="w-36"><Field label="&Empresas (1,2)" value={f.empresas} onChange={(e) => setF({ ...f, empresas: e.target.value.replace(/[^\d,]/g, '') })} placeholder="esta loja" /></div>
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Opções de vendas
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={f.faturados} onChange={(e) => setF({ ...f, faturados: e.target.value })}>
+              <option value="FATURADOS">Faturados</option><option value="TODOS">Todos</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Data dos pedidos
+            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={f.dataPedido} onChange={(e) => setF({ ...f, dataPedido: e.target.value })}>
+              <option value="VENDA">Data da venda</option><option value="FATURAMENTO">Data do faturamento</option>
+            </select>
+          </label>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/relatorios/movimentacoes-dia/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
         </div>
+        {tipos.length > 0 && (
+          <div className="mt-form-gap flex flex-wrap gap-gp-sm text-body-sm">
+            <span className="text-fg-muted">Históricos:</span>
+            {tipos.map((t, i) => (
+              <label key={t.tabela} className="flex items-center gap-gp-xs">
+                <input type="checkbox" checked={t.marcado} onChange={(e) => setTipos(tipos.map((x, k) => (k === i ? { ...x, marcado: e.target.checked } : x)))} />
+                {t.rotulo}
+              </label>
+            ))}
+          </div>
+        )}
       </section>
 
       {res && (
@@ -107,8 +149,8 @@ export function MovimentacoesDiaPage() {
                 ) : aba === 'pedidos' ? (
                   <tr className="border-b border-border text-left text-fg-muted">
                     <th className="p-pad-xs">Pedido</th><th className="p-pad-xs">Data</th>
-                    <th className="p-pad-xs">Cliente</th><th className="p-pad-xs">Itens</th>
-                    <th className="p-pad-xs">Valor</th><th className="p-pad-xs">Operador</th>
+                    <th className="p-pad-xs">Cliente</th><th className="p-pad-xs">Operação</th>
+                    <th className="p-pad-xs">Valor</th><th className="p-pad-xs">Vendedor</th><th className="p-pad-xs">Operador</th>
                   </tr>
                 ) : (
                   <tr className="border-b border-border text-left text-fg-muted">
@@ -136,8 +178,9 @@ export function MovimentacoesDiaPage() {
                         <td className="p-pad-xs">{String(l.nropedido ?? '')}</td>
                         <td className="p-pad-xs">{dataBr(l.data)}</td>
                         <td className="p-pad-xs">{String(l.cliente ?? '')}</td>
-                        <td className="p-pad-xs tabular-nums">{String(l.itens ?? '')}</td>
+                        <td className="p-pad-xs">{String(l.operacao ?? '')}</td>
                         <td className="p-pad-xs tabular-nums">{moeda(l.valor)}</td>
+                        <td className="p-pad-xs">{String(l.vendedor ?? '')}</td>
                         <td className="p-pad-xs">{String(l.operador ?? '')}</td>
                       </>
                     ) : (

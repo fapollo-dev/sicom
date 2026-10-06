@@ -1,0 +1,130 @@
+-- DEFINIÇÃO DA VIEW (ALL_VIEWS da produção, somente leitura), 06/10/2026 — GET_ARECEBERBX (lida pelo FRMMOVIMENTACOESDIA)
+SELECT  f.modalidade,
+        P.RAZAO,
+       TRUNC(X.DTPGTO),
+       TRUNC(R.DTVENDA),
+       TRUNC(R.DTVENC),
+       X.VALORPG,
+       R.VALOR,
+       R.DUPLICATA,
+       X.OBS,
+       X.ACRE_DESC,
+       R.VALOR + X.JUROS + X.ACRE_DESC,
+       X.JUROS,
+       O.LOGIN,
+       I.LOGIN,
+       X.IDLOTE,
+       R.CODPARCEIRO,
+       R.CODEMPRESA,
+       X.CODRCB,
+       X.CODRCBBX,
+       X.CODOPBX,
+       P.codref,
+       R.NROCUPOM,
+       R.DOCNF,
+       R.NROPEDIDO,
+       X.OBS,
+       CAST(
+         CASE
+           WHEN(CURRENT_DATE - CAST(R.DTVENC AS DATE)) < P.TOLERANCIA THEN 0
+           ELSE CAST((COALESCE(CASE
+                                 WHEN ((R.TXJUROS > 0) AND  (R.TXJUROS < 20)) THEN CAST(R.TXJUROS / CAST(30 AS NUMERIC(13, 8)) AS NUMERIC(13,2))
+                                 ELSE  (9 / CAST(30 AS NUMERIC(13, 8)))
+                               END * (CAST(CASE
+                                             WHEN (CURRENT_DATE -CAST(R.DTVENC AS DATE)) < 0 THEN 0
+                                             ELSE (CURRENT_DATE -CAST(R.DTVENC AS DATE))
+                                           END AS NUMERIC(10))) * (R.VALOR) / 100, 0)) AS NUMERIC(13, 2))
+         END AS DECIMAL(13,2)) JURO_CALCULADO,
+       r.consiliado,
+       x.contabilizado,
+       X.OBS_EDITAVEL,
+       P.CODCONTABIL,
+       TRUNC(X.DATA_OPERACAO) DATA_OPERACAO,
+       (PE.ENDERECO  ||  DECODE(Pe.numero, '' ,' ',' nº:' || Pe.numero,Pe.numero) || DECODE(PE.BAIRRO,'','',' Bairro: ' || PE.BAIRRO || ' - ') ||  DECODE(PE.CIDADE,'',' ',PE.CIDADE || ' - ') || PE.UF || DECODE(PE.CEP,'','',' CEP:' || PE.CEP,PE.CEP))ENDERECO,
+       PE.CNPJ_CPF,
+       'BAIXA COMUM' AS TIPO,
+       R.COD_DESCONTO_TITULO,
+       R.CODGRUPO_DESCONTO_TITULO,
+       X.TX_JUROS,
+       X.VR_ANTECIPACAO,
+	     X.TX_ANTECIPACAO,
+       X.TXMULTA,
+       X.VALOR_PERC_MULTA,
+       X.MULTA,
+       TO_CHAR(X.DATA_OPERACAO, 'DD/MM/YYYY hh24:mi') DATA_OPERACAO_MIN,
+       P.CODCONVENIO
+FROM ARECEBER_BX X
+JOIN ARECEBER R ON (X.CODRCB = R.CODRCB)
+JOIN PARCEIROS P ON (P.CODPARCEIRO = R.CODPARCEIRO)
+LEFT JOIN PARCEIROS_END PE ON (PE.CODPARCEIRO = R.CODPARCEIRO) AND (PE.ENDERECO_PADRAO = 'S') AND (PE.CODPARCEIRO = R.CODPARCEIRO)
+LEFT JOIN OPERADORES O ON (O.CODOPERADOR = X.CODOPBX)
+LEFT JOIN OPERADORES I ON (I.CODOPERADOR = R.CODOPERADORMAN)
+LEFT JOIN MOV_CONTAS_BANCARIAS MOV ON (MOV.IDLOTE = X.IDLOTE)
+LEFT JOIN FORMAS_PGTO F ON (F.IDPGTO = MOV.IDPGTO)
+WHERE R.QUITADA = 'S'
+  AND COALESCE(X.INDR,'I') <> 'E'
+UNION ALL
+SELECT  f.modalidade,
+        P.RAZAO,
+       TRUNC(X.DTPGTO),
+       TRUNC(R.DTVENDA),
+       TRUNC(R.DTVENC),
+       X.VALORPG,
+       R.VALOR,
+       R.DUPLICATA,
+       X.OBS,
+       X.ACRE_DESC,
+       R.VALOR + X.JUROS + X.ACRE_DESC,
+       X.JUROS,
+       O.LOGIN,
+       I.LOGIN,
+       X.IDLOTE,
+       R.CODPARCEIRO,
+       R.CODEMPRESA,
+       X.CODRCB,
+       X.CODRCBBXSALDO,
+       X.CODOPBX,
+       P.codref,
+       R.NROCUPOM,
+       R.DOCNF,
+       R.NROPEDIDO,
+       X.OBS,
+       CAST(
+         CASE
+           WHEN(CURRENT_DATE - CAST(R.DTVENC AS DATE)) < P.TOLERANCIA THEN 0
+           ELSE CAST((COALESCE(CASE
+                                 WHEN ((R.TXJUROS > 0) AND  (R.TXJUROS < 20)) THEN CAST(R.TXJUROS / CAST(30 AS NUMERIC(13, 8)) AS NUMERIC(13,2))
+                                 ELSE  (9 / CAST(30 AS NUMERIC(13, 8)))
+                               END * (CAST(CASE
+                                             WHEN (CURRENT_DATE -CAST(R.DTVENC AS DATE)) < 0 THEN 0
+                                             ELSE (CURRENT_DATE -CAST(R.DTVENC AS DATE))
+                                           END AS NUMERIC(10))) * (R.VALOR) / 100, 0)) AS NUMERIC(13, 2))
+         END AS DECIMAL(13,2)) JURO_CALCULADO,
+       r.consiliado,
+       x.contabilizado,
+       X.OBS_EDITAVEL,
+       P.CODCONTABIL,
+       TRUNC(X.DATA_OPERACAO) DATA_OPERACAO,
+       (PE.ENDERECO  ||  DECODE(Pe.numero, '' ,' ',' nº:' || Pe.numero,Pe.numero) || DECODE(PE.BAIRRO,'','',' Bairro: ' || PE.BAIRRO || ' - ') ||  DECODE(PE.CIDADE,'',' ',PE.CIDADE || ' - ') || PE.UF || DECODE(PE.CEP,'','',' CEP:' || PE.CEP,PE.CEP))ENDERECO,
+       PE.CNPJ_CPF,
+       'BAIXA COM SALDO' AS TIPO,
+       R.COD_DESCONTO_TITULO,
+       R.CODGRUPO_DESCONTO_TITULO,
+       X.TX_JUROS,
+       X.VR_ANTECIPACAO,
+	     X.TX_ANTECIPACAO,
+       X.TXMULTA,
+       X.VALOR_PERC_MULTA,
+       X.MULTA,
+       TO_CHAR(X.DATA_OPERACAO, 'DD/MM/YYYY hh24:mi') DATA_OPERACAO_MIN,
+       CODCONVENIO
+FROM ARECEBER_BX_SALDO X
+JOIN ARECEBER R ON (X.CODRCB = R.CODRCB)
+JOIN PARCEIROS P ON (P.CODPARCEIRO = R.CODPARCEIRO)
+LEFT JOIN PARCEIROS_END PE ON (PE.CODPARCEIRO = R.CODPARCEIRO) AND (PE.ENDERECO_PADRAO = 'S') AND (PE.CODPARCEIRO = R.CODPARCEIRO)
+LEFT JOIN OPERADORES O ON (O.CODOPERADOR = X.CODOPBX)
+LEFT JOIN OPERADORES I ON (I.CODOPERADOR = R.CODOPERADORMAN)
+LEFT JOIN MOV_CONTAS_BANCARIAS MOV ON (MOV.IDLOTE = X.IDLOTE)
+LEFT JOIN FORMAS_PGTO F ON (F.IDPGTO = MOV.IDPGTO)
+WHERE R.QUITADA = 'S'
+  AND COALESCE(X.INDR,'I') <> 'E'
