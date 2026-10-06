@@ -10989,6 +10989,64 @@ async function main() {
         await pgR.query(`DELETE FROM nfe_evento WHERE codnf IN (${nfPerda}, ${nfEntrada})`);
         await pgR.query(`DELETE FROM nf WHERE codnf IN (${nfPerda}, ${nfEntrada})`);
 
+        // 88.R) o RELATÓRIO (o "Grid" e o "Imprimir", uRelatorioInventarioRotativo.pas:450) — as cinco consultas do DM sobre um lote aberto
+        // com três coletas: produto 1 SUBSTITUIR 10→7 e depois AUMENTAR +2 na LOJA, produto 2 SUBSTITUIR 5→8 no DEPÓSITO
+        await pgR.query(`INSERT INTO inventario_rotativo (idempresa, lote, nomelote, operacao, tipo, data) VALUES (1, 990900, 'REL SMOKE', 'ABERTO', 'R', now())`);
+        await pgR.query(`INSERT INTO inventario_rotativo (idempresa, lote, operacao, destino, idproduto, qtd_anterior, qtd_atual, qtd_coletada, data, operador) VALUES
+          (1, 990900, 'SUBSTITUIR', 'LOJA', 1, 10, 7, 7, now(), 7), (1, 990900, 'AUMENTAR', 'LOJA', 1, 7, 9, 2, now(), 7),
+          (1, 990900, 'SUBSTITUIR', 'DEPOSITO', 2, 5, 8, 8, now(), 7)`);
+        const rel = async (b: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${IR}/relatorio`, { method: 'POST', headers: H, body: JSON.stringify({ status: 'ABERTO', lote: 990900, ...b }) });
+          return { st: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const rDet = await rel({ opcao: 'DETALHADO' });
+        const rRes = await rel({ opcao: 'RESUMIDO' });
+        const rDep = await rel({ opcao: 'DEPOSITO' });
+        const rLoja = await rel({ opcao: 'AREA_VENDA' });
+        const rNao = await rel({ opcao: 'NAO_COLETADOS' });
+        const rNaoVazio = await rel({ opcao: 'NAO_COLETADOS', lote: 990901 });
+        const rFechSemLote = await rel({ opcao: 'DETALHADO', status: 'FECHADO', lote: 0 });
+        const rResFechSemSel = await rel({ opcao: 'RESUMIDO', status: 'FECHADO', lote: 990900 });
+        const lotesAb = (await (await fetch(`${base}/${IR}/relatorio/lotes?status=ABERTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const resP = (id: number) => (rRes.j.linhas ?? []).find((x: any) => Number(x.idproduto) === id);
+        const stubInv = Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="InvRot"><TfrxGroupHeader Name="GHLote" Height="20" Visible="False" Condition="frxDBDataset1.&#34;LOTE&#34;"/><TfrxGroupFooter Name="GFLote" Height="20" Visible="False"/></TfrxReportPage></TfrxReport>').toString('base64');
+        await pgR.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992949, 1, 'InvRotDetalhado.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubInv]);
+        const impInv = await fetch(`${base}/${IR}/relatorio/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ opcao: 'DETALHADO', status: 'ABERTO', lote: 990900, agrupar: true, dataini: '2020-01-01', datafin: '2099-12-31' }) });
+        const impInvJ = (await impInv.json().catch(() => ({}))) as any;
+        await pgR.query(`DELETE FROM relatorios WHERE codrelatorio = 992949`);
+        check('ROTATIVO §88.R [o relatório]: DETALHADO = as 3 coletas (o cabeçalho do lote cai no filtro de destino), a do AUMENTAR com a quantidade coletada 2 · RESUMIDO = 1 linha por produto com a coletada somada desde o último SUBSTITUIR (9 = 7 + 2) e a anterior do primeiro (10) · SÓ DEPÓSITO = o produto 2, SÓ ÁREA DE VENDA = o produto 1 · NÃO COLETADOS sem os coletados, e lote sem coleta → "Nenhuma coleta foi encontrada." · fechado sem lote → aviso · resumido fechado sem lote marcado → aviso · a grade de lotes abertos traz o lote · o Imprimir com "Agrupar lotes" deixa o GHLote/GFLote visíveis e recolhíveis',
+          rDet.st === 200 && (rDet.j.linhas ?? []).length === 3
+          && Number((rDet.j.linhas ?? []).find((x: any) => x.operacao === 'AUMENTAR')?.qtd_coletada) === 2
+          && rRes.st === 200 && (rRes.j.linhas ?? []).length === 2 && Number(resP(1)?.qtd_coletada) === 9 && Number(resP(1)?.qtd_anterior) === 10
+          && Number(resP(1)?.diferenca_qtd) === -1 && Number(resP(2)?.qtd_coletada) === 8
+          && rDep.st === 200 && (rDep.j.linhas ?? []).map((x: any) => Number(x.idproduto)).join(',') === '2'
+          && rLoja.st === 200 && (rLoja.j.linhas ?? []).map((x: any) => Number(x.idproduto)).join(',') === '1' && Number(rLoja.j.linhas?.[0]?.qtd_coletada) === 9
+          && rNao.st === 200 && !(rNao.j.linhas ?? []).some((x: any) => [1, 2].includes(Number(x.idproduto)))
+          && rNaoVazio.st === 422 && String(rNaoVazio.j.message ?? '').includes('Nenhuma coleta')
+          && rFechSemLote.st === 422 && rResFechSemSel.st === 422
+          && (lotesAb.itens ?? []).some((x: any) => Number(x.lote) === 990900 && x.nomelote === 'REL SMOKE')
+          && impInv.status === 200 && (impInvJ.datasets?.frxDBDataset1 ?? []).length === 3
+          && /<TfrxGroupHeader Name="GHLote"[^>]*Visible="True"[^>]*DrillDown="True"/.test(String(impInvJ.modelo ?? ''))
+          && /<TfrxGroupFooter Name="GFLote"[^>]*Visible="True"/.test(String(impInvJ.modelo ?? ''))
+          && impInvJ.variaveis?.TITULO === "'Relatório Inventário Rotativo - Detalhado'" && impInvJ.variaveis?.PERIODO === "'01/01/2020  à  31/12/2099'",
+          { det: [rDet.st, rDet.j.linhas?.length, rDet.j.message], res: [rRes.st, rRes.j.linhas, rRes.j.message], dep: [rDep.st, rDep.j.message, rDep.j.linhas?.map((x: any) => x.idproduto)],
+            loja: [rLoja.st, rLoja.j.message, rLoja.j.linhas?.map((x: any) => [x.idproduto, x.qtd_coletada])], nao: [rNao.st, rNao.j.message, rNao.j.linhas?.length], naoVazio: [rNaoVazio.st, rNaoVazio.j.message],
+            fech: [rFechSemLote.st, rResFechSemSel.st], imp: [impInv.status, impInvJ.message, impInvJ.variaveis] });
+
+        // 88.R2) "Agrupar lotes" só existe no detalhado; nas outras opções o legado o deixa MARCADO e escondido (`checked := not Visible`):
+        // o resumido de inventário fechado sai "Lote: Todos", com o grupo por lote visível e recolhível
+        await pgR.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992950, 1, 'InvRotResumido.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubInv]);
+        const impRes = await fetch(`${base}/${IR}/relatorio/impressao`, { method: 'POST', headers: H, body: JSON.stringify({ opcao: 'RESUMIDO', status: 'FECHADO', lote: 990900, lotes: [990900], agrupar: false }) });
+        const impResJ = (await impRes.json().catch(() => ({}))) as any;
+        await pgR.query(`DELETE FROM relatorios WHERE codrelatorio = 992950`);
+        check('ROTATIVO §88.R2 [o agrupar escondido]: no resumido o check de agrupar não existe e vale MARCADO — o fechado sai "Resumido - Lote: Todos", com o GHLote visível e recolhível, mesmo pedindo agrupar=false; os lotes marcados filtram (2 produtos)',
+          impRes.status === 200 && impResJ.variaveis?.TITULO === "'Relatório Inventário Rotativo - Resumido - Lote: Todos'"
+          && /<TfrxGroupHeader Name="GHLote"[^>]*Visible="True"[^>]*DrillDown="True"/.test(String(impResJ.modelo ?? ''))
+          && (impResJ.datasets?.frxDBDataset2 ?? []).length === 2,
+          { st: impRes.status, msg: impResJ.message, vars: impResJ.variaveis, n: impResJ.datasets?.frxDBDataset2?.length });
+
         // cleanup
         await pgR.query(`DELETE FROM ajuste_estoque WHERE origem='I' AND idempresa=1`);
         await pgR.query(`DELETE FROM estoque_dep WHERE idproduto=1 AND idempresa=1`);

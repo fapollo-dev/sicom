@@ -14,6 +14,7 @@ import { BalancoService } from './balanco.service';
 import { AuthModule } from '../auth/auth.module';
 import { InventarioRotativoController } from './inventario-rotativo.controller';
 import { InventarioRotativoService } from './inventario-rotativo.service';
+import { InventarioRotativoRelService } from './inventario-rotativo-rel.service';
 import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
@@ -311,6 +312,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     InventarioService,
     BalancoService,
     InventarioRotativoService,
+    InventarioRotativoRelService,
     ScrapService,
     ProducaoService,
     EtiquetaService,

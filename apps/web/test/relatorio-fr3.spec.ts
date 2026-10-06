@@ -1303,3 +1303,38 @@ describe('precificação pela NF bruta (PrecificacaoNFBruta.fr3, FRMPRECIFICACAO
     expect(t).toContain('32,50');     // a média do grupo (AVG) e a geral (MEDIAMARGEM)
   });
 });
+
+describe('inventário rotativo (InvRotDetalhado/InvRotResumido/InvRotProdutos.fr3, FRMRELINVENTARIOROTATIVO)', () => {
+  const vars = { TITULO: "'Relatório Inventário Rotativo - Detalhado'", LOJA: "'JF SUPERMERCADOS LTDA'", PERIODO: "'01/09/2026  à  30/09/2026'" };
+  const lin = (CODBARRA: string, DESCRICAO: string, OPERACAO: string, QTD_ANTERIOR: number, QTD_COLETADA: number) => ({
+    LOTE: 77, CODBARRA, DESCRICAO, QTD_ANTERIOR, QTD_COLETADA, DIFERENCA_QTD: QTD_COLETADA - QTD_ANTERIOR, VRCUSTO: 4.5, DIFERENCA_VALOR: (QTD_COLETADA - QTD_ANTERIOR) * 4.5,
+    ESTOQUE: 12, ATIVO: 'S', ATIVO_COMPRA: 'S', DEPTO: 'MERCEARIA', GRUPO: 'BISCOITOS', SUBGRUPO: 'RECHEADOS', OPERACAO,
+  });
+  it('o detalhado: cada operação, as quantidades com %g e o custo com 0.00; sem "Agrupar lotes" o grupo por lote não sai', () => {
+    const t = texto(paginasDoModelo(modelo('inv-rot-detalhado.fr3'), { frxDBDataset1: [lin('7891', 'BISCOITO RECHEADO', 'SUBSTITUIR', 10, 7), lin('7891', 'BISCOITO RECHEADO', 'AUMENTAR', 7, 2)] }, agora, vars));
+    expect(t).toContain('Relatório Inventário Rotativo - Detalhado');
+    expect(t).toContain('Empresa : JF SUPERMERCADOS LTDA');
+    expect(t).toContain('Período : 01/09/2026 à 30/09/2026');
+    expect(t).toContain('BISCOITO RECHEADO');
+    expect(t).toContain('SUBSTITUIR');
+    expect(t).toContain('-13,50');
+    expect(t).not.toContain('Lote : 77');
+  });
+  it('o resumido: a última quantidade e o grupo por lote (visível no layout)', () => {
+    const t = texto(paginasDoModelo(modelo('inv-rot-resumido.fr3'), { frxDBDataset2: [lin('7891', 'BISCOITO RECHEADO', 'AUMENTAR', 10, 9)] }, agora,
+      { ...vars, TITULO: "'Relatório Inventário Rotativo - Resumido - Lote: Todos'" }));
+    expect(t).toContain('Resumido - Lote: Todos');
+    expect(t).toContain('Lote : 77');
+    expect(t).toContain('BISCOITO RECHEADO');
+    expect(t).toContain('-4,50');
+  });
+  it('os não coletados: o estoque, as datas de última venda/compra no formato mm/dd/yyyy do layout', () => {
+    const t = texto(paginasDoModelo(modelo('inv-rot-produtos.fr3'), { frxDBDataset1: [{ CODBARRA: '7892', DESCRICAO: 'BOLACHA AGUA', VRCUSTO: 3.2, ESTOQUE: 40, ATIVO: 'S', ATIVO_COMPRA: 'S',
+      DEPTO: 'MERCEARIA', GRUPO: 'BISCOITOS', SUBGRUPO: 'SALGADOS', QTD_COLETADA: 0, DTULTIMAVENDA: '2026-09-28T00:00:00', DTULTIMACOMPRA: '2026-09-02T00:00:00' }] }, agora,
+      { ...vars, TITULO: "'Produtos inexistentes na coleta'" }));
+    expect(t).toContain('Produtos inexistentes na coleta');
+    expect(t).toContain('BOLACHA AGUA');
+    expect(t).toContain('09/28/2026');
+    expect(t).toContain('09/02/2026');
+  });
+});

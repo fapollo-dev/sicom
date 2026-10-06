@@ -108,3 +108,31 @@ export const vincularNfRotativoSchema = z.object({
   tipo: z.enum(['PERDAS', 'SOBRAS']),
 });
 export type VincularNfRotativoDto = z.infer<typeof vincularNfRotativoSchema>;
+
+/**
+ * O RELATÓRIO do inventário rotativo (o "Grid" e o "Imprimir" da tela, uRelatorioInventarioRotativo.pas:450): as cinco opções do RadioTipo, o
+ * status do radioInventario e o lote da grade, com os filtros do `GetFiltro`.
+ */
+export const invRotRelatorioSchema = z.object({
+  opcao: z.enum(['DETALHADO', 'RESUMIDO', 'NAO_COLETADOS', 'DEPOSITO', 'AREA_VENDA']),
+  status: z.enum(['ABERTO', 'FECHADO']),
+  dataini: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  datafin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  /** o lote do registro corrente da grade (0 = as coletas soltas) */
+  lote: z.coerce.number().int().min(0),
+  /** os lotes marcados (o resumido de inventário fechado) */
+  lotes: z.array(z.coerce.number().int().positive()).max(500).optional(),
+  agrupar: z.coerce.boolean().optional(),
+  codoperador: z.coerce.number().int().positive().nullish(),
+  /** o login do operador (`edtLogin`), resolvido para o código */
+  login: z.string().trim().max(30).nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  codsecao: z.coerce.number().int().nonnegative().nullish(),
+  produtos: z.array(z.coerce.number().int().positive()).max(5000).optional(),
+  /** o rgRadioEtq (`TTipoEstoque`): 0 depósito · 1 loja · 2 ambos (o padrão) */
+  tipoEstoque: z.coerce.number().int().min(0).max(2).default(2),
+});
+export type InvRotRelatorioDto = z.infer<typeof invRotRelatorioSchema>;

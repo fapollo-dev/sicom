@@ -1,11 +1,12 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   criarLoteRotativoSchema, alterarLoteRotativoSchema, fecharLoteRotativoSchema, zerarEstoqueRotativoSchema,
-  itensNfRotativoSchema, vincularNfRotativoSchema,
+  itensNfRotativoSchema, vincularNfRotativoSchema, invRotRelatorioSchema, type InvRotRelatorioDto,
   type CriarLoteRotativoDto, type AlterarLoteRotativoDto, type FecharLoteRotativoDto, type ZerarEstoqueRotativoDto,
   type ItensNfRotativoDto, type VincularNfRotativoDto,
 } from '@apollo/shared';
 import { InventarioRotativoService } from './inventario-rotativo.service';
+import { InventarioRotativoRelService } from './inventario-rotativo-rel.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -17,7 +18,30 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 @Controller('cadastro/inventario-rotativo')
 @UseGuards(AcessoGuard)
 export class InventarioRotativoController {
-  constructor(private readonly svc: InventarioRotativoService) {}
+  constructor(private readonly svc: InventarioRotativoService, private readonly rel: InventarioRotativoRelService) {}
+
+  /** a grade de lotes do relatório (o radioInventario): abertos (com as coletas soltas como lote 0) ou fechados no período */
+  @Get('relatorio/lotes')
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  lotesRelatorio(@Query('status') status: string, @Query('dataini') dataini?: string, @Query('datafin') datafin?: string) {
+    return this.rel.lotes({ status: status === 'FECHADO' ? 'FECHADO' : 'ABERTO', dataini, datafin });
+  }
+
+  /** o "Grid": as cinco opções do relatório (detalhado, resumido, não coletados, só depósito, só área de venda) */
+  @Post('relatorio')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  relatorio(@Body(new ZodValidationPipe(invRotRelatorioSchema)) dto: InvRotRelatorioDto) {
+    return this.rel.consultar(dto).then((linhas) => ({ linhas }));
+  }
+
+  /** o "Imprimir": InvRotDetalhado / InvRotResumido / InvRotProdutos */
+  @Post('relatorio/impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  relatorioImpressao(@Body(new ZodValidationPipe(invRotRelatorioSchema)) dto: InvRotRelatorioDto) {
+    return this.rel.impressao(dto);
+  }
 
   /** lotes da empresa com o estado DERIVADO (aberto = tem ABERTO e não tem FECHADO). */
   @Get()

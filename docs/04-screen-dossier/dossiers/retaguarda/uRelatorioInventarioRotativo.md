@@ -215,3 +215,33 @@ O carimbo segue a ordem do legado: os lotes ficam **pendentes em memória** e o 
 nota.
 
 **O épico do inventário rotativo está fechado no que tem fonte.**
+
+## 9. CORTE-4 ENTREGUE — o RELATÓRIO (o "Grid" e o "Imprimir", 06/10/2026)
+
+O Apollo tinha o ciclo do lote (abrir/alterar/fechar/zerar/NF), não o relatório — que é o **nome** da tela (`TfrmRelInventarioRotativo`,
+141 acessos). `btnImprimirClick` (:450) com as cinco consultas do `UDMRelatorioInventarioRotativo.dfm`. API
+`cadastro/inventario-rotativo/relatorio` (o Grid), `/relatorio/impressao` e `/relatorio/lotes`; seção "Relatório do inventário rotativo"
+na página.
+
+- **A grade de lotes** (`radioInventarioClick`): Aberto = as coletas soltas (lote nulo → "lote 0") e os lotes com nome sem linha
+  FECHADO (`sqqInvAberto`); Fechado = as linhas FECHADO do período pela data do fechamento (`sqqInvFechado`, D2 = fim + 1).
+- **As opções**: DETALHADO (todas as operações; a coletada é a gravada, ou a atual no SUBSTITUIR, ou atual − anterior); RESUMIDO (uma
+  linha por lote×produto com a coletada somada desde o último SUBSTITUIR e a anterior do primeiro; `ORDER BY T.LOTE, P.DESCRICAO`);
+  NÃO COLETADOS (os produtos ativos dos departamentos coletados que não estão no lote, com a última venda e a última compra; sem coleta:
+  "Nenhuma coleta foi encontrada."); SÓ DEPÓSITO / SÓ ÁREA DE VENDA (coletados num destino e não no outro).
+- **O filtro** (`GetFiltro`): login do operador ("Operador não encontrado"), fornecedor, departamento, grupo, subgrupo, seção, o lote do
+  status, os produtos escolhidos e o tipo de estoque (`TTipoEstoque` = depósito, loja, ambos — padrão Ambos; desabilitado nas opções de
+  destino). Nos não coletados o filtro de dentro (o NOT IN) leva tudo e o de fora perde o operador e troca `I.IDPRODUTO` por `P.IDPRODUTO`.
+- **"Agrupar lotes"** só existe no DETALHADO (usa o período e mostra o grupo por lote). Nas outras opções o check fica **invisível e
+  marcado** (`AtivarAgruparLotes`: `checked := not Visible`) — por isso o resumido de inventário fechado sai "Lote: Todos" e o fechado das
+  opções de destino não filtra o lote no `GetFiltro`. Reproduzido.
+- **Validações**: aberto/fechado e a opção; resumido de inventário fechado sem lote marcado → "Selecione uma opção de lote !".
+  **Desvio**: fechado com o lote 0 — o legado avisa "Selecione um LOTE para gerar relatório de Inventário Fechado !" e, como o `Exit` do
+  `GetFiltro` devolve o filtro vazio, **segue e imprime a empresa inteira**; aqui para no aviso.
+- O `OnCalcFields` que copiaria o lote da grade para o LOTE do dataset existe no fonte mas **não está ligado** (nenhum `OnCalcFields :=` nem
+  no .dfm) — o LOTE é o do SQL.
+- **Layouts**: `InvRotDetalhado.fr3` (798), `InvRotResumido.fr3` (800 — o resumido e as opções de destino), `InvRotProdutos.fr3` (799 —
+  os não coletados; as datas saem no `mm/dd/yyyy` do layout). GHLote/GFLote visíveis e com DrillDown quando agrupa; TITULO, LOJA, PERIODO.
+- Sem ordem no fonte para o detalhado (Oracle devolve na ordem física): aqui pela ordem de coleta (`CODINV_ROTATIVO`).
+
+Cobertura: smoke §88.R e §88.R2; testes de renderização dos três layouts.

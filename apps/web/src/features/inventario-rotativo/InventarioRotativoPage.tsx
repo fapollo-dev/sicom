@@ -1,3 +1,4 @@
+import { RelatorioRotativo } from './RelatorioRotativo';
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -180,6 +181,8 @@ export function InventarioRotativoPage() {
       </div>
 
       <DataTable columns={colunas} rows={lotes} loading={carregando} getRowId={(r: LoteRotativoResumo) => String(r.lote)} />
+
+      <RelatorioRotativo />
     </div>
   );
 }
