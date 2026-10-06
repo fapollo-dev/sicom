@@ -6,6 +6,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -63,6 +64,10 @@ export function RelFinalizadorasPage() {
       if (!r.linhas.length) mensagem.sucesso('Nenhum movimento no período.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+  // F10 = btnConsultaClick (FormKeyDown do UrelFinalizadoras; "[F10] - Consulta")
+  useShortcut('f10', () => { void consultar(); }, { when: !busy });
+  // F11 = btnImprimirClick (FormKeyDown do UrelFinalizadoras; "[F11] - Imprimir") — só depois de uma consulta com dados, como o botão
+  useShortcut('f11', imprimir, { when: !busy && linhas.length > 0 });
 
   const exportar = () => {
     if (!linhas.length) return;

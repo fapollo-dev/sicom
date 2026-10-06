@@ -6,6 +6,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { useShortcut } from '../../shared/keyboard';
 
 /**
  * Cadastro do Centro de Custos (uCadPLC) — o plano gerencial em árvore. A conta pendura numa conta retrocedente (vazia = conta raiz) e o
@@ -40,8 +41,9 @@ export function PlcCadMaster() {
       ]}
       schema={plcSchema}
       defaultValues={{ descricao: '', desccodplc: '' }}
-      campos={({ form, editavel }) => (
+      campos={({ form, editavel, novo }) => (
         <div className="flex flex-col gap-form-gap">
+          <TeclasDoPlc novo={novo} />
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
             <Controller control={form.control} name="codpai" render={({ field }) => (
               <SelectField label="Conta &retrocedente" options={plcs} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
@@ -76,4 +78,15 @@ export function PlcCadMaster() {
       )}
     />
   );
+}
+
+/**
+ * As teclas próprias do uCadPLC (ShortCut dos itens do `ppmPLC`, o menu da árvore):
+ *  - Ctrl+Ins "Inserir conta raiz" → o Adicionar (aqui a conta nasce sem retrocedente = raiz); só com o Adicionar habilitado.
+ * Shift+Ins "Inserir conta derivada" e Ctrl+I "Inserir composição da conta" não têm ação equivalente nesta tela (sem a árvore).
+ */
+function TeclasDoPlc({ novo }: { novo?: () => void }) {
+  // Ctrl+Ins = ContaRaiz1Click (TMenuItem ContaRaiz1, ShortCut 16429, do uCadPLC)
+  useShortcut('ctrl+insert', () => novo?.(), { when: !!novo });
+  return null;
 }

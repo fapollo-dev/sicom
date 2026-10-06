@@ -53,6 +53,22 @@ describe('Pesquisa (frmPesquisa) — Modal + DataTable do DS', () => {
     await waitFor(() => expect(calls().some((u: string) => u.includes('situacao=todos'))).toBe(true));
   });
 
+  it('F3 põe o foco no filtro (SetaFocoFrame) e F5 limpa a busca (cdsFiltros.EmptyDataSet)', async () => {
+    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} />);
+    await waitFor(() => screen.getByText('UNILEVER'));
+
+    fireEvent.keyDown(window, { key: 'F3' });
+    const busca = document.querySelector<HTMLInputElement>('[role="dialog"] input[aria-label="Buscar"]')!;
+    expect(document.activeElement).toBe(busca);
+
+    fireEvent.change(busca, { target: { value: 'NEST' } });
+    await waitFor(() => expect(screen.queryByText('UNILEVER')).toBeNull());
+
+    fireEvent.keyDown(window, { key: 'F5' });
+    expect(busca.value).toBe('');
+    await waitFor(() => screen.getByText('UNILEVER'));
+  });
+
   it('Esc fecha (onClose do Modal do DS)', async () => {
     const user = userEvent.setup();
     const onFechar = vi.fn();

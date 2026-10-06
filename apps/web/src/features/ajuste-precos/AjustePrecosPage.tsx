@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -26,6 +27,16 @@ interface Lote {
   datalote?: string | null; obs?: string | null; origem?: string | null;
   codbarra?: string | null; descricao?: string | null; codgrupopreco?: number | null;
   preco_atual?: number | null; vrcusto?: number | null;
+}
+
+/** o foco está num campo de digitação (ou numa lista/janela aberta): a letra é do campo, não atalho da tela */
+function digitando(): boolean {
+  if (document.querySelector('[role="dialog"], [role="listbox"], [role="menu"]')) return true;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  if (el.isContentEditable || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLInputElement) return !['checkbox', 'radio', 'button', 'submit', 'reset'].includes(el.type);
+  return el.getAttribute('role') === 'combobox';
 }
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -57,6 +68,11 @@ export function AjustePrecosPage() {
   const selecionadosDe = (s: Set<number>) => lotes.filter((l) => s.has(l.codlotepreco));
   const toggle = (id: number) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const todos = () => setSel((s) => (s.size === lotes.length ? new Set() : new Set(lotes.map((l) => l.codlotepreco))));
+  // T = MarcarTodos(FSelecionarTodos) alternando marcar/desmarcar (FormKeyDown do uAjustePrecos) — fora dos campos de digitação
+  useShortcut('t', () => {
+    if (digitando()) return false;
+    todos();
+  }, { when: lotes.length > 0 });
 
   const processar = async () => {
     if (busy || !sel.size) return;

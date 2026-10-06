@@ -64,3 +64,32 @@ test.describe('teclas do cadastro (TfrmCadMaster)', () => {
     await expect(page).toHaveURL(/\/cadastro\/bancos$/);
   });
 });
+
+test.describe('teclas próprias das telas (FormKeyDown de cada form)', () => {
+  test('F9 consulta as entradas x financeiro (uRelEntradas_Finan)', async ({ page }) => {
+    await entrar(page);
+    await page.goto('/relatorios/entradas-financeiro');
+    await page.getByRole('button', { name: /Consultar/ }).waitFor();
+    const consulta = page.waitForResponse((r) => /\/relatorios\/entradas-financeiro\?/.test(r.url()) && r.request().method() === 'GET');
+    await page.keyboard.press('F9');
+    expect((await consulta).ok()).toBe(true);
+  });
+
+  test('F3 gera o fluxo de cartões (uFluxoCartoes)', async ({ page }) => {
+    await entrar(page);
+    await page.goto('/financeiro/fluxo-cartoes');
+    await page.getByRole('button', { name: /Gerar/ }).waitFor();
+    const consulta = page.waitForResponse((r) => /\/cobranca\/fluxo-cartoes\?/.test(r.url()));
+    await page.keyboard.press('F3');
+    expect((await consulta).ok()).toBe(true);
+  });
+
+  test('F9 consulta o relatório financeiro (UrelFinanceiro)', async ({ page }) => {
+    await entrar(page);
+    await page.goto('/relatorios/financeiro');
+    await page.getByRole('button', { name: /Consultar/ }).waitFor();
+    const consulta = page.waitForResponse((r) => /\/relatorios\/financeiro/.test(r.url()) && r.request().method() === 'GET');
+    await page.keyboard.press('F9');
+    expect((await consulta).status()).toBeLessThan(500);
+  });
+});

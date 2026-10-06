@@ -5,3 +5,4 @@ export { useAltPressed } from './useAltPressed';
 export { useEnterAdvances } from './useEnterAdvances';
 export { FormScope } from './FormScope';
 export { focarAnterior } from './focarAnterior';
+export { TeclasDaBaseDesligadas } from './TeclasDaBaseDesligadas';

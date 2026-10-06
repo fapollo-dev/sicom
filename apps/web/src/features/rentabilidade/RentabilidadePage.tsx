@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -66,6 +67,8 @@ export function RentabilidadePage() {
   };
   // o "Imprimir" no layout do tipo (completo / simplificado / totais)
   const imprimir = () => { imprimirRelatorio(`/relatorios/rentabilidade/impressao?${consulta()}`).catch((e) => mensagem.erro(e)); };
+  // F9 = btnConsultaClick (FormKeyDown do uRentabilidadeCategorias; "[F9] Consultar") — com o Consultar habilitado (permissão de controle)
+  useShortcut('f9', () => { void gerar(); }, { when: !ocupado && pode('BTNCONSULTA') });
 
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => {
     const t = (field: string, headerName: string, width: number, fmt?: (v: unknown) => string): DataTableColumnDef<Linha> =>

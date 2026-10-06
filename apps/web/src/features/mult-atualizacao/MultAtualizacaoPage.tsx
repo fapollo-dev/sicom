@@ -5,6 +5,7 @@ import { CAMPOS_MULT, OPERACOES_MULT, type SimularMultDto } from '@apollo/shared
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { multApi, type LinhaSimulada, type ProdutoMult } from './multAtualizacaoApi';
 
 /**
@@ -44,6 +45,9 @@ export function MultAtualizacaoPage() {
       setProdutos(r); setSel(new Set(r.map((p) => p.idproduto))); setPrevia(null);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
+
+  // F3 = btnBuscaProdutoClick (FormKeyDown do uMultAtualizacao; lá, fora dos campos PIS/COFINS e Natureza, que a tela não tem)
+  useShortcut('f3', () => void buscar(), { when: !ocupado });
 
   const corpo = (): SimularMultDto => ({
     idprodutos: [...sel], campo: alt.campo as SimularMultDto['campo'],

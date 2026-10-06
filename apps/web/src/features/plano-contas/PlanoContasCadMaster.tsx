@@ -10,6 +10,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { TeclasDaBaseDesligadas, useShortcut } from '../../shared/keyboard';
 import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 
 const api = createResourceApi<PlanoConta>('cadastro/plano-contas');
@@ -50,6 +51,7 @@ export function PlanoContasCadMaster() {
   const [contas, setContas] = useState<PlanoConta[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [editor, setEditor] = useState<{ conta?: PlanoConta; codpaiInicial?: number } | null>(null);
+  const raizRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setCarregando(true);
@@ -140,8 +142,13 @@ export function PlanoContasCadMaster() {
     [],
   );
 
+  // F3 = if btnPesquisa.Enabled then btnPesquisa.Click (FormKeyUp do uCadPlanoContas) — a pesquisa da conta aqui é a busca da grade; fora do editor
+  useShortcut('f3', () => { raizRef.current?.querySelector<HTMLInputElement>('input[placeholder="Buscar..."]')?.focus(); }, { when: !editor });
+
+  // o FormKeyDown/FormKeyPress do uCadPlanoContas têm o `inherited` comentado: Esc, Ctrl+E, Alt+← e Enter-avança da base não valem aqui
   return (
-    <div className="flex flex-col gap-form-gap max-w-6xl">
+    <TeclasDaBaseDesligadas>
+    <div ref={raizRef} className="flex flex-col gap-form-gap max-w-6xl">
       <PageHeader title="Plano de Contas" description="Razão contábil em árvore — sintéticas agrupam, analíticas recebem lançamento." />
       <div className="flex gap-gp-sm">
         <Button label="Adicionar conta &raiz" variant="soft" onClick={() => setEditor({})} />
@@ -172,6 +179,7 @@ export function PlanoContasCadMaster() {
         />
       )}
     </div>
+    </TeclasDaBaseDesligadas>
   );
 }
 

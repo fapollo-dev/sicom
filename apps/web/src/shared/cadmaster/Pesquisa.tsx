@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, DataTable } from '@apollosg/design-system';
+import { Modal, DataTable, type FilterModel } from '@apollosg/design-system';
+import { ShortcutScope, useShortcut } from '../keyboard';
 import { createResourceApi } from './resourceApi';
 
 export interface ColunaPesquisa {
@@ -24,6 +25,7 @@ const FILTRO_POR_TIPO: Record<string, 'text' | 'number' | 'date'> = {
 export const SITUACOES = ['ativos', 'inativos', 'todos'] as const;
 export type Situacao = (typeof SITUACOES)[number];
 const SIT_LABEL: Record<Situacao, string> = { ativos: 'Ativos', inativos: 'Inativos', todos: 'Todos' };
+const SEM_FILTROS: FilterModel = { items: [], logicOperator: 'AND' };
 
 interface Props {
   resourcePath: string;
@@ -53,6 +55,9 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
   const [situacao, setSituacao] = useState<Situacao>(situacaoInicial ?? 'ativos');
   useEffect(() => { onSituacao?.(situacao); }, [situacao, onSituacao]);
   const [rows, setRows] = useState<Record<string, any>[]>([]);
+  // a busca e os filtros do DataTable (o frame de filtro do legado) — controlados para o F3/F5 da Pesquisa
+  const [busca, setBusca] = useState('');
+  const [filtros, setFiltros] = useState<FilterModel>(SEM_FILTROS);
 
   // carrega a lista pela view (GET_*), refazendo quando a situação muda. O `filtroExtra`
   // (papel da tela parametrizada) entra como campo/operador/valor na mesma query.
@@ -102,22 +107,50 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
   );
 
   return (
-    <Modal
-      open
-      onClose={onFechar}
-      size="lg"
-      title="Pesquisar"
-      description={`Situação: ${SIT_LABEL[situacao]} · F6 alterna · clique seleciona · Esc fecha`}
-    >
-      <DataTable
-        rows={rows}
-        columns={columns as any}
-        getRowId={(r: any) => r[colCodigo]}
-        toolbar={{ enableSearch: true, enableFilters: true }}
-        paginationConfig={{ enabled: true, initialPageSize: 10 }}
-        cardBreakpoint={false}
-        onRowClick={(row: any) => onSelecionar(row)}
+    <ShortcutScope>
+      <TeclasDaPesquisa
+        focarFiltro={() => {
+          setBusca('');
+          document.querySelector<HTMLInputElement>('[role="dialog"] input[aria-label="Buscar"]')?.focus();
+        }}
+        limparFiltros={() => {
+          setBusca('');
+          setFiltros(SEM_FILTROS);
+        }}
       />
-    </Modal>
+      <Modal
+        open
+        onClose={onFechar}
+        size="lg"
+        title="Pesquisar"
+        description={`Situação: ${SIT_LABEL[situacao]} · F6 alterna · clique seleciona · Esc fecha`}
+      >
+        <DataTable
+          rows={rows}
+          columns={columns as any}
+          getRowId={(r: any) => r[colCodigo]}
+          toolbar={{ enableSearch: true, enableFilters: true }}
+          paginationConfig={{ enabled: true, initialPageSize: 10 }}
+          cardBreakpoint={false}
+          search={busca}
+          onSearchChange={setBusca}
+          filterModel={filtros}
+          onFilterModelChange={setFiltros}
+          onRowClick={(row: any) => onSelecionar(row)}
+        />
+      </Modal>
+    </ShortcutScope>
   );
+}
+
+/**
+ * As teclas próprias do `frmPesquisa` (uPesquisa.pas), num escopo só da Pesquisa — com ela aberta, F3/F5 são dela e não chegam
+ * ao cadastro de baixo (o F3 do cadastro abre a Pesquisa; o F5 de uma tela pode ter outro uso).
+ */
+function TeclasDaPesquisa({ focarFiltro, limparFiltros }: { focarFiltro: () => void; limparFiltros: () => void }) {
+  // F3 = SetaFocoFrame (FormKeyDown do uPesquisa): limpa o texto e põe o foco no filtro (edtTexto)
+  useShortcut('f3', () => focarFiltro());
+  // F5 = cdsValorCampo.EmptyDataSet + cdsFiltros.EmptyDataSet (FormKeyUp do uPesquisa): limpa os filtros
+  useShortcut('f5', () => limparFiltros());
+  return null;
 }

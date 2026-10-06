@@ -4,6 +4,7 @@ import { Lock, Unlock } from 'lucide-react';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { listarMes, fecharDia, abrirDia, mesInteiro, type DiaFechamento } from './fechamentoApi';
 
 /**
@@ -74,6 +75,10 @@ export function FechamentoDiarioPage() {
     const r = await mesInteiro(ano, mes, fechar_);
     mensagem.sucesso(`${r.dias} dia(s) ${fechar_ ? 'fechados' : 'reabertos'}.`);
   });
+  // F8 = btnFechaTotalClick (FormKeyDown do uFechamentoDiario; "[F8] - F&echamento total") — com o botão habilitado
+  useShortcut('f8', () => { void total(true); }, { when: !ocupado });
+  // F9 = btnAberturaTotalClick (FormKeyDown do uFechamentoDiario; "[F9] - Re&abertura total") — com o botão habilitado
+  useShortcut('f9', () => { void total(false); }, { when: !ocupado });
 
   const anos = useMemo(() => {
     const base = hoje.getFullYear();

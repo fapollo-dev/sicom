@@ -11,6 +11,7 @@ import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { imprimirRelatorio as imprimirFr3 } from '../../shared/fr3/imprimirRelatorio';
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import {
   abrirTurno, cancelamentosTurno, descontosTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, rotaImpressaoTurno, rotaRelatorioFechamento, salvarRascunho,
   type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
@@ -75,6 +76,10 @@ export function FechamentoCaixaPage() {
   };
 
   const pesquisar = () => executar(async () => { setMarcadosRel(new Set()); setTurnos(await listarTurnos(data)); });
+  // F5 = btncxaberto.Click → CX_abertos (FormKeyDown do uFechamentoCaixa; não olha o modificador, daí o Alt+F5) — fora da finalização e da observação
+  const teclaCaixasAbertos = () => { if (!ocupado) void pesquisar(); };
+  useShortcut('f5', teclaCaixasAbertos, { when: !det && !obsTurno });
+  useShortcut('alt+f5', teclaCaixasAbertos, { when: !det && !obsTurno });
 
   const carregar = (d: DetalheTurno) => {
     setDet(d);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, createContext, useContext } from 'react';
+import { useEffect, useMemo, useRef, useState, createContext, useContext } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -41,6 +41,7 @@ import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { getSessao } from '../../shared/auth/session';
+import { useShortcut } from '../../shared/keyboard';
 
 /**
  * a LOJA DA SESSÃO (`dmPrincipal.EmpresaCODEMPRESA` no legado) — a edição inline de preço acontece em `precos.0` e a de
@@ -337,6 +338,12 @@ function PrincipalSection({
   const pode = useContext(PodeCtx);
   // dica visual: só sinaliza inválido quando há conteúdo (a obrigatoriedade é do schema).
   const ehBalanca = form.watch('balanca') === 'S';
+  const fatorCxRef = useRef<HTMLDivElement>(null);
+  // F5 = SetaFoco(edtFATORCX) com a aba principal ativa (FormKeyDown do UCadProduto); com uma janela aberta por cima, a tecla é dela
+  useShortcut('f5', () => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
+    fatorCxRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+  });
 
   // F8 — gera um EAN-13 interno a partir de um sequencial (prefixo '7'); seta o campo.
   const gerarEan = () => {
@@ -584,15 +591,17 @@ function PrincipalSection({
             control={form.control}
             name="fatorcx"
             render={({ field }) => (
-              <NumberField
-                label="Fator cai&xa"
-                value={field.value as number | undefined}
-                onChange={field.onChange}
-                decimais={0}
-                min={0}
-                disabled={!editavel}
-                error={form.formState.errors.fatorcx?.message as string | undefined}
-              />
+              <div ref={fatorCxRef}>
+                <NumberField
+                  label="Fator cai&xa"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  disabled={!editavel}
+                  error={form.formState.errors.fatorcx?.message as string | undefined}
+                />
+              </div>
             )}
           />
         </div>

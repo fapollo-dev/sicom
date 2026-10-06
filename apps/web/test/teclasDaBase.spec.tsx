@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { z } from 'zod';
-import { ShortcutScope, useShortcut, useEnterAdvances } from '../src/shared/keyboard';
+import { ShortcutScope, useShortcut, useEnterAdvances, TeclasDaBaseDesligadas } from '../src/shared/keyboard';
 import { AppLayout } from '../src/app/AppLayout';
 import { AuthProvider } from '../src/features/auth/AuthContext';
 import { CadMaster } from '../src/shared/cadmaster/CadMaster';
@@ -128,6 +128,30 @@ describe('as teclas da base TfrmMaster na casca', () => {
     montarCasca();
     act(() => { fireEvent.keyDown(window, { key: 'e', code: 'KeyE', ctrlKey: true }); });
     expect(await screen.findByText('Empresas')).toBeTruthy();
+  });
+
+  it('tela com o `inherited` comentado (TeclasDaBaseDesligadas): Esc não fecha, Enter não avança, Ctrl+E não troca', async () => {
+    const user = userEvent.setup();
+    const f3 = vi.fn();
+    function TelaSemBase() {
+      useShortcut('f3', f3);
+      return <TeclasDaBaseDesligadas><input aria-label="primeiro" /><input aria-label="segundo" /></TeclasDaBaseDesligadas>;
+    }
+    const router = createMemoryRouter(
+      [{ element: <AppLayout />, children: [{ path: '/tela', element: <TelaSemBase /> }, { path: '/inicio', element: <div>INICIO</div> }] }],
+      { initialEntries: ['/tela'] },
+    );
+    render(<AuthProvider><RouterProvider router={router} /></AuthProvider>);
+    act(() => { fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' }); });
+    expect(router.state.location.pathname).toBe('/tela');
+    const p = screen.getByLabelText('primeiro');
+    p.focus();
+    await user.keyboard('{Enter}');
+    expect(document.activeElement).toBe(p);
+    act(() => { fireEvent.keyDown(window, { key: 'e', code: 'KeyE', ctrlKey: true }); });
+    expect(screen.queryByText('Empresas')).toBeNull();
+    act(() => { fireEvent.keyDown(window, { key: 'F3', code: 'F3' }); });
+    expect(f3).toHaveBeenCalledTimes(1); // a tecla própria da tela continua valendo
   });
 });
 

@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -179,6 +180,11 @@ export function LancamentosContabeisPage() {
   // as exportações: a grade (o "Excel" do legado exporta o grid) e o conjunto inteiro (o "CSV", `CriarCsv(MemDiario…)`)
   const exportarGrade = () => res && exportarGradeCsv(res.linhas, COLUNAS.map((c) => ({ titulo: c.t, valor: (l: Linha) => fmt(l[c.c], c.fmt) })), 'LancamentosContabeis');
   const exportarCsv = () => res && exportarGradeCsv(res.linhas, COLUNAS.map((c) => ({ titulo: c.c.toUpperCase(), valor: (l: Linha) => (l[c.c] as string | number | null) ?? '' })), 'GET_DIARIO');
+  // as teclas do FormKeyDown (e o ShortCut dos itens do menu) — fora da janela das diferenças, que no legado é outro form
+  // Ctrl+A = MniExportarExcelClick (FormKeyDown do UFrmRelLancamentosContabeis)
+  useShortcut('ctrl+a', () => { exportarGrade(); }, { when: !!res && !diferencas });
+  // Ctrl+B = MniExportarCSVClick (FormKeyDown do UFrmRelLancamentosContabeis)
+  useShortcut('ctrl+b', () => { exportarCsv(); }, { when: !!res && !diferencas });
 
   // `MniImportarArquivoClick`
   const importar = async (file: File | undefined) => {

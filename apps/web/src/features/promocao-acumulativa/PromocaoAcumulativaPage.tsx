@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { useShortcut } from '../../shared/keyboard';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -52,6 +53,10 @@ export function PromocaoAcumulativaPage() {
   const [form, setForm] = useState({ ...VAZIO });
   const [empresas, setEmpresas] = useState<number[]>([]);
   const [ocupado, setOcupado] = useState(false);
+  // F3 = ChamaTelaOpcoes (FormKeyUp do uCadPromocaoAcumulativa): "Trazer somente abertas / somente fechadas / todas" antes da
+  // Pesquisa — aqui é o combo Situação do filtro, ao lado do Buscar (a tela não tem o edtCodigo do cadastro)
+  const situacaoRef = useRef<HTMLSelectElement>(null);
+  useShortcut('f3', () => situacaoRef.current?.focus());
 
   const { data: empresaOptions = [] } = useResourceOptions('cadastro/empresas', (e: any) => ({
     value: String(e.idempresa ?? e.codempresa), label: `${e.idempresa ?? e.codempresa} - ${e.fantasia ?? e.razao_social ?? ''}`,
@@ -231,7 +236,7 @@ export function PromocaoAcumulativaPage() {
           <div className="w-64"><Field label="Filtrar por &descrição" value={filtro.descricao} onChange={(e) => setFiltro({ ...filtro, descricao: e.target.value })} /></div>
           <label className="flex flex-col gap-gp-xs text-body-sm">
             Situação
-            <select className="rounded border border-border px-1 py-1" value={filtro.situacao}
+            <select ref={situacaoRef} className="rounded border border-border px-1 py-1" value={filtro.situacao}
               onChange={(e) => setFiltro({ ...filtro, situacao: e.target.value })}>
               <option value="ABERTAS">Somente abertas</option>
               <option value="FECHADAS">Somente fechadas</option>

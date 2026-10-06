@@ -4,6 +4,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import {
   listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, etiquetasDaAgenda, listarModelos,
   importarCodigos, codigosDoArquivo, precoNaEtiqueta, etiquetasDeItens, lerPedidoDeItens, type Etiqueta,
@@ -191,6 +192,9 @@ export function EtiquetaPage() {
     } catch (e) { win.close(); mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  // F2 = BtnImprimir.Click (FormKeyDown do Uetiqueta, em toda a tela); o Esc (Close) é o da base
+  useShortcut('f2', () => void imprimirSel());
+
   const opcoesModelo = modelos.map((m) => ({ value: m.nome, label: m.nome }));
   const inp = 'w-full rounded-radius-sm border border-border bg-bg px-1 py-0.5';
 
@@ -238,7 +242,7 @@ export function EtiquetaPage() {
         <div className="flex-1 text-right text-body-sm">Selecionado — <b>{selecionadas.length}</b> produto(s) · <b>{totalEtiquetas}</b> etiqueta(s)</div>
       </div>
 
-      <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface" onKeyDown={(e) => { if (e.key === 'F2') { e.preventDefault(); void imprimirSel(); } }}>
+      <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
         <table className="w-full text-body-sm">
           <thead>
             <tr className="text-left text-fg-muted">

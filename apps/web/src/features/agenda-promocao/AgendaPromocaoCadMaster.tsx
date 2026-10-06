@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { DataTable, type DataTableColumnDef, FormFieldCheckbox, PageHeader } from '@apollosg/design-system';
 import { CheckCircle2, Pencil, RotateCcw, Trash2, X, Tag } from 'lucide-react';
@@ -12,6 +12,7 @@ import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
+import { useShortcut } from '../../shared/keyboard';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { AgendaPromocaoRelatorios } from './AgendaPromocaoRelatorios';
 import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
@@ -127,6 +128,14 @@ export function AgendaPromocaoCadMaster() {
     limparAdder();
   };
   const removerItem = (id: number) => setItens((xs) => xs.filter((it) => it.idproduto !== id));
+  // F2 = pnlBuscaProd.Visible + SetaFoco(edtCodBarra) + edtCodBarra.Clear (FormKeyDown do uCadAgendaPromocao): o produto do adder,
+  // limpo e com o foco, para digitar o próximo item; com uma janela aberta por cima, a tecla é dela
+  const produtoRef = useRef<HTMLDivElement>(null);
+  useShortcut('f2', () => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
+    setIdproduto(undefined);
+    produtoRef.current?.querySelector<HTMLElement>('button,[role=combobox]')?.focus();
+  });
   // "Marcar produto como ativo/inativo" (uCadAgendaPromocao:1412/1446) — vale ao gravar
   const alternarAtivo = (id: number) =>
     setItens((xs) => xs.map((it) => (it.idproduto === id ? { ...it, ativo: it.ativo === 'N' ? 'S' : 'N' } : it)));
@@ -313,7 +322,7 @@ export function AgendaPromocaoCadMaster() {
         {/* Adder de itens (produto + preços + mídia) */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-            <div className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+            <div ref={produtoRef} className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
             <CurrencyField label="Vr. &Venda" value={vrvenda} onChange={setVrvenda} />
             <CurrencyField label="Vr. &Promocional" value={vlrpromocao} onChange={setVlrpromocao} />
             <CurrencyField label="Vr. &Fidelidade" value={vrclube} onChange={setVrclube} />

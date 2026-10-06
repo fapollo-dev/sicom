@@ -6,6 +6,7 @@ import {
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { TeclasDaBaseDesligadas } from '../../shared/keyboard';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 
 /**
@@ -132,7 +133,10 @@ export function DreEstruturaPage() {
     ? referenciasDaExpressao(form.expressao).filter((r) => !porCodigo.has(r) || r === form.codexpandido)
     : [];
 
+  // o FormKeyDown/FormKeyPress do UConfigDREContabil têm o `inherited` comentado: Esc, Ctrl+E, Alt+← e Enter-avança da base não valem
+  // nesta tela (o Esc "em edição não sai" do fonte fica contido nisso). O F3 (Pesquisa da GET_CONFIG_DRE_CONTABIL) não tem equivalente.
   return (
+    <TeclasDaBaseDesligadas>
     <div className="flex flex-col gap-gp-md">
       <PageHeader title="Configurador do DRE contábil" />
 
@@ -269,6 +273,7 @@ export function DreEstruturaPage() {
         </section>
       )}
     </div>
+    </TeclasDaBaseDesligadas>
   );
 }
 
