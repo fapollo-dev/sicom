@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * ANÁLISE DE ITENS DA NOTA FISCAL (`FRMRELANALISEITENSNF`).
@@ -44,11 +45,16 @@ export function RelAnaliseItensNfPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
+  const params = () => {
+    const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo, incluirCanceladas: f.incluirCanceladas });
+    for (const k of ['codfor', 'coddpto', 'codgrupo', 'codnf'] as const) if (f[k]) q.set(k, f[k]);
+    return q;
+  };
+
   const buscar = async () => {
     setOcupado(true);
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo, incluirCanceladas: f.incluirCanceladas });
-      for (const k of ['codfor', 'coddpto', 'codgrupo', 'codnf'] as const) if (f[k]) q.set(k, f[k]);
+      const q = params();
       const r = await fetch(`${BASE}/relatorios/analise-itens-nf?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -89,6 +95,9 @@ export function RelAnaliseItensNfPage() {
           <div className="w-32"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
           <div className="w-32"><Field label="&Nota fiscal" value={f.codnf} onChange={(e) => setF({ ...f, codnf: e.target.value })} /></div>
           <Button label="&Gerar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            void imprimirRelatorio(`/relatorios/analise-itens-nf/impressao?${params().toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,

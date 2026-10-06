@@ -16,4 +16,11 @@ export class RelAnaliseItensNfController {
   gerar(@Query(new ZodValidationPipe(relAnaliseItensNfSchema)) q: RelAnaliseItensNfDto) {
     return this.svc.gerar(q);
   }
+
+  /** o Imprimir (a única saída do legado): Rel_AnaliseItensNF.fr3 */
+  @Get('impressao')
+  @RequerAcesso('FRMRELANALISEITENSNF', 'FRMRELANALISEITENSNF')
+  impressao(@Query(new ZodValidationPipe(relAnaliseItensNfSchema)) q: RelAnaliseItensNfDto) {
+    return this.svc.impressao(q);
+  }
 }

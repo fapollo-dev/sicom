@@ -4,6 +4,8 @@ import type { RelAnaliseItensNfDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -30,6 +32,9 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * `if Pos(FFiltro, 'N.CODNF') > 0` (`:138`) tem os argumentos **invertidos** — em Delphi é
  * `Pos(agulha, palheiro)`, e aqui o filtro inteiro foi passado como agulha. A condição quase nunca é
  * verdadeira, e não faz diferença: **os dois ramos do `if` fazem exatamente a mesma coisa**.
+ *
+ * ── A nota escolhida ignora o período (06/10/2026) ────────────────────────────────────────────────────
+ * `if edtNF.Text <> '' then datai := '01/01/1900'; dataf := '01/01/2050'` (:150): com a nota escolhida, o período não vale.
  */
 @Injectable()
 export class RelAnaliseItensNfService {
@@ -69,7 +74,8 @@ export class RelAnaliseItensNfService {
         LEFT JOIN produtos pr  ON pr.idproduto = np.codproduto
        -- ⚠️ o legado não tem nenhuma destas três: empresa, tipo e cancelamento
        WHERE n.idempresa = ${emp}
-         AND n.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+         -- com a nota escolhida o legado troca o período por 01/01/1900 a 01/01/2050
+         AND (${f.codnf ?? null}::int IS NOT NULL OR n.dtcontabil::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date)
          AND (${f.tipo} = 'TODAS' OR n.tipo = ${f.tipo})
          AND (${f.incluirCanceladas} = 'S' OR coalesce(n.cancelada, 'N') <> 'S')
          AND (${f.codfor ?? null}::int     IS NULL OR n.codparceiro = ${f.codfor ?? null}::int)
@@ -93,6 +99,27 @@ export class RelAnaliseItensNfService {
         itens: t.itens, quantidade: r2(t.quantidade), custo: r2(t.custo), base: r2(t.base),
         icms: r2(t.icms), st: r2(t.st), isento: r2(t.isento), outras: r2(t.outras),
       },
+    };
+  }
+
+  /**
+   * O Imprimir (`btnImprimirClick`, a única saída do legado): `Rel_AnaliseItensNF.fr3` com o `cdsRel` no `frxDBDataset1` (NRONF,
+   * CODBARRA, DESCRICAO, QUANTIDADE, VRCUSTO, TOTAL_CUSTO, VRBASECALCULO, VRICM, VROUTRASDESP, ISENTO, VRBASEST, VRICMST, ALIQUOTA) e a
+   * variável Empresa = a razão social da loja do login. O legado imprime mesmo sem linhas.
+   */
+  async impressao(f: RelAnaliseItensNfDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.gerar({ ...f, limite: 20000 });
+    const razao = String((await sql<{ r: string | null }>`SELECT razao_social AS r FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0]?.r ?? '');
+    const campos = ['nronf', 'codbarra', 'descricao', 'quantidade', 'vrcusto', 'total_custo', 'vrbasecalculo', 'vricm', 'vroutrasdesp', 'isento', 'vrbasest', 'vricmst', 'aliquota'];
+    return {
+      titulo: 'Análise de itens da nota fiscal',
+      modelo: await modeloFr3(db, 'Rel_AnaliseItensNF.fr3'),
+      datasets: {
+        frxDBDataset1: r.linhas.map((l) => registroFr3(Object.fromEntries(campos.map((c) => [c, l[c]])),
+          new Set(['quantidade', 'vrcusto', 'total_custo', 'vrbasecalculo', 'vricm', 'vroutrasdesp', 'isento', 'vrbasest', 'vricmst']))),
+      },
+      variaveis: { Empresa: textoVariavel(razao) },
     };
   }
 }

@@ -30,7 +30,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 38 | `FRMEXTRATOFORNECEDORES` | ExtratoFornecedores1/2/3 | ✅ 06/10 — os três, e o corte 2 (os 6 modelos, os operadores do parceiro, lojas, datas sem TRUNC) |
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | Rel_Analise_Compra_Venda_Carne | ✅ 06/10 (a estrutura do sqqAnaliseCVCarne: um corte por linha da peça, as somas dos cortes repetidos) |
 | 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ✅ 06/10 — Produtos e Lote, os 3 agrupamentos (loja em colunas) · ⛔ "Lote detalhado" (procedure com ROWNUM no ON, a medir) |
-| 34 | `FRMRELANALISEITENSNF` | Rel_AnaliseItensNF | ⏳ |
+| 34 | `FRMRELANALISEITENSNF` | Rel_AnaliseItensNF | ✅ 06/10 (e a nota escolhida ignora o período, como o legado) |
 | 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ⏳ |
 | 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ⏳ |
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ⏳ |

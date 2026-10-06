@@ -17313,6 +17313,19 @@ async function main() {
           (porNota.linhas ?? []).length === 1 && semGrant.status === 403 && invertido.status === 400,
           { porNota: porNota.linhas?.length, rbac: semGrant.status, invertido: invertido.status });
 
+        // §122.4 — a nota escolhida ignora o período (01/01/1900 a 01/01/2050) e o Imprimir (Rel_AnaliseItensNF.fr3)
+        const foraDoPeriodo = (await (await fetch(`${base}/${IN2}?dataIni=2001-01-01&dataFim=2001-01-31&codnf=991590`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgIn.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992971, 1, 'Rel_AnaliseItensNF.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="ItensNF_stub"/></TfrxReport>').toString('base64')]);
+        const iin = (await (await fetch(`${base}/${IN2}/impressao?dataIni=2044-08-01&dataFim=2044-08-31`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgIn.query(`DELETE FROM relatorios WHERE codrelatorio = 992971`);
+        const iinR = (iin.datasets?.frxDBDataset1 ?? []) as any[];
+        check('ANÁLISE ITENS NF §122.4 [a nota escolhida e o Imprimir]: com a nota informada o legado troca o período por 01/01/1900 a 01/01/2050 (a nota de 2044 aparece num período de 2001); o Rel_AnaliseItensNF.fr3 com o cdsRel no frxDBDataset1 (TOTAL_CUSTO, ISENTO, as bases) e a variável Empresa = a razão social da loja',
+          (foraDoPeriodo.linhas ?? []).length === 1 && String(iin.modelo).includes('ItensNF_stub') && iinR.length === 2
+            && iinR.some((x) => Math.abs(Number(x.TOTAL_CUSTO) - 95) < 0.005) && iinR.some((x) => Math.abs(Number(x.ISENTO) - 40) < 0.005)
+            && String(iin.variaveis?.Empresa ?? '').length > 2,
+          { foraDoPeriodo: foraDoPeriodo.linhas?.length, n: iinR.length, v: iin.variaveis });
+
         await pgIn.query(`DELETE FROM nf_prod WHERE codnf IN (991590,991591,991592,991593)`);
         await pgIn.query(`DELETE FROM nf WHERE codnf IN (991590,991591,991592,991593)`);
         await pgIn.query(`DELETE FROM produtos WHERE idproduto=991500`);

@@ -1641,3 +1641,17 @@ describe('preços alterados (Rel_PrecosAlterados.fr3, FRMRELPRECOSALTERADOS)', (
     expect(t).toContain('01/07/2043 à 31/07/2043');
   });
 });
+
+describe('análise de itens da NF (Rel_AnaliseItensNF.fr3, FRMRELANALISEITENSNF)', () => {
+  it('os itens com custo, base, ICMS, isento e a razão social da loja', () => {
+    const l = (NRONF: string, DESCRICAO: string, QUANTIDADE: number, VRCUSTO: number, TOTAL_CUSTO: number, ISENTO: number, ALIQUOTA: string) =>
+      ({ NRONF, CODBARRA: '789', DESCRICAO, QUANTIDADE, VRCUSTO, TOTAL_CUSTO, VRBASECALCULO: TOTAL_CUSTO, VRICM: TOTAL_CUSTO * 0.18, VROUTRASDESP: 0, ISENTO, VRBASEST: 0, VRICMST: 0, ALIQUOTA });
+    const t = texto(paginasDoModelo(modelo('analise-itens-nf.fr3'), {
+      frxDBDataset1: [l('991590', 'ARROZ 5KG', 10, 10, 95, 0, 'T01'), l('991593', 'FARINHA', 4, 10, 40, 40, 'IST')],
+    }, agora, { Empresa: "'JF SUPERMERCADOS LTDA'" }));
+    expect(t).toContain('JF SUPERMERCADOS LTDA');
+    expect(t).toContain('ARROZ 5KG');
+    expect(t).toContain('FARINHA');
+    expect(t).toContain('95,00');
+  });
+});
