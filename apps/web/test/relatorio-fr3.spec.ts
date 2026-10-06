@@ -1795,3 +1795,23 @@ describe('entradas × financeiro (Notas_fiscais_Entradas_Finan.fr3, FRMRELENTRAD
   });
 });
 
+describe('livro diário (LivroDiarioContabil.fr3, FRMRELDIARIOCONTABIL)', () => {
+  it('agrupa por dia com o total do dia e o acumulado do período', () => {
+    const l = (DIA: string, CONTA: string, HISTORICO: string, DEBITO: number, CREDITO: number) => ({
+      DIA, CONTA, CODIGOCONTA: 1, DESCRICAO: 'CAIXA', HISTORICO, ORIGEM: 61, IDORIGEM: 1, DOCUMENTO: 'D', DEBITO, CREDITO,
+    });
+    const t = texto(paginasDoModelo(modelo('livro-diario.fr3'), {
+      dbdConsulta: [
+        l('2056-04-10T00:00:00', '1.98.01.00001', 'VENDA DO DIA CUPOM 1', 100, 0), l('2056-04-10T00:00:00', '3.98.01.00001', 'VENDA DO DIA CUPOM 1', 0, 100),
+        l('2056-04-11T00:00:00', '1.98.01.00001', 'ESTORNO ', 0, 40), l('2056-04-11T00:00:00', '3.98.01.00001', 'ESTORNO ', 1040, 0),
+      ],
+      dbdEmpresa: [{ CODEMPRESA: 1, CNPJ: '37954975000169', RAZAOSOCIAL: 'SUPERMERCADO PINHEIRAO LTDA' }],
+    }, agora, { DtInicial: "'01/04/2056'", DtFinal: "'30/04/2056'", Empresa: "'1'", PaginaInicial: '1' }));
+    expect(t).toContain('VENDA DO DIA CUPOM 1');
+    expect(t).toContain('SUPERMERCADO PINHEIRAO LTDA');
+    expect(t).toContain('01/04/2056');
+    expect(t).toContain('1.040,00'); // o débito do dia 11
+    expect(t).toContain('1.140,00'); // o débito acumulado (100 + 1.040)
+  });
+});
+

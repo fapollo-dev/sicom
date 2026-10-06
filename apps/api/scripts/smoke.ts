@@ -19083,29 +19083,41 @@ async function main() {
           (9952003,'2056-04-11',995202,995201, 40.00,1,61,2,'ESTORNO',NULL,'DOC-2'),
           (9952004,'2056-04-12',995201,NULL,    7.00,1,61,3,'MEIA PARTIDA',NULL,'DOC-3'),
           (9952005,'2056-04-13',995201,995202,999.00,2,61,4,'LOJA DOIS','X','DOC-4')`);
-        const g = async (qs: string) => (await (await fetch(`${base}/${DI}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const g = async (qs: string) => { const x = await fetch(`${base}/${DI}?${qs}`, { headers: H }); return Object.assign((await x.json().catch(() => ({}))) as any, { _status: x.status }); };
         const r = await g('dataIni=2056-04-01&dataFim=2056-04-30');
         const L = (r.linhas ?? []) as any[];
         const doDia10 = L.filter((l) => String(l.dia).slice(0, 10) === '2056-04-10');
-        const meia = L.filter((l) => l.coddiario === 9952004);
-        check('LIVRO DIÁRIO §148.1 [duas linhas por lançamento, e o UNION que apagava lançamento]: cada lançamento vira débito + crédito; os DOIS lançamentos idênticos do dia 10 dão **4 linhas** — no legado o `UNION` (sem ALL) colapsaria os iguais e o livro perderia um lançamento legítimo; o de meia partida vira uma linha só; a loja 2 fica fora (o legado somava as 5 empresas); o histórico junta DESCHIST + COMPLEMENTO e a origem vem com o NOME (mig 209), não o número cru',
-          doDia10.length === 4 && doDia10.filter((l) => Number(l.debito) === 100).length === 2 && doDia10.filter((l) => Number(l.credito) === 100).length === 2
+        const meia = L.filter((l) => l.documento === 'DOC-3');
+        const estorno = L.find((l) => l.documento === 'DOC-2');
+        const tinhaRel2Di = Number((await pgDi.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Di) await pgDi.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const lojas = await g('dataIni=2056-04-01&dataFim=2056-04-30&empresas=1,2');
+        if (!tinhaRel2Di) await pgDi.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        check('LIVRO DIÁRIO §148.1 [duas linhas por lançamento e o UNION do legado]: cada lançamento vira débito + crédito; os DOIS lançamentos idênticos do dia 10 dão **2 linhas** — o `UNION` (sem ALL) do legado colapsa os iguais, e é esse o livro que o cliente imprime; o de meia partida vira uma linha só; a loja 2 só entra pedida (o GetMultiEmpresa); o histórico é TRIM(DESCHIST) || " " || COMPLEMENTO (sem complemento fica o espaço, como a concatenação do Oracle); a origem vem com o nome',
+          doDia10.length === 2 && doDia10.filter((l) => Number(l.debito) === 100).length === 1 && doDia10.filter((l) => Number(l.credito) === 100).length === 1
           && meia.length === 1 && Number(meia[0].debito) === 7
-          && !L.some((l) => l.coddiario === 9952005)
-          && doDia10[0].historico === 'VENDA DO DIA CUPOM 1' && String(doDia10[0].nome_origem ?? '').length > 2,
-          { dia10: doDia10.length, meia: meia.length, hist: doDia10[0]?.historico, origem: doDia10[0]?.nome_origem, temLoja2: L.some((l) => l.coddiario === 9952005) });
-        check('LIVRO DIÁRIO §148.2 [totais e cabeçalho]: 4 lançamentos no período (3 completos + 1 de meia partida), débito 247 e crédito 240 na lista — a diferença de 7 é exatamente o lançamento sem a perna de crédito, que o total denuncia; o contabilista do cabeçalho vem da tabela nova',
-          r.totais?.lancamentos === 4 && Number(r.totais?.debito) === 247 && Number(r.totais?.credito) === 240
-          && Number(r.totais?.diferenca) === 7 && r.totais?.meiaPartida === 1
+          && !L.some((l) => l.documento === 'DOC-4') && (lojas.linhas ?? []).filter((l: any) => l.documento === 'DOC-4').length === 2
+          && doDia10[0].historico === 'VENDA DO DIA CUPOM 1' && estorno?.historico === 'ESTORNO ' && String(doDia10[0].nome_origem ?? '').length > 2,
+          { dia10: doDia10.length, meia: meia.length, hist: doDia10[0]?.historico, estorno: estorno?.historico, origem: doDia10[0]?.nome_origem, loja2: (lojas.linhas ?? []).filter((l: any) => l.documento === 'DOC-4').length });
+        check('LIVRO DIÁRIO §148.2 [totais e cabeçalho]: débito 147 (100 dos colapsados + 40 + 7) e crédito 140 na lista — a diferença de 7 é o lançamento sem a perna de crédito; o contabilista do cabeçalho vem da tabela nova',
+          Number(r.totais?.debito) === 147 && Number(r.totais?.credito) === 140 && Number(r.totais?.diferenca) === 7
           && r.contabilista?.nome === 'CONTADOR TESTE' && r.contabilista?.crc === 'CRC-9999',
           { totais: r.totais, contabilista: r.contabilista });
-        const porConta = await g('dataIni=2056-04-01&dataFim=2056-04-30&conta=3.98');
-        const porOrigem = await g('dataIni=2056-04-01&dataFim=2056-04-30&codorigem=99');
+        const vazio = await g('dataIni=2056-05-01&dataFim=2056-05-02');
         const semGrant = await fetch(`${base}/${DI}?dataIni=2056-04-01&dataFim=2056-04-30`, { headers: H_SEM_ACESSO });
-        check('LIVRO DIÁRIO §148.3 [filtros + RBAC]: o filtro por conta (prefixo do código expandido) traz só as linhas da conta de receita; o filtro por origem inexistente devolve vazio; sem grant, 403',
-          (porConta.linhas ?? []).length === 3 && (porConta.linhas ?? []).every((l: any) => String(l.conta).startsWith('3.98'))
-          && (porOrigem.linhas ?? []).length === 0 && semGrant.status === 403,
-          { conta: porConta.linhas?.length, origem: porOrigem.linhas?.length, rbac: semGrant.status });
+        check('LIVRO DIÁRIO §148.3 [vazio + RBAC]: período sem lançamento → a mensagem do legado; sem grant, 403',
+          vazio._status === 422 && String(vazio.message ?? '').includes('Não há lançamentos no filtro informado') && semGrant.status === 403,
+          { vazio: [vazio._status, vazio.message], rbac: semGrant.status });
+        await pgDi.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992980, 1, 'LivroDiarioContabil.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Diario_stub"/></TfrxReport>').toString('base64')]);
+        const imp = (await (await fetch(`${base}/${DI}/impressao?dataIni=2056-04-01&dataFim=2056-04-30&pagina=4`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgDi.query(`DELETE FROM relatorios WHERE codrelatorio = 992980`);
+        const c0 = imp.datasets?.dbdConsulta?.[0] ?? {};
+        check('LIVRO DIÁRIO §148.4 [o Imprimir]: LivroDiarioContabil.fr3 com a consulta no dbdConsulta (DIA, CONTA, CODIGOCONTA, DESCRICAO, HISTORICO, ORIGEM, IDORIGEM, DOCUMENTO, DEBITO, CREDITO), o dbdEmpresa SEMPRE a loja 1 (o SQL fixo do udmRelDiarioContabil) com o contabilista, e DtInicial/DtFinal/Empresa/PaginaInicial',
+          String(imp.modelo).includes('Diario_stub') && (imp.datasets?.dbdConsulta ?? []).length === L.length && 'CODIGOCONTA' in c0 && 'HISTORICO' in c0 && !('NOME_ORIGEM' in c0)
+          && Number(imp.datasets?.dbdEmpresa?.[0]?.CODEMPRESA) === 1 && imp.datasets?.dbdEmpresa?.[0]?.NOME === 'CONTADOR TESTE'
+          && imp.variaveis?.DtInicial === "'01/04/2056'" && imp.variaveis?.DtFinal === "'30/04/2056'" && imp.variaveis?.Empresa === "'1'" && imp.variaveis?.PaginaInicial === '4',
+          { modelo: String(imp.modelo).slice(0, 60), n: (imp.datasets?.dbdConsulta ?? []).length, c0, emp: imp.datasets?.dbdEmpresa, v: imp.variaveis });
         await pgDi.query(`DELETE FROM diario WHERE coddiario BETWEEN 9952001 AND 9952009`);
         await pgDi.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995201 AND 995202`);
         await pgDi.query(`DELETE FROM contabilista WHERE codempresa = 1`);

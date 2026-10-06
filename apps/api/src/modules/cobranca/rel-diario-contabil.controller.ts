@@ -14,4 +14,9 @@ export class RelDiarioContabilController {
   @Get()
   @RequerAcesso('FRMRELDIARIOCONTABIL', 'FRMRELDIARIOCONTABIL')
   gerar(@Query(new ZodValidationPipe(relDiarioContabilSchema)) q: RelDiarioContabilDto) { return this.svc.gerar(q); }
+
+  /** o Imprimir (LivroDiarioContabil.fr3) — sem opção de impressão na PERMISSOES: vale o acesso à tela */
+  @Get('impressao')
+  @RequerAcesso('FRMRELDIARIOCONTABIL', 'FRMRELDIARIOCONTABIL')
+  impressao(@Query(new ZodValidationPipe(relDiarioContabilSchema)) q: RelDiarioContabilDto) { return this.svc.impressao(q); }
 }

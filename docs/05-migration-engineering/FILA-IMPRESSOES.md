@@ -38,7 +38,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ✅ 06/10 (MARGEM = markup fixo da grade) |
 | 8 | `FRMRELBALANCO` | (embutido no .dfm) | ✅ 06/10 — o layout desenhado no formulário, convertido do fonte; e o corte 2 (LIKE código%, CLASSE S, lojas, sem o nível inventado) |
 | 11 | `FRMRELENTRADAS_FINAN` | Notas_Fiscais_Entradas_Finan | ✅ 06/10 — e o corte 2 (todas as lojas do operador, a ordem e o 0,01 do SQL, o vencimento que não filtra) |
-| 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ⏳ |
+| 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ✅ 06/10 — e o corte 2 (o UNION do legado de volta, lojas, sem os filtros inventados; dbdEmpresa fixo na loja 1) |
 | — | `FRMCONSULTORIAATM`, `FRMRELPERDAS`, `FRMSALDOEMPRESA` | | ⛔ aguardam o SQL do binário novo (vigias do V$SQL) |
 | 148 | `FRMRELENTRADASSAIDAS` | Rel_EntradasESaidas[_Comparativo][_2] | ✅ comparativo 06/10 (SQL do binário novo capturado no V$SQL: PDV nas saídas, CFOPs, por loja) · ⛔ listagem aguarda o SQL |
 
