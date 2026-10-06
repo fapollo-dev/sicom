@@ -18780,41 +18780,57 @@ async function main() {
       const BP = 'contabil/balanco';
       const pgBp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        // ramos próprios sob as raízes reais: 1.99 (ativo), 2.99 (passivo), 3.99 (resultado, que o balanço corta).
-        // As analíticas nascem com CLASSE 'A' e sem NÍVEL — como as 10.950 'A' do cliente.
+        // ramos próprios sob as raízes reais: 1.99 (ativo), 2.99 (passivo), 3.99 (resultado, que o balanço corta); 1.98 com CLASSE 'S'
+        // (o único caso em que "analíticas" desmarcado traz algo — no cliente nenhuma conta tem 'S'); 2.98 com débito e crédito iguais
         await pgBp.query(`DELETE FROM diario WHERE coddiario BETWEEN 9951001 AND 9951009`);
-        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995106`);
+        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995110`);
         await pgBp.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel) VALUES
           (995101,'ATIVO TESTE GRUPO','D','T','1.99',2),   (995102,'CAIXA TESTE','D','A','1.99.01.00001',NULL),
           (995103,'PASSIVO TESTE GRUPO','D','T','2.99',2), (995104,'FORNECEDOR TESTE','D','A','2.99.01.00001',NULL),
-          (995105,'RESULTADO TESTE GRUPO','D','T','3.99',2), (995106,'RECEITA TESTE','D','A','3.99.01.00001',NULL)`);
+          (995105,'RESULTADO TESTE GRUPO','D','T','3.99',2), (995106,'RECEITA TESTE','D','A','3.99.01.00001',NULL),
+          (995107,'GRUPO CLASSE S','D','S','1.98',2), (995108,'ANALITICA DO S','D','A','1.98.01.00001',NULL),
+          (995109,'GRUPO NETO ZERO','D','T','2.98',2), (995110,'ANALITICA NETO ZERO','D','A','2.98.01.00001',NULL)`);
         await pgBp.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codempresa, codorigem, idorigem) VALUES
           (9951001,'2054-02-20',995102,995104,1000.00,1,99,1),
           (9951002,'2054-03-10',995102,995104, 300.00,1,99,2),
           (9951003,'2054-03-12',995104,995102, 120.00,1,99,3),
           (9951004,'2054-03-15',995102,995106, 900.00,1,99,4),
-          (9951005,'2054-03-20',995102,995104, 555.00,2,99,5)`);
-        const g = async (qs: string) => (await (await fetch(`${base}/${BP}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
-        const r = await g('data=2054-03-31');
-        const L = (cod: string) => (r.linhas ?? []).find((l: any) => l.codiexpandido === cod);
-        check('BALANÇO §143.1 [ativo e passivo numa data, com o movimento do mês]: saldo anterior = tudo antes de 01/03 (o caixa nasce +1.000); em março o caixa tem 300+900 de débito e 120 de crédito → saldo 2.080; o fornecedor espelha (−1.000 anterior, 120 de débito, 300 de crédito → −1.180); a competência vem 01/03 a 31/03; as contas de RESULTADO (código 3) ficam fora — o balanço é só patrimonial; e o lançamento da loja 2 não entra',
-          Number(L('1.99.01.00001')?.saldoAnterior) === 1000 && Number(L('1.99.01.00001')?.debito) === 1200 && Number(L('1.99.01.00001')?.credito) === 120 && Number(L('1.99.01.00001')?.saldoAtual) === 2080
+          (9951005,'2054-03-20',995102,995104, 555.00,2,99,5),
+          (9951006,'2054-03-21',995108,995106,  40.00,1,99,6),
+          (9951007,'2054-03-22',995110,995110,  50.00,1,99,7)`);
+        const g = async (qs: string) => { const x = await fetch(`${base}/${BP}?${qs}`, { headers: H }); return Object.assign((await x.json().catch(() => ({}))) as any, { _status: x.status }); };
+        // fevereiro: a conta de CLASSE S do teste ainda não tem movimento — o padrão sai vazio como no cliente
+        const padrao = await g('data=2054-02-28');
+        const r = await g('data=2054-03-31&analiticas=true');
+        const L = (cod: string, x: any = r) => (x.linhas ?? []).find((l: any) => l.codiexpandido === cod);
+        check('BALANÇO §143.1 [ativo e passivo numa data, com o movimento do mês]: o padrão do legado ("analíticas" DESMARCADO → CLASSE = S) sai vazio com a mensagem (em fevereiro, sem movimento na conta S); com as analíticas, saldo anterior = tudo antes de 01/03 (o caixa nasce +1.000); em março o caixa tem 300+900 de débito e 120 de crédito → saldo 2.080; o fornecedor espelha (−1.000, 120, 300 → −1.180); a competência 01/03 a 31/03; as contas de RESULTADO (código 3) fora; a loja 2 não entra sem pedir; a descrição em degrau (13 espaços)',
+          padrao._status === 422 && String(padrao.message ?? '').includes('Não há lançamentos no filtro informado')
+          && Number(L('1.99.01.00001')?.saldoAnterior) === 1000 && Number(L('1.99.01.00001')?.debito) === 1200 && Number(L('1.99.01.00001')?.credito) === 120 && Number(L('1.99.01.00001')?.saldoAtual) === 2080
           && Number(L('2.99.01.00001')?.saldoAnterior) === -1000 && Number(L('2.99.01.00001')?.debito) === 120 && Number(L('2.99.01.00001')?.credito) === 300 && Number(L('2.99.01.00001')?.saldoAtual) === -1180
           && r.competencia?.de === '2054-03-01' && r.competencia?.ate === '2054-03-31'
-          && !(r.linhas ?? []).some((l: any) => l.codiexpandido.startsWith('3')),
-          { caixa: L('1.99.01.00001'), forn: L('2.99.01.00001'), comp: r.competencia, temResultado: (r.linhas ?? []).filter((l: any) => l.codiexpandido.startsWith('3')).length });
-        const soSint = await g('data=2054-03-31&analiticas=false');
-        const semMov = await g('data=2054-03-31&semMovimento=true');
-        const sintCods = (soSint.linhas ?? []).map((l: any) => l.codiexpandido);
-        check('BALANÇO §143.2 [roll-up por prefixo + o modo que no legado vinha VAZIO]: o grupo "1.99" soma a analítica abaixo dele (saldo 2.080) e a raiz "1" também; "só sintéticas" (analiticas=false) devolve os grupos e some com a analítica — no legado o filtro era `CLASSE=\'S\'` e **nenhuma das 10.950 contas do cliente tem essa classe**, então o relatório saía vazio (`totais.classeS` = 0); "sem movimento" traz também as contas zeradas do plano',
-          Number(L('1.99')?.saldoAtual) === 2080 && L('1.99')?.sintetica === true && Number(L('2.99')?.saldoAtual) === -1180
-          && sintCods.includes('1.99') && !sintCods.includes('1.99.01.00001') && soSint.totais?.classeS === 0
-          && (semMov.linhas ?? []).length > (r.linhas ?? []).length,
-          { grupo: L('1.99')?.saldoAtual, passivo: L('2.99')?.saldoAtual, classeS: soSint.totais?.classeS, semMov: semMov.linhas?.length, com: r.linhas?.length });
+          && !(r.linhas ?? []).some((l: any) => l.codiexpandido.startsWith('3')) && L('1.99.01.00001')?.descricao === `${' '.repeat(13)}CAIXA TESTE`,
+          { padrao: [padrao._status, padrao.message], caixa: L('1.99.01.00001'), forn: L('2.99.01.00001'), comp: r.competencia });
+        const soS = await g('data=2054-03-31');
+        const semMov = await g('data=2054-03-31&analiticas=true&semMovimento=true');
+        const tinhaRel2Bp = Number((await pgBp.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Bp) await pgBp.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const lojas = await g('data=2054-03-31&analiticas=true&empresas=1,2');
+        if (!tinhaRel2Bp) await pgBp.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        check('BALANÇO §143.2 [o roll-up LIKE código% e os filtros do legado]: o grupo 1.99 soma a analítica abaixo dele (2.080); 2.98 aparece com saldo 0 porque as linhas do movimento (débito 50, crédito 50) têm valor — o "sem movimento" filtra as linhas antes de somar; com "analíticas" desmarcado só a conta de CLASSE S (1.98, somando os 40 da filha); "sem movimento" marcado traz também as contas zeradas; as lojas 1 e 2 somam os 555 da loja 2',
+          Number(L('1.99')?.saldoAtual) === 2080 && Number(L('2.99')?.saldoAtual) === -1180
+          && L('2.98') && Number(L('2.98').debito) === 50 && Number(L('2.98').credito) === 50 && Number(L('2.98').saldoAtual) === 0
+          && (soS.linhas ?? []).length === 1 && L('1.98', soS) && Number(L('1.98', soS).debito) === 40
+          && (semMov.linhas ?? []).length > (r.linhas ?? []).length && Number(L('1.99.01.00001', lojas)?.debito) === 1755,
+          { grupo: L('1.99')?.saldoAtual, neto: L('2.98'), soS: (soS.linhas ?? []).map((l: any) => [l.codiexpandido, l.debito]), semMov: semMov.linhas?.length, com: r.linhas?.length, lojas: L('1.99.01.00001', lojas)?.debito });
+        const imp = (await (await fetch(`${base}/${BP}/impressao?data=2054-03-31&analiticas=true&pagina=3`, { headers: H })).json().catch(() => ({}))) as any;
         const semGrant = await fetch(`${base}/${BP}?data=2054-03-31`, { headers: H_SEM_ACESSO });
-        check('BALANÇO §143.3 [RBAC]: sem grant, 403', semGrant.status === 403, { status: semGrant.status });
+        check('BALANÇO §143.3 [o Imprimir: o relatório desenhado no próprio .dfm]: o layout embutido convertido (sem arquivo na RELATORIOS), a consulta no dbdConsulta, o dbdEmpresa SEMPRE a loja 1 (o SQL fixo do udmRelBalanco) com o contabilista, e DtInicial/Empresa/PaginaInicial; sem grant, 403',
+          String(imp.modelo).includes('BALANÇO PATRIMONIAL') && String(imp.modelo).includes('MasterData3OnBeforePrint')
+          && (imp.datasets?.dbdConsulta ?? []).length === (r.linhas ?? []).length && Number(imp.datasets?.dbdEmpresa?.[0]?.CODEMPRESA) === 1 && 'CRC' in (imp.datasets?.dbdEmpresa?.[0] ?? {})
+          && imp.variaveis?.DtInicial === "'31/03/2054'" && imp.variaveis?.Empresa === "'1'" && imp.variaveis?.PaginaInicial === '3' && semGrant.status === 403,
+          { modelo: String(imp.modelo).slice(0, 80), n: (imp.datasets?.dbdConsulta ?? []).length, emp: imp.datasets?.dbdEmpresa, v: imp.variaveis, rbac: semGrant.status });
         await pgBp.query(`DELETE FROM diario WHERE coddiario BETWEEN 9951001 AND 9951009`);
-        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995106`);
+        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995110`);
       } finally {
         await pgBp.end();
       }

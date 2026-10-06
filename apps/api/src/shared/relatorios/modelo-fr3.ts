@@ -1,5 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import { BusinessRuleError } from '../errors/app-error';
+import { RELATORIOS_EMBUTIDOS } from './relatorios-embutidos';
 
 type AnyDB = Kysely<any>;
 
@@ -60,3 +61,14 @@ export async function modelosDoPrefixo(db: AnyDB, prefixo: string): Promise<Arra
   }
   return [...vistos.values()].sort((a, b) => a.arquivo.toUpperCase().localeCompare(b.arquivo.toUpperCase()));
 }
+
+/**
+ * O layout que o legado desenha DENTRO do formulário (o `TfrxReport` do .dfm, impresso sem `LoadFromFile`): não está na RELATORIOS nem
+ * em `Relatorios\`, vem do binário. O XML equivalente é gerado do fonte por `tools/relatorios/dfm-para-fr3.py --gerar-ts`.
+ */
+export function modeloEmbutido(chave: string): string {
+  const xml = RELATORIOS_EMBUTIDOS[chave];
+  if (!xml) throw new BusinessRuleError('RELATORIO_MODELO_NAO_ENCONTRADO', { arquivo: chave }, `O modelo de relatório "${chave}" não está cadastrado.`);
+  return xml;
+}
+

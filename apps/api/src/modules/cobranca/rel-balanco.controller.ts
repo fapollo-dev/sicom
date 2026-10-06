@@ -14,4 +14,9 @@ export class RelBalancoController {
   @Get()
   @RequerAcesso('FRMRELBALANCO', 'FRMRELBALANCO')
   gerar(@Query(new ZodValidationPipe(relBalancoSchema)) q: RelBalancoDto) { return this.svc.gerar(q); }
+
+  /** o Imprimir (o relatório desenhado no uRelBalanco.dfm) — sem opção de impressão na PERMISSOES: vale o acesso à tela */
+  @Get('impressao')
+  @RequerAcesso('FRMRELBALANCO', 'FRMRELBALANCO')
+  impressao(@Query(new ZodValidationPipe(relBalancoSchema)) q: RelBalancoDto) { return this.svc.impressao(q); }
 }

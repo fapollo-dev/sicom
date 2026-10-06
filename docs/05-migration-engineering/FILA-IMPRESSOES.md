@@ -36,6 +36,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ✅ 06/10 (os dois; e os dias do juro como o Oracle conta — hora + arredondamento —, a GET_ARECEBER da produção no picker, que listava quitados) |
 | 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ✅ 06/10 — e o corte 2 pelo fonte (o roll-up por CODPAI — o "perde as contas sem NIVEL" do dossiê era falso —, o nível = comprimento do código antes de totalizar, lojas, degrau) |
 | 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ✅ 06/10 (MARGEM = markup fixo da grade) |
+| 8 | `FRMRELBALANCO` | (embutido no .dfm) | ✅ 06/10 — o layout desenhado no formulário, convertido do fonte; e o corte 2 (LIKE código%, CLASSE S, lojas, sem o nível inventado) |
 | 11 | `FRMRELENTRADAS_FINAN` | Notas_Fiscais_Entradas_Finan | ⏳ |
 | 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ⏳ |
 | — | `FRMCONSULTORIAATM`, `FRMRELPERDAS`, `FRMSALDOEMPRESA` | | ⛔ aguardam o SQL do binário novo (vigias do V$SQL) |
@@ -52,3 +53,18 @@ FRMFATURAMENTO2, FRMINVENTARIO, FRMMOVIMENTACOESDIA, FRMMOVPEDIDOS, FRMPROCESSAA
 FRMRELATORIOCAIXA, FRMRELATORIOCAIXADME, FRMRELATORIOINDUSTRIA, FRMRELPRECOSALTERADOS, FRMRELVENDEDORES, FRMSIMULADORVENDA. A impressão
 dessas telas exige `RequerAcesso(form, 'BTNIMPRIMIR')` — feito em FRMINVENTARIO, FRMFATURAMENTO2, FRMRELPRECOSALTERADOS, FRMRELATORIO e FRMMOVIMENTACOESDIA
 (o construtor). As outras ganham a regra quando a impressão delas for feita/revisada.
+
+## Relatórios EMBUTIDOS no .dfm (06/10/2026)
+
+O levantamento acima só achou as telas que carregam `.fr3`. Há outra classe: o `TfrxReport` desenhado **dentro do formulário** e impresso
+sem `LoadFromFile` — o layout vem do binário, não da RELATORIOS. `tools/relatorios/dfm-para-fr3.py` converte o objeto do .dfm no XML
+do FastReport e gera `apps/api/src/shared/relatorios/relatorios-embutidos.ts` (`modeloEmbutido('<form>.<objeto>')`). 136 .dfm têm um
+`TfrxReportPage`; em 118 o layout embutido é só o ponto de partida do `LoadFromFile`; nos 18 restantes:
+
+| uso | formulário | situação |
+|---:|---|---|
+| 797 | `FRMTRON` | ⛔ o `frxReport1` é declarado e nunca impresso (nenhuma chamada no `uTron.pas`) |
+| 42 | `FRMSIMULADORVENDA` | ⏳ `imprimir(frxReportDados)` |
+| 8 | `FRMRELBALANCO` | ✅ 06/10 |
+| 0 | FRMRELSALDOCONTABIL, FRMRELGRAFICOHORIZONTAL, FRMRELGRAFICOCOMPARA, FRMRELCAIXACONTABIL, FRMMULTATUALIZACAOTABELA, FRMMAPACARGA, FRMENCERRAMENTOCONTABIL, FRMCONSMAPACARGA, FRMBI_OLTP, FRMBICONFIGURA, FRMBAIXASRCB, FRMFINALIZAFECHAMENTO, FRMMENUSUPERIOR, DMMAPADEENTREGAS, DMCADDEVOLUCAO | sem acesso no MENUEXPRESS |
+

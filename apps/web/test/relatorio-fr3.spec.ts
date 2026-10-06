@@ -1735,3 +1735,24 @@ describe('balancete de verificação (BalanceteVerificacao.fr3, FRMRELBALANCETE)
   });
 });
 
+describe('balanço patrimonial (o relatório desenhado no uRelBalanco.dfm, convertido por tools/relatorios/dfm-para-fr3.py)', () => {
+  it('a loja do cabeçalho, a data, as contas com os saldos entre parênteses no negativo e a página a partir da inicial', () => {
+    const t = texto(paginasDoModelo(modelo('balanco-embutido.fr3'), {
+      dbdConsulta: [
+        { CODIEXPANDIDO: '1', DESCRICAO: ' ATIVO', CODPLANOCONTAS: 1, CLASSE: 'T', SALDO_ANTERIOR: 1000, DEBITO: 1200, CREDITO: 120, SALDO_ATUAL: 2080 },
+        { CODIEXPANDIDO: '2.99.01.00001', DESCRICAO: '             FORNECEDOR TESTE', CODPLANOCONTAS: 995104, CLASSE: 'A', SALDO_ANTERIOR: -1000, DEBITO: 120, CREDITO: 300, SALDO_ATUAL: -1180 },
+      ],
+      dbdEmpresa: [{ CODEMPRESA: 1, CNPJ: '37954975000169', RAZAOSOCIAL: 'SUPERMERCADO PINHEIRAO LTDA', ENDERECO: 'AV SACRAMENTO', BAIRRO: 'CENTRO', CIDADE: 'UBERLANDIA', UF: 'MG', FONE1: '3433334444' }],
+    }, agora, { DtInicial: "'31/03/2054'", Empresa: "'1,2'", PaginaInicial: '5' }));
+    expect(t).toContain('BALANÇO PATRIMONIAL');
+    expect(t).toContain('Saldos em: 31/03/2054');
+    expect(t).toContain('Empresa(s): 1,2');
+    expect(t).toContain('SUPERMERCADO PINHEIRAO LTDA');
+    expect(t).toContain('FORNECEDOR TESTE');
+    expect(t).toContain('2.080,00');
+    expect(t).toContain('(1.000,00)');
+    expect(t).toContain('(1.180,00)');
+    expect(t).toContain('Página 5'); // <Page> + <PaginaInicial> − 1 na 1ª página
+  });
+});
+
