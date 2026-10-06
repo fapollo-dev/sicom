@@ -24,6 +24,8 @@ export const faturamentoSchema = z.object({
   nronf: z.string().trim().max(20).optional(),
   codparceiro: z.coerce.number().int().positive().optional(),
   limite: z.coerce.number().int().positive().max(20000).default(3000),
+  /** o cbbRelatorio dos documentos faturados: por lotes ou por cliente */
+  relatorio: z.enum(['LOTES', 'CLIENTE']).default('LOTES'),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 
 export type FaturamentoDto = z.infer<typeof faturamentoSchema>;

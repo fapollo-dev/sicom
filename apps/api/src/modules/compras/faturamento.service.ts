@@ -5,6 +5,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { hojeNaLoja } from '../../shared/tempo/hoje';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -95,5 +97,86 @@ export class FaturamentoService {
     t.notas = notas.size;
     t.valor = r2(t.valor);
     return { linhas: saida, totais: t };
+  }
+
+  /**
+   * O Imprimir (`btnImprimirClick`):
+   *  - documentos FATURADOS (o rádio "baixados", aqui `liberado = S`): `BuscaDocsFaturados` — as parcelas LIBERADAS das notas do tipo na
+   *    loja (sem exigir PROC), com o lote (`LOTE_FATURAMENTO[_DETALHE]`: 0 linhas na produção e sem tabela no Apollo — vazios) e o
+   *    CODLOTEFAT do `cdsDoctosFaturadosCalcFields` ('FAT-P'/'FAT-R' + o lote em 5 dígitos: sem lote, "00000"); em ordem de lote, título,
+   *    chegada e nota → `fat_Relatorio_de_faturamento_por_lotes.fr3` ou `..._por_cliente.fr3` (o cbbRelatorio), no `dbdFaturamento`;
+   *  - documentos A FATURAR: `BuscaDocsAFaturar` — as NOTAS processadas com parcela não liberada (`dbdNota`) e, aninhadas em cada uma,
+   *    TODAS as parcelas dela (`qryFaturamentosNota`) com o STATUS do `cdsDoctosAFaturarCalcFields`: LIB (liberada), ATR (vencida), VHJ
+   *    (vence hoje), AGD (a vencer) → `fat_Relatorio_de_status_de_faturamento.fr3`.
+   * A data é a escolhida (emissão, processamento/contábil ou a da parcela). O legado imprime mesmo vazio.
+   */
+  async impressao(f: FaturamentoDto) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const base = f.base === 'EMISSAO' ? sql`n.dtemissao` : f.base === 'CONTABIL' ? sql`n.dtcontabil` : sql`ft.data`;
+    const filtros = sql`
+         AND (${f.nronf ?? null}::text IS NULL OR n.nronf = ${f.nronf ?? null}::text)
+         AND (${f.codparceiro ?? null}::int IS NULL OR n.codparceiro = ${f.codparceiro ?? null}::int)`;
+    if (f.liberado === 'S') {
+      const linhas = (await sql<Record<string, unknown>>`
+        SELECT ft.codfaturamento, ft.data, ft.idnf, ft.modalidade, ft.valor AS valor_fat, ft.liberado, ft.codoperador, ft.nrofatura,
+               ft.totalparcelasfatura, ft.nrofatura || ' DE ' || ft.totalparcelasfatura AS nro_parcela, n.tipo, n.nronf, n.dtemissao, n.dtchegada,
+               n.codparceiro, n.totalnf, n.modelo, n.serie, p.razao AS titular,
+               NULL::integer AS codfat, NULL::date AS data_1, NULL::numeric AS valor, NULL::text AS destino, NULL::integer AS idlotefat,
+               NULL::text AS destino_ext,
+               CASE WHEN n.tipo = 'E' THEN 'FAT-P' ELSE 'FAT-R' END || '00000' AS codlotefat
+          FROM faturamento ft
+          LEFT JOIN nf n        ON n.codnf = ft.idnf
+          LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+         WHERE ${base}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           AND n.tipo = ${f.tipo} AND ft.liberado = 'S' AND n.idempresa = ${emp}
+           ${filtros}
+         ORDER BY p.razao, n.dtchegada, n.nronf, ft.codfaturamento
+         LIMIT 20001`.execute(db)).rows;
+      const nums = new Set(['codfaturamento', 'idnf', 'valor_fat', 'codoperador', 'nrofatura', 'totalparcelasfatura', 'codparceiro', 'totalnf', 'codfat', 'valor', 'idlotefat']);
+      return {
+        titulo: 'Faturamento',
+        modelo: await modeloFr3(db, f.relatorio === 'CLIENTE' ? 'fat_Relatorio_de_faturamento_por_cliente.fr3' : 'fat_Relatorio_de_faturamento_por_lotes.fr3'),
+        datasets: { dbdFaturamento: linhas.map((l) => registroFr3(l, nums)) },
+      };
+    }
+    const notas = (await sql<Record<string, unknown>>`
+      SELECT DISTINCT ft.idnf, n.nronf, n.serie, p.razao AS titular, n.totalnf, n.dtemissao, n.dtchegada, n.total_bonificado,
+             n.total_desc_acordo, n.total_desc_pedido
+        FROM faturamento ft
+        LEFT JOIN nf n        ON n.codnf = ft.idnf
+        LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+       WHERE ${base}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+         AND n.tipo = ${f.tipo} AND (ft.liberado = 'N' OR ft.liberado IS NULL)
+         ${filtros}
+         AND coalesce(n.proc, 'N') = 'S' AND n.idempresa = ${emp}
+       ORDER BY n.dtemissao, n.dtchegada, titular, n.nronf
+       LIMIT 20001`.execute(db)).rows;
+    const ids = notas.map((x) => Number(x.idnf));
+    const parcelas = ids.length ? (await sql<Record<string, unknown>>`
+      SELECT ft.codfaturamento, to_char(ft.data, 'YYYY-MM-DD') AS data, ft.idnf, ft.modalidade, ft.valor, ft.liberado, ft.obs, ft.codoperador,
+             ft.nrofatura, ft.totalparcelasfatura, ft.nrofatura || ' DE ' || ft.totalparcelasfatura AS nro_parcela, n.codnf, n.tipo, n.nronf,
+             n.nropedido, n.dtemissao, n.dtchegada, n.codparceiro, n.totalnf, n.serie, p.razao, ft.duplicata
+        FROM faturamento ft
+        LEFT JOIN nf n        ON n.codnf = ft.idnf
+        LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+       WHERE ft.idnf = ANY(${ids})
+       ORDER BY ft.idnf, ft.codfaturamento`.execute(db)).rows : [];
+    const hoje = hojeNaLoja();
+    const status = (l: Record<string, unknown>) => {
+      if (l.liberado === 'S') return 'LIB';
+      if (l.liberado !== 'N') return '';
+      const d = String(l.data ?? '');
+      return d < hoje ? 'ATR' : d === hoje ? 'VHJ' : 'AGD';
+    };
+    const nums = new Set(['codfaturamento', 'idnf', 'valor', 'codoperador', 'nrofatura', 'totalparcelasfatura', 'codnf', 'codparceiro', 'totalnf']);
+    return {
+      titulo: 'Status de faturamento',
+      modelo: await modeloFr3(db, 'fat_Relatorio_de_status_de_faturamento.fr3'),
+      datasets: {
+        dbdNota: notas.map((n) => registroFr3(n, new Set(['idnf', 'totalnf', 'total_bonificado', 'total_desc_acordo', 'total_desc_pedido']))),
+        dbdStatusFat: parcelas.map((pc) => ({ ...registroFr3({ ...pc, status: status(pc) }, nums), __MESTRE: ids.indexOf(Number(pc.idnf)) })),
+      },
+    };
   }
 }

@@ -8,6 +8,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
  * FATURAMENTO DA NOTA (`FRMFATURAMENTO2`).
@@ -70,6 +71,7 @@ export function FaturamentoPage() {
     dataIni: diaUm(), dataFim: hoje(), base: 'PARCELA', tipo: 'E', liberado: 'N',
     nronf: '', codparceiro: '',
   });
+  const [relatorio, setRelatorio] = useState('LOTES');
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [sel, setSel] = useState<Set<number>>(new Set());
@@ -194,6 +196,18 @@ export function FaturamentoPage() {
           <div className="w-32"><Field label="&Nota fiscal" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
           <div className="w-32"><Field label="&Parceiro" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          {/* o Imprimir: nos faturados, o cbbRelatorio (por lotes / por cliente); nos a faturar, o status de faturamento */}
+          {f.liberado === 'S' && (
+            <select aria-label="Relatório" className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" value={relatorio} onChange={(e) => setRelatorio(e.target.value)}>
+              <option value="LOTES">Relatório de faturamento por lotes</option><option value="CLIENTE">Relatório de faturamento por cliente</option>
+            </select>
+          )}
+          <Button label="&Imprimir" variant="soft" disabled={ocupado} onClick={() => {
+            const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, base: f.base, tipo: f.tipo, liberado: f.liberado === 'TODOS' ? 'N' : f.liberado, relatorio });
+            if (f.nronf) q.set('nronf', f.nronf);
+            if (f.codparceiro) q.set('codparceiro', String(f.codparceiro));
+            void imprimirRelatorio(`/compras/faturamento/impressao?${q.toString()}`).catch((e) => mensagem.erro(e));
+          }} />
           <Button label="&Processar (F2)" disabled={ocupado || !sel.size} onClick={() => void abrirProcessar()} />
           <Button variant="outline" label="&Bonificar (F4)" disabled={ocupado || !sel.size} onClick={() => void bonificar()} />
           {res && (

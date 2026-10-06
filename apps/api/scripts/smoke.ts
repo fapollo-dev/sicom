@@ -17382,6 +17382,31 @@ async function main() {
           && semGrant.status === 403,
           { faturadas: faturadas.linhas?.length, modalidades: [...modalidades], rbac: semGrant.status });
 
+        // §123.4 — o Imprimir: o status de faturamento (a nota a faturar com TODAS as parcelas aninhadas e o STATUS do calc) e os faturados
+        await pgFt.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+          (992972, 1, 'fat_Relatorio_de_status_de_faturamento.fr3', 'x', 'PERSONALIZADO', $1), (992973, 1, 'fat_Relatorio_de_faturamento_por_lotes.fr3', 'x', 'PERSONALIZADO', $2),
+          (992974, 1, 'fat_Relatorio_de_faturamento_por_cliente.fr3', 'x', 'PERSONALIZADO', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`,
+          ['Fat_status', 'Fat_lotes', 'Fat_cliente'].map((n) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}_stub"/></TfrxReport>`).toString('base64')));
+        // o BTNIMPRIMIR é a opção da tela que a produção concede para imprimir: sem ela, 403
+        const semImprimir = await fetch(`${base}/${FT}/impressao?dataIni=0001-01-01&dataFim=2100-12-31&tipo=E&liberado=N`, { headers: H });
+        await pgFt.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMFATURAMENTO2','BTNIMPRIMIR',7,1) ON CONFLICT DO NOTHING`);
+        const ift = async (qs: string) => (await (await fetch(`${base}/${FT}/impressao?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&codparceiro=2&${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const iStatus = await ift('liberado=N');
+        const iLotes = await ift('liberado=S&relatorio=LOTES');
+        const iCliente = await ift('liberado=S&relatorio=CLIENTE');
+        await pgFt.query(`DELETE FROM relatorios WHERE codrelatorio IN (992972, 992973, 992974)`);
+        await pgFt.query(`DELETE FROM permissoes WHERE form = 'FRMFATURAMENTO2' AND opcao = 'BTNIMPRIMIR' AND codoperador = 7`);
+        const notasSt = (iStatus.datasets?.dbdNota ?? []) as any[];
+        const parcSt = (iStatus.datasets?.dbdStatusFat ?? []) as any[];
+        const fatL = (iLotes.datasets?.dbdFaturamento ?? []) as any[];
+        const sts = parcSt.filter((x) => x.__MESTRE === 0).map((x) => x.STATUS).sort().join(',');
+        check('FATURAMENTO §123.4 [o Imprimir]: a faturar → fat_Relatorio_de_status_de_faturamento.fr3 com a nota PROCESSADA no dbdNota (a 991691 não) e, aninhadas nela, TODAS as parcelas (a liberada também) com o STATUS do cdsDoctosAFaturarCalcFields: LIB, ATR (ontem e a de ano 0202), VHJ e AGD; faturados → os dois layouts do cbbRelatorio, com o dbdFaturamento (só a liberada) e o CODLOTEFAT "FAT-P00000" (sem lote); sem o BTNIMPRIMIR da tela, 403',
+          String(iStatus.modelo).includes('Fat_status_stub') && notasSt.length === 1 && Number(notasSt[0].IDNF) === 991690
+            && sts === 'AGD,ATR,ATR,LIB,VHJ'
+          && String(iLotes.modelo).includes('Fat_lotes_stub') && fatL.length === 1 && fatL[0].CODLOTEFAT === 'FAT-P00000' && fatL[0].NRO_PARCELA === '4 DE 4'
+          && String(iCliente.modelo).includes('Fat_cliente_stub') && semImprimir.status === 403,
+          { semImprimir: semImprimir.status, notas: notasSt.map((x) => x.IDNF), status: sts, lotes: fatL.map((x) => [x.CODLOTEFAT, x.NRO_PARCELA]), cliente: String(iCliente.modelo).slice(0, 80) });
+
         await pgFt.query(`DELETE FROM faturamento WHERE idnf IN (991690,991691)`);
         await pgFt.query(`DELETE FROM nf WHERE codnf IN (991690,991691)`);
       } finally {

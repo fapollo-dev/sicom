@@ -1655,3 +1655,20 @@ describe('análise de itens da NF (Rel_AnaliseItensNF.fr3, FRMRELANALISEITENSNF)
     expect(t).toContain('95,00');
   });
 });
+
+describe('status de faturamento (fat_Relatorio_de_status_de_faturamento.fr3, FRMFATURAMENTO2)', () => {
+  it('a nota e, debaixo dela, só as parcelas dela com o status', () => {
+    const nota = (IDNF: number, NRONF: string, TITULAR: string) => ({ IDNF, NRONF, SERIE: '1', TITULAR, TOTALNF: 1000, DTEMISSAO: '2026-10-05', DTCHEGADA: '2026-10-05' });
+    const parc = (m: number, NRO_PARCELA: string, STATUS: string, VALOR: number) => ({ __MESTRE: m, DATA: '2026-10-06', MODALIDADE: 'A PAGAR', NRO_PARCELA, STATUS, VALOR });
+    const t = texto(paginasDoModelo(modelo('fat-status.fr3'), {
+      dbdNota: [nota(1, '991690', 'ATACADO NORTE'), nota(2, '991699', 'LATICINIOS SUL')],
+      dbdStatusFat: [parc(0, '1 DE 2', 'ATR', 250), parc(0, '2 DE 2', 'VHJ', 251), parc(1, '1 DE 1', 'AGD', 777)],
+    }, agora));
+    expect(t).toContain('ATACADO NORTE');
+    expect(t).toContain('LATICINIOS SUL');
+    expect(t).toContain('1 DE 2');
+    expect(t).toContain('777,00');
+    // a parcela da 2ª nota não sai debaixo da 1ª
+    expect(t.indexOf('777,00')).toBeGreaterThan(t.indexOf('LATICINIOS SUL'));
+  });
+});

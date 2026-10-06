@@ -31,7 +31,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | Rel_Analise_Compra_Venda_Carne | ✅ 06/10 (a estrutura do sqqAnaliseCVCarne: um corte por linha da peça, as somas dos cortes repetidos) |
 | 36 | `FRMRELPRECOSALTERADOS` | Rel_PrecosAlterados[Det][PorEmpresa] | ✅ 06/10 — Produtos e Lote, os 3 agrupamentos (loja em colunas) · ⛔ "Lote detalhado" (procedure com ROWNUM no ON, a medir) |
 | 34 | `FRMRELANALISEITENSNF` | Rel_AnaliseItensNF | ✅ 06/10 (e a nota escolhida ignora o período, como o legado) |
-| 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ⏳ |
+| 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ✅ 06/10 (os três; o status com as parcelas aninhadas e o calc LIB/ATR/VHJ/AGD) |
 | 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ⏳ |
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ⏳ |
 | 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ⏳ |

@@ -21,6 +21,13 @@ export class FaturamentoController {
     private readonly fat: NfFaturamentoService,
   ) {}
 
+  /** o Imprimir (o BTNIMPRIMIR é a opção que a produção concede nesta tela): por lotes / por cliente (faturados) ou o status (a faturar) */
+  @Get('impressao')
+  @RequerAcesso('FRMFATURAMENTO2', 'BTNIMPRIMIR')
+  impressao(@Query(new ZodValidationPipe(faturamentoSchema)) q: FaturamentoDto) {
+    return this.svc.impressao(q);
+  }
+
   @Get()
   @RequerAcesso('FRMFATURAMENTO2', 'FRMFATURAMENTO2')
   listar(@Query(new ZodValidationPipe(faturamentoSchema)) q: FaturamentoDto) {
