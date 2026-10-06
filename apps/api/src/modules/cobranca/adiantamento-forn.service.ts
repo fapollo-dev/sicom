@@ -8,6 +8,8 @@ import { gravarLogDaLinha } from '../../shared/log/registro-log';
 import { ConfigService } from '../cadastro/config.service';
 import { DocumentosContabilService } from './documentos-contabil.service';
 import { assertPeriodoNaoFechado, type BloqPeriodo } from '../shared/periodo-contabil';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -525,5 +527,31 @@ export class AdiantamentoFornService {
       .where('codadiantamento', '=', Number(codadiantamento))
       .where('idempresa', '=', emp)
       .execute();
+  }
+
+  /**
+   * O RECIBO (`ImprimirRecibo`, uCadAdiantamentoFornecedor.pas:680 — sai sozinho depois de gravar e pelo menu "Imprimir recibo"):
+   * `ReciboAdiantamentoParceiro.fr3` com o `DbdRelatorio` = o `QryRelatorio` (o adiantamento, o parceiro, a conta, o CNPJ/CPF do
+   * primeiro endereço do parceiro — `ROWNUM <= 1`, aqui o de menor código — e a empresa). O texto é montado pelo script do layout
+   * (devedor 'D' × credor 'C') com o `NumeroExtenso` do valor.
+   */
+  async recibo(cod: number) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT a.codadiantamento, a.dtadiantamento, a.codparceiro, b.razao, a.codcontacorrente, c.nroconta, c.titular, a.valor,
+             a.codmovconta, a.tipo, a.obs,
+             (SELECT p.cnpj_cpf FROM parceiros_end p WHERE p.codparceiro = b.codparceiro ORDER BY p.codend LIMIT 1) AS cnpj_cpf,
+             a.idempresa, e.razao_social AS razaosocial, e.fantasia
+        FROM adiantamento_forn a
+        LEFT JOIN parceiros b        ON b.codparceiro = a.codparceiro
+        LEFT JOIN contas_bancarias c ON c.codconta = a.codcontacorrente
+        LEFT JOIN empresas e         ON e.idempresa = a.idempresa
+       WHERE a.codadiantamento = ${cod}`.execute(db)).rows;
+    if (!rows.length) throw new BusinessRuleError('ADIANTAMENTO_NAO_ENCONTRADO', { codadiantamento: cod });
+    return {
+      titulo: `Recibo do adiantamento ${cod}`,
+      modelo: await modeloFr3(db, 'ReciboAdiantamentoParceiro.fr3'),
+      datasets: { DbdRelatorio: rows.map((r) => registroFr3(r, new Set(['codadiantamento', 'codparceiro', 'codcontacorrente', 'valor', 'codmovconta', 'idempresa']))) },
+    };
   }
 }

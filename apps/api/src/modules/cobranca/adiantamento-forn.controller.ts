@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import {
   adiantamentoCriarSchema, adiantamentoEditarSchema, adiantamentoExcluirSchema, adiantamentoListarSchema,
   type AdiantamentoCriarDto, type AdiantamentoEditarDto, type AdiantamentoExcluirDto, type AdiantamentoListarDto,
@@ -58,5 +58,12 @@ export class AdiantamentoFornController {
   @RequerAcesso('FRMADIANTAMENTOFORNECEDOR', 'BTNEXCLUIR')
   excluir(@Body(new ZodValidationPipe(adiantamentoExcluirSchema)) dto: AdiantamentoExcluirDto) {
     return this.svc.excluir(dto.codadiantamento);
+  }
+
+  /** o recibo do adiantamento no layout do cliente (ReciboAdiantamentoParceiro.fr3) — depois de gravar e pelo "Imprimir recibo" */
+  @Get(':cod/recibo/impressao')
+  @RequerAcesso('FRMADIANTAMENTOFORNECEDOR', 'FRMADIANTAMENTOFORNECEDOR')
+  recibo(@Param('cod', ParseIntPipe) cod: number) {
+    return this.svc.recibo(cod);
   }
 }

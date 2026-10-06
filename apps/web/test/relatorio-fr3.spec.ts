@@ -1116,3 +1116,25 @@ describe('vendas e finalizadoras (Rel_Finalizadoras[_Vertical].fr3)', () => {
     expect(t).toContain('22,39 %'); // 15 ÷ V_TOTAL_VENDA 67
   });
 });
+
+describe('recibo de adiantamento (ReciboAdiantamentoParceiro.fr3) e o NumeroExtenso', () => {
+  it('o extenso do português: centenas, milhares, milhões e o "e" de ligação; com moeda, reais e centavos', async () => {
+    const { numeroExtenso } = await import('../src/shared/fr3/extenso');
+    expect(numeroExtenso(150)).toBe('cento e cinquenta');
+    expect(numeroExtenso(100)).toBe('cem');
+    expect(numeroExtenso(1100)).toBe('mil e cem');
+    expect(numeroExtenso(1234)).toBe('mil duzentos e trinta e quatro');
+    expect(numeroExtenso(2500000)).toBe('dois milhões e quinhentos mil');
+    expect(numeroExtenso(21)).toBe('vinte e um');
+    expect(numeroExtenso(1.5, true)).toBe('um real e cinquenta centavos');
+    expect(numeroExtenso(150.25)).toBe('cento e cinquenta vírgula vinte e cinco');
+  });
+  it('o texto do script do layout: devedor (D) e credor (C), com o valor por extenso', () => {
+    const r = (tipo: string) => [{ CODADIANTAMENTO: 77, DTADIANTAMENTO: '2026-09-22T00:00:00', RAZAO: 'CEREALISTA SUL', FANTASIA: 'HIPER PINHEIRAO', VALOR: 1500, TIPO: tipo }];
+    const d = texto(paginasDoModelo(modelo('recibo-adiantamento.fr3'), { DbdRelatorio: r('D') }, agora));
+    expect(d).toContain('RECIBO DE ADIANTAMENTO DE PARCEIROS');
+    expect(d).toContain('Eu, CEREALISTA SUL recebi um adiantamento da empresa HIPER PINHEIRAO, no dia 22/09/2026, no valor de 1500,00 (mil e quinhentos) reais.');
+    const c = texto(paginasDoModelo(modelo('recibo-adiantamento.fr3'), { DbdRelatorio: r('C') }, agora));
+    expect(c).toContain('Eu, HIPER PINHEIRAO recebi um adiantamento de CEREALISTA SUL');
+  });
+});

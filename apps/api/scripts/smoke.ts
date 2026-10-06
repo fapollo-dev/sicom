@@ -15215,6 +15215,19 @@ async function main() {
 
         // 82.3) tipo 'C' em conta CAIXA ZERADA de 5.000: NÃO valida saldo (VerifSaldo=false) → crédito na conta +
         // TÍTULO A PAGAR (ADFORNECEDOR='S', ADCREDITO NULL — 'S' é exclusivo do tipo 'E').
+        // §83.2b — o RECIBO (ImprimirRecibo: sai depois de gravar e pelo menu) no ReciboAdiantamentoParceiro.fr3
+        await pgAd.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991151, 1, 'ReciboAdiantamentoParceiro.fr3', 'x', 'DEFAULT', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="ReciboAdto"/></TfrxReport>').toString('base64')]);
+        const adRec = await fetch(`${base}/${AD}/${adDJ.codadiantamento}/recibo/impressao`, { headers: H });
+        const adRecJ = (await adRec.json().catch(() => ({}))) as any;
+        const adRecNada = await fetch(`${base}/${AD}/999999999/recibo/impressao`, { headers: H });
+        await pgAd.query(`DELETE FROM relatorios WHERE codrelatorio = 991151`);
+        const rr = (adRecJ.datasets?.DbdRelatorio ?? [])[0] ?? {};
+        check('ADTO §83.2b [o recibo no layout do cliente]: o ReciboAdiantamentoParceiro.fr3 com o DbdRelatorio = o QryRelatorio do legado (código, data, parceiro e razão, conta e titular, valor, TIPO D — o texto do script é o do devedor —, OBS, CNPJ/CPF do endereço e a empresa: RAZAOSOCIAL/FANTASIA); adiantamento inexistente → 422',
+          adRec.status === 200 && String(adRecJ.modelo).includes('ReciboAdto') && rr.CODADIANTAMENTO === adDJ.codadiantamento && rr.TIPO === 'D' && rr.VALOR === 100
+            && 'RAZAO' in rr && 'FANTASIA' in rr && 'CNPJ_CPF' in rr && 'NROCONTA' in rr && rr.OBS === 'ADIANT P/ TESTE' && adRecNada.status === 422,
+          { st: adRec.status, rr, nada: adRecNada.status });
+
         const adC = await adCriar({ idsituacao_nf: 1012, codparceiro: 1, codcontacorrente: adCx0, dtadiantamento: '2026-07-02', dtvencimento: '2026-07-02', valor: 5000 });
         const adCJ = (await adC.json().catch(() => ({}))) as any;
         const adCMov = (await pgAd.query(`SELECT valor, tipomovimento, historico FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adCJ.codadiantamento])).rows[0] as any;

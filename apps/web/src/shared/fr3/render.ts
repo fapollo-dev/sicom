@@ -25,6 +25,7 @@ import { avaliar, compilarExpr, compilarScript, executar, numero, texto, type Am
 import { aplicarDisplayFormat, formatDateTime, formatDelphi, formatFloat, type Separadores } from './formato';
 import { desenhar } from './barras';
 import { definicaoGrafico, svgGrafico, type Ponto } from './grafico';
+import { numeroExtenso } from './extenso';
 
 const PX_MM = 96 / 25.4;
 
@@ -184,6 +185,8 @@ class Relatorio {
     this.funcoes = {
       date: () => hoje, time: () => hora, now: () => agora,
       formatfloat: ([f, v]) => formatFloat(texto(f), Number(v) || 0),
+      // a função do recibo de adiantamento (o FuncoesApollo do legado) — ver extenso.ts
+      numeroextenso: ([v, m]) => numeroExtenso(Number(v) || 0, m === true || String(m).toLowerCase() === 'true'),
       formatdatetime: ([f, v]) => (v instanceof Date ? formatDateTime(texto(f), v) : texto(v)),
       format: ([f, v]) => formatDelphi(texto(f), v),
       floattostr: ([v]) => texto(Number(v) || 0), inttostr: ([v]) => String(Math.trunc(Number(v) || 0)),

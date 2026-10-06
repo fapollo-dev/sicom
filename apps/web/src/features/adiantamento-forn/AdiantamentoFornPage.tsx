@@ -11,6 +11,7 @@ import {
   type Adiantamento, type ContaAdiantamento, type SituacaoAdiantamento,
 } from './adiantamentoFornApi';
 import { hojeNaLoja } from '../../shared/tempo';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -89,19 +90,27 @@ export function AdiantamentoFornPage() {
     if (!dtAdto || !dtVenc) { window.alert('Informe as datas.'); return; }
     if (dtVenc < dtAdto) { window.alert('Favor entrar com a data de vencimento igual ou maior que a data de Adiantamento!'); return; }
     setBusy(true);
+    let cod = 0;
     try {
-      if (editando) {
-        const r = await editarAdiantamento({ codadiantamento: editando, codparceiro: parceiro, dtadiantamento: dtAdto, dtvencimento: dtVenc, valor, obs: obs || undefined });
-        mensagem.sucesso(`Adiantamento ${r.codadiantamento} alterado${r.titulo_atualizado ? ' (título atualizado)' : ''}.`);
-      } else {
-        const r = await criarAdiantamento({ idsituacao_nf: Number(situacao), codparceiro: parceiro, codcontacorrente: Number(conta), dtadiantamento: dtAdto, dtvencimento: dtVenc, valor, obs: obs || undefined });
-        const titulo = r.codrcb != null ? `título a receber ${r.codrcb}` : `título a pagar ${r.codapg}`;
-        mensagem.sucesso(`Adiantamento ${r.codadiantamento} gravado — ${titulo}. Saldo da conta: ${brl(r.saldo)}.`);
-      }
-      limpar();
-      await carregar();
-      setContas(await listarContas());
-    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+      // gravado, o legado imprime o recibo em seguida (`if Gravou then … ImprimirRecibo`, uCadAdiantamentoFornecedor.pas:424): a janela abre
+      // no clique (o bloqueador de popups) e recebe o recibo quando a gravação volta
+      await imprimirRelatorio(() => `/cobranca/adiantamentos/${cod}/recibo/impressao`, undefined, async () => {
+        if (editando) {
+          const r = await editarAdiantamento({ codadiantamento: editando, codparceiro: parceiro, dtadiantamento: dtAdto, dtvencimento: dtVenc, valor, obs: obs || undefined });
+          cod = r.codadiantamento;
+          mensagem.sucesso(`Adiantamento ${r.codadiantamento} alterado${r.titulo_atualizado ? ' (título atualizado)' : ''}.`);
+        } else {
+          const r = await criarAdiantamento({ idsituacao_nf: Number(situacao), codparceiro: parceiro, codcontacorrente: Number(conta), dtadiantamento: dtAdto, dtvencimento: dtVenc, valor, obs: obs || undefined });
+          cod = r.codadiantamento;
+          const titulo = r.codrcb != null ? `título a receber ${r.codrcb}` : `título a pagar ${r.codapg}`;
+          mensagem.sucesso(`Adiantamento ${r.codadiantamento} gravado — ${titulo}. Saldo da conta: ${brl(r.saldo)}.`);
+        }
+      });
+    } catch (e) { mensagem.erro(e); } finally {
+      // gravou (mesmo que o recibo falhe depois): a tela volta limpa e com a lista e os saldos atualizados
+      if (cod) { limpar(); await carregar(); setContas(await listarContas()); }
+      setBusy(false);
+    }
   };
 
   const editar = (a: Adiantamento) => {
@@ -207,14 +216,18 @@ export function AdiantamentoFornPage() {
                 <td className="p-pad-xs text-fg-muted">{a.codrcb != null ? `receber ${a.codrcb}` : a.codapg != null ? `pagar ${a.codapg}` : '—'}</td>
                 <td className="p-pad-xs">{a.quitada === 'S' ? 'Quitado' : 'Em aberto'}{a.contabilizado === 'S' ? ' · contabilizado' : ''}</td>
                 <td className="p-pad-xs text-right">
-                  {bloqueado(a) ? (
-                    <span className="text-body-xs text-fg-muted">{motivo(a)}</span>
-                  ) : (
-                    <span className="flex justify-end gap-gp-xs">
-                      <Button label="Editar" variant="ghost" onClick={() => editar(a)} />
-                      <Button label="Excluir" variant="ghost" onClick={() => void excluir(a)} />
-                    </span>
-                  )}
+                  <span className="flex items-center justify-end gap-gp-xs">
+                    {/* o "Imprimir recibo" do menu (MniImprimirReciboClick) */}
+                    <Button label="Recibo" variant="ghost" onClick={() => { imprimirRelatorio(`/cobranca/adiantamentos/${a.codadiantamento}/recibo/impressao`).catch((e) => mensagem.erro(e)); }} />
+                    {bloqueado(a) ? (
+                      <span className="text-body-xs text-fg-muted">{motivo(a)}</span>
+                    ) : (
+                      <>
+                        <Button label="Editar" variant="ghost" onClick={() => editar(a)} />
+                        <Button label="Excluir" variant="ghost" onClick={() => void excluir(a)} />
+                      </>
+                    )}
+                  </span>
                 </td>
               </tr>
             ))}

@@ -244,3 +244,15 @@ Três fatos, nesta ordem:
 - **Movimento como o legado grava**: `DTEMISSAO`/`DTVENC`/`DTLIBERACAO` = data do adiantamento, `LIBERADO='S'`,
   `ORIGEM`/`IDORIGEM` nulos (antes: `origem='ADTOFORN'` e só `DATA_FECHAMENTO`). O editar atualiza as três datas
   (pas:409-414), não `DATA_FECHAMENTO`.
+
+## Recibo (06/10/2026)
+
+`ImprimirRecibo` (uCadAdiantamentoFornecedor.pas:680) sai **sozinho depois de gravar** (incluir ou editar — `if Gravou then …`) e pelo
+menu "Imprimir recibo": `ReciboAdiantamentoParceiro.fr3` (PERSONALIZADO 900) com o `DbdRelatorio` = o `QryRelatorio` (adiantamento,
+parceiro, conta, CNPJ/CPF do primeiro endereço, empresa). O texto vem do script do layout — devedor 'D': "Eu, <parceiro> recebi um
+adiantamento da empresa <fantasia>…"; credor 'C': o inverso — com `NumeroExtenso(<VALOR>)` + " reais". `GET cobranca/adiantamentos/:cod/recibo/impressao`.
+
+**`NumeroExtenso`** é registrada no FastReport (`AddFunction`) e implementada no FuncoesApollo, que não está no repositório: o motor
+ganhou a escrita por extenso do português (`apps/web/src/shared/fr3/extenso.ts`). O caso usado pelo layout — valor inteiro, sem moeda — é
+o de 93% dos 589 adiantamentos da produção; a parte decimal sem moeda ("vírgula …") não tem prova. Smoke §83.2b; teste de renderização.
+
