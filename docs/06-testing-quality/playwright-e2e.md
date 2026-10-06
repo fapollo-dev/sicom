@@ -228,6 +228,17 @@ test('venda offline → cupom emitido local → reconcilia sem duplicar', async 
 - **Modificadores variam por SO** (`Alt` vs `Alt+Shift` no Firefox) — a camada própria de mnemônicos resolve, mas fixe o browser/casca no projeto.
 - **Caso de teclado rastreia o §8 do dossiê**; caso de fluxo fiscal/PDV rastreia o §9/§10 — cobertura derivada do dossiê ([testing-strategy.md](testing-strategy.md)).
 
+## Como está montado no repositório (06/10/2026)
+
+- `apps/web/playwright.config.ts` sobe a **API real** (`scripts/dev-embedded.ts` na porta 3100, Postgres embarcado na 5435 com dados num
+  diretório temporário próprio) e o **Vite** na 5174 apontando para ela. Não encosta no dev-embedded de quem desenvolve (3000/5433),
+  no Vite (5173) nem no smoke.
+- Os testes ficam em `apps/web/e2e/*.e2e.ts` (o vitest não os pega). Login real com o operador do seed (`SMOKE`).
+- Rodar: `pnpm --filter @apollo/web e2e` (ou `cd apps/web && npx playwright test`). O primeiro uso pede `npx playwright install chromium`.
+- `e2e/teclado.e2e.ts` cobre as teclas da base extraídas do legado (`docs/04-screen-dossier/mapa-de-teclado.md`): Esc fecha a tela,
+  Enter avança sem submeter, Alt+← volta, Ctrl+E troca de empresa, F3/Esc do cadastro. O primeiro uso já pegou um defeito que o
+  jsdom não pega (o Esc que fechava a Pesquisa também fechava a tela).
+
 ---
 
 ## Ver também

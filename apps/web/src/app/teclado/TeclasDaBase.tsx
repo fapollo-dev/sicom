@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShortcut, useEnterAdvances, focarAnterior } from '../../shared/keyboard';
 import { TrocarEmpresaModal } from './TrocarEmpresaModal';
@@ -19,9 +19,18 @@ function algoAbertoPorCima(): boolean {
 export function TeclasDaBase({ conteudoRef }: { conteudoRef: RefObject<HTMLElement | null> }) {
   const navigate = useNavigate();
   const [trocaAberta, setTrocaAberta] = useState(false);
+  // o modal fecha no próprio Esc (o ouvinte dele roda antes do nosso): o estado "havia janela aberta" é lido na CAPTURA, no início
+  // da tecla, para o mesmo Esc não fechar a janela e a tela
+  const escComJanela = useRef(false);
+  useEffect(() => {
+    const cap = (e: KeyboardEvent) => { if (e.key === 'Escape') escComJanela.current = algoAbertoPorCima(); };
+    window.addEventListener('keydown', cap, true);
+    return () => window.removeEventListener('keydown', cap, true);
+  }, []);
   useEnterAdvances(conteudoRef);
-  useShortcut('escape', () => {
-    if (algoAbertoPorCima()) return false;
+  useShortcut('escape', (e) => {
+    // a janela/menu aberto, ou um campo da tela que já tratou o Esc (cancelar a edição da célula), fica com a tecla
+    if (escComJanela.current || algoAbertoPorCima() || e.defaultPrevented) return false;
     navigate('/inicio');
   });
   useShortcut('alt+arrowleft', () => focarAnterior(conteudoRef.current));
