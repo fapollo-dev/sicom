@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -60,6 +61,9 @@ export function PreviaFornecedorPage() {
   const [visualizar, setVisualizar] = useState('VENDAS');
   const [ativo, setAtivo] = useState('');
   const [somenteComGiro, setSomenteComGiro] = useState(false);
+  // o "Mostrar Custo" (chkCusto, desmarcado no .dfm) e o "Visualizar" do código (rdgVisualizarProd) — só mudam o relatório impresso
+  const [mostrarCusto, setMostrarCusto] = useState(false);
+  const [codigo, setCodigo] = useState('PRODUTO');
   const [unidade, setUnidade] = useState('DIAS');
   const [quantidade, setQuantidade] = useState('15');
   const [modelo, setModelo] = useState('SINTETICO');
@@ -96,6 +100,15 @@ export function PreviaFornecedorPage() {
       setPorPeriodo(null); setPeriodos(r.periodos); setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
       if (!r.linhas.length) mensagem.sucesso('Nenhum produto no filtro (a lista vem de produtos com estoque na empresa).');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  // o Imprimir dos modos de slots: o legado recalcula a consulta e imprime só os produtos com movimento (o Filtro do btnImprimir)
+  const imprimir = () => {
+    if (periodizacao === 'PERIODO') { mensagem.erro('A impressão do "Habilita Período" ainda não foi convertida.'); return; }
+    void imprimirRelatorio('/relatorios/previa-fornecedor/impressao', {
+      dataAnalise, codfor: codfor ? Number(codfor) : undefined, ativo: ativo ? Number(ativo) : undefined,
+      periodizacao, visualizar, mostrarCusto, codigo,
+    }).catch((e) => mensagem.erro(e));
   };
 
   const exportar = () => {
@@ -151,7 +164,7 @@ export function PreviaFornecedorPage() {
             )}
           </>
         )}
-        <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
+        <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'PEDIDOS', label: 'Pedidos' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
         <div className="w-56"><SelectField label="Situa&ção" value={ativo} onChange={setAtivo} placeholder="(sem filtro)" options={[
           { value: '1', label: 'Ativo p/ compra = S' }, { value: '2', label: 'Ativo = S' },
           { value: '3', label: 'Ativo p/ compra = N' }, { value: '4', label: 'Ativo = N' },
@@ -160,6 +173,11 @@ export function PreviaFornecedorPage() {
         <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={somenteComGiro} onChange={(e) => setSomenteComGiro(e.target.checked)} /> Só com giro</label>
         <Button label="&Gerar" variant="soft" disabled={busy} onClick={() => void gerar()} />
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
+        <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={mostrarCusto} onChange={(e) => setMostrarCusto(e.target.checked)} /> Mostrar custo</label>
+        <div className="w-48"><SelectField label="Có&digo no relatório" value={codigo} onChange={setCodigo} options={[
+          { value: 'PRODUTO', label: 'Código do produto' }, { value: 'BARRAS', label: 'Código de barras' },
+        ]} /></div>
+        <Button label="&Imprimir" variant="soft" disabled={busy} onClick={imprimir} />
         <small className="w-full text-fg-muted">
           Os períodos terminam na data de análise. A lista sai de <b>produtos com estoque na empresa</b> — item sem
           venda aparece com zero, de propósito: é como se enxerga o que encalhou.

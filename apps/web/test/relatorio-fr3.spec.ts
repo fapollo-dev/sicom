@@ -1815,3 +1815,19 @@ describe('livro diário (LivroDiarioContabil.fr3, FRMRELDIARIOCONTABIL)', () => 
   });
 });
 
+describe('prévia do fornecedor (ListaPrecFornecedorVendas.fr3, FRMRELLISTAPRECOSFORNECEDOR)', () => {
+  it('os títulos do período, as quantidades por período, o total e o fornecedor', () => {
+    const linha = { CODBARRA: '7899000990700', CODPRODUTO: 990700, DESCRICAO: 'ARROZ RV 5KG', EMBALAGEM: 'FD/12', ESTOQUE: 100, EST_MINIMO: 10, EST_MAXIMO: 200,
+      DTULTENT: '2026-08-05T00:00:00', QTDEULTENT: 60, VRCUSTOREP: 4.5, VRCUSTO: 4.1667, PMZ: 0, VRVENDA: 11.3333, FANTASIA: 'FORN PREVIA',
+      TITULO1: '16 a 21', TITULO2: '22 a 27', TITULO3: '28 a 02', TITULO4: '03 a 08', TITULO5: '09 a 15', SMD1: null, SMD2: null, SMD3: null, SMD4: 17, SMD5: 7, TOTALPERIODO: 24 };
+    const t = texto(paginasDoModelo(modelo('lista-prec-fornecedor-vendas.fr3'), { dbdListagem: [linha] }, agora,
+      { Empresa: "'1'", FORNECEDOR: "'990002 - FORN PREVIA LTDA'", MOSTRAR_CUSTO: "'1'" }));
+    expect(t).toContain('16 a 21');
+    expect(t).toContain('09 a 15');
+    expect(t).toContain('ARROZ RV 5KG');
+    expect(t).toContain('990002 - FORN PREVIA LTDA');
+    expect(t).toContain('17,00');
+    expect(t).toContain('24,00');
+  });
+});
+

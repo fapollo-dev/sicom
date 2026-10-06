@@ -72,3 +72,16 @@ export function modeloEmbutido(chave: string): string {
   return xml;
 }
 
+/**
+ * O `TfrxMemoView(frxReport.FindObject('x')).Visible := ...` que o legado faz no relatório carregado antes de imprimir: o atributo
+ * Visible do objeto pelo nome, no XML. Objeto que o layout não tem fica como está (o `if x <> nil` do legado).
+ */
+export function comVisibilidade(xml: string, visiveis: Record<string, boolean>): string {
+  let out = xml;
+  for (const [nome, vis] of Object.entries(visiveis)) {
+    const n = nome.replace(/[^A-Za-z0-9_]/g, '');
+    const re = new RegExp(`<Tfrx\\w+\\b[^>]*?\\sName="${n}"[^>]*>`, 'i');
+    out = out.replace(re, (tag) => tag.replace(/\sVisible="[^"]*"/gi, '').replace(new RegExp(`(\\sName="${n}")`, 'i'), `$1 Visible="${vis ? 'True' : 'False'}"`));
+  }
+  return out;
+}

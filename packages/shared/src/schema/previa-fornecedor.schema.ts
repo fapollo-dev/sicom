@@ -18,7 +18,8 @@ export const previaFornecedorSchema = z.object({
    * legado ("Habilita Período") é outra geração de cálculo (`MontaSqlPorPeriodo`) e segue adiada.
    */
   periodizacao: z.enum(['15D', '5D', '30D', '5S', '5M', '5A', 'ANUAL']).optional(),
-  visualizar: z.enum(['VENDAS', 'ENTRADAS_SAIDAS']).optional(), // rdgVisualizar (tvPedidos = corte-3)
+  /** rdgVisualizar: Vendas (tvVendas), Pedidos (tvPedidos — a mesma célula sobre a tabela PEDIDOS) e Entradas e Saídas */
+  visualizar: z.enum(['VENDAS', 'PEDIDOS', 'ENTRADAS_SAIDAS']).optional(),
   empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
   codfor: z.coerce.number().int().positive().optional(),        // PA.CODPARCEIRO
   idproduto: z.coerce.number().int().positive().optional(),     // P.IDPRODUTO
@@ -58,3 +59,15 @@ export const previaPeriodoSchema = previaFornecedorSchema
     modelo: z.enum(['SINTETICO', 'ANALITICO']).optional(),
   });
 export type PreviaPeriodoDto = z.infer<typeof previaPeriodoSchema>;
+
+/**
+ * O Imprimir (`btnImprimirClick`) dos modos de slots: a mesma consulta, mais o "Mostrar Custo" (`chkCusto`, desmarcado no .dfm — escolhe
+ * ListaPrecFornecedorVendas × Vendas2 e liga as colunas de custo dos layouts) e o "Visualizar" do código (`rdgVisualizarProd`: código do
+ * produto × código de barras — os memos mmCodproduto/mmCodbarra).
+ */
+export const previaFornecedorImpressaoSchema = previaFornecedorSchema.omit({ somenteComGiro: true }).extend({
+  mostrarCusto: z.boolean().optional(),
+  codigo: z.enum(['PRODUTO', 'BARRAS']).optional(),
+});
+export type PreviaFornecedorImpressaoDto = z.infer<typeof previaFornecedorImpressaoSchema>;
+

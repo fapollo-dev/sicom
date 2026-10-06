@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
+import { comVisibilidade, modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -118,7 +120,7 @@ function faixaPorPeriodo(unidade: string, qtd: number, ancora: string): { ini: s
 export interface FiltroPrevia {
   dataAnalise?: string;
   periodizacao?: string;
-  visualizar?: 'VENDAS' | 'ENTRADAS_SAIDAS';
+  visualizar?: 'VENDAS' | 'PEDIDOS' | 'ENTRADAS_SAIDAS';
   empresas?: number[];
   codfor?: number; idproduto?: number;
   departamento?: number; grupo?: number; subgrupo?: number; secao?: number; marca?: number;
@@ -132,7 +134,8 @@ export interface FiltroPrevPeriodo extends Omit<FiltroPrevia, 'periodizacao' | '
   modelo?: 'SINTETICO' | 'ANALITICO'; // rdgModelo — ANALITICO só vale c/ MESES/ANOS (Dias/Semanas força Sintético)
 }
 
-interface Celula { qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number; qtde_ent?: number; vrcusto_ent?: number }
+/** a linha do `cdsPeriodoN` do produto: as médias do período e se houve a linha de saída (S) e a de entrada (E) — o `Locate` do legado */
+interface Celula { qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number; qtde_ent?: number; vrcusto_ent?: number; tem_saida?: boolean; tem_entrada?: boolean }
 
 /**
  * Média das médias diárias PULANDO os dias sem valor — é assim que o legado monta a coluna monetária do layout
@@ -196,7 +199,7 @@ export class PreviaFornecedorService {
     return e;
   }
 
-  async matriz(f: FiltroPrevia): Promise<{
+  async matriz(f: FiltroPrevia, brutos?: Map<number, Map<number, { vc: number; vv: number; vce: number }>>): Promise<{
     periodos: Periodo[];
     linhas: Record<string, unknown>[];
     totais: Record<string, number | null>;
@@ -233,6 +236,7 @@ export class PreviaFornecedorService {
     // dias cobertos pela periodização inteira — denominador honesto da média/dia (nº de SLOTS só serve p/ "15 Dias").
     const diasCobertos = Math.round((Date.parse(`${fimExcl}T00:00:00Z`) - Date.parse(`${ini}T00:00:00Z`)) / 86400000);
     const comEntradas = (f.visualizar ?? 'VENDAS') === 'ENTRADAS_SAIDAS';
+    const pedidos = f.visualizar === 'PEDIDOS';
 
     // ---- (a) LINHAS: produtos ⋈ estoque, com os filtros de valor ÚNICO do legado ----
     let qLinhas = db
@@ -276,7 +280,8 @@ export class PreviaFornecedorService {
     if (f.ativo != null) qLinhas = qLinhas.where('m.idproduto', 'is not', null); // efeito do INNER JOIN legado
 
     const MAX_LINHAS = 20000;
-    const brutas = (await qLinhas.orderBy(sql`p.descricao`).limit(MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
+    // a impressão (que pede as médias cruas) não tem limite — o legado imprime a lista inteira
+    const brutas = (await qLinhas.orderBy(sql`p.descricao`).limit(brutos ? 10_000_000 : MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
     const truncado = brutas.length > MAX_LINHAS;
     const rows = truncado ? brutas.slice(0, MAX_LINHAS) : brutas;
 
@@ -324,7 +329,22 @@ export class PreviaFornecedorService {
       .where('n.cfop', 'in', CFOP_SAIDA)
       .$if(filtrarIds, (q) => q.where('np.codproduto', 'in', ids));
 
-    let uniao = saidasVendas.unionAll(saidasNf);
+    // tvPedidos: a mesma célula sobre a tabela PEDIDOS (`FROM PEDIDOS V WHERE V.CANCELADO = 'N' AND TRUNC(V.DTVENDA) BETWEEN … AND
+    // V.IDEMPRESA IN (…)`, SUM(QTDE)/AVG(VRCUSTO)/AVG(VRVENDA)), sem a NF de saída e sem o custo de reposição. PEDIDOS.DTVENDA é
+    // timestamp sem fuso (a hora da loja) — o dia é o da própria coluna.
+    const saidasPedidos = db.selectFrom('pedidos as v')
+      .select([
+        sql`to_char(v.dtvenda,'YYYY-MM-DD')`.as('dia'), sql`v.codproduto`.as('codproduto'), sql`'S'`.as('tipo'),
+        sql`coalesce(v.qtde,0)`.as('qtde'), sql`coalesce(v.vrcusto,0)`.as('vrcusto'),
+        sql`coalesce(v.vrvenda,0)`.as('vrvenda'), sql`0`.as('vrcustorep'),
+      ])
+      .where(sql`v.cancelado`, '=', 'N')
+      .where('v.idempresa', 'in', empresas)
+      .where('v.dtvenda', '>=', sql`${ini}::timestamp`)
+      .where('v.dtvenda', '<', sql`${fimExcl}::timestamp`)
+      .$if(filtrarIds, (q) => q.where('v.codproduto', 'in', ids));
+
+    let uniao = pedidos ? (saidasPedidos as unknown as typeof saidasVendas) : saidasVendas.unionAll(saidasNf);
     if (comEntradas) {
       // ENTRADAS: NF tipo='E', SEM filtro de CFOP (fiel), custo = CASE vl_custo=0 → vrcusto, venda = 0
       const entradas = db.selectFrom('nf as n')
@@ -382,12 +402,20 @@ export class PreviaFornecedorService {
       if (!porProduto.has(id)) porProduto.set(id, new Map());
       const cels = porProduto.get(id)!;
       const c = cels.get(slot) ?? { qtde: 0, vrcusto: 0, vrvenda: 0, vrcustorep: 0 };
-      if (String(m.tipo) === 'E') { c.qtde_ent = r3(num(m.qtde)); c.vrcusto_ent = r4(num(m.vrcusto)); }
+      if (String(m.tipo) === 'E') { c.qtde_ent = r3(num(m.qtde)); c.vrcusto_ent = r4(num(m.vrcusto)); c.tem_entrada = true; }
       else {
+        c.tem_saida = true;
         c.qtde = r3(num(m.qtde)); c.vrcusto = r4(num(m.vrcusto));
         c.vrvenda = r4(num(m.vrvenda)); c.vrcustorep = r4(num(m.vrcustorep));
       }
       cels.set(slot, c);
+      // as médias sem arredondar (a impressão faz a média dos períodos sobre elas, como o AtualizaListagem)
+      if (brutos) {
+        if (!brutos.has(id)) brutos.set(id, new Map());
+        const b = brutos.get(id)!.get(slot) ?? { vc: 0, vv: 0, vce: 0 };
+        if (String(m.tipo) === 'E') b.vce = num(m.vrcusto); else { b.vc = num(m.vrcusto); b.vv = num(m.vrvenda); }
+        brutos.get(id)!.set(slot, b);
+      }
     }
 
     const linhas = rows.map((r) => {
@@ -450,7 +478,7 @@ export class PreviaFornecedorService {
       periodos, linhas: visiveis, totais,
       filtro: {
         ...f, empresas, dataAnalise: ancora, periodizacao: f.periodizacao ?? '15D',
-        visualizar: comEntradas ? 'ENTRADAS_SAIDAS' : 'VENDAS',
+        visualizar: comEntradas ? 'ENTRADAS_SAIDAS' : pedidos ? 'PEDIDOS' : 'VENDAS',
         de: ini, ate: fimIncl, dias_cobertos: diasCobertos, truncado, max_linhas: MAX_LINHAS,
       },
     };
@@ -632,4 +660,123 @@ export class PreviaFornecedorService {
     };
   }
 
+
+  /**
+   * O Imprimir dos modos de slots (`btnImprimirClick` → `GeraConsulta` + `Filtro(True)` + `GetNomeArqFR3`). O `cdsListagem` (dataset
+   * `dbdListagem`) linha a linha, sobre a mesma consulta da tela:
+   *  - CODBARRA, CODPRODUTO, DESCRICAO, EMBALAGEM = UNIDADE + '/' + FATORCX, ESTOQUE, EST_MINIMO/MAXIMO, FANTASIA, QTDEULTENT e DTULTENT
+   *    (`AsDateTime` de nulo é 0 → 30/12/1899, como o legado imprime), VRCUSTOREP = o custo de reposição atual, PMZ = 0;
+   *  - SMDn = a quantidade da linha de saída do período (nula se não houve — o `Locate` falhou); QTDE_ENTRADAn = a da entrada;
+   *  - VRCUSTO / VRVENDA / VRCUSTO_ENTRADA = a média das médias dos períodos em que o valor foi > 0;
+   *  - nos modos de 5 períodos (`AtualizaListagem`): TOTALPERIODO = SMD1..5 e o VRCUSTOREP **dividido** pelo nº de períodos com custo
+   *    (o quirk do legado); em 15 dias e no anual: TOTAL_MESES = Σ SMD;
+   *  - TITULOn: D1..D15 · o dia (5 dias) · "dd a dd" (30 dias) · "d a d" (5 semanas) · o ano · `MesExtensoT` (5 meses: o nome do mês) ·
+   *    `MesExtenso` (anual: 3 letras). ⚠️ o `FuncoesApollo` não veio no fonte: `MesExtenso` = 3 letras é provado pelos campos JAN_VALOR…
+   *    do Rel_CaixaAnual (com `UpperCase` por fora — por isso a capitalização "Jan"); `MesExtensoT` = o nome inteiro é inferência (a outra
+   *    função, e o texto dos nós de mês dos lançamentos contábeis);
+   *  - só as linhas com algum SMD ou QTDE_ENTRADA > 0 (o `Filtro`), em ordem de DESCRICAO; vazio → "Não há movimento no filtro informado.
+   *    Verifique!".
+   * Layout: 15 dias → ListaPrecFornecedorVendas_Quinzenal; anual → _Anual; senão Vendas (com custo) / Vendas2 (sem), Pedidos, EntSai.
+   * Os memos mmCodproduto/mmCodbarra seguem o "Visualizar" do código; mmTotalPeriodo/mmUltQtdeCompra/mmUltDtCompra/mmSomaTotalPeriodo só
+   * aparecem com custo em 30 dias. Variáveis Empresa, FORNECEDOR ('código - razão') e MOSTRAR_CUSTO ('1'/'0').
+   */
+  async impressao(f: FiltroPrevia & { mostrarCusto?: boolean; codigo?: 'PRODUTO' | 'BARRAS' }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const brutos = new Map<number, Map<number, { vc: number; vv: number; vce: number }>>();
+    const r = await this.matriz({ ...f, somenteComGiro: false }, brutos);
+    const modo = String(r.filtro.periodizacao);
+    const ancora = String(r.filtro.dataAnalise);
+    const cinco = !['15D', 'ANUAL'].includes(modo);
+    const titulos = PreviaFornecedorService.titulos(modo, ancora);
+    const fmtFator = (v: unknown) => (v == null || v === '' ? '' : String(Number(v)).replace('.', ','));
+
+    const listagem: Array<Record<string, unknown>> = [];
+    for (const l of r.linhas as Array<Record<string, any>>) {
+      const id = Number(l.idproduto);
+      const celulas = (l.celulas ?? []) as Array<Celula | null>;
+      const b = brutos.get(id) ?? new Map();
+      const reg: Record<string, unknown> = {
+        CODBARRA: l.codbarra ?? '', CODPRODUTO: id, DESCRICAO: l.descricao ?? '', EMBALAGEM: `${l.unidade ?? ''}/${fmtFator(l.fatorcx)}`,
+        ESTOQUE: num(l.estoque), EST_MINIMO: num(l.est_minimo), EST_MAXIMO: num(l.est_maximo),
+        DTULTENT: l.dtultent ? `${l.dtultent}T00:00:00` : '1899-12-30T00:00:00', QTDEULTENT: num(l.qtdeultent),
+        VRCUSTOREP: num(l.vrcustorep_atual), VRCUSTO: 0, PMZ: 0, VRVENDA: 0, VRCUSTO_ENTRADA: null, FANTASIA: l.fornecedor ?? '',
+      };
+      let sc = 0, nc = 0, sv = 0, nv = 0, se = 0, ne = 0, tem = false;
+      celulas.forEach((c, i) => {
+        const n = i + 1;
+        reg[`TITULO${n}`] = titulos[i] ?? '';
+        reg[`SMD${n}`] = c?.tem_saida ? c.qtde : null;
+        reg[`QTDE_ENTRADA${n}`] = c?.tem_entrada ? (c.qtde_ent ?? 0) : null;
+        const bb = b.get(n);
+        if (c?.tem_saida && bb) {
+          if (bb.vc > 0) { sc += bb.vc; nc += 1; }
+          if (bb.vv > 0) { sv += bb.vv; nv += 1; }
+        }
+        if (c?.tem_entrada && bb && bb.vce > 0) { se += bb.vce; ne += 1; }
+        if ((c?.tem_saida && c.qtde > 0) || (c?.tem_entrada && (c.qtde_ent ?? 0) > 0)) tem = true;
+      });
+      reg.VRCUSTO = nc > 0 ? sc / nc : 0;
+      reg.VRVENDA = nv > 0 ? sv / nv : 0;
+      if (ne > 0) reg.VRCUSTO_ENTRADA = se / ne;
+      const smd = (k: number) => num(reg[`SMD${k}`]);
+      if (cinco) {
+        if (nc > 0) reg.VRCUSTOREP = num(reg.VRCUSTOREP) / nc;
+        reg.TOTALPERIODO = smd(1) + smd(2) + smd(3) + smd(4) + smd(5);
+      } else {
+        reg.TOTAL_MESES = celulas.reduce((s, _c, i) => s + smd(i + 1), 0);
+      }
+      if (tem) listagem.push(reg);
+    }
+    if (!listagem.length) throw new BusinessRuleError('SEM_MOVIMENTO', {}, 'Não há movimento no filtro informado. Verifique!');
+    listagem.sort((a, b2) => (String(a.DESCRICAO) < String(b2.DESCRICAO) ? -1 : String(a.DESCRICAO) > String(b2.DESCRICAO) ? 1 : 0));
+
+    const vis = f.visualizar ?? 'VENDAS';
+    const custo = f.mostrarCusto === true;
+    const arquivo = modo === '15D' ? 'ListaPrecFornecedorVendas_Quinzenal.fr3' : modo === 'ANUAL' ? 'ListaPrecFornecedorVendas_Anual.fr3'
+      : vis === 'PEDIDOS' ? 'ListaPrecFornecedorPedidos.fr3' : vis === 'ENTRADAS_SAIDAS' ? 'ListaPrecFornecedorEntSai.fr3'
+        : custo ? 'ListaPrecFornecedorVendas.fr3' : 'ListaPrecFornecedorVendas2.fr3';
+    const barras = f.codigo === 'BARRAS';
+    const r30 = custo && modo === '30D';
+    const modelo = comVisibilidade(await modeloFr3(db, arquivo), {
+      mmCodproduto: !barras, mmCodbarra: barras,
+      mmTotalPeriodo: r30, mmUltQtdeCompra: r30, mmUltDtCompra: r30, mmSomaTotalPeriodo: r30,
+    });
+    const forn = f.codfor != null
+      ? (await sql<{ razao: string | null }>`SELECT razao FROM parceiros WHERE codparceiro = ${Number(f.codfor)}`.execute(db)).rows[0]?.razao ?? ''
+      : null;
+    return {
+      titulo: 'Prévia do fornecedor',
+      modelo,
+      datasets: { dbdListagem: listagem },
+      variaveis: {
+        Empresa: textoVariavel((r.filtro.empresas as number[]).join(',')),
+        FORNECEDOR: textoVariavel(forn != null ? `${f.codfor} - ${forn}` : ''),
+        MOSTRAR_CUSTO: textoVariavel(custo ? '1' : '0'),
+      },
+    };
+  }
+
+  /** os TITULOn do `GeraConsulta`, por periodização, a partir da data de análise */
+  static titulos(modo: string, ancora: string): string[] {
+    const MES_T = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const MES_A = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const [y, m] = ancora.split('-').map(Number);
+    const dia = (off: number) => Number(addDias(ancora, off).slice(8, 10));
+    const dd = (off: number) => addDias(ancora, off).slice(8, 10);
+    switch (modo) {
+      case '15D': return Array.from({ length: 15 }, (_, i) => `D${i + 1}`);
+      case 'ANUAL': return MES_A.slice();
+      case '5D': return [-4, -3, -2, -1, 0].map((o) => String(dia(o)));
+      case '30D': return [[-30, -25], [-24, -19], [-18, -13], [-12, -7], [-6, 0]].map(([a, b]) => `${dd(a)} a ${dd(b)}`);
+      case '5A': return [4, 3, 2, 1, 0].map((k) => String(y - k));
+      case '5M': return [4, 3, 2, 1, 0].map((k) => MES_T[((m - k - 1) % 12 + 12) % 12]);
+      case '5S': {
+        // DayOfWeek do Delphi: 1 = domingo; a semana atual vai do domingo (data − (DiaSemana − 1)) ao sábado
+        const base = -new Date(`${ancora}T00:00:00Z`).getUTCDay();
+        return [28, 21, 14, 7, 0].map((k) => `${dia(base - k)} a ${dia(base - k + 6)}`);
+      }
+      default: return [];
+    }
+  }
 }
+

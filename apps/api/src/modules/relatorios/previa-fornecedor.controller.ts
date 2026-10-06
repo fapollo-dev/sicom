@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import {
-  previaFornecedorSchema, previaPeriodoSchema,
-  type PreviaFornecedorDto, type PreviaPeriodoDto,
+  previaFornecedorSchema, previaPeriodoSchema, previaFornecedorImpressaoSchema,
+  type PreviaFornecedorDto, type PreviaPeriodoDto, type PreviaFornecedorImpressaoDto,
 } from '@apollo/shared';
 import { PreviaFornecedorService } from './previa-fornecedor.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -35,5 +35,16 @@ export class PreviaFornecedorController {
   @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
   porPeriodo(@Body(new ZodValidationPipe(previaPeriodoSchema)) dto: PreviaPeriodoDto) {
     return this.svc.porPeriodo(dto);
+  }
+
+  /**
+   * O Imprimir dos modos de slots (os 6 layouts ListaPrecFornecedor*) — a PERMISSOES da produção não tem opção de impressão para esta
+   * tela: vale o acesso a ela.
+   */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
+  impressao(@Body(new ZodValidationPipe(previaFornecedorImpressaoSchema)) dto: PreviaFornecedorImpressaoDto) {
+    return this.svc.impressao(dto);
   }
 }

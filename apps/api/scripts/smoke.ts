@@ -6163,6 +6163,55 @@ async function main() {
           && Number(m5a.filtro?.dias_cobertos) === 1826 && Number(man.filtro?.dias_cobertos) === 365,
           { dias5m: m5m.filtro?.dias_cobertos, med: lin(m5m)?.media_dia, dias5a: m5a.filtro?.dias_cobertos, diasAn: man.filtro?.dias_cobertos });
 
+        // 47n.12) o IMPRIMIR dos modos de slots (GeraConsulta + Filtro(True) + GetNomeArqFR3): o cdsListagem linha a linha
+        {
+          const stubLp = (nome: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${nome}"><TfrxMemoView Name="mmCodproduto" Text="a"/><TfrxMemoView Name="mmCodbarra" Visible="True" Text="b"/><TfrxMemoView Name="mmTotalPeriodo" Text="c"/></TfrxReportPage></TfrxReport>`).toString('base64');
+          await pgRv.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+            (992981, 1, 'ListaPrecFornecedorVendas_Quinzenal.fr3', 'x', 'PERSONALIZADO', $1), (992982, 1, 'ListaPrecFornecedorVendas.fr3', 'x', 'PERSONALIZADO', $2),
+            (992983, 1, 'ListaPrecFornecedorPedidos.fr3', 'x', 'PERSONALIZADO', $3), (992984, 1, 'ListaPrecFornecedorVendas2.fr3', 'x', 'PERSONALIZADO', $4)
+            ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stubLp('Quinzenal_stub'), stubLp('Vendas_stub'), stubLp('Pedidos_stub'), stubLp('Vendas2_stub')]);
+          await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcustorep, ativo, ativo_compra) VALUES (990700,1,10,9,'S','S')
+            ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcustorep = 9`);
+          await pgRv.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, vrcusto, dtvenda, cancelado, bonificado, troca) VALUES
+            ('LP4712', 1, 1, 990700, 'ARROZ', 'FD', 4, 11, 6, '2026-08-12 10:00:00', 'N', 'N', 'N'), ('LP4713', 1, 1, 990700, 'ARROZ', 'FD', 50, 11, 6, '2026-08-12 11:00:00', 'S', 'N', 'N')`);
+          const IMP = 'relatorios/previa-fornecedor/impressao';
+          const imp = async (body: Record<string, unknown>) => { const x = await fetch(`${base}/${IMP}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, ...body }) }); return Object.assign((await x.json().catch(() => ({}))) as any, { _status: x.status }); };
+          const q15 = await imp({});
+          const L15 = (q15.datasets?.dbdListagem ?? []) as any[];
+          const a15 = L15.find((l) => l.CODPRODUTO === 990700), f15 = L15.find((l) => l.CODPRODUTO === 990701);
+          const perto = (a: unknown, b: number) => Math.abs(Number(a) - b) < 0.0005;
+          check('PRÉVIA-FORN §47n.12a [o Imprimir — 15 dias]: ListaPrecFornecedorVendas_Quinzenal, o cdsListagem em ordem de DESCRIÇÃO só com quem teve SMD > 0 (ARROZ e FEIJÃO); títulos D1..D15; SMD3 = 17 (vendas 5 + NF 12) e SMD10 = 7, SMD1 NULO (o Locate falhou); TOTAL_MESES 24; VRCUSTO = média dos períodos com custo ((5,3333 + 3)/2 = 4,1667) e VRVENDA (12,6667 + 10)/2; EMBALAGEM "FD/12"; DTULTENT nula sai 30/12/1899 (o AsDateTime do legado); no 15 dias o VRCUSTOREP NÃO é dividido (9)',
+            String(q15.modelo).includes('Quinzenal_stub') && L15.map((l) => l.CODPRODUTO).join(',') === '990700,990701'
+            && a15?.TITULO1 === 'D1' && a15?.TITULO15 === 'D15' && Number(a15?.SMD3) === 17 && Number(a15?.SMD10) === 7 && a15?.SMD1 === null
+            && Number(a15?.TOTAL_MESES) === 24 && perto(a15?.VRCUSTO, (16 / 3 + 3) / 2) && perto(a15?.VRVENDA, (38 / 3 + 10) / 2)
+            && a15?.EMBALAGEM === 'FD/12' && f15?.DTULTENT === '1899-12-30T00:00:00' && Number(f15?.SMD15) === 4 && Number(a15?.VRCUSTOREP) === 9,
+            { modelo: String(q15.modelo).slice(0, 60), ordem: L15.map((l) => l.CODPRODUTO), a15: a15 && { t1: a15.TITULO1, s3: a15.SMD3, s10: a15.SMD10, s1: a15.SMD1, tm: a15.TOTAL_MESES, vc: a15.VRCUSTO, vv: a15.VRVENDA, emb: a15.EMBALAGEM, rep: a15.VRCUSTOREP }, f15: f15 && { dt: f15.DTULTENT, s15: f15.SMD15 } });
+          const q30 = await imp({ periodizacao: '30D', mostrarCusto: true });
+          const a30 = (q30.datasets?.dbdListagem ?? []).find((l: any) => l.CODPRODUTO === 990700);
+          const q30b = await imp({ periodizacao: '30D', codigo: 'BARRAS' });
+          check('PRÉVIA-FORN §47n.12b [30 dias com custo]: ListaPrecFornecedorVendas; títulos "dd a dd" (16 a 21 … 09 a 15); TOTALPERIODO = SMD1..5 (24); o VRCUSTOREP DIVIDIDO pelos 2 períodos com custo (9/2 = 4,5 — o quirk do AtualizaListagem); com custo em 30 dias o mmTotalPeriodo aparece; sem custo → Vendas2 e o código de barras troca os memos (mmCodbarra visível, mmCodproduto não); variáveis FORNECEDOR "código - razão" e MOSTRAR_CUSTO',
+            String(q30.modelo).includes('Vendas_stub') && a30?.TITULO1 === '16 a 21' && a30?.TITULO5 === '09 a 15' && Number(a30?.TOTALPERIODO) === 24
+            && Number(a30?.VRCUSTOREP) === 4.5 && /Name="mmTotalPeriodo" Visible="True"/.test(String(q30.modelo))
+            && String(q30b.modelo).includes('Vendas2_stub') && /Name="mmCodbarra" Visible="True"/.test(String(q30b.modelo)) && /Name="mmCodproduto" Visible="False"/.test(String(q30b.modelo))
+            && /Name="mmTotalPeriodo" Visible="False"/.test(String(q30b.modelo))
+            && q30.variaveis?.FORNECEDOR === "'990002 - FORN PREVIA LTDA'" && q30.variaveis?.MOSTRAR_CUSTO === "'1'" && q30b.variaveis?.MOSTRAR_CUSTO === "'0'" && q30.variaveis?.Empresa === "'1'",
+            { a30: a30 && { t1: a30.TITULO1, t5: a30.TITULO5, tp: a30.TOTALPERIODO, rep: a30.VRCUSTOREP }, v: q30.variaveis, b: String(q30b.modelo).slice(0, 300) });
+          const q5m = await imp({ periodizacao: '5M' });
+          const qPd = await imp({ periodizacao: '5D', visualizar: 'PEDIDOS' });
+          const aPd = (qPd.datasets?.dbdListagem ?? []).find((l: any) => l.CODPRODUTO === 990700);
+          const qEs = await imp({ visualizar: 'ENTRADAS_SAIDAS' });
+          const aEs = (qEs.datasets?.dbdListagem ?? []).find((l: any) => l.CODPRODUTO === 990700);
+          const vazio = await imp({ dataAnalise: '2020-01-15' });
+          check('PRÉVIA-FORN §47n.12c [5 meses, Pedidos, E/S e vazio]: 5 meses → os nomes dos meses (Abril … Agosto: o MesExtensoT); Pedidos (o modo tvPedidos que não existia) → ListaPrecFornecedorPedidos com a PEDIDOS: 12/08 = SMD2 de 4 (o cancelado fora); Entradas e Saídas em 15 dias → QTDE_ENTRADA4 = 30 e VRCUSTO_ENTRADA 7; sem movimento → a mensagem do legado',
+            (q5m.datasets?.dbdListagem ?? [])[0]?.TITULO1 === 'Abril' && (q5m.datasets?.dbdListagem ?? [])[0]?.TITULO5 === 'Agosto'
+            && String(qPd.modelo).includes('Pedidos_stub') && Number(aPd?.SMD2) === 4 && aPd?.SMD1 === null
+            && Number(aEs?.QTDE_ENTRADA4) === 30 && Number(aEs?.VRCUSTO_ENTRADA) === 7
+            && vazio._status === 422 && String(vazio.message ?? '').includes('Não há movimento no filtro informado'),
+            { m5: (q5m.datasets?.dbdListagem ?? [])[0]?.TITULO1, pd: aPd && { s1: aPd.SMD1, s2: aPd.SMD2 }, es: aEs && { e4: aEs.QTDE_ENTRADA4, vce: aEs.VRCUSTO_ENTRADA }, vazio: [vazio._status, vazio.message] });
+          await pgRv.query(`DELETE FROM relatorios WHERE codrelatorio IN (992981, 992982, 992983, 992984)`);
+          await pgRv.query(`DELETE FROM pedidos WHERE nropedido IN ('LP4712', 'LP4713')`);
+        }
+
         // 47n.11) "HABILITA PERÍODO" (tpPorPeriodo) — a 2ª geração: UMA faixa livre, uma linha por produto, e
         // **só quem teve movimento** (o join com produtos/estoque está DENTRO do agregado, ao contrário da matriz).
         // Faixas fiéis a MontaSqlPorPeriodo, âncora 2026-08-15 (sábado):
