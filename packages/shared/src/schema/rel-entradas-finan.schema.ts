@@ -10,13 +10,5 @@ export const relEntradasFinanSchema = z.object({
   codparceiro: z.coerce.number().int().positive().optional(),
   /** só as notas SEM nenhum título a pagar — o que a tela existe para achar. */
   somenteSemTitulo: boolQuery(false),
-  limite: z.coerce.number().int().positive().max(20000).default(3000),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 export type RelEntradasFinanDto = z.infer<typeof relEntradasFinanSchema>;
-
-/** o grid de baixo: títulos da nota, com o filtro opcional de vencimento do legado. */
-export const relEntradasFinanTitulosSchema = z.object({
-  vencIni: dia.optional(),
-  vencFim: dia.optional(),
-});
-export type RelEntradasFinanTitulosDto = z.infer<typeof relEntradasFinanTitulosSchema>;

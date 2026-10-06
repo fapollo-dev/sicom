@@ -18637,7 +18637,9 @@ async function main() {
         const nfB = await nfIns(1, '993502', '2051-03-10', 450, 500, 'N');    // SEM título
         const nfC = await nfIns(1, '0', '2051-03-11', 10, 10, 'N');           // NRONF '0' — fora, como no legado
         const nfD = await nfIns(2, '993504', '2051-03-12', 100, 100, 'N');    // outra loja
-        const nfE = await nfIns(1, '993505', '2051-03-15', 200, 250, 'S');    // cancelada, sem título
+        const nfE = await nfIns(1, '993505', '2051-03-15', 200, 250, 'S');    // cancelada, sem título — entra (o legado não filtra)
+        const nfF = Number((await pgEf.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalprod, totalnf, cancelada)
+          VALUES (1,'E',55,'993506','1','2051-03-16','2051-03-16',993501,'S',NULL,50,'N') RETURNING codnf`)).rows[0].codnf);  // TOTALPROD nulo → 0,01
         await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, idnf, codoperador, nrparcela) VALUES
           (1,993501,'EF-1',1,'2051-03-05','2051-03-20',600.00,'S','DP',$1,7,'1/2'),
           (1,993501,'EF-2',2,'2051-03-05','2051-04-20',400.00,'N','DP',$1,7,'2/2')`, [nfA]);
@@ -18646,27 +18648,44 @@ async function main() {
         const cods = (todas.notas ?? []).map((n: any) => n.codnf);
         const a = (todas.notas ?? []).find((n: any) => n.codnf === nfA);
         const e = (todas.notas ?? []).find((n: any) => n.codnf === nfE);
-        check('ENTRADAS × FINANCEIRO §140.1 [as notas de entrada do período, com o financeiro ao lado]: no legado a tela mistura as 3 lojas (6.547 NF em 2026) e esconde nada. Aqui: 3 notas da loja 1 (A, B e a cancelada E), a de NRONF "0" fora como no legado, a da loja 2 fora por tenant; A tem 2 títulos (R$ 1.000, 1 quitado); E vem MARCADA cancelada; totais: 3 notas, 2 sem título (B + E = R$ 750), R$ 1.750 de NF, 1 cancelada',
-          cods.length === 3 && cods.includes(nfA) && cods.includes(nfB) && cods.includes(nfE) && !cods.includes(nfC) && !cods.includes(nfD)
-          && a?.titulos === 2 && a?.quitados === 1 && Number(a?.valorTitulos) === 1000 && e?.cancelada === true
-          && todas.totais?.notas === 3 && todas.totais?.semTitulo === 2 && Number(todas.totais?.valorSemTitulo) === 750 && Number(todas.totais?.totalnf) === 1750 && todas.totais?.canceladas === 1,
-          { cods, a: [a?.titulos, a?.quitados, a?.valorTitulos], e: e?.cancelada, totais: todas.totais });
+        const ff = (todas.notas ?? []).find((n: any) => n.codnf === nfF);
+        const tinhaRel2Ef = Number((await pgEf.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Ef) await pgEf.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const lojas = await g('dataIni=2051-03-01&dataFim=2051-03-31');
+        const titOutra = await fetch(`${base}/${EF}/${nfD}/titulos`, { headers: H });
+        if (!tinhaRel2Ef) await pgEf.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        check('ENTRADAS × FINANCEIRO §140.1 [o sqqNF]: as notas de entrada do período em ordem de EMISSÃO e número (A, B, E, F), a de NRONF "0" fora, a cancelada DENTRO (o legado não filtra; vem marcada), TOTALPROD nulo → 0,01 (o COALESCE do legado); o legado não filtra loja: só a loja 1 alcançada → sem a D; com a loja 2 na relação do operador → a D entra na ordem (A, B, D, E, F) e os títulos dela abrem; A tem 2 títulos (R$ 1.000, 1 quitado); totais: 4 notas, 3 sem título',
+          cods.join(',') === [nfA, nfB, nfE, nfF].join(',') && !cods.includes(nfC)
+          && (lojas.notas ?? []).map((n: any) => n.codnf).join(',') === [nfA, nfB, nfD, nfE, nfF].join(',') && titOutra.status === 200
+          && a?.titulos === 2 && a?.quitados === 1 && Number(a?.valorTitulos) === 1000 && e?.cancelada === true && Number(ff?.totalprod) === 0.01
+          && todas.totais?.notas === 4 && todas.totais?.semTitulo === 3 && todas.totais?.canceladas === 1,
+          { cods, lojas: (lojas.notas ?? []).map((n: any) => n.codnf), esperado: [nfA, nfB, nfD, nfE, nfF], titOutra: titOutra.status, f: ff?.totalprod, totais: todas.totais });
         const soSem = await g('dataIni=2051-03-01&dataFim=2051-03-31&somenteSemTitulo=true');
         const semFalse = await g('dataIni=2051-03-01&dataFim=2051-03-31&somenteSemTitulo=false');
         const porForn = await g('dataIni=2051-03-01&dataFim=2051-03-31&codparceiro=993501');
-        check('ENTRADAS × FINANCEIRO §140.2 [o filtro que a tela existe para responder]: `somenteSemTitulo=true` deixa 2 (B e E); `=false` volta 3 (boolQuery — "false" não vira true); filtro por fornecedor mantém as 3 (todas dele)',
-          (soSem.notas ?? []).length === 2 && soSem.notas.every((n: any) => n.titulos === 0) && (semFalse.notas ?? []).length === 3 && (porForn.notas ?? []).length === 3,
+        check('ENTRADAS × FINANCEIRO §140.2 [o "só sem título" do Apollo e o fornecedor do legado]: `somenteSemTitulo=true` deixa 3 (B, E, F); `=false` volta 4; o fornecedor (N.CODPARCEIRO) mantém as 4',
+          (soSem.notas ?? []).length === 3 && soSem.notas.every((n: any) => n.titulos === 0) && (semFalse.notas ?? []).length === 4 && (porForn.notas ?? []).length === 4,
           { soSem: soSem.notas?.length, semFalse: semFalse.notas?.length, porForn: porForn.notas?.length });
         const tit = (await (await fetch(`${base}/${EF}/${nfA}/titulos`, { headers: H })).json().catch(() => ({}))) as any;
         const titVenc = (await (await fetch(`${base}/${EF}/${nfA}/titulos?vencIni=2051-04-01`, { headers: H })).json().catch(() => ({}))) as any;
         const outraLoja = await fetch(`${base}/${EF}/${nfD}/titulos`, { headers: H });
         const semGrant = await fetch(`${base}/${EF}?dataIni=2051-03-01&dataFim=2051-03-31`, { headers: H_SEM_ACESSO });
-        check('ENTRADAS × FINANCEIRO §140.3 [o grid de baixo]: os 2 títulos da nota A vêm com parcela, operador e quitação (R$ 1.000, 1 quitado); o filtro de vencimento do legado deixa 1 (vence em abril); pedir os títulos de nota de OUTRA loja é 422; sem grant, 403',
-          tit.totais?.titulos === 2 && Number(tit.totais?.valor) === 1000 && tit.totais?.quitados === 1 && tit.titulos?.[0]?.nrparcela === '1/2'
-          && titVenc.totais?.titulos === 1 && outraLoja.status === 422 && semGrant.status === 403,
-          { tit: tit.totais, parcela: tit.titulos?.[0]?.nrparcela, venc: titVenc.totais?.titulos, outra: outraLoja.status, rbac: semGrant.status });
+        check('ENTRADAS × FINANCEIRO §140.3 [o sqqPagar]: os 2 títulos da nota A com parcela, operador (DESCOPERADOR) e quitação; o vencimento NÃO filtra (o FiltraDoc está comentado no fonte — continuam 2); nota de loja que o operador não alcança, 422; sem grant, 403',
+          tit.totais?.titulos === 2 && Number(tit.totais?.valor) === 1000 && tit.totais?.quitados === 1 && tit.titulos?.[0]?.nrparcela === '1/2' && typeof tit.titulos?.[0]?.descoperador === 'string'
+          && titVenc.totais?.titulos === 2 && outraLoja.status === 422 && semGrant.status === 403,
+          { tit: tit.totais, parcela: tit.titulos?.[0]?.nrparcela, op: tit.titulos?.[0]?.descoperador, venc: titVenc.totais?.titulos, outra: outraLoja.status, rbac: semGrant.status });
+        await pgEf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992979, 1, 'Notas_fiscais_Entradas_Finan.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="EntFin_stub"/></TfrxReport>').toString('base64')]);
+        const imp = (await (await fetch(`${base}/${EF}/impressao?dataIni=2051-03-01&dataFim=2051-03-31`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgEf.query(`DELETE FROM relatorios WHERE codrelatorio = 992979`);
+        const pg = (imp.datasets?.frxDBDatasetPagar ?? []) as any[];
+        check('ENTRADAS × FINANCEIRO §140.4 [o Imprimir]: Notas_fiscais_Entradas_Finan.fr3 com as 4 notas no frxDBDatasetNF (TOTALPROD 0,01 na F, RAZAO do fornecedor), os 2 títulos da A aninhados no frxDBDatasetPagar e a empresa no frxDBDataset2',
+          String(imp.modelo).includes('EntFin_stub') && (imp.datasets?.frxDBDatasetNF ?? []).length === 4 && Number(imp.datasets.frxDBDatasetNF[3].TOTALPROD) === 0.01
+          && imp.datasets.frxDBDatasetNF[0].RAZAO === 'FORNECEDOR ENTRADAS FINAN' && pg.length === 2 && pg.every((x) => x.__MESTRE === 0) && pg[0].DUPLICATA === 'EF-1'
+          && (imp.datasets?.frxDBDataset2 ?? []).length === 1,
+          { modelo: String(imp.modelo).slice(0, 60), nf: (imp.datasets?.frxDBDatasetNF ?? []).map((n: any) => [n.NRONF, n.TOTALPROD]), pg: pg.map((x) => [x.DUPLICATA, x.__MESTRE]) });
         await pgEf.query(`DELETE FROM apagar WHERE idnf = $1`, [nfA]);
-        await pgEf.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfA, nfB, nfC, nfD, nfE]);
+        await pgEf.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5,$6)`, [nfA, nfB, nfC, nfD, nfE, nfF]);
         await pgEf.query(`DELETE FROM parceiros WHERE codparceiro = 993501`);
       } finally {
         await pgEf.end();

@@ -1,5 +1,5 @@
 import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
-import { relEntradasFinanSchema, relEntradasFinanTitulosSchema, type RelEntradasFinanDto, type RelEntradasFinanTitulosDto } from '@apollo/shared';
+import { relEntradasFinanSchema, type RelEntradasFinanDto } from '@apollo/shared';
 import { RelEntradasFinanService } from './rel-entradas-finan.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -17,7 +17,12 @@ export class RelEntradasFinanController {
 
   @Get(':codnf/titulos')
   @RequerAcesso('FRMRELENTRADAS_FINAN', 'FRMRELENTRADAS_FINAN')
-  titulos(@Param('codnf', ParseIntPipe) codnf: number, @Query(new ZodValidationPipe(relEntradasFinanTitulosSchema)) q: RelEntradasFinanTitulosDto) {
-    return this.svc.titulos(codnf, q);
+  titulos(@Param('codnf', ParseIntPipe) codnf: number) {
+    return this.svc.titulos(codnf);
   }
+
+  /** o Imprimir (Notas_fiscais_Entradas_Finan.fr3) — sem opção de impressão na PERMISSOES: vale o acesso à tela */
+  @Get('impressao')
+  @RequerAcesso('FRMRELENTRADAS_FINAN', 'FRMRELENTRADAS_FINAN')
+  impressao(@Query(new ZodValidationPipe(relEntradasFinanSchema)) q: RelEntradasFinanDto) { return this.svc.impressao(q); }
 }

@@ -1773,3 +1773,25 @@ describe('simulador de vendas (o relatório desenhado no uSimuladorVenda.dfm)', 
   });
 });
 
+describe('entradas × financeiro (Notas_fiscais_Entradas_Finan.fr3, FRMRELENTRADAS_FINAN)', () => {
+  it('cada nota com os títulos aninhados e o total dos títulos dela', () => {
+    const t = texto(paginasDoModelo(modelo('entradas-finan.fr3'), {
+      frxDBDatasetNF: [
+        { NRONF: '993501', CODNF: 1, DTEMISSAO: '2051-03-05T00:00:00', TOTALPROD: 900, TOTALNF: 1000, RAZAO: 'FORNECEDOR ENTRADAS FINAN', CODPARCEIRO: 993501 },
+        { NRONF: '993502', CODNF: 2, DTEMISSAO: '2051-03-10T00:00:00', TOTALPROD: 450, TOTALNF: 500, RAZAO: 'FORNECEDOR ENTRADAS FINAN', CODPARCEIRO: 993501 },
+      ],
+      frxDBDatasetPagar: [
+        { DUPLICATA: 'EF-1', DTCOMPRA: '2051-03-05T00:00:00', DTVENC: '2051-03-20T00:00:00', VALOR: 600, IDNF: 1, __MESTRE: 0 },
+        { DUPLICATA: 'EF-2', DTCOMPRA: '2051-03-05T00:00:00', DTVENC: '2051-04-20T00:00:00', VALOR: 400, IDNF: 1, __MESTRE: 0 },
+      ],
+      frxDBDataset2: [{ RAZAOSOCIAL: 'SUPERMERCADO PINHEIRAO LTDA', FANTASIA: 'PINHEIRAO', CNPJ: '37954975000169', INSC: '123', FONE1: '34' }],
+    }, agora));
+    expect(t).toContain('993501');
+    expect(t).toContain('993502');
+    expect(t).toContain('EF-1');
+    expect(t).toContain('EF-2');
+    expect(t).toContain('1.000,00'); // a soma dos títulos da 1ª nota (e o total dela)
+    expect(t).toContain('PINHEIRAO');
+  });
+});
+
