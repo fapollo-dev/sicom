@@ -17,6 +17,8 @@ describe('formatação do Delphi (pt-BR)', () => {
   it('FormatFloat e Format %n como o DisplayFormat dos memos', () => {
     expect(formatFloat('0.00', 24.99)).toBe('24,99');
     expect(formatFloat('#,##0.00', 1234.5)).toBe('1.234,50');
+    expect(formatFloat('0.00,;"("0.00,")"', 1234.5)).toBe('1.234,50'); // a vírgula depois dos decimais também liga o milhar
+    expect(formatFloat('0.00,;"("0.00,")"', -1234.5)).toBe('(1.234,50)');
     expect(formatFloat('#,##.00', 0.0056)).toBe(',01'); // o "R$ ,01" do log da produção (VLR_APRESENTACAO)
     expect(formatDelphi('%2.2n', 1234.5)).toBe('1.234,50');
     expect(formatDelphi('%2.2n', 7.49)).toBe('7,49');

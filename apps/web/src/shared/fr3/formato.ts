@@ -49,7 +49,8 @@ export function formatFloat(fmt: string, valor: number, sep: Separadores = PT): 
   const minDec = (decPat.match(/0/g) ?? []).length;
   const maxDec = (decPat.match(/[0#]/g) ?? []).length;
   const minInt = (intPat.match(/0/g) ?? []).length;
-  const agrupa = intPat.includes(',');
+  // a vírgula em QUALQUER posição da seção liga o milhar (FloatToTextFmt: '0.00,' = 1.234,50 — o BalanceteVerificacao.fr3)
+  const agrupa = nucleo.includes(',');
   let s = fixo(v, hasDec ? maxDec : 0);
   let [ip, dp = ''] = s.split('.');
   while (dp.length > minDec && dp.endsWith('0')) dp = dp.slice(0, -1);

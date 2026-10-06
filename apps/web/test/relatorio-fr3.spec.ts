@@ -1714,3 +1714,24 @@ describe('lote de cobrança (FRMCADLOTECOBRANCA)', () => {
     expect(t).toContain('606,6 Total Geral'); // o total geral: o memo do layout não tem DisplayFormat
   });
 });
+
+describe('balancete de verificação (BalanceteVerificacao.fr3, FRMRELBALANCETE)', () => {
+  it('o período, a empresa, a descrição em degrau e os saldos com parênteses no negativo (o FormatFloat do script do layout)', () => {
+    const linha = (CODIEXPANDIDO: string, DESCRICAO: string, CLASSE: string, SALDO_ANTERIOR: number, DEBITO: number, CREDITO: number) => ({
+      CODIEXPANDIDO, DESCRICAO, CODPLANOCONTAS: 1, CLASSE, CODIREDUZIDO: '10', CODPAI: null, NIVEL: null,
+      SALDO_ANTERIOR, DEBITO, CREDITO, SALDO_ATUAL: SALDO_ANTERIOR + DEBITO - CREDITO,
+    });
+    const t = texto(paginasDoModelo(modelo('balancete-verificacao.fr3'), {
+      dbdConsulta: [linha('9', ' TESTE BALANCETE', 'T', 0, 1250.5, 1250.5), linha('9.1.01.01.00002', '               CONTA DOIS', 'A', -1100, 20, 50)],
+      dbdEmpresa: [{ CODEMPRESA: 1, CNPJ: '37954975000169', RAZAOSOCIAL: 'SUPERMERCADO PINHEIRAO LTDA', CRC: '44122', NOME: 'CELSO' }],
+    }, agora, { DtInicial: "'01/03/2050'", DtFinal: "'31/03/2050'", Empresa: "'1'", PaginaInicial: '1', Negrito: "'S'" }));
+    expect(t).toContain('01/03/2050');
+    expect(t).toContain('31/03/2050');
+    expect(t).toContain('SUPERMERCADO PINHEIRAO LTDA');
+    expect(t).toContain('TESTE BALANCETE');
+    expect(t).toContain('1.250,50');
+    expect(t).toContain('(1.100,00)'); // o saldo anterior negativo
+    expect(t).toContain('(1.130,00)'); // o saldo atual: −1.100 + 20 − 50
+  });
+});
+

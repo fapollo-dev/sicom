@@ -4,9 +4,10 @@ import type { RelBalancoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { BalanceteService } from './balancete.service';
 
 type AnyDB = Kysely<any>;
+/** o nível pelo código expandido (1 · 1.1 · 1.1.01 · 1.1.01.01 · 15 posições) */
+const nivelDe = (cod: string): number => { const n = cod.length; return n <= 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : n <= 9 ? 4 : 5; };
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -71,7 +72,7 @@ export class RelBalancoService {
        ORDER BY codiexpandido`.execute(db)).rows.map((p) => ({
       codplanocontas: Number(p.codplanocontas), codiexpandido: String(p.codiexpandido), descricao: String(p.descricao ?? ''),
       classe: (p.classe as string | null) ?? null,
-      nivel: p.nivel == null ? BalanceteService.nivelDe(String(p.codiexpandido)) : Number(p.nivel),
+      nivel: p.nivel == null ? nivelDe(String(p.codiexpandido)) : Number(p.nivel),
     }));
 
     const linhas: Linha[] = plano.map((p) => {

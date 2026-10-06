@@ -18411,42 +18411,76 @@ async function main() {
       const BL = 'contabil/balancete';
       const pgBl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        // um ramo do plano: 9 (nível 1) → 9.1 (nível 2) → duas analíticas de 15 posições SEM nível (como as 10.641 do cliente)
+        // um ramo do plano como o do cliente: 9 (NIVEL 1, T) → 9.1 (NIVEL 2, T) → duas analíticas de 15 posições SEM nível (como as 10.641
+        // do cliente) ligadas por CODPAI; 9.2 (NIVEL 2, T) com lançamento PRÓPRIO; e uma conta de NIVEL 5 para o MAX(NIVEL) do plano ser 5
         await pgBl.query(`DELETE FROM diario WHERE coddiario BETWEEN 9950001 AND 9950009`);
-        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995004`);
-        await pgBl.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel) VALUES
-          (995001,'TESTE BALANCETE','D','S','9',1), (995002,'TESTE BALANCETE GRUPO','D','S','9.1',2),
-          (995003,'CONTA ANALITICA UM','D','A','9.1.01.01.00001',NULL), (995004,'CONTA ANALITICA DOIS','D','A','9.1.01.01.00002',NULL)`);
+        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995006`);
+        await pgBl.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel, codpai) VALUES
+          (995001,'TESTE BALANCETE','D','T','9',1,NULL), (995002,'TESTE BALANCETE GRUPO','D','T','9.1',2,995001),
+          (995003,'CONTA ANALITICA UM','D','A','9.1.01.01.00001',NULL,995002), (995004,'CONTA ANALITICA DOIS','D','A','9.1.01.01.00002',NULL,995002),
+          (995005,'GRUPO COM LANCAMENTO','D','T','9.2',2,995001), (995006,'NIVEL CINCO','D','A','8.9.99.99.99999',5,NULL)`);
         await pgBl.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codempresa, codorigem, idorigem) VALUES
           (9950001,'2050-02-10',995003,995004,100.00,1,99,1),
           (9950002,'2050-03-05',995003,995004,50.00,1,99,2),
           (9950003,'2050-03-06',995004,995003,20.00,1,99,3),
-          (9950004,'2050-03-07',995003,995004,777.00,2,99,4)`);
-        const res = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9`, { headers: H })).json().catch(() => ({}))) as any;
-        const L = (cod: string) => (res.linhas ?? []).find((l: any) => l.codiexpandido === cod);
-        check('BALANCETE §136.1 [saldo anterior, débito, crédito, saldo atual — e o NÍVEL derivado do código]: a analítica 00001 tem saldo anterior +100 (débito de fevereiro), 50 de débito e 20 de crédito em março, saldo 130; a 00002 o espelho (−100, 20, 50, −130). As duas estão **sem NIVEL**, como 10.641 contas do cliente — e ainda assim são nível 5 pelo código de 15 posições; a loja 2 fica fora',
-          L('9.1.01.01.00001') && Math.abs(Number(L('9.1.01.01.00001').saldoAnterior) - 100) < 0.005 && Math.abs(Number(L('9.1.01.01.00001').debito) - 50) < 0.005
-          && Math.abs(Number(L('9.1.01.01.00001').credito) - 20) < 0.005 && Math.abs(Number(L('9.1.01.01.00001').saldoAtual) - 130) < 0.005 && Number(L('9.1.01.01.00001').nivel) === 5
-          && L('9.1.01.01.00002') && Math.abs(Number(L('9.1.01.01.00002').saldoAtual) + 130) < 0.005,
+          (9950004,'2050-03-07',995003,995004,777.00,2,99,4),
+          (9950005,'2050-03-08',995005,995005,30.00,1,99,5)`);
+        const bl = async (qs: string) => (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const res = await bl('contaIni=9');
+        const L = (cod: string, r: any = res) => (r.linhas ?? []).find((l: any) => l.codiexpandido === cod);
+        const p2 = (a: unknown, b: number) => Math.abs(Number(a) - b) < 0.005;
+        check('BALANCETE §136.1 [saldo anterior, débito, crédito, saldo atual]: a analítica 00001 tem saldo anterior +100 (débito de fevereiro), 50 de débito e 20 de crédito em março, saldo 130; a 00002 o espelho (−100, 20, 50, −130); a descrição em degrau (um espaço por posição do código: 15); a loja 2 fica fora sem pedir',
+          L('9.1.01.01.00001') && p2(L('9.1.01.01.00001').saldoAnterior, 100) && p2(L('9.1.01.01.00001').debito, 50)
+          && p2(L('9.1.01.01.00001').credito, 20) && p2(L('9.1.01.01.00001').saldoAtual, 130)
+          && L('9.1.01.01.00002') && p2(L('9.1.01.01.00002').saldoAtual, -130) && L('9.1.01.01.00001').descricao === `${' '.repeat(15)}CONTA ANALITICA UM`,
           { um: L('9.1.01.01.00001'), dois: L('9.1.01.01.00002') && L('9.1.01.01.00002').saldoAtual });
 
-        check('BALANCETE §136.2 [o roll-up por PREFIXO alcança as contas sem nível]: o legado sobe os pais por `CODPAI` só nas contas com NIVEL — **520 das 658 contas com lançamento** no cliente não têm, e os totais dos pais ficavam sem a maior parte do movimento. Aqui 9.1 e 9 somam as duas analíticas: débito 70, crédito 70, saldo 0; e são marcadas sintéticas',
-          L('9.1') && Math.abs(Number(L('9.1').debito) - 70) < 0.005 && Math.abs(Number(L('9.1').credito) - 70) < 0.005 && Math.abs(Number(L('9.1').saldoAtual)) < 0.005 && L('9.1').sintetica === true
-          && L('9') && Math.abs(Number(L('9').debito) - 70) < 0.005 && Number(L('9').nivel) === 1,
-          { g: L('9.1'), raiz: L('9') && [L('9').debito, L('9').credito, L('9').saldoAtual] });
+        const semMov = await bl('contaIni=9&semMovimento=true');
+        check('BALANCETE §136.2 [o TotalizaContasSinteticas do legado: os pais por NIVEL somam os filhos por CODPAI]: 9.1 soma as duas analíticas SEM nível (débito 70, crédito 70, saldo 0) — o "laço perde as contas sem NIVEL" do corte 1 era falso (no cliente todas as 658 com lançamento têm o pai em NIVEL 4); 9 soma 9.1 e 9.2; o lançamento PRÓPRIO da conta T 9.2 é substituído pela soma dos filhos (nenhum) — zerada, sai sem "contas sem movimento" e volta com ele',
+          L('9.1') && p2(L('9.1').debito, 70) && p2(L('9.1').credito, 70) && p2(L('9.1').saldoAtual, 0) && L('9.1').sintetica === true
+          && L('9') && p2(L('9').debito, 70) && p2(L('9').credito, 70) && !L('9.2')
+          && L('9.2', semMov) && p2(L('9.2', semMov).debito, 0) && p2(L('9.2', semMov).credito, 0),
+          { g: L('9.1'), raiz: L('9') && [L('9').debito, L('9').credito, L('9').saldoAtual], g2: L('9.2', semMov) });
 
-        const n2 = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9&nivelMax=2`, { headers: H })).json().catch(() => ({}))) as any;
-        const soSint = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9&analiticas=false`, { headers: H })).json().catch(() => ({}))) as any;
-        const faixa = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9.1&contaFim=9.1.01.01.00001`, { headers: H })).json().catch(() => ({}))) as any;
+        const curto = await bl('contaIni=9&nivelMax=3&semMovimento=true');
+        const curtoMov = await bl('contaIni=9&nivelMax=3');
+        const soSint = await bl('contaIni=9&analiticas=false');
+        const faixa = await bl('contaIni=9.1&contaFim=9.1.01.01.00001');
+        const plano = await bl('contaIni=9&degrau=false');
+        const tinhaRel2Bl = Number((await pgBl.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Bl) await pgBl.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        const lojas = await bl('contaIni=9&empresas=1,2');
+        if (!tinhaRel2Bl) await pgBl.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        const vazio = await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=ZZ`, { headers: H });
+        const vazioB = (await vazio.json().catch(() => ({}))) as any;
         const semGrant = await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31`, { headers: H_SEM_ACESSO });
-        check('BALANCETE §136.3 [nível máximo, só sintéticas, faixa de contas]: até o nível 2 sobram 9 e 9.1; "imprime analíticas" desligado idem; a faixa 9.1 → 9.1.01.01.00001 traz 9.1 e a primeira analítica (a segunda está fora da faixa); sem grant, 403',
-          (n2.linhas ?? []).length === 2 && (soSint.linhas ?? []).length === 2
-          && (faixa.linhas ?? []).map((l: any) => l.codiexpandido).sort().join('|') === '9.1|9.1.01.01.00001'
-          && semGrant.status === 403,
-          { n2: (n2.linhas ?? []).map((l: any) => l.codiexpandido), sint: (soSint.linhas ?? []).length, faixa: (faixa.linhas ?? []).map((l: any) => l.codiexpandido), rbac: semGrant.status });
+        check('BALANCETE §136.3 [o "nível" é o comprimento do código, aplicado antes de totalizar; a faixa corta os filhos; lojas; vazio]: com 3 sobram 9, 9.1 e 9.2 com os totais ZERADOS (os filhos ficaram fora da consulta, como no legado) e sem "contas sem movimento" nada; "imprime analíticas" desligado: 9 e 9.1; a faixa 9.1 → 9.1.01.01.00001 traz 9.1 somando SÓ a 00001 (saldo anterior 100, débito 50, crédito 20); sem degrau a descrição pura; as lojas 1 e 2 somam os 777 da loja 2; consulta vazia → a mensagem do legado; sem grant, 403',
+          (curto.linhas ?? []).map((l: any) => l.codiexpandido).join('|') === '9|9.1|9.2' && (curto.linhas ?? []).every((l: any) => p2(l.debito, 0) && p2(l.credito, 0))
+          && (curtoMov.linhas ?? []).length === 0
+          && (soSint.linhas ?? []).map((l: any) => l.codiexpandido).join('|') === '9|9.1'
+          && (faixa.linhas ?? []).map((l: any) => l.codiexpandido).join('|') === '9.1|9.1.01.01.00001'
+          && p2(L('9.1', faixa)?.saldoAnterior, 100) && p2(L('9.1', faixa)?.debito, 50) && p2(L('9.1', faixa)?.credito, 20)
+          && L('9.1.01.01.00001', plano)?.descricao === 'CONTA ANALITICA UM' && p2(L('9.1.01.01.00001', lojas)?.debito, 827)
+          && vazio.status === 422 && String(vazioB.message ?? '').includes('Não há lançamentos no filtro informado') && semGrant.status === 403,
+          { curto: (curto.linhas ?? []).map((l: any) => [l.codiexpandido, l.debito]), curtoMov: (curtoMov.linhas ?? []).length, sint: (soSint.linhas ?? []).map((l: any) => l.codiexpandido),
+            faixa: (faixa.linhas ?? []).map((l: any) => [l.codiexpandido, l.saldoAnterior, l.debito, l.credito]), plano: L('9.1.01.01.00001', plano)?.descricao,
+            lojas: L('9.1.01.01.00001', lojas)?.debito, vazio: [vazio.status, vazioB.message], rbac: semGrant.status });
+
+        await pgBl.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992978, 1, 'BalanceteVerificacao.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Balancete_stub"/></TfrxReport>').toString('base64')]);
+        const imp = (await (await fetch(`${base}/${BL}/impressao?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9&negrito=false&pagina=7`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgBl.query(`DELETE FROM relatorios WHERE codrelatorio = 992978`);
+        const emp0 = imp.datasets?.dbdEmpresa?.[0] ?? {};
+        check('BALANCETE §136.4 [o Imprimir]: BalanceteVerificacao.fr3 com a consulta no dbdConsulta (SALDO_ANTERIOR/SALDO_ATUAL/CLASSE para o script do layout), as lojas no dbdEmpresa com o CRC e o NOME do contabilista, e as variáveis DtInicial/DtFinal dd/mm/aaaa, Empresa (a lista), PaginaInicial e Negrito',
+          String(imp.modelo).includes('Balancete_stub') && (imp.datasets?.dbdConsulta ?? []).length === (res.linhas ?? []).length
+          && (imp.datasets?.dbdConsulta ?? []).some((l: any) => l.CODIEXPANDIDO === '9.1' && l.CLASSE === 'T' && p2(l.SALDO_ATUAL, 0))
+          && Number(emp0.CODEMPRESA) === 1 && 'CRC' in emp0 && 'NOME' in emp0 && 'RAZAOSOCIAL' in emp0
+          && imp.variaveis?.DtInicial === "'01/03/2050'" && imp.variaveis?.DtFinal === "'31/03/2050'" && imp.variaveis?.Empresa === "'1'"
+          && imp.variaveis?.PaginaInicial === '7' && imp.variaveis?.Negrito === "'N'",
+          { modelo: String(imp.modelo).slice(0, 60), n: (imp.datasets?.dbdConsulta ?? []).length, emp0, v: imp.variaveis });
 
         await pgBl.query(`DELETE FROM diario WHERE coddiario BETWEEN 9950001 AND 9950009`);
-        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995004`);
+        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995006`);
       } finally {
         await pgBl.end();
       }

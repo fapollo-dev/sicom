@@ -34,7 +34,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 34 | `FRMFATURAMENTO2` | Fat_Relatorio_de_Faturamento_por_Cliente/Lotes, de_Status | ✅ 06/10 (os três; o status com as parcelas aninhadas e o calc LIB/ATR/VHJ/AGD) |
 | 27 | `FRMMOVIMENTACOESDIA` | movD- Movimento diario | ✅ 06/10 — e o corte 2 pelas views do legado (os pedidos são os pagamentos da CX_PEDIDOS; recebidas só de título quitado) |
 | 20 | `FRMCADLOTECOBRANCA` | Lote_Cobranca[Bairro] | ✅ 06/10 (os dois; e os dias do juro como o Oracle conta — hora + arredondamento —, a GET_ARECEBER da produção no picker, que listava quitados) |
-| 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ⏳ |
+| 14 | `FRMRELBALANCETE` | BalanceteVerificacao | ✅ 06/10 — e o corte 2 pelo fonte (o roll-up por CODPAI — o "perde as contas sem NIVEL" do dossiê era falso —, o nível = comprimento do código antes de totalizar, lojas, degrau) |
 | 11 | `FRMPRECIFICACAONFBRUTA` | PrecificacaoNFBruta | ✅ 06/10 (MARGEM = markup fixo da grade) |
 | 11 | `FRMRELENTRADAS_FINAN` | Notas_Fiscais_Entradas_Finan | ⏳ |
 | 4 | `FRMRELDIARIOCONTABIL` | LivroDiarioContabil | ⏳ |
