@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import { loginSchema, trocarSenhaSchema, refreshSchema, type LoginDto, type TrocarSenhaDto, type RefreshDto } from '@apollo/shared';
+import { loginSchema, trocarSenhaSchema, refreshSchema, trocarEmpresaSchema, type LoginDto, type TrocarSenhaDto, type RefreshDto, type TrocarEmpresaDto } from '@apollo/shared';
 import { AuthService, type AcessoMeta } from './auth.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
@@ -44,6 +44,19 @@ export class AuthController {
   @Get('me')
   me() {
     return this.svc.me();
+  }
+
+  /** as empresas do Ctrl+E (as do operador, por fantasia) */
+  @Get('empresas')
+  empresas() {
+    return this.svc.empresasParaTroca();
+  }
+
+  /** Ctrl+E: troca a empresa da sessão sem novo login (token novo com a empresa escolhida) */
+  @Post('trocar-empresa')
+  @HttpCode(200)
+  trocarEmpresa(@Body(new ZodValidationPipe(trocarEmpresaSchema)) dto: TrocarEmpresaDto, @Req() req: Request) {
+    return this.svc.trocarEmpresa(dto, this.meta(req));
   }
 
   @Post('logout')

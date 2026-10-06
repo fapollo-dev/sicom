@@ -21,8 +21,8 @@ const FILTRO_POR_TIPO: Record<string, 'text' | 'number' | 'date'> = {
 };
 
 // rdgAtivo do form-base: F6 cicla nesta ordem
-const SITUACOES = ['ativos', 'inativos', 'todos'] as const;
-type Situacao = (typeof SITUACOES)[number];
+export const SITUACOES = ['ativos', 'inativos', 'todos'] as const;
+export type Situacao = (typeof SITUACOES)[number];
 const SIT_LABEL: Record<Situacao, string> = { ativos: 'Ativos', inativos: 'Inativos', todos: 'Todos' };
 
 interface Props {
@@ -37,6 +37,9 @@ interface Props {
    * Pesquisa se comporta exatamente como antes.
    */
   filtroExtra?: { campo: string; operador?: string; valor: string };
+  /** o `rdgAtivo` do cadastro na hora de abrir (F6 no cadastro) — e a volta, quando o F6 é usado dentro da Pesquisa */
+  situacaoInicial?: Situacao;
+  onSituacao?: (s: Situacao) => void;
 }
 
 /**
@@ -45,9 +48,10 @@ interface Props {
  * substituem o campo+operador+valor feito à mão; F6 mantém o rdgAtivo (situação); clique na
  * linha seleciona (onRowClick). Ref.: design-system/src/preview/pages/ClientsCRUDPreview.tsx.
  */
-export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtroExtra }: Props) {
+export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtroExtra, situacaoInicial, onSituacao }: Props) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
-  const [situacao, setSituacao] = useState<Situacao>('ativos');
+  const [situacao, setSituacao] = useState<Situacao>(situacaoInicial ?? 'ativos');
+  useEffect(() => { onSituacao?.(situacao); }, [situacao, onSituacao]);
   const [rows, setRows] = useState<Record<string, any>[]>([]);
 
   // carrega a lista pela view (GET_*), refazendo quando a situação muda. O `filtroExtra`

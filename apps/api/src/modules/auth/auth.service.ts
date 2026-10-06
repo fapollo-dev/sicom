@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
-import type { LoginDto, LoginResposta, TrocarSenhaDto } from '@apollo/shared';
+import type { LoginDto, LoginResposta, TrocarSenhaDto, TrocarEmpresaDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError, ForbiddenActionError, UnauthenticatedError } from '../../shared/errors/app-error';
@@ -252,6 +252,59 @@ export class AuthService {
         .execute();
       return { ok: true as const };
     });
+  }
+
+  /**
+   * As empresas do Ctrl+E (`dmPrincipal.TrocarEmpresa(ValidaUsuario = True)`): `SELECT E.CODEMPRESA, E.FANTASIA FROM EMPRESAS E
+   * LEFT JOIN RELACAO_OPERADOR_EMPRESA R … WHERE R.CODOPERADOR = :op ORDER BY E.FANTASIA`.
+   */
+  async empresasParaTroca(): Promise<Array<{ idempresa: number; fantasia: string | null }>> {
+    const ctx = currentTenant();
+    const op = ctx.operadorId ?? null;
+    if (op == null) throw new UnauthenticatedError('NAO_AUTENTICADO');
+    const db = this.dbp.forTenant() as AnyDB;
+    return (await db
+      .selectFrom('relacao_operador_empresa as r')
+      .innerJoin('empresas as e', 'e.idempresa', 'r.codempresa')
+      .select(['e.idempresa as idempresa', 'e.fantasia as fantasia'])
+      .where('r.codoperador', '=', op)
+      .orderBy('e.fantasia')
+      .execute()) as Array<{ idempresa: number; fantasia: string | null }>;
+  }
+
+  /**
+   * TROCAR DE EMPRESA sem sair (Ctrl+E): a empresa escolhida tem de ser do operador; sai um token novo com ela (e um refresh
+   * novo — o refresh é ligado à empresa). Com a troca de senha obrigatória pendente, não troca (o token `chg` só serve para
+   * trocar a senha). O legado não grava acesso na troca (`TrocarEmpresa` só reabre o dataset da empresa) — aqui também não.
+   */
+  async trocarEmpresa(dto: TrocarEmpresaDto, meta: AcessoMeta = {}): Promise<LoginResposta> {
+    const ctx = currentTenant();
+    const op = ctx.operadorId ?? null;
+    if (op == null) throw new UnauthenticatedError('NAO_AUTENTICADO');
+    if (ctx.mustChange) throw new ForbiddenActionError('SENHA_TROCA_OBRIGATORIA');
+    const db = this.dbp.forTenant() as AnyDB;
+    const opRow = (await db
+      .selectFrom('operadores')
+      .select(['codoperador', 'nome', 'login', 'desabilitado'])
+      .where('codoperador', '=', op)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .executeTakeFirst()) as { codoperador: number; nome: string | null; login: string | null; desabilitado: string | null } | undefined;
+    if (!opRow) throw new UnauthenticatedError('NAO_AUTENTICADO');
+    if (opRow.desabilitado === 'S') throw new ForbiddenActionError('OPERADOR_DESABILITADO', { codoperador: op });
+    const empresas = (await db
+      .selectFrom('relacao_operador_empresa as r')
+      .leftJoin('empresas as e', 'e.idempresa', 'r.codempresa')
+      .select(['r.codempresa as idempresa', 'e.razao_social as nome'])
+      .where('r.codoperador', '=', op)
+      .orderBy('r.codempresa')
+      .execute()) as Array<{ idempresa: number; nome: string | null }>;
+    if (!empresas.some((x) => Number(x.idempresa) === Number(dto.empresa))) {
+      throw new ForbiddenActionError('OPERADOR_SEM_EMPRESA', { codoperador: op, empresa: dto.empresa });
+    }
+    const empresa = Number(dto.empresa);
+    const token = signJwt({ tenant: this.tenant(), sub: op, emp: empresa }, this.nowSeg(), this.accessTtlSeg());
+    const refresh = await this.emitirRefresh(db, op, empresa, meta.ip ?? null);
+    return { token, refresh, empresa, empresas, operador: { codoperador: opRow.codoperador, nome: opRow.nome, login: opRow.login }, mustChangePassword: false };
   }
 
   /** identidade corrente (do JWT/ctx) + empresas-permitidas + flag de troca obrigatória. */

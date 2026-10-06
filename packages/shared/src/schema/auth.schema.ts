@@ -108,3 +108,12 @@ export const restricaoAcessoSchema = z
     }
   });
 export type RestricaoAcessoDto = z.infer<typeof restricaoAcessoSchema>;
+
+/**
+ * TROCAR DE EMPRESA sem sair (Ctrl+E do `TfrmMaster`, `dmPrincipal.TrocarEmpresa(True)`): a loja escolhida entre as do operador
+ * (RELACAO_OPERADOR_EMPRESA). A resposta é a de um login — o token novo carrega a empresa.
+ */
+export const trocarEmpresaSchema = z.object({
+  empresa: z.coerce.number().int().positive('Escolha a empresa.'),
+});
+export type TrocarEmpresaDto = z.infer<typeof trocarEmpresaSchema>;

@@ -1,3 +1,4 @@
+import { InicioPage } from './teclado/InicioPage';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { LoginPage } from '../features/auth/LoginPage';
@@ -175,6 +176,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { path: '/', element: <Navigate to="/cadastro/bancos" replace /> },
+      { path: '/inicio', element: <InicioPage /> }, // o menu sem tela aberta (o Esc das telas)
       { path: '/cadastro/bancos', element: <BancosCadMaster /> },
       { path: '/cadastro/marcas', element: <MarcasCadMaster /> },
       { path: '/cadastro/bairros', element: <BairrosCadMaster /> },

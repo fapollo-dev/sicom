@@ -9386,6 +9386,25 @@ async function main() {
     const aWrongEmp = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: 999 });
     check('AUTH: empresa fora das permitidas → 403 OPERADOR_SEM_EMPRESA', aWrongEmp.status === 403 && aWrongEmp.json.code === 'OPERADOR_SEM_EMPRESA', aWrongEmp);
 
+    // 71.6b) TROCAR DE EMPRESA sem sair (Ctrl+E do TfrmMaster → dmPrincipal.TrocarEmpresa(True)): a lista é a das empresas do
+    // operador por FANTASIA; a troca emite token novo com a empresa escolhida; empresa fora das dele → 403.
+    {
+      const emps = (aNeeds.json.empresas ?? []).map((e: any) => Number(e.idempresa));
+      const l1 = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: emps[0] });
+      const bt = (t: string) => ({ authorization: `Bearer ${t}` });
+      const lista = (await (await fetch(`${base}/auth/empresas`, { headers: bt(l1.json.token) })).json().catch(() => [])) as any[];
+      const fantasias = (await pgAuth.query(`SELECT e.fantasia FROM relacao_operador_empresa r JOIN empresas e ON e.idempresa = r.codempresa WHERE r.codoperador = 90 ORDER BY e.fantasia`)).rows.map((r: any) => r.fantasia);
+      const troca = await authPost('trocar-empresa', { empresa: emps[1] }, bt(l1.json.token));
+      const me2 = (await (await fetch(`${base}/auth/me`, { headers: bt(troca.json.token) })).json().catch(() => ({}))) as any;
+      const fora = await authPost('trocar-empresa', { empresa: 999 }, bt(l1.json.token));
+      const semToken = await authPost('trocar-empresa', { empresa: emps[1] });
+      check('AUTH §71.6b [Ctrl+E — trocar de empresa sem sair]: GET /auth/empresas lista as empresas do operador por fantasia; POST /auth/trocar-empresa emite token novo (e refresh) com a empresa escolhida — o /auth/me passa a dizer a nova; empresa fora das dele → 403 OPERADOR_SEM_EMPRESA; sem token → 401',
+        lista.length === 2 && lista.map((x) => x.fantasia).join('|') === fantasias.join('|')
+        && troca.status === 200 && typeof troca.json.token === 'string' && typeof troca.json.refresh === 'string' && Number(troca.json.empresa) === emps[1]
+        && Number(me2.empresa) === emps[1] && fora.status === 403 && fora.json.code === 'OPERADOR_SEM_EMPRESA' && semToken.status === 401,
+        { lista, fantasias, troca: [troca.status, troca.json.empresa], me2: me2.empresa, fora: [fora.status, fora.json.code], semToken: semToken.status });
+    }
+
     // 71.7) operador DESABILITADO → 403 (fixture temporária via SQL no op 90).
     await pgAuth.query(`UPDATE operadores SET desabilitado='S' WHERE codoperador=90`);
     const aDisabled = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: 1 });

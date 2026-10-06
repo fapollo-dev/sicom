@@ -3,8 +3,10 @@ import { Pool } from 'pg';
 import { readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const DATA_DIR = resolve(__dirname, '../.pgdata');
-const PORT = 5433;
+// porta e diretório trocáveis por ambiente: o smoke e o dev-embedded usam os mesmos por padrão, e o smoke APAGA o diretório ao
+// começar — rodar os dois juntos derruba a base do outro. Com APOLLO_PG_PORT/APOLLO_PG_DATA cada um fica no seu.
+const DATA_DIR = process.env.APOLLO_PG_DATA ? resolve(process.env.APOLLO_PG_DATA) : resolve(__dirname, '../.pgdata');
+const PORT = Number(process.env.APOLLO_PG_PORT ?? 5433);
 const TENANT_DB = 'apollo_tenant_pinheirao';
 
 export const PG_CONN = {

@@ -4,6 +4,7 @@ import { Printer } from 'lucide-react';
 import { imprimirPagina } from '../shared/print/imprimirPagina';
 import { AppShell } from '@apollosg/design-system';
 import { ShortcutScope } from '../shared/keyboard';
+import { TeclasDaBase } from './teclado/TeclasDaBase';
 import { MODULOS, contextosDoMenu, moduloDaRota } from './modulos';
 import { useAuth } from '../features/auth/AuthContext';
 import {
@@ -313,6 +314,8 @@ export function AppLayout() {
           Button/DateField/etc. via useMnemonic, que exige um <ShortcutScope>. O <CadMaster> provê o
           seu próprio (aninhado); este cobre as telas que não passam pelo shell. */}
       <ShortcutScope>
+        {/* as teclas do form-base TfrmMaster: Esc, Enter-avança, Alt+←, Ctrl+E */}
+        <TeclasDaBase conteudoRef={conteudoRef} />
         {/* botão flutuante de impressão — vale para QUALQUER tela (relatórios, grades, consultas) */}
         <button
           type="button"

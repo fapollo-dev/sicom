@@ -3,12 +3,12 @@ import { useForm, type FieldValues, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ZodSchema } from 'zod';
 import { PageHeader, AlertModal, FormFieldInput } from '@apollosg/design-system';
-import { FormScope, useShortcutRegistry } from '../keyboard';
+import { FormScope, useShortcutRegistry, useShortcut } from '../keyboard';
 import { Button } from '../ui/Button';
 import { useMensagem } from '../mensagem';
 import { createResourceApi } from './resourceApi';
 import { useCadMaster } from './useCadMaster';
-import { Pesquisa, type ColunaPesquisa } from './Pesquisa';
+import { Pesquisa, SITUACOES, type ColunaPesquisa, type Situacao } from './Pesquisa';
 import { RegistrosLogModal, type LogDaTela } from '../log/RegistrosLogModal';
 
 interface CamposCtx<T extends FieldValues> {
@@ -105,8 +105,12 @@ export function CadMaster<T extends FieldValues>({
   const mensagem = useMensagem(); // exibição padronizada de erros (ADR-015)
   const [codigo, setCodigo] = useState('');
   const [pesquisaAberta, setPesquisaAberta] = useState(false);
+  // o rdgAtivo do form-base ("Ati&vo [F6]": Sim / Não / Todos) — o filtro com que a Pesquisa abre
+  const [situacao, setSituacao] = useState<Situacao>('ativos');
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [logAberto, setLogAberto] = useState(false);
+  // o rdgAtivo só aparece quando o registro tem o campo ATIVO (`rdgAtivo.Visible := cdsPrincipal.FindField(FCampoAtivo) <> nil`)
+  const temCampoAtivo = 'ativo' in ((cad.registro as Record<string, unknown> | null) ?? (defaultValues as Record<string, unknown> | undefined) ?? {});
   const idCorrente = cad.registro ? Number((cad.registro as any)[pk] ?? (cad.registro as any)[colunaCodigo]) : null;
   const outrosComLog: AcaoOutros[] | undefined =
     log && idCorrente ? [...(outros ?? []), { label: 'Registro de &log', onClick: () => setLogAberto(true) }] : outros;
@@ -185,6 +189,13 @@ export function CadMaster<T extends FieldValues>({
     <div className={`flex flex-col gap-form-gap ${LARGURA_CLS[largura]}`}>
       <PageHeader title={titulo} description="Cadastro — teclado-first (Enter carrega · setas navegam · F6 filtra · Alt+letra)" />
       <FormScope onSubmit={onGravar}>
+        <TeclasDoCadastro
+          modo={cad.modo}
+          pesquisaAberta={pesquisaAberta}
+          podePesquisar={!!colunasPesquisa}
+          abrirPesquisa={() => setPesquisaAberta(true)}
+          ciclarSituacao={() => setSituacao((x) => SITUACOES[(SITUACOES.indexOf(x) + 1) % SITUACOES.length])}
+        />
         {/* CABEÇALHO: código (editável só no browse; Enter carrega) — FormFieldInput do DS */}
         <div className="flex items-end gap-gp-sm mb-form-gap">
           <div className="w-40">
@@ -218,6 +229,9 @@ export function CadMaster<T extends FieldValues>({
           {colunasPesquisa && cad.codigoEditavel && (
             <Button label="&Pesquisar" variant="soft" onClick={() => setPesquisaAberta(true)} />
           )}
+          {temCampoAtivo && (
+            <span className="pb-2 text-body-sm text-fg-muted" title="F6 alterna">Ativo [F6]: <strong>{SIT_ROTULO[situacao]}</strong></span>
+          )}
         </div>
 
         {pesquisaAberta && colunasPesquisa && (
@@ -225,6 +239,8 @@ export function CadMaster<T extends FieldValues>({
             resourcePath={resourcePath}
             colunas={colunasPesquisa}
             filtroExtra={filtroPesquisa}
+            situacaoInicial={situacao}
+            onSituacao={setSituacao}
             onFechar={() => setPesquisaAberta(false)}
             onSelecionar={(row) => {
               const id = Number(row[colunaCodigo]);
@@ -271,6 +287,22 @@ export function CadMaster<T extends FieldValues>({
       />
     </div>
   );
+}
+
+const SIT_ROTULO: Record<Situacao, string> = { ativos: 'Sim', inativos: 'Não', todos: 'Todos' };
+
+/**
+ * As teclas do form-base de cadastro `TfrmCadMaster` (uCadMaster.pas): F3 abre a Pesquisa fora de inclusão/edição (`FormKeyUp`);
+ * F6 cicla o rdgAtivo Sim → Não → Todos (`FormKeyDown`; com a Pesquisa aberta, o F6 é dela); Esc em inclusão/edição não fecha a
+ * tela (`if State in [dsInsert, dsEdit] then Exit`) — em consulta, a tecla segue para a base, que fecha.
+ */
+function TeclasDoCadastro({ modo, pesquisaAberta, podePesquisar, abrirPesquisa, ciclarSituacao }: {
+  modo: string; pesquisaAberta: boolean; podePesquisar: boolean; abrirPesquisa: () => void; ciclarSituacao: () => void;
+}) {
+  useShortcut('f3', () => { if (modo !== 'browse' || !podePesquisar || pesquisaAberta) return false; abrirPesquisa(); });
+  useShortcut('f6', () => { if (pesquisaAberta) return false; ciclarSituacao(); });
+  useShortcut('escape', () => (modo !== 'browse' ? undefined : false));
+  return null;
 }
 
 function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
