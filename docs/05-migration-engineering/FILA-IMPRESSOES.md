@@ -24,7 +24,7 @@ TfrxDBDataset e as variáveis que o legado atribui.
 | 109 | `FRMCADPRODUCAO` | Producao, Producao_Lista_Transferencia | ✅ Producao 06/10 (QUANTIDADE_COMERCIAL pelos dois ramos de conversão) · ⛔ lista de transferência (ITENS_PRODUCAO_TRANSFERENCIA/ESTOQUE_PROD mortas) |
 | 98 | `FRMFLUXOCARTOES` | Rel_Fluxo_Cartoes | ✅ 06/10 (e 3 correções: LIBERADO nulo, lojas, dia da loja; o "legado duplica o dia" do dossiê era falso) |
 | 84 | `FRMRELENTSAI` | Rel_Analise_Compra_Venda2 | ✅ 06/10 (e 6 correções de fidelidade: lojas, NF cancelada processada, descrição da venda, dpto do pedido, fornecedor, fuso) |
-| 64 | `FRMCONSCLIRCB` | Rel_BaixaAReceber | ⏳ |
+| 64 | `FRMCONSCLIRCB` | Rel_BaixaAReceber | ✅ 06/10 — e a tela refeita pelo fonte (juro pela taxa da tela, tolerância do cliente, agrupados fora, todas as lojas, seleção) |
 | 53 | `FRMANALISECOMPORTAMENTO` | Rel_Analise_Comportamento_Loja | ⏳ |
 | 43 | `FRMRELFINANCEIRO` | (o TRelatorio da unit) | ⏳ |
 | 38 | `FRMEXTRATOFORNECEDORES` | ExtratoFornecedores1/2/3 | ⏳ |

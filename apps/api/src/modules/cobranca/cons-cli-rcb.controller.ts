@@ -14,8 +14,18 @@ export class ConsCliRcbController {
   @Get()
   @RequerAcesso('FRMCONSCLIRCB', 'FRMCONSCLIRCB')
   consultar(@Query(new ZodValidationPipe(consCliRcbSchema)) q: ConsCliRcbDto) {
-    return this.svc.consultar({
-      codparceiro: q.codparceiro, somenteAbertos: q.somenteAbertos ?? true, tolerancia: q.tolerancia ?? null,
-    });
+    return this.svc.consultar(filtro(q));
+  }
+
+  /** o Imprimir dos marcados no layout do cliente (Rel_BaixaAReceber.fr3) */
+  @Get('impressao')
+  @RequerAcesso('FRMCONSCLIRCB', 'FRMCONSCLIRCB')
+  impressao(@Query(new ZodValidationPipe(consCliRcbSchema)) q: ConsCliRcbDto) {
+    return this.svc.impressao(filtro(q));
   }
 }
+
+const filtro = (q: ConsCliRcbDto) => ({
+  codparceiro: q.codparceiro, taxa: q.taxa ?? null, juroAte: q.juroAte ?? null,
+  selecionados: q.selecionados ? q.selecionados.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) : null,
+});

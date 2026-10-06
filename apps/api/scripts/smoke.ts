@@ -13835,65 +13835,104 @@ async function main() {
       }
     }
 
-    // ===== §119) CONSULTA A RECEBER POR CLIENTE (FRMCONSCLIRCB) — quanto o cliente deve, com juro e
-    // atraso. No legado a coluna JURO e a coluna TOTAL usam taxas diferentes. ====
+    // ===== §119) CONSULTA A RECEBER POR CLIENTE (FRMCONSCLIRCB) — refeita pelo fonte em 06/10/2026: o juro pela taxa da TELA (a padrão
+    // da empresa, editável), a tolerância do cliente, o "juros até", o desconto do cliente, todas as lojas sem os agrupados, e o Imprimir. ====
     {
       const CR = 'cobranca/cons-cli-rcb';
       const pgCr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PAR = 996000;
+      const txAntes = (await pgCr.query(`SELECT txjuropadrao FROM empresas WHERE idempresa = 1`)).rows[0]?.txjuropadrao ?? null;
+      const cfgAntes = (await pgCr.query(`SELECT valor FROM configuracoes WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`)).rows[0]?.valor as string | undefined;
       try {
-        // três títulos vencidos há 60 dias, com taxas diferentes, para separar as regras
-        const d60 = `current_date - 60`;
-        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada)
-          VALUES (996001,1,2,'J-TAXA-3',current_date - 90, ${d60}, 1000.00, 3, 'N'),
-                 (996002,1,2,'J-TAXA-0',current_date - 90, ${d60}, 1000.00, 0, 'N'),
-                 (996003,1,2,'J-TAXA-25',current_date - 90, ${d60}, 1000.00, 25, 'N')`);
-        // um a vencer, para provar que atraso negativo vira zero
-        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada)
-          VALUES (996004,1,2,'A-VENCER',current_date, current_date + 30, 500.00, 3, 'N')`);
+        const hoje = `(now() AT TIME ZONE 'America/Sao_Paulo')::date`;
+        await pgCr.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, cli, tolerancia, credito) VALUES (${PAR}, 'CLIENTE 119', 'C119', 'S', 0, 0) ON CONFLICT (codparceiro) DO UPDATE SET tolerancia = 0, diasprazo = NULL, descpadrao = NULL`);
+        await pgCr.query(`UPDATE empresas SET txjuropadrao = 3 WHERE idempresa = 1`);
+        if (cfgAntes === undefined) await pgCr.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas) VALUES (992881, 'JURO_COMPOSTO_BX_RECEBER', 'N', 'S', 'JURO COMPOSTO BX RECEBER', 'Usuario;Empresa;Modulo')`);
+        await pgCr.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`);
+        // vencidos há 60 dias com taxas de título diferentes (a tela ignora a do título), um da loja 2, um a vencer, um agrupado e um quitado
+        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada, agrupado) VALUES
+          (996001,1,${PAR},'J-TAXA-3',${hoje} - 90, ${hoje} - 60, 1000.00, 3, 'N', 'N'),
+          (996002,1,${PAR},'J-TAXA-0',${hoje} - 90, ${hoje} - 60, 1000.00, 0, 'N', NULL),
+          (996003,2,${PAR},'J-LOJA-2',${hoje} - 90, ${hoje} - 60, 1000.00, 25, 'N', 'N'),
+          (996004,1,${PAR},'A-VENCER',${hoje}, ${hoje} + 30, 500.00, 3, 'N', 'N'),
+          (996005,1,${PAR},'AGRUPADO',${hoje} - 90, ${hoje} - 60, 700.00, 0, 'N', 'S'),
+          (996006,1,${PAR},'QUITADO',${hoje} - 90, ${hoje} - 60, 800.00, 0, 'S', 'N')`);
+        const q = async (qs: string) => (await (await fetch(`${base}/${CR}?codparceiro=${PAR}&${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const t = (j: any, d: string) => (j.titulos ?? []).find((x: any) => x.duplicata === d);
 
-        const r = await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true`, { headers: H });
-        const j = (await r.json().catch(() => ({}))) as any;
-        const t3  = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-3');
-        const t0  = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-0');
-        const t25 = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-25');
-        const av  = (j.titulos ?? []).find((t: any) => t.duplicata === 'A-VENCER');
+        const j = await q('');
+        check('CONSULTA A RECEBER §119.1 [o juro pela taxa da TELA]: o edtCodClienteExit põe no campo de juros a taxa PADRÃO DA EMPRESA (3% a.m.) e o edtJuroExit recalcula TODA linha com ela — a taxa do título (3, 0, 25) não vale: 60 dias sobre 1.000,00 = (3 ÷ 30) × 60 × 1.000 ÷ 100 = 60,00 de juro e 1.060,00 de total nos três; o a vencer não rende; o agrupado e o quitado não aparecem; a loja 2 aparece (o SQL não filtra loja)',
+          (j.titulos ?? []).length === 4 && Number(j.taxa) === 3
+          && ['J-TAXA-3', 'J-TAXA-0', 'J-LOJA-2'].every((d) => Math.abs(Number(t(j, d)?.juro) - 60) < 0.005 && Math.abs(Number(t(j, d)?.total) - 1060) < 0.005 && Number(t(j, d)?.txjuros) === 3 && Number(t(j, d)?.atraso) === 60)
+          && Math.abs(Number(t(j, 'A-VENCER')?.juro)) < 0.005 && Number(t(j, 'A-VENCER')?.atraso) === 0
+          && !t(j, 'AGRUPADO') && !t(j, 'QUITADO') && Number(t(j, 'J-LOJA-2')?.codempresa) === 2
+          && j.titulos[0].duplicata !== 'A-VENCER',
+          { titulos: (j.titulos ?? []).map((x: any) => [x.duplicata, x.atraso, x.txjuros, x.juro, x.total]), taxa: j.taxa });
 
-        check('CONSULTA A RECEBER §119.1 [o juro é MENSAL dividido por 30, simples]: taxa 3% ao mês em 60 dias de atraso sobre 1.000,00 dá `(3÷30) × 60 × 1000 ÷ 100` = **60,00** de juro, e total **1.060,00**. E atraso negativo vira zero: o título a vencer não rende nada',
-          r.status === 200 && !!t3
-          && Number(t3.atraso) === 60
-          && Math.abs(Number(t3.juro) - 60) < 0.02
-          && Math.abs(Number(t3.total) - 1060) < 0.02
-          && Number(av?.atraso) === 0 && Math.abs(Number(av?.juro)) < 0.005,
-          { comTaxa3: t3 && { atraso: t3.atraso, juro: t3.juro, total: t3.total }, aVencer: av && { atraso: av.atraso, juro: av.juro } });
+        const fim10 = (await pgCr.query(`SELECT to_char(${hoje} + 10, 'YYYY-MM-DD') d`)).rows[0].d;
+        const j6 = await q(`taxa=6&juroAte=${fim10}`);
+        check('CONSULTA A RECEBER §119.2 [a taxa e o "juros até" do operador]: com 6% a.m. projetado 10 dias à frente, o juro conta ATRASO + (juros até − hoje): (6 ÷ 30) × 70 × 1.000 ÷ 100 = 140,00 (TruncarArredondar 2 casas); o a vencer continua sem juro (a condição olha o atraso de hoje)',
+          Math.abs(Number(t(j6, 'J-TAXA-0')?.juro) - 140) < 0.005 && Math.abs(Number(t(j6, 'J-TAXA-0')?.total) - 1140) < 0.005
+          && Math.abs(Number(t(j6, 'A-VENCER')?.juro)) < 0.005,
+          { j6: (j6.titulos ?? []).map((x: any) => [x.duplicata, x.juro, x.total]) });
 
-        check('CONSULTA A RECEBER §119.2 [o juro fantasma de 11,5 milhões]: no SQL do legado a coluna JURO aplica um default de **9% ao mês** quando `TXJUROS` fica fora da faixa (0, 20), mas a coluna TOTAL usa a taxa crua — então o título com taxa ZERO mostra juro a 9% numa coluna e total sem juro na outra. Isso atinge **99.694 dos 99.734 títulos (99,96%)**: nos 46.792 vencidos com taxa zero, R$ 11.567.551,22 de juro exibido sobre R$ 4.845.428,53 de principal. Aqui a taxa é UMA só: título sem taxa não rende juro, e o total continua igual ao do legado',
-          Math.abs(Number(t0?.juro)) < 0.005
-          && Math.abs(Number(t0?.total) - 1000) < 0.005,
-          { taxaZero: t0 && { juro: t0.juro, total: t0.total } });
+        await pgCr.query(`UPDATE parceiros SET tolerancia = 60 WHERE codparceiro = ${PAR}`);
+        const jt60 = await q('');
+        await pgCr.query(`UPDATE parceiros SET tolerancia = 59 WHERE codparceiro = ${PAR}`);
+        const jt59 = await q('');
+        check('CONSULTA A RECEBER §119.3 [a tolerância é a do CLIENTE e o juro exige ATRASO > TOLERÂNCIA]: com 60 dias de tolerância, 60 de atraso não rendem (o corte de 09/2026 cobrava: usava atraso < tolerância); com 59, rende sobre os 60 dias inteiros (60,00)',
+          Math.abs(Number(t(jt60, 'J-TAXA-0')?.juro)) < 0.005 && Math.abs(Number(t(jt60, 'J-TAXA-0')?.total) - 1000) < 0.005 && Number(t(jt60, 'J-TAXA-0')?.tolerancia) === 60
+          && Math.abs(Number(t(jt59, 'J-TAXA-0')?.juro) - 60) < 0.005,
+          { t60: t(jt60, 'J-TAXA-0'), t59: t(jt59, 'J-TAXA-0')?.juro });
+        await pgCr.query(`UPDATE parceiros SET tolerancia = 0 WHERE codparceiro = ${PAR}`);
 
-        check('CONSULTA A RECEBER §119.3 [taxa fora da faixa não vira 9%]: o legado trocaria a taxa 25 por 9% ao mês na coluna de juro — inventando 180,00 num título cujo total ele mesmo calcularia com 25%. Aqui, fora da faixa é zero nas duas colunas, e a incoerência some',
-          Math.abs(Number(t25?.juro)) < 0.005
-          && Math.abs(Number(t25?.total) - 1000) < 0.005,
-          { taxa25: t25 && { juro: t25.juro, total: t25.total } });
+        // o desconto do cliente: DIASPRAZO 10 e DESCPADRAO 5% — o título vendido há 5 dias (dentro do prazo) desconta 5% no total
+        await pgCr.query(`UPDATE parceiros SET diasprazo = 10, descpadrao = 5 WHERE codparceiro = ${PAR}`);
+        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada) VALUES (996007,1,${PAR},'DESC-CLI',${hoje} - 5, ${hoje} + 5, 200.00, 0, 'N')`);
+        const jd = await q('');
+        const sel = [996001, 996007];
+        const js = await q(`selecionados=${sel.join(',')}`);
+        check('CONSULTA A RECEBER §119.4 [o desconto do cliente e os totais]: DIASPRAZO 10 e DESCPADRAO 5% — o título vendido há 5 dias tem DESCONTO_CLIENTE 10,00 e total 190,00, o vendido hoje (a vencer, 500,00) desconta 25,00 (os vendidos há 90 dias, fora do prazo, não); totais: geral 3.700,00 (sem o agrupado e o quitado), em atraso 3.000,00, geral com juros 3.845,00, atraso com juros 3.180,00; os marcados (996001 + 996007): valor 1.200,00, com juros 1.250,00, juros 60,00, descontos 10,00',
+          Math.abs(Number(t(jd, 'DESC-CLI')?.desconto_cliente) - 10) < 0.005 && Math.abs(Number(t(jd, 'DESC-CLI')?.total) - 190) < 0.005
+          && Math.abs(Number(t(jd, 'J-TAXA-0')?.desconto_cliente)) < 0.005
+          && Math.abs(Number(t(jd, 'A-VENCER')?.desconto_cliente) - 25) < 0.005
+          && js.totais?.geral === 3700 && js.totais?.atraso === 3000 && js.totais?.geralComJuros === 3845 && js.totais?.atrasoComJuros === 3180
+          && js.totais?.selecionados === 2 && js.totais?.selValor === 1200 && js.totais?.selComJuros === 1250 && js.totais?.selJuros === 60 && js.totais?.selDescontos === 10,
+          { desc: t(jd, 'DESC-CLI'), totais: js.totais });
+        await pgCr.query(`UPDATE parceiros SET diasprazo = NULL, descpadrao = NULL WHERE codparceiro = ${PAR}`);
 
-        const comTol = (await (await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true&tolerancia=90`, { headers: H })).json().catch(() => ({}))) as any;
-        const t3Tol = (comTol.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-3');
-        check('CONSULTA A RECEBER §119.4 [a tolerância zera o juro INTEIRO, não os dias tolerados]: com 90 dias de carência, um atraso de 60 não rende nada. E se passasse — digamos 91 dias —, o juro viria sobre os 91, não sobre 1. É assim no legado e foi mantido: é o combinado com o cliente, não um arredondamento',
-          Math.abs(Number(t3Tol?.juro)) < 0.005
-          && Math.abs(Number(t3Tol?.total) - 1000) < 0.005
-          && Number(t3Tol?.atraso) === 60,
-          { comTolerancia90: t3Tol && { atraso: t3Tol.atraso, juro: t3Tol.juro, total: t3Tol.total } });
+        await pgCr.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`);
+        const jc = await q('');
+        await pgCr.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`);
+        check('CONSULTA A RECEBER §119.5 [juro composto pela config]: com JURO_COMPOSTO_BX_RECEBER = S, 60 dias = 2 meses cheios: 1.000 × 1,03² = 1.060,90 (sem dias restantes); o juro = 60,90',
+          Math.abs(Number(t(jc, 'J-TAXA-0')?.total) - 1060.9) < 0.005 && Math.abs(Number(t(jc, 'J-TAXA-0')?.juro) - 60.9) < 0.005 && jc.composto === true,
+          { composto: t(jc, 'J-TAXA-0') });
 
         // o "Saldo do cliente" (GetSaldoCliente): os títulos A PAGAR de crédito do parceiro (ADCREDITO 'S') em aberto — o quitado fica fora
-        const saldo0 = Number(((await pgCr.query(`SELECT coalesce(sum(valor),0) AS v FROM apagar WHERE adcredito = 'S' AND coalesce(quitada,'N') = 'N' AND codparceiro = 2`)).rows[0] as any).v);
         const cred = (await pgCr.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc, adcredito) VALUES
-          (1,2,'CRED-119A','2026-09-30',75.50,'N','DP','S'), (1,2,'CRED-119B','2026-09-30',40.00,'S','DP','S') RETURNING codapg`)).rows.map((x: any) => Number(x.codapg));
-        const rs = (await (await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true`, { headers: H })).json().catch(() => ({}))) as any;
-        check('CONSULTA A RECEBER §119.5 [o saldo do cliente]: a tela mostra o crédito do cliente — os títulos A PAGAR de crédito (ADCREDITO S) em aberto: +75,50 (o de 40,00 quitado não conta)',
-          Math.abs(Number(rs.saldoCliente) - (saldo0 + 75.5)) < 0.005, { saldo0, saldoCliente: rs.saldoCliente });
+          (1,${PAR},'CRED-119A','2026-09-30',75.50,'N','DP','S'), (1,${PAR},'CRED-119B','2026-09-30',40.00,'S','DP','S') RETURNING codapg`)).rows.map((x: any) => Number(x.codapg));
+        const rs = await q('');
+        await pgCr.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (992960, 1, 'Rel_BaixaAReceber.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="BaixaAR_stub"/></TfrxReport>').toString('base64')]);
+        const ir = await fetch(`${base}/${CR}/impressao?codparceiro=${PAR}&selecionados=996001,996003`, { headers: H });
+        const ij = (await ir.json().catch(() => ({}))) as any;
+        await pgCr.query(`DELETE FROM relatorios WHERE codrelatorio = 992960`);
+        const nx = await fetch(`${base}/${CR}?codparceiro=999999991`, { headers: H });
+        const nxj = (await nx.json().catch(() => ({}))) as any;
+        const ds = (ij.datasets?.frxDBDataset1 ?? []) as any[];
+        check('CONSULTA A RECEBER §119.6 [o saldo do cliente e o Imprimir]: o saldo = os A PAGAR de crédito em aberto (75,50; o quitado não); o Rel_BaixaAReceber.fr3 com SÓ os marcados (SEL = TRUE) no frxDBDataset1, com o juro e o total como a grade (60,00 / 1.060,00, a taxa da tela) e TOTADIANTAMENTO = o saldo; cliente inexistente → a mensagem do legado',
+          Math.abs(Number(rs.saldoCliente) - 75.5) < 0.005
+          && ir.status === 200 && String(ij.modelo).includes('BaixaAR_stub') && ds.length === 2 && ds.every((x) => Math.abs(Number(x.JURO) - 60) < 0.005 && Math.abs(Number(x.TOTAL) - 1060) < 0.005)
+            && ds.some((x) => x.DUPLICATA === 'J-LOJA-2') && ds[0].RAZAO === 'CLIENTE 119' && Number(ij.variaveis?.TOTADIANTAMENTO) === 75.5
+          && nx.status === 422 && String(nxj.message ?? '').includes('Cliente não encontrado'),
+          { saldo: rs.saldoCliente, st: ir.status, ds: ds.map((x) => [x.DUPLICATA, x.JURO, x.TOTAL]), v: ij.variaveis, nx: [nx.status, nxj.message] });
         await pgCr.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [cred]);
-        await pgCr.query(`DELETE FROM areceber WHERE codrcb IN (996001,996002,996003,996004)`);
       } finally {
+        await pgCr.query(`DELETE FROM areceber WHERE codrcb BETWEEN 996001 AND 996007`);
+        await pgCr.query(`UPDATE empresas SET txjuropadrao = $1 WHERE idempresa = 1`, [txAntes]);
+        if (cfgAntes === undefined) await pgCr.query(`DELETE FROM configuracoes WHERE id = 992881`);
+        else await pgCr.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'JURO_COMPOSTO_BX_RECEBER'`, [cfgAntes]);
+        await pgCr.query(`DELETE FROM parceiros WHERE codparceiro = ${PAR}`);
         await pgCr.end();
       }
     }

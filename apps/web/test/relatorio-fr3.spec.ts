@@ -1523,3 +1523,22 @@ describe('análise de compra × venda (Rel_Analise_Compra_Venda2.fr3, FRMRELENTS
     expect(t).not.toMatch(/\bEmpresa\b(?!\(s\))/);
   });
 });
+
+describe('consulta a receber por cliente (Rel_BaixaAReceber.fr3, FRMCONSCLIRCB)', () => {
+  const l = (CODIGO: number, DUPLICATA: string, VALOR: number, JURO: number) => ({
+    CODIGO, CODIGO_CLIENTE: 81, RAZAO: 'MERCADINHO BOM PRECO', DTVENDA: '2026-07-01', DTVENC: '2026-08-07', VALOR, JURO, TOTAL: VALOR + JURO,
+    ATRAZO: 60, TOLERANCIA: 0, TXJUROS: 3, DUPLICATA, NROCUPOM: '1234', OBS: 'COBRAR',
+  });
+  it('os títulos marcados, os totais do script e o adiantamento descontado', () => {
+    const t = texto(paginasDoModelo(modelo('baixa-areceber.fr3'), { frxDBDataset1: [l(1, 'DUP-1', 1000, 60), l(2, 'DUP-2', 500, 30)] }, agora, { TOTADIANTAMENTO: '75.5' }));
+    expect(t).toContain('MERCADINHO BOM PRECO');
+    expect(t).toContain('DUP-1');
+    expect(t).toContain('DUP-2');
+    expect(t).toContain('TOTAL ADIANTAMENTOS:');
+    expect(t).toContain('75,50');
+    // o [TotalPages#] liga o DoublePass e o script soma ORIGINAL/VALOR/TOTAL no AfterPrint sem zerar no início: as variáveis do script
+    // atravessam as duas passadas (o FastReport não as reinicia), então o rodapé sai DOBRADO no legado — 1.500 → 3.000,00
+    expect(t).toContain('3.000,00');
+    expect(t).toContain('2.849,00');   // VALOR = 3.000 − 2 × 75,50 (o FooterOnBeforePrint também roda nas duas passadas)
+  });
+});

@@ -698,9 +698,12 @@ export type DescontoTituloExecutarDto = z.infer<typeof descontoTituloExecutarSch
 /** CONSULTA A RECEBER POR CLIENTE (`FRMCONSCLIRCB`): quanto o cliente deve, com juro e atraso. */
 export const consCliRcbSchema = z.object({
   codparceiro: z.coerce.number().int().positive(),
-  somenteAbertos: boolQuery.optional(),
-  /** dias de carência antes de o juro começar a contar. */
-  tolerancia: z.coerce.number().int().min(0).max(365).nullish(),
+  /** o edtJuro (% ao mês); sem ele, a taxa padrão da empresa */
+  taxa: z.coerce.number().min(0).max(100).nullish(),
+  /** o edtJuroAte: o juro projetado até a data */
+  juroAte: dataISO.nullish(),
+  /** os títulos marcados (SEL), "1,2,3" — os totais da seleção e o Imprimir */
+  selecionados: z.string().regex(/^[\d,\s]*$/).nullish(),
 });
 export type ConsCliRcbDto = z.infer<typeof consCliRcbSchema>;
 
