@@ -63,6 +63,12 @@ no A pagar (uAPagar.pas:776); `TIPOESTADO` FORA/DENTRO do CFOP do item (uItensNF
 `INCLUIR_CLIENTES_FORN_NF_DEV` no parceiro da NF (uNF.pas:3144-3150); `ENDERECO_ATIVO` do fornecedor do pedido (uPedidoCompra.pas:6599);
 o produto-pai ≠ o próprio (UCadProduto.pas:4298); a cotação aceita participante não fornecedor no legado e o servidor do Apollo recusa.
 
+**Corte D entregue (07/10/2026)** — menos a multisseleção: as cores com legenda (a 1ª regra que casa, no servidor — `cores.ts`;
+AMARELO/PRETO na cor normal, como o `GetColor`), os atalhos F8-F12 da pesquisa de produto (o F12 explica que a ESTOQUE_PROD não vem) e
+o totalizador do A pagar/A receber (soma no servidor). Smoke §298.12.
+**Corte E entregue em parte** — o status da tela (Ctrl+Shift+S/D) na Pesquisa do cadastro (`status-tela.ts`; smoke §298.13). Faltam o
+F4 (layout/campo em arquivo local no legado), o F7 (filtros acumulados), o ↑ (última pesquisa) e o status do lookup de campo.
+
 **Fica para o corte B (as views do destino iguais às da produção):** GET_PRODUTOS por loja (IDEMPRESA e o ATIVO da loja; hoje o
 destino tem uma linha por produto e `produtos.ativo`), o `FORNECEDOR_ATIVO='S'` do pedido aberto e o FECHADO por loja, o complemento
 "com centro de custo" do A pagar (GET_APAGAR_CEN/GET_CP_CEN), as colunas que faltam nas views (GET_NF 17 de 49, GET_EMPRESAS…). **Corte

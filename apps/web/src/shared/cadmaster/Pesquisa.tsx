@@ -148,6 +148,18 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         const padrao = m.opcoes.find((o) => o.padrao)?.id ?? m.opcoes[0]?.id ?? null;
         setOpcao(padrao);
         setOpcaoEscolhida(!m.opcoes.length);
+        // o status da tela (RecuperarStatus): o campo, a operação e o valor que o operador guardou com Ctrl+Shift+S — reabre sem pesquisar
+        if (!resourcePath.startsWith('lookup/')) {
+          pedir<{ campo: string; operacao: Operacao; valor: string; valor2: string } | null>(`/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`)
+            .then((st) => {
+              if (!st || !m.colunas.some((c) => c.campo === st.campo)) return;
+              setCampo(st.campo);
+              setOperacao(st.operacao);
+              setValor(st.valor);
+              setValor2(st.valor2);
+            })
+            .catch(() => undefined);
+        }
       })
       .catch((e) => { mensagem.erro(e); onFechar(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,6 +289,15 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   return (
     <ShortcutScope>
       <TeclasDaPesquisa
+        statusTela={!resourcePath.startsWith('lookup/') && !!meta && opcaoEscolhida ? {
+          // Ctrl+Shift+S / Ctrl+Shift+D (uMaster.pas FormKeyDown → fStatusTela.Salvar/Excluir): sem mensagem, como no legado
+          salvar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`, {
+            method: 'PUT', headers: apiHeaders({ 'content-type': 'application/json' }), body: JSON.stringify({ campo, operacao, valor, valor2, soma: colunaSoma }),
+          }).then((res) => { handle401(res); }).catch(() => undefined),
+          apagar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`, {
+            method: 'DELETE', headers: apiHeaders(),
+          }).then((res) => { handle401(res); }).catch(() => undefined),
+        } : null}
         detalhes={consulta && !detalhe ? (meta?.detalhes ?? []).map((d) => d.tecla) : []}
         abrirDetalhe={abrirDetalhe}
         focarValor={() => {
@@ -421,10 +442,14 @@ function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDo
  * ao cadastro de baixo. F3 = SetaFocoFrame (limpa o valor e põe o foco). O F5/F7 (filtros acumulados) e o F6 (modo do filtro da
  * coluna) voltam nos cortes B/E do dossiê.
  */
-function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe }: {
+function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela }: {
   focarValor: () => void; detalhes: string[]; abrirDetalhe: (tecla: string) => Promise<false | void>;
+  statusTela: { salvar: () => void; apagar: () => void } | null;
 }) {
   useShortcut('f3', () => focarValor());
+  // o status da tela (CONFIG_STATUS_TELA): Ctrl+Shift+S guarda o campo, a operação e o valor; Ctrl+Shift+D apaga
+  useShortcut('ctrl+shift+s', () => statusTela?.salvar(), { when: !!statusTela });
+  useShortcut('ctrl+shift+d', () => statusTela?.apagar(), { when: !!statusTela });
   // F8-F12: os atalhos de detalhe da pesquisa (o `ATALHO` do cdsDetalhes — na de produto, preços, códigos auxiliares e estoques)
   useShortcut('f8', () => void abrirDetalhe('f8'), { when: detalhes.includes('f8') });
   useShortcut('f9', () => void abrirDetalhe('f9'), { when: detalhes.includes('f9') });

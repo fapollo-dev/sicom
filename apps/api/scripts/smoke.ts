@@ -29420,6 +29420,32 @@ async function main() {
           { cores: [corDe(PA), corDe(PI)], legenda: metaProd.legenda, f8: f8.j, f12: f12.j.indisponivel, fx: [fx.status, fx.j.code], soma: [rcbSoma.status, rcbSoma.j.soma, somaEsp] });
         await pgPq.query(`DELETE FROM multi_preco WHERE idproduto = ${PA} AND idempresa = 1`);
 
+        // corte E: o status da tela — a linha no formato do legado (como veio da produção) volta; gravar troca a MESMA linha; apagar só a chave
+        const jsonLegado = JSON.stringify({ listHelper: [3], items: [
+          { valor: '0', controle: 'cbbCamposSoma', classe: 'TComboBox', classePai: 'TComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: '' },
+          { valor: '4', controle: 'cbbOperacao', classe: 'TJvComboBox', classePai: 'TJvComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: 'Em Qualquer Lugar' },
+          { valor: '48', controle: 'cbbCampos', classe: 'TJvComboBox', classePai: 'TJvComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: 'Razao' }] });
+        await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`);
+        await pgPq.query(`INSERT INTO config_status_tela (codconfigtela, idoperador, formulario, formulario_pai, view_pesq, retorno1_pesq, configuracao, dtultimalteracao)
+          VALUES (992980, 7, 'frmPesquisa', 'frmCadClientes', 'GET_PARCEIROS', 'edtCodigo', $1, now()),
+                 (992981, 7, 'frmPesquisa', 'frmCadProduto', 'GET_NCM', NULL, $1, now())`, [jsonLegado]);
+        const stUrl = (rec: string) => `${base}/cadastro/pesquisa/status?recurso=${encodeURIComponent(rec)}`;
+        const st1 = (await (await fetch(stUrl('cadastro/parceiros'), { headers: H })).json()) as any;
+        const put = await fetch(stUrl('cadastro/parceiros'), { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'codparceiro', operacao: 'entre', valor: '1', valor2: '9' }) });
+        const linhaDepois = (await pgPq.query(`SELECT codconfigtela, configuracao FROM config_status_tela WHERE idoperador = 7 AND upper(view_pesq) = 'GET_PARCEIROS'`)).rows;
+        const st2 = (await (await fetch(stUrl('cadastro/parceiros'), { headers: H })).json()) as any;
+        const del = await fetch(stUrl('cadastro/parceiros'), { method: 'DELETE', headers: H });
+        const sobrou = (await pgPq.query(`SELECT codconfigtela FROM config_status_tela WHERE idoperador = 7 ORDER BY 1`)).rows.map((r: any) => Number(r.codconfigtela));
+        const stLookup = await fetch(stUrl('lookup/parceiros'), { headers: H });
+        const stLookupJ = (await stLookup.json().catch(() => ({}))) as any;
+        check('PESQUISA §298.13 [corte E — o status da tela, Ctrl+Shift+S/D]: a linha do legado (frmPesquisa + frmCadClientes + GET_PARCEIROS + edtCodigo, Razao / Em Qualquer Lugar) reabre a Pesquisa de parceiros; gravar troca a MESMA linha (JSON do legado com o título da coluna e o texto da operação); apagar tira só a desta chave (a do GET_NCM fica — o legado apagaria a 1ª do operador); no lookup não há chave → 422',
+          st1?.campo === 'razao' && st1?.operacao === 'qualquer'
+          && put.status === 204 && linhaDepois.length === 1 && Number(linhaDepois[0].codconfigtela) === 992980 && String(linhaDepois[0].configuracao).includes('"valorAuxiliar":"Codparceiro"')
+          && st2?.campo === 'codparceiro' && st2?.operacao === 'entre' && st2?.valor === '1' && st2?.valor2 === '9'
+          && del.status === 204 && sobrou.join() === '992981' && stLookup.status === 422 && stLookupJ.code === 'PESQUISA_STATUS_SEM_CHAVE',
+          { st1, put: put.status, linhaDepois: linhaDepois.map((l: any) => l.codconfigtela), st2, del: del.status, sobrou, lookup: [stLookup.status, stLookupJ.code] });
+        await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`);
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

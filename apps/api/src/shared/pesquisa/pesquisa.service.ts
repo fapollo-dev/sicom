@@ -7,6 +7,7 @@ import { empresasDoOperador } from '../acesso/empresas-do-operador';
 import { condicaoDoUsuario, operacaoDeAbertura, OPERACOES, tipoDoCampo, type Operacao, type TipoCampo } from './pesquisa-sql';
 import { TELAS_DA_PESQUISA, type PesquisaTela } from './telas';
 import { corDaLinha } from './cores';
+import { escreverStatus, lerStatus, type StatusDaPesquisa } from './status-tela';
 
 type AnyDB = Kysely<any>;
 
@@ -230,5 +231,62 @@ export class PesquisaService {
     if (!Number.isFinite(codigo)) throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { codigo });
     const linhas = (await d.consulta(codigo).execute(this.dbp.forTenantRead() as AnyDB)).rows;
     return { titulo: d.titulo, linhas, indisponivel: null };
+  }
+
+  /**
+   * a chave do status da tela no legado: 'frmPesquisa' aberta pelo formulário do cadastro (FORMULARIO_PAI), na view (VIEW_PESQ), com o
+   * retorno no código do cadastro (RETORNO1_PESQ = edtCodigo — uCadMaster.pas:547). O lookup de campo tem outro controle de retorno
+   * por tela e ainda não guarda status.
+   */
+  private chaveDoStatus(recurso: string) {
+    const t = this.tela(recurso);
+    if (recurso.startsWith('lookup/')) throw new BusinessRuleError('PESQUISA_STATUS_SEM_CHAVE', { recurso });
+    const op = currentTenant().operadorId ?? null;
+    if (op == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    return { t, op, pai: t.form, view: (t.viewLegado ?? t.view).toUpperCase(), retorno: 'edtCodigo' };
+  }
+
+  private filtroDoStatus(k: { op: number; pai: string; view: string; retorno: string }) {
+    return sql<SqlBool>`idoperador = ${k.op} and upper(formulario) = 'FRMPESQUISA' and upper(formulario_pai) = upper(${k.pai})
+      and upper(view_pesq) = ${k.view} and upper(coalesce(retorno1_pesq, '')) = upper(${k.retorno})`;
+  }
+
+  /** RecuperarStatus (uMaster.pas:597; BuscaConfigNoBd do operador): o campo, a operação e o valor com que a Pesquisa reabre */
+  async lerStatus(recurso: string): Promise<StatusDaPesquisa | null> {
+    const k = this.chaveDoStatus(recurso);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = (await db.selectFrom('config_status_tela').select('configuracao').where(this.filtroDoStatus(k))
+      .orderBy('dtultimalteracao', 'desc').limit(1).executeTakeFirst()) as { configuracao: string | null } | undefined;
+    if (!r?.configuracao) return null;
+    return lerStatus(r.configuracao, (await this.colunas(k.t.view)).filter((c) => c.campo !== 'indr'));
+  }
+
+  /** Ctrl+Shift+S (GravaConfigNoBd): grava ou troca o status desta chave */
+  async salvarStatus(recurso: string, s: StatusDaPesquisa): Promise<void> {
+    const k = this.chaveDoStatus(recurso);
+    const cols = (await this.colunas(k.t.view)).filter((c) => c.campo !== 'indr');
+    if (!cols.some((c) => c.campo === s.campo)) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: s.campo });
+    const json = escreverStatus(s, cols);
+    const db = this.dbp.forTenant() as AnyDB;
+    await db.transaction().execute(async (trx) => {
+      const atual = (await trx.selectFrom('config_status_tela').select('codconfigtela').where(this.filtroDoStatus(k)).limit(1).executeTakeFirst()) as
+        { codconfigtela: number } | undefined;
+      if (atual) {
+        await trx.updateTable('config_status_tela').set({ configuracao: json, usultalteracao: k.op, dtultimalteracao: sql`now()` })
+          .where('codconfigtela', '=', atual.codconfigtela).execute();
+      } else {
+        await trx.insertInto('config_status_tela').values({
+          codconfigtela: sql`nextval('id_codconfigtela')`, idoperador: k.op, formulario: 'frmPesquisa', formulario_pai: k.pai, view_pesq: k.view,
+          retorno1_pesq: k.retorno, configuracao: json, usultalteracao: k.op, dtultimalteracao: sql`now()`,
+        }).execute();
+      }
+    });
+  }
+
+  /** Ctrl+Shift+D (ApagaConfigNoBd): apaga o status DESTA chave — o legado apaga a 1ª linha 'frmPesquisa' do operador, de qualquer
+   *  tela (o filtro dele só tem operador e formulário); aqui fica a da Pesquisa aberta */
+  async apagarStatus(recurso: string): Promise<void> {
+    const k = this.chaveDoStatus(recurso);
+    await (this.dbp.forTenant() as AnyDB).deleteFrom('config_status_tela').where(this.filtroDoStatus(k)).execute();
   }
 }

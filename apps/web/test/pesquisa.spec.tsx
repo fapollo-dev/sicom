@@ -171,3 +171,28 @@ describe('Pesquisa — corte D: cores + legenda, atalhos de detalhe e totalizado
     expect(await screen.findByText(/9,9/)).toBeTruthy(); // número no formato do DS
   });
 });
+
+describe('Pesquisa — corte E: o status da tela (Ctrl+Shift+S/D, CONFIG_STATUS_TELA)', () => {
+  beforeEach(() => {
+    metaAtual = meta();
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => ({
+      ok: true, status: init?.method ? 204 : 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual
+        : String(url).includes('/pesquisa/status') ? { campo: 'descricao', operacao: 'comeca', valor: 'NES', valor2: '' }
+        : { linhas: [], total: 0 },
+    })) as any;
+  });
+
+  it('reabre com o campo, a operação e o valor guardados (sem pesquisar); Ctrl+Shift+S grava, Ctrl+Shift+D apaga', async () => {
+    abrir();
+    await waitFor(() => expect((screen.getByLabelText('Texto') as HTMLInputElement).value).toBe('NES'));
+    expect(pesquisas()).toHaveLength(0);
+    act(() => { fireEvent.keyDown(window, { key: 'S', code: 'KeyS', ctrlKey: true, shiftKey: true }); });
+    await waitFor(() => expect((global.fetch as any).mock.calls.some((c: any[]) => c[1]?.method === 'PUT')).toBe(true));
+    const put = (global.fetch as any).mock.calls.find((c: any[]) => c[1]?.method === 'PUT');
+    expect(String(put[0])).toContain('/cadastro/pesquisa/status?recurso=cadastro%2Fmarcas');
+    expect(JSON.parse(put[1].body)).toMatchObject({ campo: 'descricao', operacao: 'comeca', valor: 'NES' });
+    act(() => { fireEvent.keyDown(window, { key: 'D', code: 'KeyD', ctrlKey: true, shiftKey: true }); });
+    await waitFor(() => expect((global.fetch as any).mock.calls.some((c: any[]) => c[1]?.method === 'DELETE')).toBe(true));
+  });
+});

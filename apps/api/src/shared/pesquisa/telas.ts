@@ -21,6 +21,8 @@ export interface ContextoDosObrigatorios {
 export interface PesquisaTela {
   /** a view do destino (a `GET_<TABELA>` do legado) */
   view: string;
+  /** o nome da view no legado quando não é o da do destino em maiúsculas (a chave do status da tela — VIEW_PESQ) */
+  viewLegado?: string;
   /** o FRM do legado (procedência) */
   form: string;
   /** "Pesquisa <comentário da view>" */
@@ -209,7 +211,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'cobranca/lotes-md': { view: 'get_lote_cobranca', form: 'FRMCADLOTECOBRANCA', titulo: 'Lotes de cobrança', retorno: 'codlotecob',
     abertura: { campo: 'razao', operacao: 'qualquer' } },
   // uCadAReceber.pas:1326-1349 e 2714: "CONTAS A RECEBER" nas lojas; CONSILIADO='S' quando a loja do login fecha caixa
-  'cadastro/areceber': { view: 'get_areceber', form: 'FRMCADARECEBER', titulo: 'Contas a receber', retorno: 'codrcb', totalizador: true,
+  'cadastro/areceber': { view: 'get_areceber', viewLegado: 'GET_RCB', form: 'FRMCADARECEBER', titulo: 'Contas a receber', retorno: 'codrcb', totalizador: true,
     abertura: { campo: 'razao', operacao: 'qualquer', ordenacao: 'razao' },
     opcoes: [{ id: 'abertos', rotulo: 'Trazer somente abertos', padrao: true }, { id: 'liquidados', rotulo: 'Trazer somente liquidados' },
       { id: 'agrupados', rotulo: 'Agrupados' }, { id: 'todos', rotulo: 'Trazer todos' }],

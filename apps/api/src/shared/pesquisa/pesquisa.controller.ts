@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Put, Query, UseGuards } from '@nestjs/common';
 import { AcessoGuard } from '../acesso/acesso.guard';
 import { PesquisaService, type ParametrosDaPesquisa } from './pesquisa.service';
 
@@ -11,6 +11,26 @@ import { PesquisaService, type ParametrosDaPesquisa } from './pesquisa.service';
 @UseGuards(AcessoGuard)
 export class PesquisaController {
   constructor(private readonly pesquisa: PesquisaService) {}
+
+  /** o status da tela (Ctrl+Shift+S/D da Pesquisa — CONFIG_STATUS_TELA): o campo, a operação e o valor com que ela reabre */
+  @Get('status')
+  lerStatus(@Query('recurso') recurso: string) {
+    return this.pesquisa.lerStatus(recurso);
+  }
+
+  @Put('status')
+  @HttpCode(204)
+  salvarStatus(@Query('recurso') recurso: string, @Body() b: { campo?: string; operacao?: string; valor?: string; valor2?: string; soma?: string | null }) {
+    return this.pesquisa.salvarStatus(recurso, {
+      campo: String(b?.campo ?? ''), operacao: (b?.operacao ?? 'igual') as never, valor: String(b?.valor ?? ''), valor2: String(b?.valor2 ?? ''), soma: b?.soma ?? null,
+    });
+  }
+
+  @Delete('status')
+  @HttpCode(204)
+  apagarStatus(@Query('recurso') recurso: string) {
+    return this.pesquisa.apagarStatus(recurso);
+  }
 
   @Get('detalhe')
   detalhe(@Query('recurso') recurso: string, @Query('tecla') tecla: string, @Query('codigo') codigo: string) {

@@ -20,7 +20,7 @@ o comando de cada uma, inclusive `case Key of` aninhado), os `ShortCut` de `TAct
 | | Enter | vira Tab fora das grades (`Keybd_event(VK_TAB)` no `FormKeyPress`) | Enter-avança no conteúdo da tela (`useEnterAdvances`); não avança em grade (`role="grid"`) nem em campo `data-enter="nativo"` |
 | | Alt+← | `Perform(WM_NEXTDLGCTL, 1, 0)` — controle anterior | `focarAnterior` |
 | | Ctrl+E | `dmPrincipal.TrocarEmpresa(True)` — as lojas do operador por fantasia, troca sem novo login (não com o pedido de compra aberto) | janela "Empresas" + `POST /auth/trocar-empresa` (token novo com a empresa); a tela recarrega |
-| | Ctrl+Shift+S / D | salva/apaga o "status da tela" (`TStatusTela`, tabela `CONFIG_STATUS_TELA`) nas telas liberadas | ⏳ na produção só a Pesquisa usa (26 registros); a tabela não está no destino — corte próprio |
+| | Ctrl+Shift+S / D | salva/apaga o "status da tela" (`TStatusTela`, tabela `CONFIG_STATUS_TELA`) nas telas liberadas | na **Pesquisa do cadastro**: guarda campo + operação + valor por operador × tela × view (`GET/PUT/DELETE /cadastro/pesquisa/status`, o JSON do legado — as 26 linhas da produção voltam pelo texto); o D apaga só a chave da Pesquisa aberta (o legado apaga a 1ª do operador). Fora: os ~25 relatórios liberados (0 uso na produção) e o lookup de campo |
 | `TfrmCadMaster` | F3 | Pesquisa, fora de inclusão/edição (`FormKeyUp`) | `CadMaster` |
 | | F6 | cicla o `rdgAtivo` "Ati&vo [F6]" Sim → Não → Todos (o filtro com que a Pesquisa abre) | `CadMaster` mostra "Ativo [F6]" e a Pesquisa abre com a situação; dentro da Pesquisa o F6 é dela |
 | | Esc | em inclusão/edição não fecha (`Exit`) | `CadMaster` segura o Esc fora de consulta |
