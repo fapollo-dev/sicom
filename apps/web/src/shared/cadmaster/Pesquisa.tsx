@@ -50,10 +50,14 @@ const EXEMPLO_CONTIDO: Record<TipoCampo, string> = { texto: 'Exemplo: APOLLO,SIS
 
 interface Meta {
   titulo?: string;
+  /** a view aberta (o `FView` do legado) — a chave das memórias da estação; no A pagar, a da opção e do complemento */
+  view?: string;
   colunas: Array<{ campo: string; titulo: string; tipo: TipoCampo }>;
   operacoes: Record<TipoCampo, Operacao[]>;
   abertura: { campo: string; operacao: Operacao; valor: string | null; ordenacao: string | null; ordemDesc: boolean };
   opcoes: Array<{ id: string; rotulo: string; padrao?: boolean }>;
+  /** o complemento da janela de opções (o `OpcoesCompl` do TfrmOpcoes — o "Com/Sem centro de custo" do A pagar) */
+  complemento?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
   situacao: boolean;
   retorno: string;
   obrigatorio: string | null;
@@ -66,23 +70,27 @@ interface Meta {
   totalizador?: string[] | null;
 }
 interface Detalhe { titulo: string; linhas: Array<Record<string, unknown>>; indisponivel: string | null; cabecalho: string }
-interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; n: number }
+interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; complemento?: string; n: number }
 
 /**
  * As duas memórias LOCAIS da Pesquisa (no legado, arquivos no disco da estação — `Configuracoes_Pesquisa\<VIEW>[<operador>].XML` e
- * `…\Consultas\…`; aqui o armazenamento do navegador, por operador × pesquisa): o F4 (`SalvaConfig`, uPesquisa.pas:2464-2525 — campo,
+ * `…\Consultas\…`; aqui o armazenamento do navegador, por operador × VIEW ABERTA — o `FView`: a pesquisa do cadastro e a do campo de
+ * lookup sobre a mesma view dividem a memória, e no A pagar cada view da opção tem a sua): o F4 (`SalvaConfig`, uPesquisa.pas:2464-2525 — campo,
  * operação, coluna do totalizador e ordenação) e a ÚLTIMA PESQUISA (gravada ao fechar com resultado — `FormClose` :1407-1429; ↑ no valor
  * a repete — UFrameGeral.pas:129-138). Sem armazenamento (janela privada), a Pesquisa funciona igual, sem elas.
  */
-const chaveLocal = (tipo: 'f4' | 'ultima', recurso: string) => `apollo:pesquisa:${tipo}:${getSessao()?.operador?.codoperador ?? 0}:${recurso}`;
-function lerLocal<T>(tipo: 'f4' | 'ultima', recurso: string): T | null {
-  try { const v = localStorage.getItem(chaveLocal(tipo, recurso)); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
+const chaveLocal = (tipo: 'f4' | 'ultima', view: string) => `apollo:pesquisa:${tipo}:${getSessao()?.operador?.codoperador ?? 0}:${view}`;
+function lerLocal<T>(tipo: 'f4' | 'ultima', view: string): T | null {
+  try { const v = localStorage.getItem(chaveLocal(tipo, view)); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
 }
-function gravarLocal(tipo: 'f4' | 'ultima', recurso: string, valor: unknown) {
-  try { localStorage.setItem(chaveLocal(tipo, recurso), JSON.stringify(valor)); } catch { /* sem armazenamento: segue sem a memória */ }
+function gravarLocal(tipo: 'f4' | 'ultima', view: string, valor: unknown) {
+  try { localStorage.setItem(chaveLocal(tipo, view), JSON.stringify(valor)); } catch { /* sem armazenamento: segue sem a memória */ }
 }
 interface ConfigF4 { campo: string; operacao: Operacao; soma: string | null }
-interface UltimaPesquisa { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string }
+interface UltimaPesquisa { campo: string; operacao: Operacao; valor: string; valor2: string }
+/** a escolha da janela de opções na query (`&opcao=…&complemento=…`) */
+const escolhaQs = (opcao?: string | null, complemento?: string | null) =>
+  `${opcao ? `&opcao=${encodeURIComponent(opcao)}` : ''}${complemento ? `&complemento=${encodeURIComponent(complemento)}` : ''}`;
 
 async function pedir<T>(caminho: string): Promise<T> {
   const r = await fetch(`${BASE}${caminho}`, { headers: apiHeaders() });
@@ -133,6 +141,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const situacao = situacaoInicial ?? 'ativos';
   const [meta, setMeta] = useState<Meta | null>(null);
   const [opcao, setOpcao] = useState<string | null>(null);
+  const [complemento, setComplemento] = useState<string | null>(null);
   const [opcaoEscolhida, setOpcaoEscolhida] = useState(false);
   const [campo, setCampo] = useState('');
   const [operacao, setOperacao] = useState<Operacao>('igual');
@@ -146,6 +155,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   // as linhas marcadas (multisseleção), pelo código de retorno — valem entre as páginas
   const [marcados, setMarcados] = useState<Map<string, Record<string, any>>>(new Map());
   const linhas = useRef<Record<string, any>[]>([]);
+  // as linhas da página na grade (para a coluna de seleção mostrar as marcadas ao trocar de página)
+  const [paginaAtual, setPaginaAtual] = useState<Record<string, any>[]>([]);
   const atual = useRef<Record<string, any> | null>(null);
   const clique = useRef(false);
   const ordemAtual = useRef<{ field: string; direction: string } | null>(null);
@@ -161,45 +172,59 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroExtra, fixosChave]);
 
+  // a Pesquisa sobre o meta da escolha: o SetDefault do chamador (a abertura), o F4 e o status da tela da view aberta
+  const aplicar = (m: Meta, esc: string) => {
+    setMeta(m);
+    const tipo = m.colunas.find((c) => c.campo === m.abertura.campo)?.tipo ?? 'texto';
+    setCampo(m.abertura.campo);
+    setOperacao(m.abertura.operacao);
+    setValor(m.abertura.valor ?? (tipo === 'data' ? hojeNaLoja() : ''));
+    setValor2(tipo === 'data' ? hojeNaLoja() : '');
+    setColunaSoma(m.totalizador?.[0] ?? null);
+    // o F4 (arquivo local do legado) vem depois do SetDefault do chamador e antes do status do banco (uPesquisa.pas:1601-1648)
+    const f4 = lerLocal<ConfigF4>('f4', m.view ?? resourcePath);
+    if (f4 && m.colunas.some((c) => c.campo === f4.campo)) {
+      const t = m.colunas.find((c) => c.campo === f4.campo)!.tipo;
+      setCampo(f4.campo);
+      setOperacao(m.operacoes[t].includes(f4.operacao) ? f4.operacao : m.operacoes[t][0]);
+      setValor(t === 'data' ? hojeNaLoja() : '');
+      setValor2(t === 'data' ? hojeNaLoja() : '');
+      if (f4.soma && m.totalizador?.includes(f4.soma)) setColunaSoma(f4.soma);
+    }
+    // o status da tela (RecuperarStatus): o campo, a operação e o valor que o operador guardou com Ctrl+Shift+S — reabre sem pesquisar
+    if (!resourcePath.startsWith('lookup/')) {
+      pedir<{ campo: string; operacao: Operacao; valor: string; valor2: string } | null>(`/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${esc}`)
+        .then((st) => {
+          if (!st || !m.colunas.some((c) => c.campo === st.campo)) return;
+          setCampo(st.campo);
+          setOperacao(st.operacao);
+          setValor(st.valor);
+          setValor2(st.valor2);
+        })
+        .catch(() => undefined);
+    }
+  };
+
+  // a janela de opções (TfrmOpcoes) vem ANTES da Pesquisa: a Pesquisa só abre — com a abertura, o F4 e o status — sobre a escolha
   useEffect(() => {
     pedir<Meta>(`/cadastro/pesquisa/meta?recurso=${encodeURIComponent(resourcePath)}`)
       .then((m) => {
+        if (!m.opcoes.length) { aplicar(m, ''); setOpcaoEscolhida(true); return; }
         setMeta(m);
-        const tipo = m.colunas.find((c) => c.campo === m.abertura.campo)?.tipo ?? 'texto';
-        setCampo(m.abertura.campo);
-        setOperacao(m.abertura.operacao);
-        setValor(m.abertura.valor ?? (tipo === 'data' ? hojeNaLoja() : ''));
-        setValor2(tipo === 'data' ? hojeNaLoja() : '');
-        setColunaSoma(m.totalizador?.[0] ?? null);
-        // o F4 (arquivo local do legado) vem depois do SetDefault do chamador e antes do status do banco (uPesquisa.pas:1601-1648)
-        const f4 = lerLocal<ConfigF4>('f4', resourcePath);
-        if (f4 && m.colunas.some((c) => c.campo === f4.campo)) {
-          const t = m.colunas.find((c) => c.campo === f4.campo)!.tipo;
-          setCampo(f4.campo);
-          setOperacao(m.operacoes[t].includes(f4.operacao) ? f4.operacao : m.operacoes[t][0]);
-          setValor(t === 'data' ? hojeNaLoja() : '');
-          setValor2(t === 'data' ? hojeNaLoja() : '');
-          if (f4.soma && m.totalizador?.includes(f4.soma)) setColunaSoma(f4.soma);
-        }
-        const padrao = m.opcoes.find((o) => o.padrao)?.id ?? m.opcoes[0]?.id ?? null;
-        setOpcao(padrao);
-        setOpcaoEscolhida(!m.opcoes.length);
-        // o status da tela (RecuperarStatus): o campo, a operação e o valor que o operador guardou com Ctrl+Shift+S — reabre sem pesquisar
-        if (!resourcePath.startsWith('lookup/')) {
-          pedir<{ campo: string; operacao: Operacao; valor: string; valor2: string } | null>(`/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`)
-            .then((st) => {
-              if (!st || !m.colunas.some((c) => c.campo === st.campo)) return;
-              setCampo(st.campo);
-              setOperacao(st.operacao);
-              setValor(st.valor);
-              setValor2(st.valor2);
-            })
-            .catch(() => undefined);
-        }
+        setOpcao(m.opcoes.find((o) => o.padrao)?.id ?? m.opcoes[0].id);
+        setComplemento(m.complemento?.find((o) => o.padrao)?.id ?? m.complemento?.[0]?.id ?? null);
+        setOpcaoEscolhida(false);
       })
       .catch((e) => { mensagem.erro(e); onFechar(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourcePath]);
+  // o OK da janela de opções: os campos são os da view da escolha (no A pagar, GET_APAGAR, GET_APAGAR_CEN, GET_CP ou GET_CP_CEN)
+  const escolherOpcao = () => {
+    const esc = escolhaQs(opcao, complemento);
+    pedir<Meta>(`/cadastro/pesquisa/meta?recurso=${encodeURIComponent(resourcePath)}${esc}`)
+      .then((m) => { aplicar(m, esc); setOpcaoEscolhida(true); })
+      .catch((e) => mensagem.erro(e));
+  };
 
   const tipo: TipoCampo = meta?.colunas.find((c) => c.campo === campo)?.tipo ?? 'texto';
 
@@ -218,30 +243,36 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const pesquisar = () => {
     if (!meta || !campo) return;
     atual.current = null;
-    setConsulta((c) => ({ campo, operacao, valor, valor2, opcao: opcao ?? undefined, n: (c?.n ?? 0) + 1 }));
+    setConsulta((c) => ({ campo, operacao, valor, valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, n: (c?.n ?? 0) + 1 }));
     focarGrade();
   };
 
+  // a URL da consulta: o campo, a operação, o valor, a situação, a escolha da janela e os filtros da tela + o que o chamador pede
+  const urlDa = (c: Consulta, extra: Record<string, string>) => {
+    const qs = new URLSearchParams({ recurso: resourcePath, campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, situacao, ...extra });
+    return `/cadastro/pesquisa?${qs.toString()}${escolhaQs(c.opcao, c.complemento)}${extrasQs}`;
+  };
+  const ordem = (o: { field: string; direction: string } | null | undefined): Record<string, string> =>
+    o ? { ordenacao: o.field, ordemDesc: String(o.direction === 'desc') } : {};
+
   const fetchData = useCallback(async ({ pagination, sort }: GridFetchParams) => {
-    if (!consulta) { linhas.current = []; return { data: [], total: 0 }; }
-    const qs = new URLSearchParams({
-      recurso: resourcePath, campo: consulta.campo, operacao: consulta.operacao, valor: consulta.valor, valor2: consulta.valor2,
-      // a página do DataTable do DS começa em 1; a do servidor, em 0
-      situacao, pagina: String(Math.max(0, pagination.page - 1)), porPagina: String(pagination.pageSize),
-    });
-    if (consulta.opcao) qs.set('opcao', consulta.opcao);
-    if (colunaSoma) qs.set('soma', colunaSoma);
+    if (!consulta) { linhas.current = []; setPaginaAtual([]); return { data: [], total: 0 }; }
     ordemAtual.current = sort[0] ?? null;
-    if (sort[0]) { qs.set('ordenacao', sort[0].field); qs.set('ordemDesc', String(sort[0].direction === 'desc')); }
+    // a página do DataTable do DS começa em 1; a do servidor, em 0
+    const url = urlDa(consulta, {
+      pagina: String(Math.max(0, pagination.page - 1)), porPagina: String(pagination.pageSize), ...(colunaSoma ? { soma: colunaSoma } : {}), ...ordem(sort[0]),
+    });
     try {
-      const r = await pedir<{ linhas: Record<string, any>[]; total: number; soma?: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+      const r = await pedir<{ linhas: Record<string, any>[]; total: number; soma?: number }>(url);
       linhas.current = r.linhas;
+      setPaginaAtual(r.linhas);
       setTotal(r.total);
       setSoma(r.soma ?? null);
       return { data: r.linhas, total: r.total };
     } catch (e) {
       mensagem.erro(e);
       linhas.current = [];
+      setPaginaAtual([]);
       setTotal(null);
       return { data: [], total: 0 };
     }
@@ -250,11 +281,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
 
   // os códigos do resultado inteiro, na ordem em que a grade está — pedidos só quando o cadastro navegar (←/→/↑/↓)
   const fonteDaNavegacao = (c: Consulta) => {
-    const qs = new URLSearchParams({ recurso: resourcePath, campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, situacao, soCodigos: 'true' });
-    if (c.opcao) qs.set('opcao', c.opcao);
-    const o = ordemAtual.current;
-    if (o) { qs.set('ordenacao', o.field); qs.set('ordemDesc', String(o.direction === 'desc')); }
-    const url = `/cadastro/pesquisa?${qs.toString()}${extrasQs}`;
+    const url = urlDa(c, { soCodigos: 'true', ...ordem(ordemAtual.current) });
     return async () => (await pedir<{ codigos: Array<number | string> }>(url)).codigos.map(Number).filter(Number.isFinite);
   };
   // a linha posicionada: a que tem o foco do teclado na grade; senão a clicada; senão a 1ª
@@ -289,10 +316,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const marcarDesmarcarTodos = async () => {
     if (marcados.size) { setMarcados(new Map()); return; }
     if (!consulta) return;
-    const qs = new URLSearchParams({ recurso: resourcePath, campo: consulta.campo, operacao: consulta.operacao, valor: consulta.valor, valor2: consulta.valor2, situacao, pagina: '0', porPagina: '1000' });
-    if (consulta.opcao) qs.set('opcao', consulta.opcao);
     try {
-      const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+      const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(urlDa(consulta, { pagina: '0', porPagina: '1000', ...ordem(ordemAtual.current) }));
       // (acima de 1.000 o contador do rodapé mostra quantos ficaram marcados contra o total)
       setMarcados(new Map(r.linhas.map((l) => [chaveDe(l), l])));
     } catch (e) { mensagem.erro(e); }
@@ -304,9 +329,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     const todas: Record<string, any>[] = [];
     try {
       for (let pagina = 0; ; pagina++) {
-        const qs = new URLSearchParams({ recurso: resourcePath, campo: consulta.campo, operacao: consulta.operacao, valor: consulta.valor, valor2: consulta.valor2, situacao, pagina: String(pagina), porPagina: '1000' });
-        if (consulta.opcao) qs.set('opcao', consulta.opcao);
-        const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+        const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(urlDa(consulta, { pagina: String(pagina), porPagina: '1000', ...ordem(ordemAtual.current) }));
         todas.push(...r.linhas);
         if (!r.linhas.length || todas.length >= r.total) break;
       }
@@ -326,24 +349,25 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   consultaRef.current = consulta;
   const totalRef = useRef<number | null>(null);
   totalRef.current = total;
+  const viewRef = useRef(resourcePath);
+  viewRef.current = meta?.view ?? resourcePath;
   useEffect(() => () => {
     const c = consultaRef.current;
-    if (c && (totalRef.current ?? 0) > 0) gravarLocal('ultima', resourcePath, { campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, opcao: c.opcao } satisfies UltimaPesquisa);
+    if (c && (totalRef.current ?? 0) > 0) gravarLocal('ultima', viewRef.current, { campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2 } satisfies UltimaPesquisa);
   }, [resourcePath]);
-  // ↑ no campo de valor: repete a última pesquisa desta tela (recompõe campo, operação e valor e pesquisa)
+  // ↑ no campo de valor: repete a última pesquisa desta view (recompõe campo, operação e valor e pesquisa — na escolha já feita)
   const repetirUltima = () => {
-    const u = lerLocal<UltimaPesquisa>('ultima', resourcePath);
+    const u = lerLocal<UltimaPesquisa>('ultima', viewRef.current);
     if (!u || !meta?.colunas.some((c) => c.campo === u.campo)) return false;
     setCampo(u.campo);
     setOperacao(u.operacao);
     setValor(u.valor);
     setValor2(u.valor2);
-    if (u.opcao) setOpcao(u.opcao);
-    setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: u.opcao ?? opcao ?? undefined, n: (c?.n ?? 0) + 1 }));
+    setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, n: (c?.n ?? 0) + 1 }));
     focarGrade();
   };
   // F4 (SalvaConfig): guarda campo, operação e a coluna do totalizador desta pesquisa
-  const salvarF4 = () => { if (campo) gravarLocal('f4', resourcePath, { campo, operacao, soma: colunaSoma } satisfies ConfigF4); };
+  const salvarF4 = () => { if (campo) gravarLocal('f4', viewRef.current, { campo, operacao, soma: colunaSoma } satisfies ConfigF4); };
 
   const confirmar = (row?: Record<string, any> | null) => {
     if (multisselecao && onSelecionarVarios) {
@@ -360,6 +384,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     [colunasDaTela, meta],
   );
   const retorno = meta?.retorno ?? colunas[0]?.campo ?? 'id';
+  // a identidade da linha na grade: a posição no resultado (`_linha` do servidor) — o código repete quando a view do legado multiplica
+  const idDaLinha = (r: Record<string, any>): string | number => r._linha ?? r[retorno] ?? r[colunas[0]?.campo ?? 'id'];
   const columns = useMemo(
     () =>
       colunas.map((c, i) => ({
@@ -404,10 +430,10 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       <TeclasDaPesquisa
         statusTela={!resourcePath.startsWith('lookup/') && !!meta && opcaoEscolhida ? {
           // Ctrl+Shift+S / Ctrl+Shift+D (uMaster.pas FormKeyDown → fStatusTela.Salvar/Excluir): sem mensagem, como no legado
-          salvar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`, {
+          salvar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}`, {
             method: 'PUT', headers: apiHeaders({ 'content-type': 'application/json' }), body: JSON.stringify({ campo, operacao, valor, valor2, soma: colunaSoma }),
           }).then((res) => { handle401(res); }).catch(() => undefined),
-          apagar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}`, {
+          apagar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}`, {
             method: 'DELETE', headers: apiHeaders(),
           }).then((res) => { handle401(res); }).catch(() => undefined),
         } : null}
@@ -425,18 +451,30 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         size="lg"
         title={meta?.titulo ? `Pesquisa ${meta.titulo}` : 'Pesquisa'}
         description={rodape || 'Escolha o campo, a operação e o valor · Enter pesquisa · Enter/duplo clique confirma · Esc fecha'}
-        primaryAction={opcaoEscolhida ? { label: '&OK', onClick: () => confirmar() } : { label: '&OK', onClick: () => setOpcaoEscolhida(true) }}
+        primaryAction={opcaoEscolhida ? { label: '&OK', onClick: () => confirmar() } : { label: '&OK', onClick: escolherOpcao }}
         secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
       >
         {meta && !opcaoEscolhida && (
-          <div role="radiogroup" aria-label="Opções da pesquisa" className="flex flex-col gap-gp-xs"
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setOpcaoEscolhida(true); } }}>
-            {meta.opcoes.map((o) => (
-              <label key={o.id} className="flex items-center gap-gp-xs text-body-sm">
-                <input type="radio" name="opcao-pesquisa" checked={opcao === o.id} onChange={() => setOpcao(o.id)} autoFocus={opcao === o.id} />
-                {o.rotulo}
-              </label>
-            ))}
+          <div className="flex flex-col gap-gp-md" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); escolherOpcao(); } }}>
+            <div role="radiogroup" aria-label="Opções da pesquisa" className="flex flex-col gap-gp-xs">
+              {meta.opcoes.map((o) => (
+                <label key={o.id} className="flex items-center gap-gp-xs text-body-sm">
+                  <input type="radio" name="opcao-pesquisa" checked={opcao === o.id} onChange={() => setOpcao(o.id)} autoFocus={opcao === o.id} />
+                  {o.rotulo}
+                </label>
+              ))}
+            </div>
+            {!!meta.complemento?.length && (
+              // o complemento (OpcoesCompl, MultComp = False: um só) — no A pagar, com ou sem o centro de custo do rateio
+              <div role="radiogroup" aria-label="Complemento" className="flex flex-wrap gap-x-gp-md gap-y-gp-xs border-t border-border-subtle pt-gp-sm">
+                {meta.complemento.map((o) => (
+                  <label key={o.id} className="flex items-center gap-gp-xs text-body-sm">
+                    <input type="radio" name="complemento-pesquisa" checked={complemento === o.id} onChange={() => setComplemento(o.id)} />
+                    {o.rotulo}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {meta && opcaoEscolhida && (
@@ -497,7 +535,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
               <DataTable
                 fetchData={fetchData}
                 columns={columns as any}
-                getRowId={(r: any) => r[retorno] ?? r[colunas[0]?.campo ?? 'id']}
+                getRowId={idDaLinha}
                 toolbar={{ enableSearch: false, enableFilters: false }}
                 paginationConfig={{ enabled: true, initialPageSize: 100 }}
                 cardBreakpoint={false}
@@ -505,15 +543,19 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 getRowClassName={({ row }: { row: any }) => `${CLASSE_DA_COR[row._cor] ?? ''}${multisselecao && marcados.has(chaveDe(row)) ? ' font-semibold' : ''}`}
                 // a coluna de seleção (SELECIONAR): controlada aqui para valer entre as páginas e devolver as linhas
                 selectionConfig={multisselecao ? { enabled: true, enableGlobal: false } : undefined}
-                selectionModel={multisselecao ? { type: 'include', ids: new Set(marcados.keys()) } : undefined}
+                // as marcas são por CÓDIGO (valem entre as páginas e voltam ao chamador); na grade, as linhas da página com código marcado
+                selectionModel={multisselecao ? { type: 'include', ids: new Set(paginaAtual.filter((l) => marcados.has(chaveDe(l))).map(idDaLinha)) } : undefined}
                 onSelectionModelChange={multisselecao ? (m: { type: 'include' | 'exclude'; ids: Set<string | number> }) => {
                   if (m.type !== 'include') return;
+                  const ids = new Set([...m.ids].map(String));
                   setMarcados((antes) => {
-                    const n = new Map<string, Record<string, any>>();
-                    for (const id of m.ids) {
-                      const k = String(id);
-                      const l = antes.get(k) ?? linhas.current.find((x) => chaveDe(x) === k);
-                      if (l) n.set(k, l);
+                    const n = new Map(antes);
+                    // só as linhas da página que mudaram de estado: marcada agora → entra o código; desmarcada → sai
+                    for (const l of linhas.current) {
+                      const k = chaveDe(l);
+                      const agora = ids.has(String(idDaLinha(l)));
+                      if (agora === antes.has(k)) continue;
+                      if (agora) n.set(k, l); else n.delete(k);
                     }
                     return n;
                   });

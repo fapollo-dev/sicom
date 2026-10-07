@@ -116,6 +116,25 @@ describe('Pesquisa (frmPesquisa) no servidor — corte A', () => {
     expect(new URL(pesquisas().at(-1)!).searchParams.get('opcao')).toBe('todas');
   });
 
+  it('o complemento (Com/Sem centro de custo): o OK pede o meta da VIEW da escolha, e a escolha vai na consulta e no status', async () => {
+    metaAtual = meta({
+      opcoes: [{ id: 'abertas', rotulo: 'Somente abertas', padrao: true }, { id: 'todas', rotulo: 'Todas' }],
+      complemento: [{ id: 'com', rotulo: 'Com centro de custo' }, { id: 'sem', rotulo: 'Sem centro de custo', padrao: true }],
+    });
+    abrir();
+    expect((await screen.findByLabelText('Sem centro de custo') as HTMLInputElement).checked).toBe(true); // DefaultComp := 1
+    fireEvent.click(screen.getByLabelText('Todas'));
+    fireEvent.click(screen.getByLabelText('Com centro de custo'));
+    fireEvent.keyDown(screen.getByLabelText('Com centro de custo'), { key: 'Enter' });
+    await waitFor(() => expect(chamadas().some((u) => u.includes('/pesquisa/meta') && u.includes('opcao=todas') && u.includes('complemento=com'))).toBe(true));
+    await waitFor(() => expect(chamadas().some((u) => u.includes('/pesquisa/status') && u.includes('opcao=todas&complemento=com'))).toBe(true));
+    await pesquisarCom('a');
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    const u = new URL(pesquisas().at(-1)!);
+    expect(u.searchParams.get('opcao')).toBe('todas');
+    expect(u.searchParams.get('complemento')).toBe('com');
+  });
+
   it('F3 limpa o valor e põe o foco nele (SetaFocoFrame); Esc fecha', async () => {
     const user = userEvent.setup();
     const onFechar = vi.fn();
@@ -229,6 +248,35 @@ describe('Pesquisa — a multisseleção (HabilitaMultiselecao)', () => {
     fireEvent.click(coca);
     fireEvent.doubleClick(coca);
     expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 1 }), expect.objectContaining({ codigo: 3 })]);
+  });
+});
+
+describe('Pesquisa — a view do legado que multiplica o código (uma linha por endereço, por loja, por baixa)', () => {
+  beforeEach(() => {
+    metaAtual = meta();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual : {
+        linhas: [{ codigo: 7, descricao: 'ENDERECO 1', _linha: 0 }, { codigo: 7, descricao: 'ENDERECO 2', _linha: 1 }, { codigo: 8, descricao: 'OUTRO', _linha: 2 }],
+        total: 3,
+      },
+    })) as any;
+  });
+
+  it('as linhas do mesmo código aparecem todas (a identidade é o _linha); a marca é do código e o OK o devolve uma vez', async () => {
+    const varios = vi.fn();
+    abrir({ multisselecao: true, onSelecionarVarios: varios });
+    await pesquisarCom('');
+    expect(await screen.findByText('ENDERECO 1')).toBeTruthy();
+    expect(screen.getByText('ENDERECO 2')).toBeTruthy();
+    const caixas = screen.getAllByRole('checkbox', { name: 'Selecionar linha' });
+    expect(caixas).toHaveLength(3);
+    fireEvent.click(caixas[0]);
+    await waitFor(() => expect(screen.getByText(/1 registro selecionado/)).toBeTruthy());
+    // a outra linha do mesmo código aparece marcada; a do outro código, não
+    await waitFor(() => expect(screen.getAllByRole('checkbox', { name: 'Selecionar linha' }).map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true', 'false']));
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'OK')!);
+    expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 7 })]);
   });
 });
 

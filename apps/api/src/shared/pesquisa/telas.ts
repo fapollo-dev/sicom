@@ -35,7 +35,7 @@ export interface PesquisaTela {
    * a relação (e as ocultas dela) quando ela muda com a escolha da janela de opções e do complemento — o A pagar lê GET_APAGAR nas
    * abertas e GET_CP nas outras, e as _CEN com "Com centro de custo" (uAPagar.pas:2651-2685); sem ela, `relacao`/`ocultas`
    */
-  relacaoPorOpcao?: (opcao: string | undefined, complemento: string | undefined) => { relacao: string; ocultas?: string[] };
+  relacaoPorOpcao?: (opcao: string | undefined, complemento: string | undefined) => { relacao: string; ocultas?: string[]; viewLegado: string };
   /** as colunas que completam a ordem quando a relação do legado repete o código (pedido × loja, título × baixa, título × centro,
    *  parceiro × endereço): a página não troca linha de lugar entre uma consulta e outra */
   desempate?: string[];
@@ -232,16 +232,19 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // Sem, :2643-2644) escolhe a VIEW (:2651-2685): "Somente abertas" → GET_APAGAR (o WHERE dos abertos está dentro dela) ou
   // GET_APAGAR_CEN; as outras → GET_CP ou GET_CP_CEN (título × baixa; as _CEN, × centro do rateio) com o estado no filtro; sempre
   // CODIGO_EMPRESA in (<lojas>); retorno CODIGO (= CODAPG, :2654); SetDefault('', '', tpQualquerLugar, False, 'VENCIMENTO') (:2691) — o
-  // 1º campo alfabético DA VIEW ESCOLHIDA; o VALOR é o líquido (valor + vendor − desconto). O status da tela é sempre o de GET_APAGAR
-  // (FNomeConfig, :2688). As versões integrais: rel_get_apagar (389), get_apagar_cen (397), get_cp (391), get_cp_cen (388).
+  // 1º campo alfabético DA VIEW ESCOLHIDA; o VALOR é o líquido (valor + vendor − desconto). O status da tela, o F4 e a última pesquisa
+  // são os da VIEW ABERTA (o `FView` — uConfigStatusTela.pas:360, uPesquisa.pas:1411/1602/2495; o FNomeConfig := 'GET_APAGAR' de :2688
+  // só serve ao teste de :674). As versões integrais: rel_get_apagar (389), get_apagar_cen (397), get_cp (391), get_cp_cen (388).
   'cadastro/apagar': { view: 'get_apagar', form: 'FRMAPAGAR', titulo: 'Contas a pagar', retorno: 'codigo', abertura: { ordenacao: 'vencimento' }, totalizador: true,
     opcoes: [{ id: 'abertas', rotulo: 'Somente abertas', padrao: true }, { id: 'quitadas', rotulo: 'Somente quitadas' },
       { id: 'adiantamento', rotulo: 'Adiantamento de crédito' }, { id: 'agrupadas', rotulo: 'Agrupadas' }, { id: 'todas', rotulo: 'Todas' }],
     complemento: [{ id: 'com', rotulo: 'Com centro de custo' }, { id: 'sem', rotulo: 'Sem centro de custo', padrao: true }],
     relacaoPorOpcao: (opcao, complemento) => {
       const comCentro = complemento === 'com';
-      if (opcao === 'abertas') return comCentro ? { relacao: 'get_apagar_cen' } : { relacao: 'rel_get_apagar', ocultas: OCULTAS.apagar };
-      return comCentro ? { relacao: 'get_cp_cen', ocultas: OCULTAS.cpCen } : { relacao: 'get_cp' };
+      if (opcao === 'abertas') {
+        return comCentro ? { relacao: 'get_apagar_cen', viewLegado: 'GET_APAGAR_CEN' } : { relacao: 'rel_get_apagar', ocultas: OCULTAS.apagar, viewLegado: 'GET_APAGAR' };
+      }
+      return comCentro ? { relacao: 'get_cp_cen', ocultas: OCULTAS.cpCen, viewLegado: 'GET_CP_CEN' } : { relacao: 'get_cp', viewLegado: 'GET_CP' };
     },
     desempate: ['data_bx', 'centro_custo'],
     obrigatorios: async (ctx) => {

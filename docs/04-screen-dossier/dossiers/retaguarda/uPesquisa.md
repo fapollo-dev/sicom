@@ -66,13 +66,28 @@ o produto-pai ≠ o próprio (UCadProduto.pas:4298); a cotação aceita particip
 **Corte D entregue (07/10/2026)** — menos a multisseleção: as cores com legenda (a 1ª regra que casa, no servidor — `cores.ts`;
 AMARELO/PRETO na cor normal, como o `GetColor`), os atalhos F8-F12 da pesquisa de produto (o F12 explica que a ESTOQUE_PROD não vem) e
 o totalizador do A pagar/A receber (soma no servidor). Smoke §298.12.
-**Corte E entregue em parte** — o status da tela (Ctrl+Shift+S/D) na Pesquisa do cadastro (`status-tela.ts`; smoke §298.13). Faltam o
-F4 (layout/campo em arquivo local no legado), o F7 (filtros acumulados), o ↑ (última pesquisa) e o status do lookup de campo.
+**Corte D completo** com a multisseleção (Espaço / T / duplo clique / contador; a marca é do CÓDIGO e vale entre as páginas).
+**Corte E completo:** o status da tela (Ctrl+Shift+S/D, `status-tela.ts`; smoke §298.13), o F4 e a última pesquisa (↑) no
+armazenamento do navegador por operador × view. **Corte F em parte:** Ctrl+A/Ctrl+B exportam o resultado inteiro.
 
-**Fica para o corte B (as views do destino iguais às da produção):** GET_PRODUTOS por loja (IDEMPRESA e o ATIVO da loja; hoje o
-destino tem uma linha por produto e `produtos.ativo`), o `FORNECEDOR_ATIVO='S'` do pedido aberto e o FECHADO por loja, o complemento
-"com centro de custo" do A pagar (GET_APAGAR_CEN/GET_CP_CEN), as colunas que faltam nas views (GET_NF 17 de 49, GET_EMPRESAS…). **Corte
-C:** o cadastro navegar sobre o resultado e o teto de 200 do `useResourceOptions`. **D/E/F** como no §12.
+**Corte B0-B4 entregue (07/10/2026)** — a Pesquisa lê a versão integral do legado (a mesma relação do construtor, migs 389-397) e não
+a view da tela do Apollo: GET_PRODUTOS por loja (B1), GET_PEDIDOCOMPRA com o FECHADO da loja e o FORNECEDOR_ATIVO (B2), o A pagar pela
+OPÇÃO + COMPLEMENTO (GET_APAGAR / GET_APAGAR_CEN / GET_CP / GET_CP_CEN) e o A receber pela GET_RCB (B3), NF, parceiros (uma linha por
+endereço), operadores, empresas, contas, formas, lotes, unidades e bairros (B4). Retorno = `CODIGO` em todas. Smoke §298.14-§298.17.
+Duas consequências na tela (smoke §298.18, jsdom `pesquisa.spec.tsx`):
+
+- **A janela de opções decide a VIEW.** O OK dela pede o meta da escolha (`/meta?…&opcao=&complemento=`): os campos, a abertura, o F4,
+  o status e a última pesquisa são os da view aberta. A chave das três memórias é o **`FView`** (`uConfigStatusTela.pas:360`,
+  `uPesquisa.pas:1411/1602/2495`): no A pagar "Somente quitadas" e "Todas" dividem a da GET_CP, e "Somente abertas" tem a da GET_APAGAR.
+  O `FNomeConfig := 'GET_APAGAR'` de `uAPagar.pas:2688` não é chave: só o teste de `uPesquisa.pas:674` o lê. O ↑ repete a pesquisa
+  na escolha já feita e não troca a opção.
+- **A linha tem identidade própria (`_linha` = página × tamanho + i).** Quando a view do legado multiplica, o código repete (o
+  parceiro por endereço, o pedido por loja, o título por baixa). A grade usa o `_linha` como id. A marca da multisseleção é do código:
+  as linhas do mesmo código aparecem marcadas juntas, e o OK devolve o código uma vez.
+
+**Falta:** B5 (`rel_get_plc`, `rel_get_cfop` e as colunas aditivas de GET_PRECO, GET_MOTIVOS_OPERACAO, GET_HISTORICO_CONTABIL e
+GET_OPERACOES_CONTA); B6 (os lookups de valor decodificado — famílias, plano de contas, PLC, CFOP, operadores — na relação do legado);
+F7 (filtros acumulados); imprimir e etiquetas; Ins/F2; o status do lookup de campo.
 
 ## 1. Resumo para quem tem pressa
 
@@ -411,7 +426,7 @@ a área de transferência" (`:1490`, `:2249-2250`) — ferramenta de suporte.
 | onde grava | **arquivo local** `<aplicação>\Configuracoes_Pesquisa\<VIEW>[<CODOPERADOR>].XML` + `.TXT` (layout da grade) — **não é tabela** | arquivo local `…\Configuracoes_Pesquisa\Consultas\<VIEW>[<CODOPERADOR>].XML` | **banco**, `CONFIG_STATUS_TELA` (26 linhas) |
 | quando | F4 (pergunta se substitui) | ao fechar, se houve filtro e resultado (`FormClose` `:1407-1429`) | Ctrl+Shift+S (`uMaster.pas:496-503`) / D apaga (`:506-513`) |
 | o quê | campo + operação; coluna do totalizador (`SOMATORIO`); coluna ordenada (`ORDENACAO`); layout das colunas | os filtros (`cdsFiltros`) + a **linha onde estava** (`RECNO`) | o estado de **todos** os controles: campo, operação, **valor digitado** (`edtTexto`, datas, números), coluna do totalizador, relatório, painéis visíveis |
-| chave | view (+ operador) | view (+ operador) | operador + `FORMULARIO_PAI` + `VIEW_PESQ` + `RETORNO1_PESQ` (a mesma view abre diferente por tela e por campo de retorno) |
+| chave | view **aberta** (`FView`) (+ operador) | view aberta (+ operador) | operador + `FORMULARIO_PAI` + `VIEW_PESQ` (= `FView`) + `RETORNO1_PESQ` (a mesma view abre diferente por tela e por campo de retorno; no A pagar a view é a da opção) |
 | como volta | ao abrir: campo/operação/soma/ordenação padrão (`:1601-1648`); layout na consulta (`:2317-2356`) | **↑ no campo de valor** recarrega e pesquisa: 1 filtro → recompõe campo/operação/valor; vários → liga F7 (`SendKeys('{F7}')`); volta à linha (`:2039-2083`, `:2358-2367`) | ao abrir, por último (`RecuperarStatus`, `:1769-1775`): repõe os controles, **repete os eventos** de troca de campo e operação (recria o frame) e repõe os valores; **não pesquisa** |
 | fonte | `:2464-2525` | `UFrameGeral.pas:129-138` | `uConfigStatusTela.pas` |
 

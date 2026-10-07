@@ -29598,6 +29598,28 @@ async function main() {
           { st1, put: put.status, linhaDepois: linhaDepois.map((l: any) => l.codconfigtela), st2, del: del.status, sobrou, lookup: [stLookup.status, stLookupJ.code] });
         await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`);
 
+        // a chave do status, do F4 e da última pesquisa é a VIEW ABERTA (o FView): no A pagar, a da opção e do complemento; e a linha
+        // da grade tem identidade própria (_linha) — o código repete quando a view do legado multiplica
+        const apView = async (qs: string) => (await metaDe(`recurso=cadastro/apagar${qs}`)).j.view;
+        const views = [await apView(''), await apView('&opcao=abertas&complemento=com'), await apView('&opcao=quitadas'), await apView('&opcao=todas&complemento=com'),
+          (await metaDe('recurso=cadastro/parceiros')).j.view];
+        const putCp = await fetch(`${stUrl('cadastro/apagar')}&opcao=quitadas`, { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'nr_documento', operacao: 'comeca', valor: 'NF' }) });
+        const linhaCp = (await pgPq.query(`SELECT formulario_pai, view_pesq, retorno1_pesq FROM config_status_tela WHERE idoperador = 7`)).rows;
+        const stCpTodas = (await (await fetch(`${stUrl('cadastro/apagar')}&opcao=todas`, { headers: H })).json().catch(() => null)) as any;
+        const stAbertas = (await (await fetch(stUrl('cadastro/apagar'), { headers: H })).text()) || 'null';
+        const delCp = await fetch(`${stUrl('cadastro/apagar')}&opcao=quitadas`, { method: 'DELETE', headers: H });
+        const sobrouCp = Number((await pgPq.query(`SELECT count(*) n FROM config_status_tela WHERE idoperador = 7`)).rows[0].n);
+        const pgParc = (pagina: number) => pq(`recurso=cadastro/parceiros&campo=razao&operacao=qualquer&valor=PESQ298B&situacao=todos&porPagina=2&pagina=${pagina}`);
+        const [pp0, pp1] = [await pgParc(0), await pgParc(1)];
+        const linhasParc = [...(pp0.j.linhas ?? []), ...(pp1.j.linhas ?? [])];
+        check('PESQUISA §298.18 [a chave é a VIEW ABERTA; a linha tem identidade]: o meta diz a view do legado da escolha (GET_APAGAR, GET_APAGAR_CEN, GET_CP, GET_CP_CEN — uAPagar.pas:2651-2685); o status do A pagar em "Somente quitadas" grava VIEW_PESQ = GET_CP (o FView — uConfigStatusTela.pas:360; não o FNomeConfig), reabre em "Todas" (a mesma GET_CP) e não em "Somente abertas" (GET_APAGAR); e a grade numera as linhas (_linha = página × tamanho + i) — o parceiro de 2 endereços vem 2 vezes com _linha diferente',
+          views.join() === 'GET_APAGAR,GET_APAGAR_CEN,GET_CP,GET_CP_CEN,GET_PARCEIROS'
+          && putCp.status === 204 && linhaCp.length === 1 && linhaCp[0].view_pesq === 'GET_CP' && linhaCp[0].formulario_pai === 'FRMAPAGAR' && linhaCp[0].retorno1_pesq === 'edtCodigo'
+          && stCpTodas?.campo === 'nr_documento' && stCpTodas?.operacao === 'comeca' && stCpTodas?.valor === 'NF' && stAbertas === 'null'
+          && delCp.status === 204 && sobrouCp === 0
+          && linhasParc.map((l: any) => l._linha).join() === '0,1,2' && linhasParc.filter((l: any) => Number(l.codigo) === FA).length === 2,
+          { views, putCp: putCp.status, linhaCp, stCpTodas, stAbertas, delCp: delCp.status, sobrouCp, linhas: linhasParc.map((l: any) => [l._linha, l.codigo]) });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

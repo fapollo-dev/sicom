@@ -77,12 +77,14 @@ export class PesquisaService {
    * a relação que se lê (a versão integral do legado, quando há) e as ocultas dela — no A pagar, a da opção e do complemento escolhidos
    * (sem escolha, os padrões da janela); opção ou complemento fora da lista da tela = 422
    */
-  private leitura(t: PesquisaTela, escolha: Escolha = {}): { relacao: string; ocultas: string[]; opcao?: string } {
+  private leitura(t: PesquisaTela, escolha: Escolha = {}): { relacao: string; ocultas: string[]; opcao?: string; viewLegado: string } {
     if (t.opcoes?.length && escolha.opcao && !t.opcoes.some((o) => o.id === escolha.opcao)) throw new BusinessRuleError('PESQUISA_OPCAO_INVALIDA', { opcao: escolha.opcao });
     if (escolha.complemento && !t.complemento?.some((o) => o.id === escolha.complemento)) throw new BusinessRuleError('PESQUISA_OPCAO_INVALIDA', { complemento: escolha.complemento });
     const opcao = escolha.opcao ?? t.opcoes?.find((o) => o.padrao)?.id;
     const r = t.relacaoPorOpcao?.(opcao, escolha.complemento ?? t.complemento?.find((o) => o.padrao)?.id);
-    return r ? { relacao: r.relacao, ocultas: r.ocultas ?? [], opcao } : { relacao: t.relacao ?? t.view, ocultas: t.ocultas ?? [], opcao };
+    // a view que o legado abriu (o `FView`): a chave do status da tela e das memórias locais (F4, última pesquisa)
+    if (r) return { relacao: r.relacao, ocultas: r.ocultas ?? [], opcao, viewLegado: r.viewLegado };
+    return { relacao: t.relacao ?? t.view, ocultas: t.ocultas ?? [], opcao, viewLegado: (t.viewLegado ?? t.view).toUpperCase() };
   }
   /** as colunas que aparecem na combo e na grade (sem INDR nem as ocultas do Apollo) */
   private async colunasVisiveis(t: PesquisaTela, escolha?: Escolha): Promise<ColunaDaView[]> {
@@ -123,12 +125,15 @@ export class PesquisaService {
   async meta(recurso: string, escolha?: Escolha) {
     const t = this.tela(recurso);
     const cols = await this.colunasVisiveis(t, escolha);
+    const { viewLegado } = this.leitura(t, escolha);
     const campo = t.abertura?.campo && cols.some((c) => c.campo === t.abertura!.campo) ? t.abertura.campo : cols[0].campo;
     const tipo = cols.find((c) => c.campo === campo)!.tipo;
     return {
       recurso,
       titulo: t.titulo,
       form: t.form,
+      // a view aberta (o FView do legado) — a chave do F4 e da última pesquisa na estação
+      view: viewLegado,
       colunas: cols,
       operacoes: OPERACOES,
       abertura: {
@@ -243,6 +248,9 @@ export class PesquisaService {
     const porPagina = Math.min(Math.max(1, p.porPagina ?? 100), TETO_POR_PAGINA);
     const pagina = Math.max(0, p.pagina ?? 0);
     const linhas = (await q.limit(porPagina).offset(pagina * porPagina).execute()) as Array<Record<string, unknown>>;
+    // a posição da linha no resultado (`_linha`): a identidade da linha na grade — o código repete quando a view do legado multiplica
+    // (uma linha por endereço do parceiro, por loja do pedido, por baixa do título)
+    linhas.forEach((l, i) => { l._linha = pagina * porPagina + i; });
     // a cor de cada linha: a 1ª regra que casa (GetColor)
     const regras = (t.cores ?? []).filter((r) => porNome.has(r.coluna));
     if (regras.length) for (const l of linhas) l._cor = corDaLinha(regras, l);
@@ -265,12 +273,12 @@ export class PesquisaService {
    * retorno no código do cadastro (RETORNO1_PESQ = edtCodigo — uCadMaster.pas:547). O lookup de campo tem outro controle de retorno
    * por tela e ainda não guarda status.
    */
-  private chaveDoStatus(recurso: string) {
+  private chaveDoStatus(recurso: string, escolha?: Escolha) {
     const t = this.tela(recurso);
     if (recurso.startsWith('lookup/')) throw new BusinessRuleError('PESQUISA_STATUS_SEM_CHAVE', { recurso });
     const op = currentTenant().operadorId ?? null;
     if (op == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    return { t, op, pai: t.form, view: (t.viewLegado ?? t.view).toUpperCase(), retorno: 'edtCodigo' };
+    return { t, op, pai: t.form, view: this.leitura(t, escolha).viewLegado, retorno: 'edtCodigo' };
   }
 
   private filtroDoStatus(k: { op: number; pai: string; view: string; retorno: string }) {
@@ -279,19 +287,19 @@ export class PesquisaService {
   }
 
   /** RecuperarStatus (uMaster.pas:597; BuscaConfigNoBd do operador): o campo, a operação e o valor com que a Pesquisa reabre */
-  async lerStatus(recurso: string): Promise<StatusDaPesquisa | null> {
-    const k = this.chaveDoStatus(recurso);
+  async lerStatus(recurso: string, escolha?: Escolha): Promise<StatusDaPesquisa | null> {
+    const k = this.chaveDoStatus(recurso, escolha);
     const db = this.dbp.forTenantRead() as AnyDB;
     const r = (await db.selectFrom('config_status_tela').select('configuracao').where(this.filtroDoStatus(k))
       .orderBy('dtultimalteracao', 'desc').limit(1).executeTakeFirst()) as { configuracao: string | null } | undefined;
     if (!r?.configuracao) return null;
-    return lerStatus(r.configuracao, await this.colunasVisiveis(k.t));
+    return lerStatus(r.configuracao, await this.colunasVisiveis(k.t, escolha));
   }
 
   /** Ctrl+Shift+S (GravaConfigNoBd): grava ou troca o status desta chave */
-  async salvarStatus(recurso: string, s: StatusDaPesquisa): Promise<void> {
-    const k = this.chaveDoStatus(recurso);
-    const cols = await this.colunasVisiveis(k.t);
+  async salvarStatus(recurso: string, s: StatusDaPesquisa, escolha?: Escolha): Promise<void> {
+    const k = this.chaveDoStatus(recurso, escolha);
+    const cols = await this.colunasVisiveis(k.t, escolha);
     if (!cols.some((c) => c.campo === s.campo)) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: s.campo });
     const json = escreverStatus(s, cols);
     const db = this.dbp.forTenant() as AnyDB;
@@ -312,8 +320,8 @@ export class PesquisaService {
 
   /** Ctrl+Shift+D (ApagaConfigNoBd): apaga o status DESTA chave — o legado apaga a 1ª linha 'frmPesquisa' do operador, de qualquer
    *  tela (o filtro dele só tem operador e formulário); aqui fica a da Pesquisa aberta */
-  async apagarStatus(recurso: string): Promise<void> {
-    const k = this.chaveDoStatus(recurso);
+  async apagarStatus(recurso: string, escolha?: Escolha): Promise<void> {
+    const k = this.chaveDoStatus(recurso, escolha);
     await (this.dbp.forTenant() as AnyDB).deleteFrom('config_status_tela').where(this.filtroDoStatus(k)).execute();
   }
 }

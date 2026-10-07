@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Put, Query, UseGuards } from '@nestjs/common';
 import { AcessoGuard } from '../acesso/acesso.guard';
-import { PesquisaService, type ParametrosDaPesquisa } from './pesquisa.service';
+import { PesquisaService, type Escolha, type ParametrosDaPesquisa } from './pesquisa.service';
+
+const escolhaDe = (opcao?: string, complemento?: string): Escolha => ({ opcao: opcao || undefined, complemento: complemento || undefined });
 
 /**
  * A Pesquisa (frmPesquisa) de qualquer cadastro: `GET /cadastro/pesquisa/meta?recurso=cadastro/produtos` (os campos, as operações e a
@@ -12,24 +14,28 @@ import { PesquisaService, type ParametrosDaPesquisa } from './pesquisa.service';
 export class PesquisaController {
   constructor(private readonly pesquisa: PesquisaService) {}
 
-  /** o status da tela (Ctrl+Shift+S/D da Pesquisa — CONFIG_STATUS_TELA): o campo, a operação e o valor com que ela reabre */
+  /**
+   * o status da tela (Ctrl+Shift+S/D da Pesquisa — CONFIG_STATUS_TELA): o campo, a operação e o valor com que ela reabre. A chave é a
+   * view aberta — no A pagar, a da opção e do complemento (`opcao`/`complemento`)
+   */
   @Get('status')
-  lerStatus(@Query('recurso') recurso: string) {
-    return this.pesquisa.lerStatus(recurso);
+  lerStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
+    return this.pesquisa.lerStatus(recurso, escolhaDe(opcao, complemento));
   }
 
   @Put('status')
   @HttpCode(204)
-  salvarStatus(@Query('recurso') recurso: string, @Body() b: { campo?: string; operacao?: string; valor?: string; valor2?: string; soma?: string | null }) {
+  salvarStatus(@Query('recurso') recurso: string, @Body() b: { campo?: string; operacao?: string; valor?: string; valor2?: string; soma?: string | null },
+    @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
     return this.pesquisa.salvarStatus(recurso, {
       campo: String(b?.campo ?? ''), operacao: (b?.operacao ?? 'igual') as never, valor: String(b?.valor ?? ''), valor2: String(b?.valor2 ?? ''), soma: b?.soma ?? null,
-    });
+    }, escolhaDe(opcao, complemento));
   }
 
   @Delete('status')
   @HttpCode(204)
-  apagarStatus(@Query('recurso') recurso: string) {
-    return this.pesquisa.apagarStatus(recurso);
+  apagarStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
+    return this.pesquisa.apagarStatus(recurso, escolhaDe(opcao, complemento));
   }
 
   @Get('detalhe')
@@ -40,7 +46,7 @@ export class PesquisaController {
   /** `opcao`/`complemento` (opcionais): os campos da relação da escolha da janela — o A pagar troca de view (GET_APAGAR/GET_CP/_CEN) */
   @Get('meta')
   meta(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
-    return this.pesquisa.meta(recurso, { opcao: opcao || undefined, complemento: complemento || undefined });
+    return this.pesquisa.meta(recurso, escolhaDe(opcao, complemento));
   }
 
   @Get()
