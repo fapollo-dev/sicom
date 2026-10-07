@@ -50,6 +50,19 @@ MULTI_PRECO: `CONFIGURACOES_ESPECIFICAS` id 30 = 'S' prevalece sobre `ATIVO_PELA
 em `produtos.ativo`; o §8 dizia o contrário) e, no binário novo, o union do código auxiliar é INNER JOIN e **leva** os filtros
 obrigatórios (o §2.2 descreve o fonte de 2020).
 
+**Corte C entregue (07/10/2026).** C1: o cadastro navega sobre o resultado da Pesquisa (o `cdsNavegation`, `soCodigos`). C2: os 56
+combos de tabela grande (`useResourceOptions` cortado em 200: parceiros, produtos, plano de contas, cidades, famílias, bancos, CFOP,
+PLC, operadores) viraram `LookupField` (código + descrição + a Pesquisa da view) com o filtro de cada campo do legado — igualdades em
+`f_<coluna>` (com `a|b` = OU) e o que não é igualdade como parâmetro declarado no servidor (`lancavel` = máscara do centro de custo,
+`idsituacao_nf`, `daLoja`, `naoComposto`, `ativoCompra`, `semFilho`, `lookup/operadores-da-loja`); `campoDigitado` = o que se digita no
+legado (CODIGO_EXTENSO do centro de custo, CODIREDUZIDO da conta), gravando o código interno. As grades nomeiam só os códigos exibidos
+(`shared/pesquisa/useLinhasDosCodigos`). Smoke §298.8-§298.11.
+
+Filtros do legado ainda fora (por falta de coluna/config no destino): `TIPO_CONTA IN (DESPESA, NEUTRA)` do convênio de funcionário
+no A pagar (uAPagar.pas:776); `TIPOESTADO` FORA/DENTRO do CFOP do item (uItensNF.pas:1084); `REALIZA_RETENCOES` e
+`INCLUIR_CLIENTES_FORN_NF_DEV` no parceiro da NF (uNF.pas:3144-3150); `ENDERECO_ATIVO` do fornecedor do pedido (uPedidoCompra.pas:6599);
+o produto-pai ≠ o próprio (UCadProduto.pas:4298); a cotação aceita participante não fornecedor no legado e o servidor do Apollo recusa.
+
 **Fica para o corte B (as views do destino iguais às da produção):** GET_PRODUTOS por loja (IDEMPRESA e o ATIVO da loja; hoje o
 destino tem uma linha por produto e `produtos.ativo`), o `FORNECEDOR_ATIVO='S'` do pedido aberto e o FECHADO por loja, o complemento
 "com centro de custo" do A pagar (GET_APAGAR_CEN/GET_CP_CEN), as colunas que faltam nas views (GET_NF 17 de 49, GET_EMPRESAS…). **Corte
