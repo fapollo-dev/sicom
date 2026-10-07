@@ -87,3 +87,20 @@ Formato: cada ADR tem **Decisão**, **Porquê**, **Implicação**.
 - **Decisão:** As telas de **cadastro** (a massa das ~101 herdeiras de `TfrmCadMaster`) seguem **um padrão único**: frontend no **pilar `<CadMaster>`/`<CadMasterDet>`** (record-first — código+Enter, navegação por setas, Pesquisa, rodapé por estado, teclado-first, fiel ao `TfrmCadMaster`/ADR-010) e backend no **engine declarativo** (`CrudEngineService`/`AggregateEngineService` a partir de `CrudConfig`/`AggregateConfig` — herdam auditoria, soft/hard-delete por INDR, `HISTORICO_DINAMICO`, outbox, RBAC, view de listagem). Uma tela trivial-a-média = **1 migration + 1 schema zod + 1 config + 1 componente**. Todos os campos vêm do **palette do DS** (Field/Select/Number/**Currency**/Date/TextArea/Checkbox); **FK mostra o filho** (lookup), nunca o id cru; **moeda nunca é spinner**; layout em **grid 2-col** com rodapé padrão; **zero hardcode** (classes-token do DS). A skill `crud-builder`/list-first (ADR-014) fica reservada a telas de **consulta/alto volume**; o **DataTable do DS** é usado na **Pesquisa** e nas listas.
 - **Porquê:** O critério de aceite é a **paridade comportamental** + a **memória muscular** do operador (ADR-010) — record-first preserva isso, enquanto o engine elimina o vertical copiado e mantém os efeitos do form-base (carimbo, histórico, replicação). Reconcilia ADR-010 (teclado) com ADR-014 (consumir o DS) sem furar nenhum.
 - **Implicação:** Toda tela nova segue o **[Guia de Construção de Telas](../02-stack-and-standards/construcao-de-telas.md)** (receita, palette, lookup, Pesquisa, layout, checklist) e **copia de uma tela de referência real** (Marcas/Bairros/Preço/NCM/Cidades/Lote-MD/Bancos). Erros via ADR-015. Nenhuma tela "pronta" sem dossiê (ADR-012) + paridade + revisão.
+
+## ADR-017 — O PDV fica fora desta migração (o retaguarda que trata dado do PDV fica dentro)
+- **Decisão:** A conversão do legado cobre o **retaguarda** (`Retaguarda.exe`). O **PDV** — o aplicativo de frente de caixa, as telas
+  que o configuram ou o operam (`FRMCADPDV`, `FRMCADTERMINAIS`, os relatórios sobre `HISTORICO_PDV`/troco) e
+  as tabelas que só ele usa (`HISTORICO_PDV` está em `excluidas` no `plano-tabelas.json`, com a estrutura no destino) — **não é
+  convertido nem carregado**. A fronteira é a TELA, não a origem do dado: tela do retaguarda que processa o que o PDV gravou **fica
+  dentro** e é convertida inteira (fechamento de caixa, fechamento de sangria, devolução de vendas, relatórios de venda/finalizadoras),
+  com as tabelas dela na carga. A ADR-008 (PDV offline-first em Electron) continua sendo a arquitetura alvo do PDV quando ele entrar.
+- **Porquê:** Instrução do usuário em 19/08/2026 ("nada de PDV"). Sem esta fronteira escrita, "PDV" virou motivo para tirar do escopo
+  telas do retaguarda: o fechamento de sangria (36.522 acessos) chegou a ser marcado ⛔ PDV e foi corrigido em 25/09/2026 — ela roda no
+  `Retaguarda.exe` (FILA-CONVERSAO.md, "As 8 telas que ficaram fora").
+- **Implicação:** Para declarar uma tela "⛔ PDV" é preciso mostrar que ela é do PDV (unit fora do `Retaguarda.dpr`, ou que só
+  configura/opera o caixa) — caso contrário ela é retaguarda e entra na fila. Uma tabela só sai da carga como PDV se nenhuma tela do
+  retaguarda a lê ou grava. Rever esta ADR quando o usuário puser o PDV no escopo (então vale a ADR-008).
+  Decidido pelo usuário em 07/10/2026: a **Consulta NFC-e** (`FRMNFCE`, uNFCe) **fica fora, como PDV** — mesmo estando no menu Fiscal
+  do retaguarda (19 operadores; consulta na SEFAZ, inutilização de faixa, XML em lote para o contador). `NFC` (3,19 mi linhas) e
+  `NFC_ARQUIVO` (os XML, ~110 GB com os da própria `NFC`) seguem fora da carga. É a exceção explícita à regra da fronteira por tela.
