@@ -10,6 +10,10 @@ import { apiHeaders, getSessao, handle401 } from '../auth/session';
 import { useMensagem } from '../mensagem';
 import { hojeNaLoja } from '../tempo';
 import { exportarGradeCsv } from '../export/exportarGradeCsv';
+import { Button } from '../ui/Button';
+import { imprimirRelatorio } from '../fr3/imprimirRelatorio';
+import { abrirEtiquetasCom } from '../etiquetas/listaParaEtiquetas';
+import { useNavigate } from 'react-router-dom';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -68,7 +72,13 @@ interface Meta {
   rotuloDetalhes?: string | null;
   /** o totalizador (A pagar, A receber): as colunas numéricas que se pode somar */
   totalizador?: string[] | null;
+  /** o &Etiquetas: 'produto' manda o resultado inteiro às etiquetas de preço */
+  etiqueta?: 'produto' | null;
 }
+/** a lista das etiquetas recebe até este tanto de produtos (o schema do `de-itens`); o legado manda o resultado inteiro */
+const TETO_ETIQUETAS = 5000;
+/** acima disto o legado desmarca tudo e imprime o resultado inteiro (uPesquisa.pas:599-606) */
+const TETO_MARCADOS_IMPRESSAO = 2000;
 interface Detalhe { titulo: string; linhas: Array<Record<string, unknown>>; indisponivel: string | null; cabecalho: string }
 interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; complemento?: string; n: number }
 
@@ -152,6 +162,9 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const [colunaSoma, setColunaSoma] = useState<string | null>(null);
   const [soma, setSoma] = useState<number | null>(null);
   const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
+  // as "Configurações de impressão salvas" da view aberta (null = o operador não imprime relatórios: sem o &Imprimir)
+  const [relatorios, setRelatorios] = useState<Array<{ codrelatoriodef: number; nome: string }> | null>(null);
+  const [relatorioSel, setRelatorioSel] = useState<number | null>(null);
   // as linhas marcadas (multisseleção), pelo código de retorno — valem entre as páginas
   const [marcados, setMarcados] = useState<Map<string, Record<string, any>>>(new Map());
   const linhas = useRef<Record<string, any>[]>([]);
@@ -203,6 +216,10 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         })
         .catch(() => undefined);
     }
+    // os relatórios salvos desta view (PercorreOrigem; ItemIndex := 0)
+    pedir<Array<{ codrelatoriodef: number; nome: string }>>(`/cadastro/pesquisa/relatorios?recurso=${encodeURIComponent(resourcePath)}${esc}`)
+      .then((rs) => { const lista = Array.isArray(rs) ? rs : null; setRelatorios(lista); setRelatorioSel(lista?.[0]?.codrelatoriodef ?? null); })
+      .catch(() => { setRelatorios(null); setRelatorioSel(null); });
   };
 
   // a janela de opções (TfrmOpcoes) vem ANTES da Pesquisa: a Pesquisa só abre — com a abertura, o F4 e o status — sobre a escolha
@@ -342,6 +359,23 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       };
       exportarGradeCsv(todas, meta.colunas.map((c) => ({ titulo: c.titulo, valor: (l: Record<string, any>) => formata(l[c.campo], c.tipo) })), `Pesquisa ${meta.titulo ?? resourcePath}`);
     } catch (e) { mensagem.erro(e); }
+  };
+
+  // &Imprimir (uPesquisa.pas:570-665): o relatório escolhido com o filtro da pesquisa + os marcados; sem resultado, o foco vai ao valor
+  const imprimir = () => {
+    if (relatorioSel == null) { mensagem.erro(new Error('Selecione uma configuração.')); return; }
+    if (!consulta || !total) { setTimeout(() => document.querySelector<HTMLElement>('[data-pesquisa="valor"] input')?.focus(), 0); return; }
+    let codigos = [...marcados.keys()];
+    if (codigos.length > TETO_MARCADOS_IMPRESSAO) { setMarcados(new Map()); codigos = []; }
+    const url = urlDa(consulta, {}).replace('/cadastro/pesquisa?', '/cadastro/pesquisa/imprimir?');
+    // a janela abre no clique (imprimirRelatorio): nada de await antes
+    imprimirRelatorio(url, { codrelatoriodef: relatorioSel, marcados: codigos }).catch((e) => mensagem.erro(e));
+  };
+  // &Etiquetas (uPesquisa.pas:423-568): os códigos do resultado inteiro, na ordem da grade
+  const codigosDoResultado = async (): Promise<number[]> => {
+    if (!consulta || !total) return [];
+    const r = await pedir<{ codigos: Array<number | string> }>(urlDa(consulta, { soCodigos: 'true', ...ordem(ordemAtual.current) }));
+    return r.codigos.map(Number).filter(Number.isFinite);
   };
 
   // a última pesquisa: gravada ao fechar a janela quando houve consulta com resultado
@@ -567,6 +601,23 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 }}
               />
             </div>
+            {(relatorios || meta.etiqueta) && (
+              <div className="flex flex-wrap items-end gap-gp-sm">
+                {relatorios && (
+                  <>
+                    <div className="w-72">
+                      <SelectField label="Configurações de impressão salvas" value={relatorioSel != null ? String(relatorioSel) : undefined}
+                        onChange={(v) => setRelatorioSel(v ? Number(v) : null)}
+                        options={relatorios.map((r) => ({ value: String(r.codrelatoriodef), label: r.nome }))} />
+                    </div>
+                    <Button label="&Imprimir" variant="soft" onClick={imprimir} />
+                  </>
+                )}
+                {meta.etiqueta === 'produto' && (
+                  <BotaoEtiquetas codigos={codigosDoResultado} aoErrar={(e) => mensagem.erro(e)} />
+                )}
+              </div>
+            )}
             {(meta.totalizador?.length || meta.rotuloDetalhes) ? (
               <div className="flex flex-wrap items-end gap-gp-md">
                 {!!meta.totalizador?.length && (
@@ -612,6 +663,26 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       )}
     </ShortcutScope>
   );
+}
+
+/**
+ * &Etiquetas: o resultado inteiro vai às etiquetas de preço, desmarcado para imprimir e com quantidade 1 (o cdsImpressao do frmEtiqueta);
+ * o preço, o custo e a promoção acumulativa o servidor das etiquetas monta (`de-itens`). Sem resultado, as etiquetas abrem vazias.
+ */
+function BotaoEtiquetas({ codigos, aoErrar }: { codigos: () => Promise<number[]>; aoErrar: (e: unknown) => void }) {
+  const navigate = useNavigate();
+  const abrir = async () => {
+    try {
+      const ids = await codigos();
+      if (ids.length > TETO_ETIQUETAS) {
+        aoErrar(new Error(`O resultado tem ${ids.length.toLocaleString('pt-BR')} produtos; as etiquetas recebem até ${TETO_ETIQUETAS.toLocaleString('pt-BR')}. Restrinja a pesquisa.`));
+        return;
+      }
+      if (!ids.length) { navigate('/estoque/etiquetas'); return; }
+      abrirEtiquetasCom({ fonte: 'cadastro', itens: ids.map((idproduto) => ({ idproduto })), marcar: false }, navigate);
+    } catch (e) { aoErrar(e); }
+  };
+  return <Button label="&Etiquetas" variant="soft" onClick={() => void abrir()} />;
 }
 
 function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDown }: {

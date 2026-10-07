@@ -174,6 +174,7 @@ import { SimuladorSefazProvider } from './sefaz/simulador.provider';
 import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { PrecificacaoModule } from '../precificacao/precificacao.module';
+import { RelatoriosModule } from '../relatorios/relatorios.module';
 
 /**
  * Cadastros. Bancos é hand-written (piloto de referência, com golden de runtime).
@@ -183,7 +184,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
 import { PesquisaController } from '../../shared/pesquisa/pesquisa.controller';
 import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
 @Module({
-  imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
+  imports: [PrecificacaoModule, AuthModule, RelatoriosModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo) + o construtor (o &Imprimir da Pesquisa)
   controllers: [PesquisaController, SugestaoPromocaoController, RelPerdasController, PisCofinsCadController, ExportaNfeController, 
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)

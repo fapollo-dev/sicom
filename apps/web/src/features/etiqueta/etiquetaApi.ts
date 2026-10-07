@@ -5,6 +5,7 @@
  */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import type { PedidoDeItens } from '../../shared/etiquetas/listaParaEtiquetas';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -97,25 +98,11 @@ export function etiquetasDosLotes(codlotes: number[], semPromocao: boolean): Pro
   return req('/cadastro/etiqueta/dos-lotes', { method: 'POST', body: JSON.stringify({ codlotes, semPromocao }) });
 }
 
-export type FonteEtiquetas = 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf';
-export interface PedidoDeItens { fonte: FonteEtiquetas; codnf?: number; itens?: Array<{ idproduto: number; valor?: number }> }
-/** as telas que abrem as etiquetas com a lista pronta (cadastro de produto, Precificação NF, preços alterados, NF) */
+export { abrirEtiquetasCom, lerPedidoDeItens, type FonteEtiquetas, type PedidoDeItens } from '../../shared/etiquetas/listaParaEtiquetas';
+/** as telas que abrem as etiquetas com a lista pronta (cadastro de produto, Precificação NF, preços alterados, NF, a Pesquisa) */
 export function etiquetasDeItens(pedido: PedidoDeItens): Promise<Etiqueta[]> {
-  return req('/cadastro/etiqueta/de-itens', { method: 'POST', body: JSON.stringify(pedido) });
-}
-
-const CHAVE_ITENS = 'apollo.etiquetas.itens';
-/** a tela de origem deixa a lista e navega para as etiquetas (o legado cria o TfrmEtiqueta já com o cdsImpressao preenchido) */
-export function abrirEtiquetasCom(pedido: PedidoDeItens, navigate: (to: string) => void): void {
-  try { sessionStorage.setItem(CHAVE_ITENS, JSON.stringify(pedido)); } catch { /* sem storage: a tela abre vazia */ }
-  navigate('/estoque/etiquetas');
-}
-export function lerPedidoDeItens(): PedidoDeItens | null {
-  try {
-    const p = JSON.parse(sessionStorage.getItem(CHAVE_ITENS) ?? 'null') as PedidoDeItens | null;
-    sessionStorage.removeItem(CHAVE_ITENS);
-    return p?.fonte ? p : null;
-  } catch { return null; }
+  const { marcar: _marcar, ...corpo } = pedido;
+  return req('/cadastro/etiqueta/de-itens', { method: 'POST', body: JSON.stringify(corpo) });
 }
 
 /** as linhas "CODBARRA/QTDE/VALOR" do arquivo: o código é o que vem antes da 1ª barra (btnImportClick :1004) */

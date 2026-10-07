@@ -756,6 +756,8 @@ const CODE_PT: Record<string, string> = {
   PESQUISA_OPCAO_INVALIDA: 'Opção de pesquisa inválida.',
   PESQUISA_DETALHE_DESCONHECIDO: 'Esta pesquisa não tem esse atalho de detalhe.',
   PESQUISA_STATUS_SEM_CHAVE: 'O status da tela só é guardado na pesquisa do cadastro.',
+  PESQUISA_RELATORIO_DE_OUTRA_VIEW: 'Esta configuração de impressão não é desta pesquisa.',
+  PESQUISA_SEM_RESULTADO: 'Pesquise antes de imprimir.',
   MIX_SEM_LOJA: 'Marque ao menos uma loja além da empresa em que você está (ela é o depósito do comparativo).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // importar a devolução de vendas na NF de entrada (uNF.pas:5900)

@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, HttpCode, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AcessoGuard } from '../acesso/acesso.guard';
+import { RequerAcesso } from '../acesso/requer-acesso.decorator';
+import { BusinessRuleError } from '../errors/app-error';
 import { PesquisaService, type Escolha, type ParametrosDaPesquisa } from './pesquisa.service';
 
 const escolhaDe = (opcao?: string, complemento?: string): Escolha => ({ opcao: opcao || undefined, complemento: complemento || undefined });
@@ -49,12 +51,39 @@ export class PesquisaController {
     return this.pesquisa.meta(recurso, escolhaDe(opcao, complemento));
   }
 
+  /**
+   * as "Configurações de impressão salvas" da view aberta e o &Imprimir com o filtro da pesquisa. O mesmo portão da impressão do
+   * construtor (FRMRELATORIO · BTNIMPRIMIR): no legado o frmPesquisa cria o TfrmRelatorio sem passar pelo controle de permissões — atalho
+   * de permissão que o Apollo não reproduz
+   */
+  @Get('relatorios')
+  @RequerAcesso('FRMRELATORIO', 'BTNIMPRIMIR')
+  relatorios(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
+    return this.pesquisa.relatorios(recurso, escolhaDe(opcao, complemento));
+  }
+
+  /** a consulta vai na query (como a da grade); no corpo, o relatório e os códigos marcados */
+  @Post('imprimir')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELATORIO', 'BTNIMPRIMIR')
+  imprimir(@Query() q: Record<string, string>, @Body() b: { codrelatoriodef?: number; marcados?: Array<string | number> }) {
+    const cod = Number(b?.codrelatoriodef);
+    if (!Number.isInteger(cod) || cod <= 0) throw new BusinessRuleError('RELATORIO_NAO_ENCONTRADO', { cod: b?.codrelatoriodef });
+    const marcados = Array.isArray(b?.marcados) ? b.marcados.slice(0, 2001) : undefined;
+    return this.pesquisa.imprimir(q.recurso, { ...this.parametros(q), codrelatoriodef: cod, marcados });
+  }
+
   @Get()
   pesquisar(@Query() q: Record<string, string>) {
+    return this.pesquisa.pesquisar(q.recurso, this.parametros(q));
+  }
+
+  /** a consulta da query: campo, operação, valor, situação, a escolha da janela, a página, os `f_<coluna>` e os parâmetros declarados */
+  private parametros(q: Record<string, string>): ParametrosDaPesquisa {
     const t = this.pesquisa.tela(q.recurso);
     const extras: Record<string, string> = {};
     for (const k of t.extras ?? []) if (q[k] != null) extras[k] = q[k];
-    const p: ParametrosDaPesquisa = {
+    return {
       campo: q.campo || undefined,
       operacao: q.operacao || undefined,
       valor: q.valor,
@@ -72,6 +101,5 @@ export class PesquisaController {
       soma: q.soma || undefined,
       fixos: Object.fromEntries(Object.entries(q).filter(([k]) => k.startsWith('f_') && k.length > 2).map(([k, v]) => [k.slice(2), String(v)])),
     };
-    return this.pesquisa.pesquisar(q.recurso, p);
   }
 }

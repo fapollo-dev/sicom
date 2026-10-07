@@ -7,7 +7,8 @@ import { empresasDoOperador } from '../acesso/empresas-do-operador';
 import { condicaoDoUsuario, operacaoDeAbertura, OPERACOES, tipoDoCampo, type Operacao, type TipoCampo } from './pesquisa-sql';
 import { TELAS_DA_PESQUISA, type PesquisaTela } from './telas';
 import { corDaLinha } from './cores';
-import { escreverStatus, lerStatus, type StatusDaPesquisa } from './status-tela';
+import { escreverStatus, lerStatus, TEXTO_OPERACAO, type StatusDaPesquisa } from './status-tela';
+import { RelatorioConstrutorService, relacaoDaFonte } from '../../modules/relatorios/relatorio-construtor.service';
 
 type AnyDB = Kysely<any>;
 
@@ -71,7 +72,7 @@ export class PesquisaService {
   /** as colunas de cada view (o schema é o mesmo em todos os bancos de tenant) */
   private readonly cache = new Map<string, ColunaDaView[]>();
 
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly construtor: RelatorioConstrutorService) {}
 
   /**
    * a relação que se lê (a versão integral do legado, quando há) e as ocultas dela — no A pagar, a da opção e do complemento escolhidos
@@ -153,19 +154,19 @@ export class PesquisaService {
       // os atalhos de detalhe (F8-F12 na pesquisa de produto) e o rótulo do legado
       detalhes: (t.detalhes ?? []).map((d) => ({ tecla: d.tecla, titulo: d.titulo })),
       rotuloDetalhes: t.rotuloDetalhes ?? null,
+      // o &Etiquetas (o resultado inteiro às etiquetas de preço)
+      etiqueta: t.etiqueta ?? null,
       // o totalizador: as colunas numéricas, em ordem alfabética (a 1ª abre somada, como o ItemIndex 0 do legado)
       totalizador: t.totalizador ? cols.filter((c) => c.tipo === 'numero').map((c) => c.campo) : null,
     };
   }
 
-  async pesquisar(recurso: string, p: ParametrosDaPesquisa) {
-    const t = this.tela(recurso);
-    const { relacao, opcao } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
-    const cols = await this.colunas(relacao);
-    const porNome = new Map(cols.map((c) => [c.campo, c]));
-    const db = this.dbp.forTenantRead() as AnyDB;
+  /**
+   * o WHERE da Pesquisa: excluído nunca, a situação do cadastro, os filtros obrigatórios da tela, os fixos do lookup e o campo + operação +
+   * valor do operador — o mesmo para a grade, a navegação, o marcar todos e o &Imprimir
+   */
+  private async condicoes(t: PesquisaTela, porNome: Map<string, ColunaDaView>, p: ParametrosDaPesquisa, opcao: string | undefined, db: AnyDB) {
     const conds: RawBuilder<SqlBool>[] = [];
-
     // excluído nunca aparece (o cadastro soma COALESCE(INDR,'I')='I' quando a view expõe INDR — uCadMaster.pas:540-544)
     if (porNome.has('indr')) conds.push(sql<SqlBool>`coalesce(${sql.ref('indr')}, 'I') = 'I'`);
 
@@ -220,6 +221,16 @@ export class PesquisaService {
       if (c && t.alternativa?.campo === col.campo && p.valor?.trim()) c = sql<SqlBool>`(${c} or ${t.alternativa.condicao(p.valor)})`;
       if (c) conds.push(c);
     }
+    return conds;
+  }
+
+  async pesquisar(recurso: string, p: ParametrosDaPesquisa) {
+    const t = this.tela(recurso);
+    const { relacao, opcao } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
+    const cols = await this.colunas(relacao);
+    const porNome = new Map(cols.map((c) => [c.campo, c]));
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const conds = await this.condicoes(t, porNome, p, opcao, db);
 
     const visiveis = cols.filter((c) => c.campo !== 'indr').map((c) => c.campo);
     let q = db.selectFrom(relacao).select(visiveis.map((c) => sql.ref(c).as(c)));
@@ -255,6 +266,64 @@ export class PesquisaService {
     const regras = (t.cores ?? []).filter((r) => porNome.has(r.coluna));
     if (regras.length) for (const l of linhas) l._cor = corDaLinha(regras, l);
     return { linhas, total, pagina, porPagina, ...(soma != null ? { soma } : {}) };
+  }
+
+  /**
+   * "Configurações de impressão salvas" (`cbbRelatorios`): os relatórios do construtor salvos para a VIEW ABERTA — no legado, os arquivos
+   * `<aplicação>\Report\<VIEW>_<nome>` da estação (`PercorreOrigem`, uComunPesquisaRel.pas:581-614; uPesquisa.pas:1689-1694); aqui a
+   * RELATORIO_DEFINICAO da loja com a fonte = a view
+   */
+  async relatorios(recurso: string, escolha?: Escolha): Promise<Array<{ codrelatoriodef: number; nome: string }>> {
+    const { viewLegado } = this.leitura(this.tela(recurso), escolha);
+    return (await this.construtor.listar())
+      .filter((r) => r.fonte.toLowerCase() === viewLegado.toLowerCase())
+      .map((r) => ({ codrelatoriodef: r.codrelatoriodef, nome: r.nome }));
+  }
+
+  /**
+   * &Imprimir (uPesquisa.pas:570-665): o relatório salvo da view com o `FiltroDefualt` = o filtro obrigatório + o da pesquisa (o
+   * `cdsFiltros` que o `SetaRelatorio` leva) + `CAMPO_RETORNO IN (<marcados>)`. Com mais de 2.000 marcados o legado desmarca e imprime
+   * o resultado inteiro — o mesmo conjunto do filtro. O filtro vai como `<retorno> IN (SELECT <retorno> FROM <a relação da pesquisa>
+   * WHERE …)`: montado aqui, nunca uma lista do navegador (o resultado chega a dezenas de milhares de códigos).
+   */
+  async imprimir(recurso: string, p: ParametrosDaPesquisa & { codrelatoriodef: number; marcados?: Array<string | number> }) {
+    const t = this.tela(recurso);
+    const { relacao, opcao, viewLegado } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
+    const rel = await this.construtor.obter(p.codrelatoriodef);
+    if (rel.fonte.toLowerCase() !== viewLegado.toLowerCase()) {
+      throw new BusinessRuleError('PESQUISA_RELATORIO_DE_OUTRA_VIEW', { relatorio: rel.fonte, view: viewLegado });
+    }
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cols = await this.colunas(relacao);
+    const porNome = new Map(cols.map((c) => [c.campo, c]));
+    const ret = porNome.get(t.retorno);
+    // o código de retorno tem de existir na relação do relatório (a mesma view; a versão integral, quando há)
+    const colsRel = await this.colunas(await relacaoDaFonte(db, rel.fonte));
+    if (!ret || !colsRel.some((c) => c.campo === t.retorno)) throw new BusinessRuleError('CAMPO_NAO_EXISTE_NA_FONTE', { campo: t.retorno, fonte: rel.fonte });
+
+    const conds = await this.condicoes(t, porNome, p, opcao, db);
+    let sub = db.selectFrom(relacao).select(sql.ref(t.retorno).as('c'));
+    for (const c of conds) sub = sub.where(c);
+    let restricao = sql<SqlBool>`${sql.ref(t.retorno)} in (${sub})`;
+
+    // os marcados (até 2.000): o IN deles, com o tipo do código de retorno
+    const marcados = (p.marcados ?? []).map((m) => String(m).trim()).filter((m) => m !== '');
+    const usarMarcados = marcados.length > 0 && marcados.length <= 2000;
+    if (usarMarcados) {
+      const valores = ret.tipo === 'numero' ? marcados.map(Number) : marcados;
+      if (ret.tipo === 'numero' && valores.some((v) => !Number.isFinite(v as number))) throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { marcados: p.marcados });
+      restricao = sql<SqlBool>`${restricao} and ${sql.ref(t.retorno)} in (${sql.join(valores)})`;
+    }
+
+    // o texto no cabeçalho do relatório, ao lado das condições salvas
+    const col = p.campo ? porNome.get(p.campo) : undefined;
+    const op = col ? ((p.operacao ?? operacaoDeAbertura(col.tipo)) as Operacao) : undefined;
+    const valor = [p.valor, op === 'entre' ? p.valor2 : undefined].filter((v) => v != null && v !== '').join(' e ');
+    const texto = [
+      col && op ? `Pesquisa: ${col.titulo} ${TEXTO_OPERACAO[op]}${valor ? ` ${valor}` : ''}` : null,
+      usarMarcados ? `${marcados.length} marcado${marcados.length === 1 ? '' : 's'}` : null,
+    ].filter(Boolean).join(' · ');
+    return this.construtor.impressao({ codrelatoriodef: p.codrelatoriodef, restricao: { sql: restricao, texto: texto || undefined } });
   }
 
   /** o detalhe da linha (a tecla do `cdsDetalhes`): a consulta com o código de retorno dela */

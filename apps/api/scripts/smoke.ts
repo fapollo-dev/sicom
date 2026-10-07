@@ -29629,6 +29629,54 @@ async function main() {
           && linhasParc.map((l: any) => l._linha).join() === '0,1,2' && linhasParc.filter((l: any) => Number(l.codigo) === FA).length === 2,
           { views, putCp: putCp.status, linhaCp, stCpTodas, stAbertas, delCp: delCp.status, sobrouCp, linhas: linhasParc.map((l: any) => [l._linha, l.codigo]) });
 
+        // &Imprimir e &Etiquetas: os relatórios salvos da VIEW ABERTA, o relatório com o filtro da pesquisa (+ o IN dos marcados) e o
+        // botão das etiquetas só na pesquisa de produto
+        await pgPq.query(`DELETE FROM relatorio_definicao WHERE nome LIKE 'PESQ298%'`);
+        // o modelo do cliente (Config\RelatorioGeral_SemGrupo.fr3) vem da fixture, como no §95.3b; a opção BTNIMPRIMIR do FRMRELATORIO
+        // (o portão da impressão do construtor) é posta aqui e volta como estava no fim
+        const { readFileSync: lerArq } = await import('node:fs');
+        const { resolve: resolverArq } = await import('node:path');
+        const tinhaModelo = Number((await pgPq.query(`SELECT count(*) n FROM relatorios WHERE codrelatorio = 991953`)).rows[0].n) > 0;
+        await pgPq.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (991953, 1, 'RelatorioGeral_SemGrupo.fr3', 'x', 'PERSONALIZADO', $1) ON CONFLICT (codrelatorio) DO NOTHING`,
+          [lerArq(resolverArq(process.cwd(), 'test/fixtures/relatoriogeral-semgrupo.fr3')).toString('base64')]);
+        const permImp = `form = 'FRMRELATORIO' AND opcao = 'BTNIMPRIMIR' AND codoperador = 7 AND codempresa = 1`;
+        const tinhaImp = Number((await pgPq.query(`SELECT count(*) n FROM permissoes WHERE ${permImp}`)).rows[0].n) > 0;
+        await pgPq.query(`DELETE FROM permissoes WHERE ${permImp}`);
+        const semPermLista = (await fetch(`${base}/cadastro/pesquisa/relatorios?recurso=cadastro/apagar`, { headers: H })).status;
+        const semPermImp = (await fetch(`${base}/cadastro/pesquisa/imprimir?recurso=cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: 1 }) })).status;
+        await pgPq.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMRELATORIO', 'BTNIMPRIMIR', 7, 1) ON CONFLICT DO NOTHING`);
+        const defRel = JSON.stringify({ titulo: 'PESQ298 AP', colunas: [{ campo: 'codigo', titulo: 'Codigo', posicao: 1 }, { campo: 'nr_documento', titulo: 'Documento', posicao: 2 }] });
+        const rAp = Number((await pgPq.query(`INSERT INTO relatorio_definicao (idempresa, nome, fonte, definicao, origem) VALUES (1, 'PESQ298 AP', 'get_apagar', $1, 'APOLLO') RETURNING codrelatoriodef`, [defRel])).rows[0].codrelatoriodef);
+        const rCp = Number((await pgPq.query(`INSERT INTO relatorio_definicao (idempresa, nome, fonte, definicao, origem) VALUES (1, 'PESQ298 CP', 'get_cp', $1, 'APOLLO') RETURNING codrelatoriodef`, [JSON.stringify({ titulo: 'PESQ298 CP', colunas: [{ campo: 'codigo', titulo: 'Codigo' }] })])).rows[0].codrelatoriodef);
+        const relDe = async (qs: string) => { const r = await fetch(`${base}/cadastro/pesquisa/relatorios?recurso=cadastro/apagar${qs}`, { headers: H }); return ((await r.json().catch(() => [])) as any[]).map((x) => Number(x.codrelatoriodef)); };
+        const [relAb, relQt] = [await relDe(''), await relDe('&opcao=quitadas')];
+        const imprimir = async (qs: string, corpo: unknown) => {
+          const r = await fetch(`${base}/cadastro/pesquisa/imprimir?recurso=cadastro/apagar&${qs}`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const todasAb = await pq('recurso=cadastro/apagar&campo=nr_documento&operacao=qualquer&valor=&opcao=abertas&porPagina=1');
+        const impTodas = await imprimir('campo=nr_documento&operacao=qualquer&valor=&opcao=abertas', { codrelatoriodef: rAp });
+        const impFiltro = await imprimir('campo=nr_documento&operacao=qualquer&valor=PESQ298B&opcao=abertas', { codrelatoriodef: rAp });
+        const impMarc = await imprimir('campo=nr_documento&operacao=qualquer&valor=&opcao=abertas', { codrelatoriodef: rAp, marcados: [998311] });
+        const impOutra = await imprimir('campo=nr_documento&operacao=qualquer&valor=&opcao=abertas', { codrelatoriodef: rCp });
+        // (o dataset do modelo nomeia as colunas C0, C1… na ordem da definição — o C0 é o CODIGO)
+        const dadosDe = (r: any) => (r.j.datasets?.frxDBDatasetDados ?? []) as any[];
+        const [etqProd, etqParc] = [(await metaDe('recurso=cadastro/produtos')).j.etiqueta, (await metaDe('recurso=cadastro/parceiros')).j.etiqueta];
+        await pgPq.query(`DELETE FROM relatorio_definicao WHERE nome LIKE 'PESQ298%'`);
+        if (!tinhaImp) await pgPq.query(`DELETE FROM permissoes WHERE ${permImp}`);
+        if (!tinhaModelo) await pgPq.query(`DELETE FROM relatorios WHERE codrelatorio = 991953`);
+        check('PESQUISA §298.23 [&Imprimir e &Etiquetas — uPesquisa.pas:570-665 e :423-568]: as "Configurações de impressão salvas" são os relatórios do construtor da VIEW ABERTA (o de GET_APAGAR em "Somente abertas", o de GET_CP em "Somente quitadas"); o &Imprimir roda o relatório com o filtro obrigatório + o da pesquisa (o resultado inteiro sem marcados; só o que a pesquisa acha com valor; só o marcado com o IN), e o texto da pesquisa vai ao cabeçalho; relatório de outra view = 422; sem a opção BTNIMPRIMIR do FRMRELATORIO (o portão da impressão do construtor), nem a lista nem a impressão (403 — o legado cria o TfrmRelatorio sem o controle de permissões: atalho que o Apollo não reproduz); o &Etiquetas só na pesquisa de produto',
+          semPermLista === 403 && semPermImp === 403
+          && relAb.includes(rAp) && !relAb.includes(rCp) && relQt.includes(rCp) && !relQt.includes(rAp)
+          && impTodas.status === 200 && dadosDe(impTodas).length === Math.min(todasAb.j.total, 20000) && todasAb.j.total > 1
+          && impFiltro.status === 200 && dadosDe(impFiltro).length === 1 && Number(dadosDe(impFiltro)[0]?.C0) === 998311
+          && String(impFiltro.j.modelo ?? '').includes('Em Qualquer Lugar PESQ298B')
+          && impMarc.status === 200 && dadosDe(impMarc).length === 1 && Number(dadosDe(impMarc)[0]?.C0) === 998311 && String(impMarc.j.modelo ?? '').includes('1 marcado')
+          && impOutra.status === 422 && impOutra.j.code === 'PESQUISA_RELATORIO_DE_OUTRA_VIEW'
+          && etqProd === 'produto' && etqParc == null,
+          { semPerm: [semPermLista, semPermImp], relAb, relQt, rAp, rCp, todas: [impTodas.status, dadosDe(impTodas).length, todasAb.j.total, impTodas.j.code], filtro: [impFiltro.status, dadosDe(impFiltro).map((l) => l.C0), impFiltro.j.code],
+            marc: [impMarc.status, dadosDe(impMarc).map((l) => l.C0)], outra: [impOutra.status, impOutra.j.code], etq: [etqProd, etqParc] });
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

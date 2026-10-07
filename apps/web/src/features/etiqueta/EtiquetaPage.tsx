@@ -95,13 +95,13 @@ export function EtiquetaPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // vindo do cadastro de produto, da Precificação NF, do Relatório de preços alterados ou da NF: a lista pronta, marcada,
-  // com as linhas repetidas como o legado as põe no cdsImpressao
+  // vindo do cadastro de produto, da Precificação NF, do Relatório de preços alterados, da NF ou da Pesquisa: a lista pronta, marcada
+  // (a da Pesquisa desmarcada), com as linhas repetidas como o legado as põe no cdsImpressao
   useEffect(() => {
     const pedido = lerPedidoDeItens();
     if (!pedido) return;
     void etiquetasDeItens(pedido).then((r) => {
-      acrescentar(r, true, true, pedido.fonte !== 'cadastro');
+      acrescentar(r, pedido.marcar ?? true, true, pedido.fonte !== 'cadastro');
       mensagem.sucesso(`${r.length} etiqueta(s) na lista.`);
     }).catch((e) => mensagem.erro(e));
   // eslint-disable-next-line react-hooks/exhaustive-deps

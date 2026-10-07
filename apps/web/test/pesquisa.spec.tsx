@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { Pesquisa } from '../src/shared/cadmaster/Pesquisa';
 import { ShortcutScope } from '../src/shared/keyboard';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const COLUNAS = [
   { campo: 'codigo', label: 'Código' },
@@ -277,6 +278,73 @@ describe('Pesquisa — a view do legado que multiplica o código (uma linha por 
     await waitFor(() => expect(screen.getAllByRole('checkbox', { name: 'Selecionar linha' }).map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true', 'false']));
     fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'OK')!);
     expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 7 })]);
+  });
+});
+
+describe('Pesquisa — &Imprimir (os relatórios salvos da view) e &Etiquetas (o resultado às etiquetas de preço)', () => {
+  let relatoriosResposta: unknown = [{ codrelatoriodef: 5, nome: 'PESQ AP' }];
+  beforeEach(() => {
+    relatoriosResposta = [{ codrelatoriodef: 5, nome: 'PESQ AP' }];
+    metaAtual = meta({ view: 'GET_APAGAR' });
+    sessionStorage.clear();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/pesquisa/relatorios')) {
+        return relatoriosResposta === 403 ? { ok: false, status: 403, json: async () => ({ statusCode: 403, code: 'ACESSO_NEGADO', message: 'x' }) }
+          : { ok: true, status: 200, json: async () => relatoriosResposta };
+      }
+      return {
+        ok: true, status: 200,
+        json: async () => u.includes('/pesquisa/meta') ? metaAtual
+          : u.includes('soCodigos=true') ? { codigos: [1, 2], total: 2 }
+          : u.includes('/pesquisa/imprimir') ? { titulo: 'PESQ AP', modelo: '', datasets: {} }
+          : { linhas: [{ codigo: 1, descricao: 'NESTLE', _linha: 0 }, { codigo: 2, descricao: 'UNILEVER', _linha: 1 }], total: 2 },
+      };
+    }) as any;
+    window.open = vi.fn(() => null) as any;
+  });
+
+  it('o &Imprimir manda a consulta na query e, no corpo, o relatório escolhido e os códigos marcados', async () => {
+    abrir({ multisselecao: true, onSelecionarVarios: () => {} });
+    expect(await screen.findByLabelText('Configurações de impressão salvas')).toBeTruthy();
+    await pesquisarCom('ne');
+    await screen.findByText('UNILEVER');
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Selecionar linha' })[1]);
+    await waitFor(() => expect(screen.getByText(/1 registro selecionado/)).toBeTruthy());
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'Imprimir')!);
+    await waitFor(() => expect(chamadas().some((x) => x.includes('/cadastro/pesquisa/imprimir?'))).toBe(true));
+    const c = (global.fetch as any).mock.calls.find((x: any[]) => String(x[0]).includes('/pesquisa/imprimir'));
+    const u = new URL(String(c[0]));
+    expect(u.searchParams.get('campo')).toBe('descricao');
+    expect(u.searchParams.get('valor')).toBe('NE');
+    expect(JSON.parse(c[1].body)).toEqual({ codrelatoriodef: 5, marcados: ['2'] });
+    expect(window.open).toHaveBeenCalled(); // a janela abre no clique
+  });
+
+  it('quem não imprime relatórios (403) não vê o &Imprimir', async () => {
+    relatoriosResposta = 403;
+    abrir();
+    await screen.findByLabelText('Texto');
+    await waitFor(() => expect(chamadas().some((x) => x.includes('/pesquisa/relatorios'))).toBe(true));
+    expect(screen.queryByLabelText('Configurações de impressão salvas')).toBeNull();
+    expect(screen.getAllByRole('button').some((b) => b.textContent === 'Imprimir')).toBe(false);
+  });
+
+  it('o &Etiquetas (pesquisa de produto) leva os códigos do resultado inteiro às etiquetas, desmarcados', async () => {
+    metaAtual = meta({ view: 'GET_PRODUTOS', etiqueta: 'produto', retorno: 'codigo' });
+    render(
+      <MemoryRouter initialEntries={['/cadastro/produtos']}>
+        <Routes>
+          <Route path="/cadastro/produtos" element={<ShortcutScope><Pesquisa resourcePath="cadastro/produtos" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} /></ShortcutScope>} />
+          <Route path="/estoque/etiquetas" element={<p>TELA DE ETIQUETAS</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await pesquisarCom('ne');
+    await screen.findByText('UNILEVER');
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'Etiquetas')!);
+    expect(await screen.findByText('TELA DE ETIQUETAS')).toBeTruthy();
+    expect(JSON.parse(sessionStorage.getItem('apollo.etiquetas.itens')!)).toEqual({ fonte: 'cadastro', itens: [{ idproduto: 1 }, { idproduto: 2 }], marcar: false });
   });
 });
 

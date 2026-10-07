@@ -85,9 +85,22 @@ Duas consequências na tela (smoke §298.18, jsdom `pesquisa.spec.tsx`):
   parceiro por endereço, o pedido por loja, o título por baixa). A grade usa o `_linha` como id. A marca da multisseleção é do código:
   as linhas do mesmo código aparecem marcadas juntas, e o OK devolve o código uma vez.
 
-**Falta:** B5 (`rel_get_plc`, `rel_get_cfop` e as colunas aditivas de GET_PRECO, GET_MOTIVOS_OPERACAO, GET_HISTORICO_CONTABIL e
-GET_OPERACOES_CONTA); B6 (os lookups de valor decodificado — famílias, plano de contas, PLC, CFOP, operadores — na relação do legado);
-F7 (filtros acumulados); imprimir e etiquetas; Ins/F2; o status do lookup de campo.
+**B5/B6 entregues** (`bf41301`, mig 413; smoke §298.19-§298.22): GET_PLC e GET_CFOP do legado, as 4 colunas que faltavam, e os
+lookups pelo texto decodificado.
+
+**&Imprimir e &Etiquetas entregues** (smoke §298.23, jsdom). As "Configurações de impressão salvas" são os relatórios do construtor
+(RELATORIO_DEFINICAO da loja) cuja fonte é a view aberta. No legado são os arquivos `Report\<VIEW>_*` da estação. O &Imprimir roda o
+relatório com o `FiltroDefualt` do legado: o filtro obrigatório, mais o da pesquisa, mais o `IN` dos marcados (até 2.000; acima disso,
+o resultado inteiro). O servidor monta o filtro como `<retorno> IN (SELECT … da relação da pesquisa)`, e o texto da pesquisa vai ao
+cabeçalho. O &Etiquetas (só na pesquisa de produto) leva o resultado inteiro às etiquetas de preço, desmarcado, com quantidade 1.
+Divergências:
+- A lista e a impressão exigem a opção BTNIMPRIMIR do FRMRELATORIO, o portão da impressão do construtor. O legado cria o TfrmRelatorio
+  sem o controle de permissões, e esse atalho não foi reproduzido.
+- As etiquetas recebem até 5.000 produtos, o teto do `de-itens`.
+- As etiquetas de endereço de parceiro e associado (`FlagEtiqueta` 1) não têm tela no Apollo.
+
+**Falta:** F7 (filtros acumulados); Ins/F2; o status do lookup de campo; aplicar a multisseleção nas telas
+(`uPesquisa-multisselecao.md`).
 
 ## 1. Resumo para quem tem pressa
 

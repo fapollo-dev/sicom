@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type RawBuilder } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -41,6 +41,15 @@ export interface ColunaDef {
   formato?: 'texto' | 'moeda' | 'data' | 'numero';
 }
 export interface CondicaoDef { campo: string; operador: string; valor?: unknown }
+/**
+ * o que o relatório roda: o salvo (ou a definição avulsa) + os filtros do operador + a RESTRIÇÃO de quem o abriu — o `FiltroDefualt` do
+ * TfrmRelatorio (a Pesquisa: filtro obrigatório + o da pesquisa + `CAMPO_RETORNO IN (<marcados>)`, uPesquisa.pas:636-646). A restrição
+ * é SQL montada no servidor (nunca vem do HTTP: os DTOs não a têm) e o texto dela vai ao cabeçalho, ao lado das condições.
+ */
+export interface ExecucaoInterna {
+  codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[];
+  restricao?: { sql: RawBuilder<unknown>; texto?: string };
+}
 export interface OrdemDef { campo: string; direcao?: 'asc' | 'desc' }
 export interface Definicao {
   titulo?: string;
@@ -234,7 +243,7 @@ export class RelatorioConstrutorService {
   }
 
   /** a consulta do relatório (o `ProcessaSQL`) com o que a impressão precisa a mais: as colunas inteiras, os campos do grupo nas linhas */
-  private async rodar(p: { codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[]; limite?: number }) {
+  private async rodar(p: ExecucaoInterna & { limite?: number }) {
     const db = this.dbp.forTenantRead() as AnyDB;
     let fonte = p.fonte ?? '';
     let def = p.definicao as Definicao | undefined;
@@ -277,6 +286,8 @@ export class RelatorioConstrutorService {
 
     // 2) as condições salvas + os filtros de execução.
     const where = [...(def.condicoes ?? []), ...(p.filtros ?? [])].map((c) => this.condicao(c, tipoDe.get(c.campo)?.tipo));
+    // o FiltroDefualt de quem abriu o relatório (a Pesquisa: o filtro obrigatório + o da pesquisa + o IN dos marcados)
+    if (p.restricao) where.push(p.restricao.sql);
 
     // 3) a ordenação.
     const ordem = (def.ordem ?? []).map((o) => sql`${sql.id(o.campo)} ${sql.raw(String(o.direcao).toLowerCase() === 'desc' ? 'DESC' : 'ASC')}`);
@@ -346,7 +357,7 @@ export class RelatorioConstrutorService {
       grupos,
       somenteAgrupamento: !!def.somenteAgrupamento && !!grupos,
       quebraPagina: !!def.quebraPagina && !!grupos,
-      interno: { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros: p.filtros ?? [] },
+      interno: { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros: p.filtros ?? [], restricao: p.restricao },
     };
   }
 
@@ -401,9 +412,9 @@ export class RelatorioConstrutorService {
    * "tamanho máximo" (TAMANHO_MAX), o maior entre o título e o maior dado da coluna (data: no mínimo 10). Sem dados: "Dados não
    * encontrados com os configurações atuais, Verifique".
    */
-  async impressao(p: { codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[] }) {
+  async impressao(p: ExecucaoInterna) {
     const r = await this.rodar({ ...p, limite: 20000 });
-    const { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros } = r.interno;
+    const { def, cols, grupo, relacao, tipoDe, linhasComGrupo, filtros, restricao } = r.interno;
     if (!linhasComGrupo.length) throw new BusinessRuleError('RELATORIO_SEM_DADOS', {}, 'Dados não encontrados com os configurações atuais, Verifique');
     const db = this.dbp.forTenantRead() as AnyDB;
     const info = new Map(((await sql<{ column_name: string; data_type: string; tam: number | null }>`
@@ -445,7 +456,8 @@ export class RelatorioConstrutorService {
       };
       return Array.isArray(v) ? v.map(um).join(' à ') : um(v);
     };
-    const textoWhere = [...(def.condicoes ?? []), ...filtros].map((c) => `${nomeCampo(c.campo)}: ${mostrar(c.campo, c.valor)}`).join(', ');
+    const textoWhere = [...[...(def.condicoes ?? []), ...filtros].map((c) => `${nomeCampo(c.campo)}: ${mostrar(c.campo, c.valor)}`), ...(restricao?.texto ? [restricao.texto] : [])]
+      .join(', ');
     const arquivo = !grupo.length ? 'RelatorioGeral_SemGrupo.fr3' : def.quebraPagina ? 'RelatorioGeral_ComSalto.fr3' : 'RelatorioGeral_ComGrupo.fr3';
     const emp = (await sql<Record<string, unknown>>`
       SELECT fantasia, endereco, bairro, cidade, uf, cnpj FROM empresas WHERE idempresa = ${this.emp()}`.execute(db)).rows[0] ?? {};

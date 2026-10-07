@@ -53,6 +53,12 @@ export interface PesquisaTela {
   descricaoObrigatorios?: string;
   /** a janela de opções antes da Pesquisa (A pagar, A receber) */
   opcoes?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
+  /**
+   * o &Etiquetas da Pesquisa (`FEtiqueta` + `FlagEtiqueta`, uPesquisa.pas:423-568): 'produto' manda o resultado inteiro às etiquetas de
+   * preço (UCadProduto.pas:3737-3738). As de parceiro (uCadClientes/uCadAssociados, FlagEtiqueta 1 — etiqueta de endereço) não têm tela
+   * no Apollo
+   */
+  etiqueta?: 'produto';
   /** o complemento da janela de opções (o `OpcoesCompl` do TfrmOpcoes — o "Com/Sem centro de custo" do A pagar) */
   complemento?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
   /** os parâmetros que a tela aceita do cliente (o resto é ignorado) — ex.: o tipo da NF */
@@ -431,7 +437,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
 
   // UCadProduto.pas:6294-6300: abre em DESCRICAO (em qualquer lugar), ordena por DESCRICAO; o código de barras acha também pelo
   // código auxiliar. A GET_PRODUTOS da produção é por loja (IDEMPRESA e o ATIVO da MULTI_PRECO) — a do destino ainda não: corte B.
-  'cadastro/produtos': { view: 'get_produtos', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto',
+  'cadastro/produtos': { view: 'get_produtos', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto', etiqueta: 'produto',
     campoAtivo: ATIVO, obrigatorios: (ctx) => [daLoja(ctx, 'idempresa')],
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },

@@ -19,7 +19,7 @@ export interface StatusDaPesquisa {
 interface ItemStatus { controle?: string; valor?: string; valorAuxiliar?: string; classe?: string; classePai?: string; visivel?: boolean; habilitado?: boolean; leitura?: boolean; frame?: string }
 
 /** o texto da operação na combo do legado (MontaComboOperacao, uComunPesquisaRel.pas:421-452) */
-const TEXTO_OPERACAO: Record<Operacao, string> = {
+export const TEXTO_OPERACAO: Record<Operacao, string> = {
   igual: 'Igual a', diferente: 'Diferente de', comeca: 'Começado com', termina: 'Terminado com', qualquer: 'Em Qualquer Lugar',
   contido: 'Contido em', entre: 'Entre', maior: 'Maior que', menor: 'Menor que',
 };
