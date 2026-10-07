@@ -95,6 +95,13 @@ interface Props {
   situacaoInicial?: Situacao;
   /** mantido por compatibilidade: dentro da Pesquisa o F6 não é mais a situação (uPesquisa: F6 é o modo do filtro da coluna) */
   onSituacao?: (s: Situacao) => void;
+  /**
+   * a MULTISSELEÇÃO (`HabilitaMultiselecao`, 73 units — uPesquisa.pas:2616-2624, :1253-1361, `MarcarDesmarcarTodos` :1924-1954): a
+   * coluna de seleção, Espaço marca e desce, T marca/desmarca todos, o duplo clique marca e confirma, o contador; o &OK devolve as
+   * marcadas (sem nenhuma marcada, a linha posicionada) em `onSelecionarVarios`
+   */
+  multisselecao?: boolean;
+  onSelecionarVarios?: (linhas: Record<string, any>[]) => void;
 }
 
 /**
@@ -104,7 +111,7 @@ interface Props {
  * de 200 linhas — a grade pagina sobre o total. Abre vazia, como o legado. Enter/duplo clique/&OK devolvem o registro; o clique
  * simples só posiciona. Telas com opções antes da Pesquisa (A pagar, A receber) mostram as opções primeiro.
  */
-export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, parametros, situacaoInicial }: Props) {
+export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, parametros, situacaoInicial, multisselecao, onSelecionarVarios }: Props) {
   const mensagem = useMensagem();
   const situacao = situacaoInicial ?? 'ativos';
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -119,6 +126,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const [colunaSoma, setColunaSoma] = useState<string | null>(null);
   const [soma, setSoma] = useState<number | null>(null);
   const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
+  // as linhas marcadas (multisseleção), pelo código de retorno — valem entre as páginas
+  const [marcados, setMarcados] = useState<Map<string, Record<string, any>>>(new Map());
   const linhas = useRef<Record<string, any>[]>([]);
   const atual = useRef<Record<string, any> | null>(null);
   const clique = useRef(false);
@@ -242,7 +251,31 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     } catch (e) { mensagem.erro(e); }
   };
 
+  const chaveDe = (l: Record<string, any>) => String(l[meta?.retorno ?? colunasDaTela?.[0]?.campo ?? 'id']);
+  const alternarMarca = (l: Record<string, any>) => setMarcados((m) => {
+    const n = new Map(m);
+    const k = chaveDe(l);
+    if (n.has(k)) n.delete(k); else n.set(k, l);
+    return n;
+  });
+  // T: marca todos (o resultado inteiro, até 1.000 linhas — o legado marca o dataset carregado) ou, se há marcadas, desmarca todas
+  const marcarDesmarcarTodos = async () => {
+    if (marcados.size) { setMarcados(new Map()); return; }
+    if (!consulta) return;
+    const qs = new URLSearchParams({ recurso: resourcePath, campo: consulta.campo, operacao: consulta.operacao, valor: consulta.valor, valor2: consulta.valor2, situacao, pagina: '0', porPagina: '1000' });
+    if (consulta.opcao) qs.set('opcao', consulta.opcao);
+    try {
+      const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+      // (acima de 1.000 o contador do rodapé mostra quantos ficaram marcados contra o total)
+      setMarcados(new Map(r.linhas.map((l) => [chaveDe(l), l])));
+    } catch (e) { mensagem.erro(e); }
+  };
   const confirmar = (row?: Record<string, any> | null) => {
+    if (multisselecao && onSelecionarVarios) {
+      const escolhidas = marcados.size ? [...marcados.values()] : [row ?? linhaPosicionada()].filter((x): x is Record<string, any> => !!x);
+      if (escolhidas.length) onSelecionarVarios(escolhidas);
+      return;
+    }
     const r = row ?? atual.current ?? linhas.current[0];
     if (r) onSelecionar(r, consulta ? fonteDaNavegacao(consulta) : undefined);
   };
@@ -282,6 +315,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
 
   const rodape = [
     total == null ? null : `${total.toLocaleString('pt-BR')} registro${total === 1 ? '' : 's'}`,
+    multisselecao ? `${marcados.size} registro${marcados.size === 1 ? '' : 's'} selecionado${marcados.size === 1 ? '' : 's'}` : null,
     meta?.situacao ? `Ativo: ${SIT_LABEL[situacao]} (F6 no cadastro)` : null,
     meta?.obrigatorio,
   ].filter(Boolean).join(' · ');
@@ -344,7 +378,35 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
               ref={corpoRef}
               // marca "isto é um clique" só durante o evento: o onRowClick do mesmo clique o vê; um Enter depois, não
               onClickCapture={() => { clique.current = true; setTimeout(() => { clique.current = false; }, 0); }}
-              onDoubleClick={() => confirmar()}
+              onDoubleClick={() => {
+                // na multisseleção o duplo clique marca a linha e confirma (uPesquisa.pas:959-967)
+                if (multisselecao && atual.current) {
+                  const k = chaveDe(atual.current);
+                  const m = new Map(marcados);
+                  if (!m.has(k)) m.set(k, atual.current);
+                  setMarcados(m);
+                  if (onSelecionarVarios) onSelecionarVarios([...m.values()]);
+                  return;
+                }
+                confirmar();
+              }}
+              // Espaço marca/desmarca a linha e desce; T marca/desmarca todos (com o foco na grade)
+              onKeyDownCapture={(e) => {
+                if (!multisselecao) return;
+                const linhaEl = (e.target as HTMLElement).closest?.('[role="row"][tabindex]');
+                if (!linhaEl) return;
+                if (e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const l = linhaPosicionada();
+                  if (l) alternarMarca(l);
+                  (linhaEl.nextElementSibling as HTMLElement | null)?.focus();
+                } else if (e.key === 't' || e.key === 'T') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void marcarDesmarcarTodos();
+                }
+              }}
             >
               <DataTable
                 fetchData={fetchData}
@@ -354,7 +416,22 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 paginationConfig={{ enabled: true, initialPageSize: 100 }}
                 cardBreakpoint={false}
                 // a cor da 1ª regra que casa (calculada no servidor — `_cor`)
-                getRowClassName={({ row }: { row: any }) => CLASSE_DA_COR[row._cor] ?? ''}
+                getRowClassName={({ row }: { row: any }) => `${CLASSE_DA_COR[row._cor] ?? ''}${multisselecao && marcados.has(chaveDe(row)) ? ' font-semibold' : ''}`}
+                // a coluna de seleção (SELECIONAR): controlada aqui para valer entre as páginas e devolver as linhas
+                selectionConfig={multisselecao ? { enabled: true, enableGlobal: false } : undefined}
+                selectionModel={multisselecao ? { type: 'include', ids: new Set(marcados.keys()) } : undefined}
+                onSelectionModelChange={multisselecao ? (m: { type: 'include' | 'exclude'; ids: Set<string | number> }) => {
+                  if (m.type !== 'include') return;
+                  setMarcados((antes) => {
+                    const n = new Map<string, Record<string, any>>();
+                    for (const id of m.ids) {
+                      const k = String(id);
+                      const l = antes.get(k) ?? linhas.current.find((x) => chaveDe(x) === k);
+                      if (l) n.set(k, l);
+                    }
+                    return n;
+                  });
+                } : undefined}
                 // o clique só posiciona (o legado confirma com Enter, duplo clique ou OK); o Enter na linha focada confirma
                 onRowClick={(row: any) => {
                   if (clique.current) { clique.current = false; atual.current = row; return; }

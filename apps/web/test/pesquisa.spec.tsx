@@ -196,3 +196,38 @@ describe('Pesquisa — corte E: o status da tela (Ctrl+Shift+S/D, CONFIG_STATUS_
     await waitFor(() => expect((global.fetch as any).mock.calls.some((c: any[]) => c[1]?.method === 'DELETE')).toBe(true));
   });
 });
+
+describe('Pesquisa — a multisseleção (HabilitaMultiselecao)', () => {
+  beforeEach(() => {
+    metaAtual = meta();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual
+        : { linhas: [{ codigo: 1, descricao: 'NESTLE' }, { codigo: 2, descricao: 'UNILEVER' }, { codigo: 3, descricao: 'COCA' }], total: 3 },
+    })) as any;
+  });
+
+  it('marcar pela coluna de seleção conta no rodapé e o OK devolve as marcadas; sem marcada, a posicionada', async () => {
+    const varios = vi.fn();
+    abrir({ multisselecao: true, onSelecionarVarios: varios });
+    await pesquisarCom('');
+    await screen.findByText('UNILEVER');
+    const caixas = screen.getAllByRole('checkbox', { name: 'Selecionar linha' });
+    fireEvent.click(caixas[0]);
+    fireEvent.click(caixas[2]);
+    await waitFor(() => expect(screen.getByText(/2 registros selecionados/)).toBeTruthy());
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'OK')!);
+    expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 1 }), expect.objectContaining({ codigo: 3 })]);
+  });
+
+  it('o duplo clique marca a linha e confirma junto com as já marcadas', async () => {
+    const varios = vi.fn();
+    abrir({ multisselecao: true, onSelecionarVarios: varios });
+    await pesquisarCom('');
+    const coca = await screen.findByText('COCA');
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Selecionar linha' })[0]);
+    fireEvent.click(coca);
+    fireEvent.doubleClick(coca);
+    expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 1 }), expect.objectContaining({ codigo: 3 })]);
+  });
+});
