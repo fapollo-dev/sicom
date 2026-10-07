@@ -6,7 +6,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { TransferenciasPermitidas } from './TransferenciasPermitidas';
 import {
   contaBancariaSchema,
@@ -21,7 +21,7 @@ import {
  * camada de teclado vêm do pilar/engine.
  *
  * Palette espelhado do .dfm:
- *  - Banco (FK/LOOKUP → cadastro/bancos), Titular, Nº Conta, Gerente (Field).
+ *  - Banco (LookupField → lookup/bancos), Titular, Nº Conta, Gerente (Field).
  *  - Data de abertura (DateField), Telefone (Field), Observação (TextArea, MAIÚSCULAS).
  *  - Conta Própria / Exibe Rel. Apuração de Caixa / Ativo (CheckboxField S/N).
  *  - Grupo "Boleto": Convênio / Carteira / Variação (NumberField INTEIROS, não moeda),
@@ -36,22 +36,6 @@ import {
  *  - aba mestre-detalhe "Liberação de operadores" (detalhe `operadores`, quem baixa CR/CP por essa conta).
  */
 export function ContasBancariasCadMaster() {
-  // LOOKUP/FK: opções de Banco vêm do recurso cadastro/bancos (outra entidade)
-  const { data: bancoOptions = [] } = useResourceOptions('cadastro/bancos', (b: any) => ({
-    value: String(b.codbco),
-    label: `${b.codbco} - ${b.banco}`,
-  }));
-  // LOOKUP Plano de Contas: só analíticas (classe='A'); o servidor reforça TIPO='E' (empresa) no gravar.
-  const { data: planoContasOptions = [] } = useResourceOptions(
-    'cadastro/plano-contas',
-    (c: any) => ({ value: String(c.codplanocontas ?? c.codigo), label: `${c.codplanocontas ?? c.codigo} - ${c.descricao ?? ''}` }),
-    { campo: 'classe', operador: 'igual', valor: 'A' },
-  );
-  // LOOKUP de operadores (aba "Liberação de operadores").
-  const { data: operadorOptions = [] } = useResourceOptions('cadastro/operadores', (o: any) => ({
-    value: String(o.codoperador),
-    label: `${o.codoperador} - ${o.nome ?? ''}`,
-  }));
   return (
     <CadMasterDet<CriarContaBancariaDto>
       titulo="Contas Bancárias"
@@ -91,18 +75,21 @@ export function ContasBancariasCadMaster() {
         chave: 'operadores',
         titulo: 'Liberação de operadores (baixa CR/CP por esta conta)',
         novoItem: () => ({ codoperador: undefined as unknown as number, cbo_baixa_cr: 'S', cbo_baixa_cp: 'S' }),
-        itemCampos: ({ form, index }) => (
+        itemCampos: ({ form, index, editavel }) => (
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            {/* UCadContasBancarias.pas:165 — GET_OPERADORES, sem filtro */}
             <Controller
               control={form.control}
               name={`operadores.${index}.codoperador` as const}
               render={({ field }) => (
-                <SelectField
+                <LookupField
                   label="Operador"
-                  options={operadorOptions}
-                  value={field.value != null ? String(field.value) : undefined}
-                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                  placeholder="Selecione o operador…"
+                  recurso="lookup/operadores"
+                  campoCodigo="codoperador"
+                  descricao="nome"
+                  value={field.value as number | undefined}
+                  onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                  disabled={!editavel}
                 />
               )}
             />
@@ -121,19 +108,21 @@ export function ContasBancariasCadMaster() {
       }}
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-          {/* FK/LOOKUP de Banco (CODBCO → BANCOS, obrigatório) */}
+          {/* FK/LOOKUP de Banco (CODBCO → BANCOS, obrigatório) — UCadContasBancarias.pas:131/147, GET_BANCOS sem filtro */}
           <div className="sm:col-span-2">
             <Controller
               control={form.control}
               name="codbco"
               render={({ field }) => (
-                <SelectField
+                <LookupField
                   label="Banco"
-                  options={bancoOptions}
-                  value={field.value != null ? String(field.value) : undefined}
-                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                  placeholder="Selecione o banco…"
+                  recurso="lookup/bancos"
+                  campoCodigo="codigo"
+                  descricao="banco"
+                  value={field.value as number | undefined}
+                  onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                   error={form.formState.errors.codbco?.message as string | undefined}
+                  disabled={!editavel}
                 />
               )}
             />
@@ -178,18 +167,22 @@ export function ContasBancariasCadMaster() {
             error={form.formState.errors.fone1?.message as string | undefined}
             {...form.register('fone1')}
           />
-          {/* LOOKUP Plano de Contas (CODLANCCONTABIL → analíticas; o servidor valida CLASSE='A' AND TIPO='E'). */}
+          {/* LOOKUP Plano de Contas (CODLANCCONTABIL) — UCadContasBancarias.pas:175, GET_PLANO_CONTAS (CLASSE='ANALITICA') AND
+              (TIPO='EMPRESA') = classe 'A' e tipo 'E' (o decode da view da produção); o servidor confere o mesmo no gravar */}
           <Controller
             control={form.control}
             name="codlanccontabil"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="Plano de contas"
-                options={planoContasOptions}
+                recurso="lookup/plano-contas"
+                campoCodigo="codplanocontas"
+                descricao="descricao"
+                fixos={{ classe: 'A', tipo: 'E' }}
                 value={field.value != null && field.value !== '' ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ?? '')}
-                placeholder="Selecione a conta contábil…"
+                onChange={(cod) => field.onChange(cod ?? '')}
                 error={form.formState.errors.codlanccontabil?.message as string | undefined}
+                disabled={!editavel}
               />
             )}
           />

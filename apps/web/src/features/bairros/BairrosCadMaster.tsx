@@ -2,7 +2,7 @@ import { Controller } from 'react-hook-form';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import {
   bairroSchema,
   REGIAO_BAIRRO,
@@ -17,11 +17,6 @@ import {
  * gravar/excluir com mnemônicos, soft-delete, histórico) vem do pilar/engine.
  */
 export function BairrosCadMaster() {
-  // LOOKUP/FK: opções de cidade vêm do recurso cadastro/cidades (outra entidade)
-  const { data: cidadeOptions = [] } = useResourceOptions('cadastro/cidades', (c: any) => ({
-    value: String(c.idcidade),
-    label: `${c.cidade}`,
-  }));
   return (
     <CadMaster<CriarBairroDto>
       titulo="Bairros"
@@ -71,18 +66,21 @@ export function BairrosCadMaster() {
               />
             )}
           />
+          {/* LOOKUP de cidade (GET_CIDADES): a tela é nova (uCadBairros.md — não há form legado), então sem filtro do campo */}
           <div className="sm:col-span-2">
             <Controller
               control={form.control}
               name="idcidade"
               render={({ field }) => (
-                <SelectField
+                <LookupField
                   label="&Cidade"
-                  options={cidadeOptions}
-                  value={field.value != null ? String(field.value) : undefined}
-                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                  placeholder="Selecione a cidade…"
+                  recurso="lookup/cidades"
+                  campoCodigo="idcidade"
+                  descricao="cidade"
+                  value={field.value as number | undefined}
+                  onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                   error={form.formState.errors.idcidade?.message as string | undefined}
+                  disabled={!editavel}
                 />
               )}
             />

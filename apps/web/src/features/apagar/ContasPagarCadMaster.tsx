@@ -11,7 +11,8 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
-import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useSituacoesDaOperacao, useSituacaoUnica } from '../../shared/situacao/situacaoDaOperacao';
 import { useMensagem } from '../../shared/mensagem';
 import { hojeNaLoja } from '../../shared/tempo';
@@ -24,19 +25,6 @@ const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits:
  * layout tabulado fiel ao legado, visual do design system. O parceiro é o FORNECEDOR (frn='S').
  */
 export function ContasPagarCadMaster() {
-  const { data: fornecedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'frn', operador: 'igual', valor: 'S' },
-  );
-  const { data: bancoOptions = [] } = useResourceOptions('cadastro/bancos', (b: any) => ({
-    value: String(b.codigo ?? b.codbco),
-    label: `${b.codigo ?? b.codbco} - ${b.nome ?? b.descricao ?? ''}`,
-  }));
-  const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
-    value: String(c.codplc),
-    label: `${c.desccodplc ?? c.codplc} - ${c.descricao}`,
-  }));
   // só as situações da operação da tela (UCadSituacaoNF.md C5)
   const situacaoOptions = useSituacoesDaOperacao('F04', 'E');
 
@@ -64,18 +52,18 @@ export function ContasPagarCadMaster() {
         { campo: 'quitada', label: 'Paga', tipo: 'text', largura: 90 },
       ]}
       campos={({ form, editavel }) => (
-        <ApForm form={form} editavel={editavel} opts={{ fornecedorOptions, bancoOptions, plcOptions, situacaoOptions }} />
+        <ApForm form={form} editavel={editavel} opts={{ situacaoOptions }} />
       )}
     />
   );
 }
 
 type LookupOptions = {
-  fornecedorOptions: Opcao[];
-  bancoOptions: Opcao[];
-  plcOptions: Opcao[];
   situacaoOptions: Opcao[];
 };
+
+/** o centro de custo como o legado o mostra: o código extenso (DESCCODPLC) e a descrição */
+const descPlc = (l: Record<string, any>) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`;
 
 function ApForm({ form, editavel, opts }: { form: UseFormReturn<CriarApagarDto>; editavel: boolean; opts: LookupOptions }) {
   const [aba, setAba] = useState('cadastro');
@@ -174,14 +162,18 @@ function CadastroTab({ form, editavel, opts, bloqueados }: { form: UseFormReturn
         control={form.control}
         name="codparceiro"
         render={({ field }) => (
-          <SelectField
+          // uAPagar.pas:6115-6119 — GET_PARCEIROS, FRN='S' AND ATIVADO='S' e os parceiros permitidos pela situação do documento
+          <LookupField
             label="Fornecedor"
-            options={opts.fornecedorOptions}
-            value={field.value != null ? String(field.value) : undefined}
-            onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-            placeholder="Selecione o fornecedor…"
+            recurso="lookup/parceiros"
+            campoCodigo="codparceiro"
+            descricao="razao"
+            fixos={{ frn: 'S', ativado: 'S' }}
+            parametros={{ idsituacao_nf: form.watch('idsituacao_nf' as any) }}
+            value={field.value as number | undefined}
+            onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
             error={err.codparceiro?.message as string | undefined}
-            disabled={trava('codparceiro')}
+            disabled={!editavel || trava('codparceiro')}
           />
         )}
       />
@@ -225,11 +217,18 @@ function CadastroTab({ form, editavel, opts, bloqueados }: { form: UseFormReturn
         )} />
       </div>
       <div className="mt-form-gap grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
+        {/* uAPagar.pas:6129 — GET_BANCOS, sem filtro */}
         <Controller control={form.control} name="codbco" render={({ field }) => (
-          <SelectField label="Banc&o" options={opts.bancoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+          <LookupField label="Banc&o" recurso="lookup/bancos" campoCodigo="codigo" descricao="banco" value={field.value as number | undefined}
+            onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel} />
         )} />
+        {/* uAPagar.pas:771-778 — GET_PLC; o filtro do legado (comprimento da máscara, TIPO_CONTA do convênio, CODIGO IN da situação)
+            não é igualdade: fica no servidor */}
         <Controller control={form.control} name="codplc" render={({ field }) => (
-          <SelectField label="Ce&ntro de custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
+          // uAPagar.pas:771-778 — a conta no tamanho da máscara da empresa e os centros da situação do documento
+          <LookupField label="Ce&ntro de custo" recurso="lookup/plc" campoCodigo="codplc" descricao={descPlc} value={field.value as number | undefined}
+            parametros={{ lancavel: 'S', idsituacao_nf: form.watch('idsituacao_nf' as any) }}
+            onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codplc')} />
         )} />
         <Controller control={form.control} name="idsituacao_nf" render={({ field }) => (
           <SelectField label="&Situação (natureza)" options={opts.situacaoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />

@@ -66,6 +66,8 @@ interface Props {
   colunas?: ColunaPesquisa[];
   /** o filtro obrigatório do lookup (FRN='S', CLASSE='A'…): igualdades coluna = valor, validadas no servidor */
   fixos?: Record<string, string | number>;
+  /** os parâmetros que a tela/lookup declara no servidor (`extras` — ex.: `lancavel`, `idsituacao_nf`) */
+  parametros?: Record<string, string | number | null | undefined>;
   /** o registro escolhido e a FONTE DA NAVEGAÇÃO do cadastro: os códigos do resultado inteiro, na ordem da grade (o `cdsNavegation`) */
   onSelecionar: (row: Record<string, any>, navegacao?: () => Promise<number[]>) => void;
   onFechar: () => void;
@@ -84,7 +86,7 @@ interface Props {
  * de 200 linhas — a grade pagina sobre o total. Abre vazia, como o legado. Enter/duplo clique/&OK devolvem o registro; o clique
  * simples só posiciona. Telas com opções antes da Pesquisa (A pagar, A receber) mostram as opções primeiro.
  */
-export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, situacaoInicial }: Props) {
+export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, parametros, situacaoInicial }: Props) {
   const mensagem = useMensagem();
   const situacao = situacaoInicial ?? 'ativos';
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -102,11 +104,12 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const ordemAtual = useRef<{ field: string; direction: string } | null>(null);
   const corpoRef = useRef<HTMLDivElement>(null);
 
-  const fixosChave = JSON.stringify(fixos ?? {});
+  const fixosChave = JSON.stringify([fixos ?? {}, parametros ?? {}]);
   const extrasQs = useMemo(() => {
     const partes: string[] = [];
     if (filtroExtra) partes.push(`${encodeURIComponent(filtroExtra.campo)}=${encodeURIComponent(filtroExtra.valor)}`);
     for (const [k, v] of Object.entries(fixos ?? {})) partes.push(`f_${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    for (const [k, v] of Object.entries(parametros ?? {})) if (v != null && v !== '') partes.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
     return partes.length ? `&${partes.join('&')}` : '';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroExtra, fixosChave]);

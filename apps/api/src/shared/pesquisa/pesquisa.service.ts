@@ -146,16 +146,20 @@ export class PesquisaService {
       conds.push(...(await t.obrigatorios(ctx)));
     }
 
-    // os filtros fixos do lookup
-    for (const [coluna, valor] of Object.entries(p.fixos ?? {})) {
-      const col = porNome.get(coluna);
-      if (!col) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: coluna });
-      try {
-        const c = condicaoDoUsuario(col.campo, col.tipo, valor.includes(',') ? 'contido' : 'igual', valor);
-        if (c) conds.push(c);
-      } catch {
-        throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { campo: coluna, valor });
+    // os filtros fixos do lookup; `a|b` = a coluna a OU a coluna b com o valor (o `(CLI = 'S' OR FRN = 'S')` do cliente do A receber)
+    for (const [chave, valor] of Object.entries(p.fixos ?? {})) {
+      const alternativas: RawBuilder<SqlBool>[] = [];
+      for (const coluna of chave.split('|')) {
+        const col = porNome.get(coluna);
+        if (!col) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: coluna });
+        try {
+          const c = condicaoDoUsuario(col.campo, col.tipo, valor.includes(',') ? 'contido' : 'igual', valor);
+          if (c) alternativas.push(c);
+        } catch {
+          throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { campo: coluna, valor });
+        }
       }
+      if (alternativas.length) conds.push(alternativas.length === 1 ? alternativas[0] : sql<SqlBool>`(${sql.join(alternativas, sql` or `)})`);
     }
 
     // o campo + operação + valor do operador

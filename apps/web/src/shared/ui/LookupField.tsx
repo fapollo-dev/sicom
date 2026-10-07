@@ -18,8 +18,10 @@ interface Props {
   campoCodigo: string;
   /** a coluna (ou a função) que mostra a descrição ao lado (o "retorno 2") */
   descricao: string | ((linha: Linha) => string);
-  /** o filtro obrigatório deste campo no legado (FRN='S', CLASSE='A'…) */
+  /** o filtro obrigatório deste campo no legado (FRN='S', CLASSE='A'…); `'cli|frn': 'S'` = uma OU outra coluna */
   fixos?: Record<string, string | number>;
+  /** os parâmetros que o lookup declara no servidor (ex.: `lancavel: 'S'` do centro de custo, `idsituacao_nf` da situação do documento) */
+  parametros?: Record<string, string | number | null | undefined>;
   value?: string | number | null;
   /** o código escolhido (undefined = vazio) e a linha inteira da view (o RetornoUnicoPesquisa) */
   onChange: (codigo: string | undefined, linha?: Linha) => void;
@@ -27,9 +29,10 @@ interface Props {
   error?: string;
 }
 
-async function buscarPorCodigo(recurso: string, campo: string, codigo: string, fixos?: Record<string, string | number>): Promise<Linha | null> {
+async function buscarPorCodigo(recurso: string, campo: string, codigo: string, fixos?: Record<string, string | number>, parametros?: Props['parametros']): Promise<Linha | null> {
   const qs = new URLSearchParams({ recurso, campo, operacao: 'igual', valor: codigo, situacao: 'todos', porPagina: '1' });
   for (const [k, v] of Object.entries(fixos ?? {})) qs.set(`f_${k}`, String(v));
+  for (const [k, v] of Object.entries(parametros ?? {})) if (v != null && v !== '') qs.set(k, String(v));
   const r = await fetch(`${BASE}/cadastro/pesquisa?${qs.toString()}`, { headers: apiHeaders() });
   handle401(r);
   if (!r.ok) {
@@ -47,7 +50,7 @@ async function buscarPorCodigo(recurso: string, campo: string, codigo: string, f
  * Apollo cortava em 200: a maior parte dos parceiros, produtos, cidades e contas contábeis não aparecia). Digitar o código e sair
  * (Enter/Tab) confere no servidor e mostra a descrição; código que não existe (no filtro do campo) fica marcado.
  */
-export function LookupField({ label, recurso, campoCodigo, descricao, fixos, value, onChange, disabled, error }: Props) {
+export function LookupField({ label, recurso, campoCodigo, descricao, fixos, parametros, value, onChange, disabled, error }: Props) {
   const [texto, setTexto] = useState(value == null ? '' : String(value));
   const [desc, setDesc] = useState('');
   const [naoAchou, setNaoAchou] = useState(false);
@@ -80,7 +83,7 @@ export function LookupField({ label, recurso, campoCodigo, descricao, fixos, val
     ultimo.current = v;
     if (!v) { setDesc(''); setNaoAchou(false); onChange(undefined); return; }
     onChange(v);
-    const l = await buscarPorCodigo(recurso, campoCodigo, v, fixos).catch(() => null);
+    const l = await buscarPorCodigo(recurso, campoCodigo, v, fixos, parametros).catch(() => null);
     if (ultimo.current !== v) return; // já digitaram outro
     setDesc(l ? descreve(l) : '');
     setNaoAchou(!l);
@@ -106,6 +109,7 @@ export function LookupField({ label, recurso, campoCodigo, descricao, fixos, val
         <Pesquisa
           resourcePath={recurso}
           fixos={fixos}
+          parametros={parametros}
           onFechar={() => setPesquisando(false)}
           onSelecionar={(l) => {
             setPesquisando(false);

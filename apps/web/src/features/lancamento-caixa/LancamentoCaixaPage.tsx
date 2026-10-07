@@ -8,6 +8,7 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useSituacoesDaOperacao } from '../../shared/situacao/situacaoDaOperacao';
 import { atualizarLancamento, criarLancamento, excluirLancamento, listarLancamentos, type LancamentoCaixa } from './lancamentoCaixaApi';
 
@@ -33,8 +34,6 @@ export function LancamentoCaixaPage() {
   const [form, setForm] = useState<Form | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const situacoes = useSituacoesDaOperacao('F06', 'S');
-  const { data: plcs = [] } = useResourceOptions('cadastro/plc', (c: any) => ({ value: String(c.codplc), label: `${c.desccodplc ?? c.codplc} - ${c.descricao}` }));
-  const { data: parceiros = [] } = useResourceOptions('cadastro/parceiros', (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }));
   const { data: contas = [] } = useResourceOptions('cadastro/contas-bancarias', (c: any) => ({ value: String(c.codconta), label: `${c.nroconta ?? c.codconta} - ${c.titular ?? ''}` }));
 
   const executar = async (f: () => Promise<void>) => {
@@ -122,8 +121,12 @@ export function LancamentoCaixaPage() {
             <DateField label="Movimento" value={form.data} onChange={(v) => setForm({ ...form, data: v ?? hoje() })} />
             <NumberField label="Valor" value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} decimais={2} min={0} />
             <SelectField label="Situação do documento" options={situacoes} value={form.idsituacao_nf} onChange={(v) => setForm({ ...form, idsituacao_nf: v || undefined })} placeholder="Selecione…" />
-            <SelectField label="Centro de custo" options={plcs} value={form.codplc} onChange={(v) => setForm({ ...form, codplc: v || undefined })} placeholder="Selecione o centro de custo…" />
-            <SelectField label="Parceiro" options={parceiros} value={form.codparceiro} onChange={(v) => setForm({ ...form, codparceiro: v || undefined })} placeholder="Selecione o parceiro…" />
+            {/* uMovCaixa.pas:712-716 — GET_PLC; o filtro do legado (comprimento da máscara, CODIGO IN da situação) não é igualdade: fica no servidor */}
+            <LookupField label="Centro de custo" recurso="lookup/plc" parametros={{ lancavel: 'S', idsituacao_nf: form.idsituacao_nf }} campoCodigo="codplc" descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
+              value={form.codplc} onChange={(cod) => setForm((f) => (f ? { ...f, codplc: cod } : f))} />
+            {/* uMovCaixa.pas:740-747 — GET_PARCEIROS, ATIVADO='S' (o CODIGO IN dos parceiros da situação é cobrado no gravar) */}
+            <LookupField label="Parceiro" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ ativado: 'S' }} parametros={{ idsituacao_nf: form.idsituacao_nf }}
+              value={form.codparceiro} onChange={(cod) => setForm((f) => (f ? { ...f, codparceiro: cod } : f))} />
             <SelectField label="Conta bancária" options={contas} value={form.codconta} onChange={(v) => setForm({ ...form, codconta: v || undefined })} placeholder="Selecione a conta…" />
           </div>
           <TextArea label="Observações" value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value.toUpperCase().slice(0, 300) })} />

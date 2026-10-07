@@ -29369,6 +29369,30 @@ async function main() {
           && lkCod.j.linhas?.[0]?.descricao === 'PESQ298 ZEBU ATIVO' && lkRuim.status === 422 && lkRuim.j.code === 'PESQUISA_CAMPO_INVALIDO',
           { frn: [lkFrn.status, lkFrn.j.total, frnTotal], cod: lkCod.j.linhas?.[0]?.descricao, ruim: [lkRuim.status, lkRuim.j.code] });
 
+        // o filtro do campo que não é igualdade: máscara do centro de custo, lista da situação, CLI OU FRN, operadores da loja
+        const masc = (await pgPq.query(`SELECT mascaraplc m FROM empresas WHERE idempresa = 1`)).rows[0]?.m as string | null;
+        const plcEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_plc WHERE coalesce(indr,'I') = 'I' AND length(coalesce(desccodplc,'')) > 5
+          AND ($1::text IS NULL OR char_length(coalesce(desccodplc,'')) = char_length($1::text))`, [masc])).rows[0].n);
+        const plcLanc = await pq('recurso=lookup/plc&campo=descricao&operacao=qualquer&valor=&lancavel=S&porPagina=1');
+        const sitLivre = (await pgPq.query(`SELECT s.idsituacao_nf id FROM situacao_nf s WHERE NOT EXISTS (SELECT 1 FROM situacao_nf_plc x WHERE x.idsituacao_nf = s.idsituacao_nf) ORDER BY 1 LIMIT 1`)).rows[0]?.id;
+        const umPlc = (await pgPq.query(`SELECT codplc FROM get_plc WHERE coalesce(indr,'I') = 'I' AND length(coalesce(desccodplc,'')) > 5 ORDER BY codplc LIMIT 1`)).rows[0]?.codplc;
+        let plcSit = { status: 0, j: {} as any };
+        if (sitLivre != null && umPlc != null) {
+          await pgPq.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES ($1, $2)`, [sitLivre, umPlc]);
+          plcSit = await pq(`recurso=lookup/plc&campo=descricao&operacao=qualquer&valor=&idsituacao_nf=${sitLivre}&porPagina=50`);
+          await pgPq.query(`DELETE FROM situacao_nf_plc WHERE idsituacao_nf = $1 AND codplc = $2`, [sitLivre, umPlc]);
+        }
+        const cliFrnEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_parceiros WHERE (cli = 'S' OR frn = 'S') AND ativado = 'S'`)).rows[0].n);
+        const cliFrn = await pq('recurso=lookup/parceiros&campo=razao&operacao=qualquer&valor=&f_cli%7Cfrn=S&f_ativado=S&porPagina=1');
+        const opEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_operadores g WHERE g.login <> 'SICOM' AND coalesce(g.indr,'I') = 'I'
+          AND g.codoperador IN (SELECT r.codoperador FROM relacao_operador_empresa r WHERE r.codempresa = 1)`)).rows[0].n);
+        const opLoja = await pq('recurso=lookup/operadores-da-loja&campo=nome&operacao=qualquer&valor=&porPagina=1');
+        check('PESQUISA §298.10 [o filtro do campo que não é igualdade]: centro de custo no tamanho da máscara da empresa (lancavel), só os centros da lista da situação quando ela tem lista, cliente = CLI OU FRN e ativo, e os operadores da loja do login pela RELACAO_OPERADOR_EMPRESA sem o SICOM',
+          plcLanc.status === 200 && plcLanc.j.total === plcEsp
+          && (sitLivre == null || umPlc == null || (plcSit.j.total === 1 && Number(plcSit.j.linhas?.[0]?.codplc) === Number(umPlc)))
+          && cliFrn.status === 200 && cliFrn.j.total === cliFrnEsp && opLoja.status === 200 && opLoja.j.total === opEsp,
+          { plc: [plcLanc.status, plcLanc.j.total, plcEsp, masc], sit: [sitLivre, umPlc, plcSit.j.total], cliFrn: [cliFrn.status, cliFrn.j.total, cliFrnEsp], op: [opLoja.status, opLoja.j.total, opEsp] });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

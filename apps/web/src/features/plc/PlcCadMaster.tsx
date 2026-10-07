@@ -5,7 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useShortcut } from '../../shared/keyboard';
 
 /**
@@ -23,10 +23,6 @@ const FLAGS: Array<[keyof CriarPlcDto, string]> = [
 ];
 
 export function PlcCadMaster() {
-  const { data: plcs = [] } = useResourceOptions('cadastro/plc', (p: any) => ({ value: String(p.codplc), label: `${p.desccodplc ?? ''} - ${p.descricao ?? ''}` }));
-  const { data: contas = [] } = useResourceOptions('cadastro/plano-contas', (p: any) => ({ value: String(p.codplanocontas), label: `${p.codiexpandido ?? p.codplanocontas} - ${p.descricao ?? ''}` }),
-    { campo: 'classe', operador: 'igual', valor: 'A' });
-
   return (
     <CadMaster<CriarPlcDto>
       titulo="Centro de custos"
@@ -45,9 +41,11 @@ export function PlcCadMaster() {
         <div className="flex flex-col gap-form-gap">
           <TeclasDoPlc novo={novo} />
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            {/* o pai, no legado, é o nó da árvore (uCadPLC.pas:457, 644-646) — sem Pesquisa nem filtro; vazio = conta raiz */}
             <Controller control={form.control} name="codpai" render={({ field }) => (
-              <SelectField label="Conta retrocedente" options={plcs} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : '')} placeholder="Conta raiz" disabled={!editavel} />
+              <LookupField label="Conta retrocedente" recurso="lookup/plc" campoCodigo="codplc" descricao={(l) => `${l.desccodplc ?? ''} - ${l.descricao ?? ''}`}
+                value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : '')} disabled={!editavel} />
             )} />
             <Field label="Código da conta" disabled={!editavel} maxLength={30} error={form.formState.errors.desccodplc?.message as string | undefined} {...form.register('desccodplc')} />
             <Controller control={form.control} name="tpconta" render={({ field }) => (
@@ -61,9 +59,11 @@ export function PlcCadMaster() {
               <NumberField label="Limite" value={field.value != null ? Number(field.value) : undefined} onChange={field.onChange} decimais={2} disabled={!editavel} />
             )} />
             <div className="sm:col-span-3">
+              {/* uCadPLC.pas:159 — GET_PLANO_CONTAS, CLASSE='ANALITICA' (= classe 'A') */}
               <Controller control={form.control} name="codcontabil" render={({ field }) => (
-                <SelectField label="Lançamento contábil" options={contas} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
-                  onChange={(v) => field.onChange(v ? Number(v) : '')} placeholder="—" disabled={!editavel} />
+                <LookupField label="Lançamento contábil" recurso="lookup/plano-contas" campoCodigo="codplanocontas" descricao="descricao_completa"
+                  fixos={{ classe: 'A' }} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+                  onChange={(cod) => field.onChange(cod ? Number(cod) : '')} disabled={!editavel} />
               )} />
             </div>
           </div>

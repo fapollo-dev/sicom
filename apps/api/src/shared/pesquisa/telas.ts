@@ -50,6 +50,13 @@ export const emLista = (coluna: string, valores: number[]): RawBuilder<SqlBool> 
 /** a loja do login (`dmPrincipal.EmpresaCODEMPRESA`) */
 const daLoja = (ctx: ContextoDosObrigatorios, coluna: string): RawBuilder<SqlBool> => sql<SqlBool>`${sql.ref(coluna)} = ${ctx.empresa ?? -1}`;
 const ATIVO = { coluna: 'ativo', sim: 'S', nao: 'N' };
+/** a lista da situação do documento (SITUACAO_NF_PLC / SITUACAO_NF_PARCEIROS): com lista, só ela; sem lista, tudo */
+const permitidosPelaSituacao = (ctx: ContextoDosObrigatorios, tabela: 'situacao_nf_plc' | 'situacao_nf_parceiros', coluna: 'codplc' | 'codparceiro'): RawBuilder<SqlBool>[] => {
+  const sit = Number(ctx.extras.idsituacao_nf);
+  if (!(sit > 0)) return [];
+  return [sql<SqlBool>`(not exists (select 1 from ${sql.table(tabela)} x where x.idsituacao_nf = ${sit})
+    or ${sql.ref(coluna)} in (select x.${sql.ref(coluna)} from ${sql.table(tabela)} x where x.idsituacao_nf = ${sit}))`];
+};
 /** a GET_OPERADORES da produção: `WHERE O.LOGIN <> 'SICOM'` */
 const semSicom = sql<SqlBool>`${sql.ref('login')} <> 'SICOM'`;
 /** `CODIGO_EMPRESA = <loja do login>` na GET_OPERADORES = o operador está na RELACAO_OPERADOR_EMPRESA da loja */
@@ -155,12 +162,29 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
 
   // ── os LOOKUPS (o TfrmPesquisa.Create de um campo de outra tela): a view inteira, sem situação nem recorte próprio — o filtro de cada
   // campo vem do chamador como `f_<coluna>` (FRN='S', CLASSE='A'…). Abertura: o 1º campo em ordem alfabética, salvo o SetDefault.
-  'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' } },
+  // idsituacao_nf: os parceiros permitidos pela situação do documento (GetParceirosPermitidos — uAPagar.pas:6115, uCadAReceber.pas:680,
+  // uMovCaixa.pas:740); sem lista na situação, todos (a mesma regra do gravar, modules/shared/situacao-restricoes.ts)
+  'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' },
+    extras: ['idsituacao_nf'], obrigatorios: (ctx) => permitidosPelaSituacao(ctx, 'situacao_nf_parceiros', 'codparceiro') },
   'lookup/produtos': { view: 'get_produtos', form: 'FRMPESQUISA', titulo: 'Produtos', retorno: 'idproduto',
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` } },
-  'lookup/plc': { view: 'get_plc', form: 'FRMPESQUISA', titulo: 'Centro de custo', retorno: 'codplc' },
-  'lookup/familias': { view: 'get_familias_prod', form: 'FRMPESQUISA', titulo: 'Família de produtos', retorno: 'codfamilia' },
+  // a GET_PLC da produção (DESCCODPLC com mais de 5 caracteres); lancavel=S: só a conta no tamanho da máscara da empresa
+  // (CHARACTER_LENGTH(CODIGO_EXTENSO) = máscara — uAPagar.pas:771-778, uCadAReceber.pas:547-553, uCadFormaPgto.pas:239-241,
+  // uMovCaixa.pas:712-716, UCadFamiliaProd.pas:209-211; o mesmo do scrap.service); idsituacao_nf: os centros da situação
+  'lookup/plc': { view: 'get_plc', form: 'FRMPESQUISA', titulo: 'Centro de custo', retorno: 'codplc', extras: ['lancavel', 'idsituacao_nf'],
+    obrigatorios: (ctx) => [
+      sql<SqlBool>`length(coalesce(${sql.ref('desccodplc')}, '')) > 5`,
+      ...(ctx.extras.lancavel === 'S'
+        ? [sql<SqlBool>`(select e.mascaraplc from empresas e where e.idempresa = ${ctx.empresa ?? -1}) is null
+            or char_length(coalesce(${sql.ref('desccodplc')}, '')) = char_length((select e.mascaraplc from empresas e where e.idempresa = ${ctx.empresa ?? -1}))`]
+        : []),
+      ...permitidosPelaSituacao(ctx, 'situacao_nf_plc', 'codplc'),
+    ] },
+  // daLoja=S: as famílias da empresa do login (CODEMPRESA = empresa — UCadFamiliaProd.pas:222/238/247/259)
+  'lookup/familias': { view: 'get_familias_prod', form: 'FRMPESQUISA', titulo: 'Família de produtos', retorno: 'codfamilia', extras: ['daLoja'],
+    obrigatorios: (ctx) => (ctx.extras.daLoja === 'S'
+      ? [sql<SqlBool>`${sql.ref('codfamilia')} in (select f.codfamilia from familias_prod f where f.idempresa = ${ctx.empresa ?? -1})`] : []) },
   'lookup/plano-contas': { view: 'get_plano_contas', form: 'FRMPESQUISA', titulo: 'Plano de contas', retorno: 'codplanocontas' },
   'lookup/cfops': { view: 'get_cfop', form: 'FRMPESQUISA', titulo: 'CFOP', retorno: 'codcfop' },
   'lookup/operadores': { view: 'get_operadores', form: 'FRMPESQUISA', titulo: 'Operadores', retorno: 'codoperador', obrigatorios: () => [semSicom] },

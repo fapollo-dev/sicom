@@ -4,6 +4,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { formaPgtoSchema, FORMA_PGTO_DESTINO_OPCOES, type CriarFormaPgtoDto } from '@apollo/shared';
 
 /**
@@ -16,15 +17,6 @@ export function FormasPgtoCadMaster() {
   const { data: contaOptions = [] } = useResourceOptions(
     'cadastro/contas-bancarias',
     (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? c.banco ?? ''}` }),
-  );
-  const { data: plcOptions = [] } = useResourceOptions(
-    'cadastro/plc',
-    (p: any) => ({ value: String(p.codplc ?? p.codigo), label: `${p.codplc ?? p.codigo} - ${p.descricao ?? ''}` }),
-  );
-  const { data: contaContabilOptions = [] } = useResourceOptions(
-    'cadastro/plano-contas',
-    (p: any) => ({ value: String(p.codplanocontas), label: `${p.codiexpandido ?? p.codplanocontas} - ${p.descricao ?? ''}` }),
-    { campo: 'classe', operador: 'igual', valor: 'A' }, // só analíticas recebem lançamento
   );
 
   return (
@@ -84,29 +76,37 @@ export function FormasPgtoCadMaster() {
               />
             )}
           />
+          {/* uCadFormaPgto.pas:239-241 — GET_PLC; o filtro do legado (comprimento da máscara) não é igualdade: fica no servidor */}
           <Controller
             control={form.control}
             name="plccofre"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="Centro de custo / co&fre"
-                options={plcOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Opcional…"
+                recurso="lookup/plc"
+                parametros={{ lancavel: 'S' }}
+                campoCodigo="codplc"
+                descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
+                value={field.value as number | undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
               />
             )}
           />
+          {/* uCadFormaPgto.pas:291 (EdtPlanoContas → CODPLANOCONTAS) — GET_PLANO_CONTAS (CLASSE='ANALITICA') AND (TIPO='EMPRESA') */}
           <Controller
             control={form.control}
             name="codplanocontas"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="Conta contábil (débito)"
-                options={contaContabilOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Opcional…"
+                recurso="lookup/plano-contas"
+                campoCodigo="codplanocontas"
+                descricao="descricao_completa"
+                fixos={{ classe: 'A', tipo: 'E' }}
+                value={field.value as number | undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
               />
             )}
           />

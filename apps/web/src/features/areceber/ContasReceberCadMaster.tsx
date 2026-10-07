@@ -11,7 +11,8 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
-import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useSituacoesDaOperacao, useSituacaoUnica } from '../../shared/situacao/situacaoDaOperacao';
 import { useMensagem } from '../../shared/mensagem';
 import { hojeNaLoja } from '../../shared/tempo';
@@ -26,24 +27,6 @@ const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits:
  * (quitado/agrupado) desabilitam a edição; o título de outro processo trava só os campos que o servidor indica.
  */
 export function ContasReceberCadMaster() {
-  const { data: clienteOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'cli', operador: 'igual', valor: 'S' },
-  );
-  const { data: funcionarioOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'fun', operador: 'igual', valor: 'S' },
-  );
-  const { data: bancoOptions = [] } = useResourceOptions('cadastro/bancos', (b: any) => ({
-    value: String(b.codigo ?? b.codbco),
-    label: `${b.codigo ?? b.codbco} - ${b.nome ?? b.descricao ?? ''}`,
-  }));
-  const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
-    value: String(c.codplc),
-    label: `${c.desccodplc ?? c.codplc} - ${c.descricao}`,
-  }));
   // só as situações da operação da tela (UCadSituacaoNF.md C5)
   const situacaoOptions = useSituacoesDaOperacao('F05', 'S');
 
@@ -74,7 +57,7 @@ export function ContasReceberCadMaster() {
         <ArForm
           form={form}
           editavel={editavel}
-          opts={{ clienteOptions, funcionarioOptions, bancoOptions, plcOptions, situacaoOptions }}
+          opts={{ situacaoOptions }}
         />
       )}
     />
@@ -82,12 +65,11 @@ export function ContasReceberCadMaster() {
 }
 
 type LookupOptions = {
-  clienteOptions: Opcao[];
-  funcionarioOptions: Opcao[];
-  bancoOptions: Opcao[];
-  plcOptions: Opcao[];
   situacaoOptions: Opcao[];
 };
+
+/** o centro de custo como o legado o mostra: o código extenso (DESCCODPLC) e a descrição */
+const descPlc = (l: Record<string, any>) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`;
 
 function ArForm({
   form,
@@ -207,14 +189,18 @@ function CadastroTab({
         control={form.control}
         name="codparceiro"
         render={({ field }) => (
-          <SelectField
+          // uCadAReceber.pas:680-686 — GET_PARCEIROS, (CLI='S' OR FRN='S') AND ATIVADO='S' e os parceiros permitidos pela situação
+          <LookupField
             label="Cliente"
-            options={opts.clienteOptions}
-            value={field.value != null ? String(field.value) : undefined}
-            onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-            placeholder="Selecione o cliente…"
+            recurso="lookup/parceiros"
+            campoCodigo="codparceiro"
+            descricao="razao"
+            fixos={{ 'cli|frn': 'S', ativado: 'S' }}
+            parametros={{ idsituacao_nf: form.watch('idsituacao_nf' as any) }}
+            value={field.value as number | undefined}
+            onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
             error={err.codparceiro?.message as string | undefined}
-            disabled={trava('codparceiro')}
+            disabled={!editavel || trava('codparceiro')}
           />
         )}
       />
@@ -281,28 +267,38 @@ function CadastroTab({
           control={form.control}
           name="codvendedor"
           render={({ field }) => (
-            <SelectField label="Vendedor" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codvendedor')} />
+            // uCadAReceber.pas:408 — GET_PARCEIROS, FUN='S'
+            <LookupField label="Vendedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ fun: 'S' }}
+              value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codvendedor')} />
           )}
         />
         <Controller
           control={form.control}
           name="codcobrador"
           render={({ field }) => (
-            <SelectField label="Cobrador" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codcobrador')} />
+            // uCadAReceber.pas:477 — GET_PARCEIROS, FUN='S'
+            <LookupField label="Cobrador" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ fun: 'S' }}
+              value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codcobrador')} />
           )}
         />
         <Controller
           control={form.control}
           name="codbco"
           render={({ field }) => (
-            <SelectField label="Banco" options={opts.bancoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+            // uCadAReceber.pas:4069 — GET_BANCOS, sem filtro
+            <LookupField label="Banco" recurso="lookup/bancos" campoCodigo="codigo" descricao="banco"
+              value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel} />
           )}
         />
         <Controller
           control={form.control}
           name="codplc"
           render={({ field }) => (
-            <SelectField label="Centro de custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
+            // uCadAReceber.pas:547-553 — GET_PLC, TIPO_CONTA='RECEITA' (= TPCONTA 0 na GET_PLC da produção); o comprimento da máscara e o
+            // CODIGO IN da situação não são igualdade: ficam no servidor
+            <LookupField label="Centro de custo" recurso="lookup/plc" campoCodigo="codplc" descricao={descPlc} fixos={{ tpconta: 0 }}
+              parametros={{ lancavel: 'S', idsituacao_nf: form.watch('idsituacao_nf' as any) }}
+              value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codplc')} />
           )}
         />
         <Controller
