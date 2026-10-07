@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { type UseFormReturn, useFieldArray } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { Modal } from '../../shared/ui/Modal';
@@ -11,9 +12,9 @@ import {
   type VendedorParceiroDto,
 } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
-import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
-import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
+import { apiHeaders, handle401 } from '../../shared/auth/session';
 
 /**
  * Detalhes 1:N do PARCEIRO (Fase 2) — espelham o grid de Endereços (ParceirosCadMaster):
@@ -25,18 +26,42 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
  * (PARCEIROS_REL) e Vendedores (PARCEIROS_VENDEDORES).
  */
 
-/** célula utilitária: resolve o label de uma opção a partir do value (lookup → "cod - nome"). */
-function rotuloOpcao(options: Opcao[], value: number | undefined): string {
+const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
+type Linha = Record<string, any>;
+
+/**
+ * Os nomes SÓ dos códigos que a grade mostra — a Pesquisa da view com "Contido em" (`campo IN (1,2,3)`). O combo de antes
+ * (`useResourceOptions`) trazia 200 linhas sem ordem da tabela inteira e a grade caía no código cru para o resto.
+ */
+function useNomesDosCodigos(recurso: string, campo: string, codigos: ReadonlyArray<number | null | undefined>) {
+  const lista = Array.from(new Set(codigos.filter((c): c is number => c != null))).sort((a, b) => a - b);
+  return useQuery({
+    queryKey: ['pesquisa-nomes', recurso, campo, lista],
+    enabled: lista.length > 0,
+    queryFn: async () => {
+      const qs = new URLSearchParams({ recurso, campo, operacao: 'contido', valor: lista.join(','), situacao: 'todos', porPagina: '1000' });
+      const r = await fetch(`${BASE}/cadastro/pesquisa?${qs.toString()}`, { headers: apiHeaders() });
+      handle401(r);
+      if (!r.ok) throw new Error(r.statusText);
+      const j = (await r.json()) as { linhas: Linha[] };
+      return new Map(j.linhas.map((l) => [String(l[campo]), l]));
+    },
+  });
+}
+
+/** célula utilitária: "cod - nome" a partir da linha da view (sem a linha, o código cru). */
+function rotuloCodigo(nomes: Map<string, Linha> | undefined, value: number | undefined, coluna: string): string {
   if (value == null) return '';
-  const o = options.find((op) => op.value === String(value));
-  return o ? o.label : String(value);
+  const l = nomes?.get(String(value));
+  return l ? `${value} - ${l[coluna] ?? ''}` : String(value);
 }
 
 // ───────────────────────────── Bancos ─────────────────────────────
 
 /**
- * Dados bancários (PARCEIROS_BANCOS). Banco via lookup `cadastro/bancos` (codbco → "cod - banco");
- * agência e nº conta são texto. Modal local com SelectField (banco) + Field (agência/conta).
+ * Dados bancários (PARCEIROS_BANCOS). Banco via o campo de lookup `lookup/bancos` (GET_BANCOS: codigo → banco);
+ * agência e nº conta são texto. Modal local com LookupField (banco) + Field (agência/conta).
  */
 export function BancosSection({
   form,
@@ -52,11 +77,8 @@ export function BancosSection({
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
-  // LOOKUP banco — o view get_bancos expõe a PK ora como codbco, ora como codigo.
-  const { data: bancoOptions = [] } = useResourceOptions('cadastro/bancos', (row: any) => ({
-    value: String(row.codbco ?? row.codigo),
-    label: `${row.codbco ?? row.codigo} - ${row.banco}`,
-  }));
+  // a grade mostra "cod - banco" só dos bancos das linhas (get_bancos expõe a PK CODBCO como `codigo`)
+  const { data: nomesBancos } = useNomesDosCodigos('lookup/bancos', 'codigo', fields.map((f) => f.codbco));
 
   const onConfirmar = (item: BancoParceiroDto) => {
     if (editIdx == null) return;
@@ -72,13 +94,13 @@ export function BancosSection({
         headerName: 'Banco',
         type: 'text',
         isPrimary: true,
-        valueGetter: (row) => rotuloOpcao(bancoOptions, row.codbco),
+        valueGetter: (row) => rotuloCodigo(nomesBancos, row.codbco, 'banco'),
       },
       { field: 'agencia', headerName: 'Agência', type: 'text', width: 150 },
       { field: 'nrconta', headerName: 'Nº conta', type: 'text', width: 180 },
       acoesColumn(fields, setEditIdx, remove),
     ],
-    [fields, remove, bancoOptions],
+    [fields, remove, nomesBancos],
   );
 
   return (
@@ -94,7 +116,6 @@ export function BancosSection({
       {editIdx != null && (
         <BancoModal
           inicial={editIdx >= 0 ? (fields[editIdx] as BancoParceiroDto) : undefined}
-          bancoOptions={bancoOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -107,12 +128,10 @@ const BANCO_VAZIO: BancoParceiroDto = {};
 
 function BancoModal({
   inicial,
-  bancoOptions,
   onFechar,
   onConfirmar,
 }: {
   inicial?: BancoParceiroDto;
-  bancoOptions: Opcao[];
   onFechar: () => void;
   onConfirmar: (item: BancoParceiroDto) => void;
 }) {
@@ -129,13 +148,15 @@ function BancoModal({
       secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+        {/* uCadClientes.pas:4177 (getPesquisa 01) — GET_BANCOS, CODIGO/BANCO, sem filtro */}
         <div className="sm:col-span-2">
-          <SelectField
+          <LookupField
             label="&Banco"
-            options={bancoOptions}
-            value={item.codbco != null ? String(item.codbco) : undefined}
-            onChange={(v) => set('codbco', v ? Number(v) : undefined)}
-            placeholder="Selecione o banco…"
+            recurso="lookup/bancos"
+            campoCodigo="codigo"
+            descricao="banco"
+            value={item.codbco}
+            onChange={(cod) => set('codbco', cod ? Number(cod) : undefined)}
           />
         </div>
         <Field
@@ -376,7 +397,7 @@ function RelacionamentoModal({
 // ────────────────────────── Vendedores ──────────────────────────
 
 /**
- * Vendedores vinculados (PARCEIROS_VENDEDORES). codvendedor via lookup `cadastro/parceiros`
+ * Vendedores vinculados (PARCEIROS_VENDEDORES). codvendedor via o campo de lookup `lookup/parceiros`
  * filtrado por FUN='S' → mostra "cod - razão".
  */
 export function VendedoresSection({
@@ -397,12 +418,8 @@ export function VendedoresSection({
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
-  // LOOKUP vendedor = parceiro FUN='S' (3º arg de filtro), mostra "cod - razão".
-  const { data: vendedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'fun', operador: 'igual', valor: 'S' },
-  );
+  // a grade mostra "cod - razão" só dos vendedores das linhas
+  const { data: nomesVendedores } = useNomesDosCodigos('lookup/parceiros', 'codparceiro', fields.map((f) => f.codvendedor));
 
   const onConfirmar = (item: VendedorParceiroDto) => {
     if (editIdx == null) return;
@@ -418,11 +435,11 @@ export function VendedoresSection({
         headerName: 'Vendedor',
         type: 'text',
         isPrimary: true,
-        valueGetter: (row) => rotuloOpcao(vendedorOptions, row.codvendedor),
+        valueGetter: (row) => rotuloCodigo(nomesVendedores, row.codvendedor, 'fantasia'), // a grade de vendedores mostra a FANTASIA (uCadClientes.pas:1012)
       },
       acoesColumn(fields, setEditIdx, remove),
     ],
-    [fields, remove, vendedorOptions],
+    [fields, remove, nomesVendedores],
   );
 
   return (
@@ -438,7 +455,6 @@ export function VendedoresSection({
       {editIdx != null && (
         <VendedorModal
           inicial={editIdx >= 0 ? (fields[editIdx] as VendedorParceiroDto) : undefined}
-          vendedorOptions={vendedorOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -451,12 +467,10 @@ const VENDEDOR_VAZIO: VendedorParceiroDto = {};
 
 function VendedorModal({
   inicial,
-  vendedorOptions,
   onFechar,
   onConfirmar,
 }: {
   inicial?: VendedorParceiroDto;
-  vendedorOptions: Opcao[];
   onFechar: () => void;
   onConfirmar: (item: VendedorParceiroDto) => void;
 }) {
@@ -470,12 +484,15 @@ function VendedorModal({
       primaryAction={{ label: 'Salvar', onClick: () => onConfirmar(item) }}
       secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
     >
-      <SelectField
+      {/* uCadClientes.pas:993-1019 (BtnAdicionarVendedoresClick) — GET_PARCEIROS, CODIGO/FANTASIA, FUN='S' */}
+      <LookupField
         label="&Vendedor"
-        options={vendedorOptions}
-        value={item.codvendedor != null ? String(item.codvendedor) : undefined}
-        onChange={(v) => setItem({ codvendedor: v ? Number(v) : undefined })}
-        placeholder="Selecione o vendedor…"
+        recurso="lookup/parceiros"
+        campoCodigo="codparceiro"
+        descricao="fantasia" // o vendedor mostra a FANTASIA (uCadClientes.pas:4214, :1012)
+        fixos={{ fun: 'S' }}
+        value={item.codvendedor}
+        onChange={(cod) => setItem({ codvendedor: cod ? Number(cod) : undefined })}
       />
     </Modal>
   );

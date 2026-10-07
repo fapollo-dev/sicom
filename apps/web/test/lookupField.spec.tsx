@@ -25,14 +25,23 @@ const montar = (props: Partial<Parameters<typeof LookupField>[0]> = {}) => {
 };
 
 describe('LookupField — o código + descrição + Pesquisa do legado (no lugar do combo cortado em 200)', () => {
-  it('o código que veio do registro mostra a descrição, com o filtro do campo (FRN=S)', async () => {
+  it('o código que veio do registro mostra a descrição SEM o filtro do campo (o gravado vale mesmo que hoje não passe nele)', async () => {
     montar({ value: 22 });
     expect(await screen.findByText('FORNECEDOR VINTE E DOIS')).toBeTruthy();
     const u = urls()[0];
     expect(u.searchParams.get('recurso')).toBe('lookup/parceiros');
     expect(u.searchParams.get('campo')).toBe('codparceiro');
     expect(u.searchParams.get('operacao')).toBe('igual');
-    expect(u.searchParams.get('f_frn')).toBe('S');
+    expect(u.searchParams.get('f_frn')).toBeNull();
+  });
+
+  it('o código digitado é conferido COM o filtro do campo (FRN=S)', async () => {
+    montar();
+    const campo = screen.getByLabelText('Fornecedor');
+    fireEvent.change(campo, { target: { value: '22' } });
+    fireEvent.blur(campo);
+    await waitFor(() => expect(urls().length).toBeGreaterThan(0));
+    expect(urls().at(-1)!.searchParams.get('f_frn')).toBe('S');
   });
 
   it('digitar o código e sair confere no servidor: achou → onChange(código, linha); não achou → "Não encontrado" e vazio', async () => {
@@ -40,6 +49,7 @@ describe('LookupField — o código + descrição + Pesquisa do legado (no lugar
     const campo = screen.getByLabelText('Fornecedor');
     fireEvent.change(campo, { target: { value: '22' } });
     fireEvent.blur(campo);
+    expect(onChange).toHaveBeenCalledWith('22'); // sai na hora: o Gravar logo em seguida não perde o código
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('22', expect.objectContaining({ razao: 'FORNECEDOR VINTE E DOIS' })));
     fireEvent.change(campo, { target: { value: '999' } });
     fireEvent.blur(campo);

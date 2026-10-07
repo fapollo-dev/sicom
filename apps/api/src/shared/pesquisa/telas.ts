@@ -50,6 +50,11 @@ export const emLista = (coluna: string, valores: number[]): RawBuilder<SqlBool> 
 /** a loja do login (`dmPrincipal.EmpresaCODEMPRESA`) */
 const daLoja = (ctx: ContextoDosObrigatorios, coluna: string): RawBuilder<SqlBool> => sql<SqlBool>`${sql.ref(coluna)} = ${ctx.empresa ?? -1}`;
 const ATIVO = { coluna: 'ativo', sim: 'S', nao: 'N' };
+/** a GET_OPERADORES da produção: `WHERE O.LOGIN <> 'SICOM'` */
+const semSicom = sql<SqlBool>`${sql.ref('login')} <> 'SICOM'`;
+/** `CODIGO_EMPRESA = <loja do login>` na GET_OPERADORES = o operador está na RELACAO_OPERADOR_EMPRESA da loja */
+const daLojaPelaRelacao = (ctx: ContextoDosObrigatorios): RawBuilder<SqlBool> =>
+  sql<SqlBool>`${sql.ref('codoperador')} in (select r.codoperador from relacao_operador_empresa r where r.codempresa = ${ctx.empresa ?? -1})`;
 
 /**
  * Os 26 cadastros do Apollo com Pesquisa. Os nomes de coluna são os da VIEW DO DESTINO (a `get_*` do Apollo); onde a view do destino
@@ -106,9 +111,10 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       };
       return [emLista('codempresa', await ctx.lojas()), ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
     } },
-  // uCadUsuarios.pas:662/679: só os operadores da loja do login (a view do destino não tem a loja: vai pela tabela)
+  // uCadUsuarios.pas:662/679: só os operadores da loja do login. O CODIGO_EMPRESA da GET_OPERADORES da produção é o
+  // RELACAO_OPERADOR_EMPRESA.CODEMPRESA (LEFT JOIN — uma linha por operador × loja), e a view tira o login SICOM
   'cadastro/operadores': { view: 'get_operadores', form: 'FRMCADUSUARIOS', titulo: 'Operadores', retorno: 'codoperador',
-    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('codoperador')} in (select o.codoperador from operadores o where o.codempresa = ${ctx.empresa ?? -1})`] },
+    obrigatorios: (ctx) => [semSicom, daLojaPelaRelacao(ctx)] },
   'cadastro/precos': { view: 'get_preco', form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'id_preco', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },
@@ -157,7 +163,10 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/familias': { view: 'get_familias_prod', form: 'FRMPESQUISA', titulo: 'Família de produtos', retorno: 'codfamilia' },
   'lookup/plano-contas': { view: 'get_plano_contas', form: 'FRMPESQUISA', titulo: 'Plano de contas', retorno: 'codplanocontas' },
   'lookup/cfops': { view: 'get_cfop', form: 'FRMPESQUISA', titulo: 'CFOP', retorno: 'codcfop' },
-  'lookup/operadores': { view: 'get_operadores', form: 'FRMPESQUISA', titulo: 'Operadores', retorno: 'codoperador' },
+  'lookup/operadores': { view: 'get_operadores', form: 'FRMPESQUISA', titulo: 'Operadores', retorno: 'codoperador', obrigatorios: () => [semSicom] },
+  // o operador do controle de permissões (uCtrlPermissoes.pas:1464-1466 spdBuscaUsuario e :380-384 btnClone): CODIGO_EMPRESA = a loja do login
+  'lookup/operadores-da-loja': { view: 'get_operadores', form: 'FRMCTRLPERMISSOES', titulo: 'Operadores', retorno: 'codoperador',
+    obrigatorios: (ctx) => [semSicom, daLojaPelaRelacao(ctx)] },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
 

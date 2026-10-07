@@ -27,6 +27,7 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { EnderecoModal, type TipoFj } from './EnderecoModal';
 import {
   BancosSection,
@@ -78,29 +79,11 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
   const flag = PAPEL_FLAG[papel];
   const titulo = PAPEL_TITULO[papel];
 
-  // LOOKUPs do master — vendedor (FUN='S') e convênio (CON='S'), via o recurso de
-  // parceiros filtrado por flag. Mostra "cod - razão" (não o id cru).
-  const { data: vendedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'fun', operador: 'igual', valor: 'S' }, // vendedor = parceiro FUN='S'
-  );
-  const { data: convenioOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'con', operador: 'igual', valor: 'S' }, // convênio = parceiro CON='S'
-  );
   // o perfil do cliente (edtCodPerfilCliente → GET_PERFIL com ATIVO='S' e TIPO='PARCEIRO', uCadClientes.pas:4222)
   const { data: perfilOptions = [] } = useResourceOptions(
     'cadastro/perfil',
     (p: any) => ({ value: String(p.codperfil ?? p.codigo), label: `${p.codperfil ?? p.codigo} - ${p.perfil ?? p.descricao ?? ''}` }),
     { campo: 'tipo', operador: 'igual', valor: 'PARCEIRO' },
-  );
-  // F3 — entidade recolhedora de ISSQN: parceiro com TIPOFJ='E' (entidade). Mostra "cod - razão".
-  const { data: entidadeIssqnOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'tipofj', operador: 'igual', valor: 'E' }, // entidades (TIPOFJ='E')
   );
 
   // OnNewRecord do legado: ATIVADO='S', BLOQUED='N', tipofj='F', e a flag do papel já
@@ -402,30 +385,38 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                   />
                 )}
               />
+              {/* uCadClientes.pas:4214 (getPesquisa 05) — GET_PARCEIROS, CODIGO/FANTASIA, FUN='S' */}
               <Controller
                 control={form.control}
                 name="codvendedor"
                 render={({ field }) => (
-                  <SelectField
+                  <LookupField
                     label="Vendedor"
-                    options={vendedorOptions}
-                    value={field.value != null ? String(field.value) : undefined}
-                    onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                    placeholder="Selecione o vendedor…"
+                    recurso="lookup/parceiros"
+                    campoCodigo="codparceiro"
+                    descricao="fantasia" // o vendedor mostra a FANTASIA (uCadClientes.pas:4214, :1012)
+                    fixos={{ fun: 'S' }}
+                    value={field.value}
+                    onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                    disabled={!editavel}
                     error={form.formState.errors.codvendedor?.message as string | undefined}
                   />
                 )}
               />
+              {/* uCadClientes.pas:4173 (getPesquisa 00) — GET_PARCEIROS, CODIGO/RAZAO, CON='S' */}
               <Controller
                 control={form.control}
                 name="codconvenio"
                 render={({ field }) => (
-                  <SelectField
+                  <LookupField
                     label="Convênio"
-                    options={convenioOptions}
-                    value={field.value != null ? String(field.value) : undefined}
-                    onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                    placeholder="Selecione o convênio…"
+                    recurso="lookup/parceiros"
+                    campoCodigo="codparceiro"
+                    descricao="razao"
+                    fixos={{ con: 'S' }}
+                    value={field.value}
+                    onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                    disabled={!editavel}
                     error={form.formState.errors.codconvenio?.message as string | undefined}
                   />
                 )}
@@ -475,11 +466,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
           <CamposCondicionais form={form} editavel={editavel} />
 
           {/* ===== Seção: Fiscal (sempre) ===== */}
-          <FiscalSection
-            form={form}
-            editavel={editavel}
-            entidadeIssqnOptions={entidadeIssqnOptions}
-          />
+          <FiscalSection form={form} editavel={editavel} />
 
           {/* ===== Seção: Endereços (detalhe 1:N) ===== */}
           <EnderecosSection form={form} editavel={editavel} />
@@ -779,16 +766,14 @@ function CamposCondicionais({
  * IR (2 casas) e ISSQN (4 casas). PARIDADE: as alíquotas são SEMPRE editáveis — o legado não
  * as desabilita/zera conforme as flags; amarrá-las seria regra inventada.
  *
- * Entidade ISSQN: lookup de parceiro TIPOFJ='E' (codparceiro_ent_issqn).
+ * Entidade ISSQN: lookup de parceiro TIPO_PESSOA='ENTIDADE' (TIPOFJ='E') — codparceiro_ent_issqn.
  */
 function FiscalSection({
   form,
   editavel,
-  entidadeIssqnOptions,
 }: {
   form: UseFormReturn<CriarParceiroDto>;
   editavel: boolean;
-  entidadeIssqnOptions: { value: string; label: string }[];
 }) {
   return (
     <fieldset className="rounded-radius-md border border-border p-pad-md">
@@ -866,16 +851,20 @@ function FiscalSection({
               />
             )}
           />
+          {/* uCadClientes.pas:1900 — GET_PARCEIROS, CODIGO/RAZAO, TIPO_PESSOA='ENTIDADE' (a view decodifica TIPOFJ='E') */}
           <Controller
             control={form.control}
             name="codparceiro_ent_issqn"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="Entidade ISSQN"
-                options={entidadeIssqnOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione a entidade…"
+                recurso="lookup/parceiros"
+                campoCodigo="codparceiro"
+                descricao="razao"
+                fixos={{ tipo_pessoa: 'ENTIDADE' }}
+                value={field.value}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={form.formState.errors.codparceiro_ent_issqn?.message as string | undefined}
               />
             )}

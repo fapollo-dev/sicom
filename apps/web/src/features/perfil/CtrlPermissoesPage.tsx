@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import {
   catalogoPermissoes, grantsDoOperador, setGrantOperador, setLotePermissoes, clonarPermissoes,
   auditoriaDoOperador, type AuditoriaPermissao,
@@ -42,9 +43,10 @@ export function CtrlPermissoesPage() {
   const [logAberto, setLogAberto] = useState(false);
   const [clone, setClone] = useState<{ de?: number; de_empresa?: number; para?: number; para_empresa?: number }>({});
 
-  const { data: operadorOptions = [] } = useResourceOptions('cadastro/operadores', (o: any) => ({
-    value: String(o.codoperador), label: `${o.codoperador} - ${o.nome ?? o.login}`,
-  }));
+  // o operador (spdBuscaUsuarioClick, uCtrlPermissoes.pas:1464 e btnCloneClick, :380-384): GET_OPERADORES, CODIGO/NOME, com
+  // CODIGO_EMPRESA = a empresa da sessão — a get_operadores do destino não tem CODIGO_EMPRESA (o legado junta RELACAO_OPERADOR_EMPRESA),
+  // então o recorte por loja ainda não vai no lookup.
+  const descOperador = (o: Record<string, any>) => String(o.nome ?? o.login ?? '');
   const { data: empresaOptions = [] } = useResourceOptions('cadastro/empresas', (e: any) => ({
     value: String(e.idempresa ?? e.codempresa), label: `${e.idempresa ?? e.codempresa} - ${e.razao_social ?? e.fantasia ?? ''}`,
   }));
@@ -140,8 +142,9 @@ export function CtrlPermissoesPage() {
 
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-          <SelectField label="&Operador" options={operadorOptions} value={operador != null ? String(operador) : undefined}
-            onChange={(v) => setOperador(v ? Number(v) : undefined)} placeholder="Selecione o operador…" />
+          {/* os operadores da loja do login (CODIGO_EMPRESA = empresa — uCtrlPermissoes.pas:1464-1466; o "Copiar de" idem, :380-384) */}
+          <LookupField label="&Operador" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+            value={operador} onChange={(cod) => setOperador(cod ? Number(cod) : undefined)} />
           <SelectField label="Empresa" options={empresaOptions} value={empresa != null ? String(empresa) : undefined}
             onChange={(v) => setEmpresa(v ? Number(v) : undefined)} placeholder="Empresa da sessão" />
           <SelectField label="&Tela" options={[{ value: '', label: 'Todas as telas' }, ...forms.map((f) => ({ value: f, label: f }))]}
@@ -197,12 +200,12 @@ export function CtrlPermissoesPage() {
               pelas da origem. É cópia, não soma — mesmo comportamento do sistema antigo.
             </p>
             <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-              <SelectField label="Copiar &de" options={operadorOptions} value={clone.de != null ? String(clone.de) : undefined}
-                onChange={(v) => setClone((c) => ({ ...c, de: v ? Number(v) : undefined }))} placeholder="Operador de origem…" />
+              <LookupField label="Copiar &de" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+                value={clone.de} onChange={(cod) => setClone((c) => ({ ...c, de: cod ? Number(cod) : undefined }))} />
               <SelectField label="Empresa de origem" options={empresaOptions} value={clone.de_empresa != null ? String(clone.de_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, de_empresa: v ? Number(v) : undefined }))} />
-              <SelectField label="Para" options={operadorOptions} value={clone.para != null ? String(clone.para) : undefined}
-                onChange={(v) => setClone((c) => ({ ...c, para: v ? Number(v) : undefined }))} placeholder="Operador de destino…" />
+              <LookupField label="Para" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+                value={clone.para} onChange={(cod) => setClone((c) => ({ ...c, para: cod ? Number(cod) : undefined }))} />
               <SelectField label="Empresa de destino" options={empresaOptions} value={clone.para_empresa != null ? String(clone.para_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, para_empresa: v ? Number(v) : undefined }))} />
             </div>

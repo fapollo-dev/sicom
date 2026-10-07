@@ -57,7 +57,8 @@ export function LookupField({ label, recurso, campoCodigo, descricao, fixos, val
 
   const descreve = (l: Linha) => (typeof descricao === 'function' ? descricao(l) : String(l[descricao] ?? ''));
 
-  // o valor que vem de fora (o registro carregado): mostra a descrição dele
+  // o valor que vem de fora (o registro carregado): mostra a descrição dele SEM o filtro do campo — o código gravado vale mesmo que
+  // hoje não passe no filtro (o supervisor desabilitado depois; no legado o nome vem do próprio registro)
   useEffect(() => {
     const v = value == null ? '' : String(value);
     setTexto(v);
@@ -66,17 +67,21 @@ export function LookupField({ label, recurso, campoCodigo, descricao, fixos, val
     setNaoAchou(false);
     if (!v) { setDesc(''); return; }
     let vivo = true;
-    buscarPorCodigo(recurso, campoCodigo, v, fixos).then((l) => { if (vivo) { setDesc(l ? descreve(l) : ''); setNaoAchou(!l); } }).catch(() => undefined);
+    buscarPorCodigo(recurso, campoCodigo, v).then((l) => { if (vivo) setDesc(l ? descreve(l) : ''); }).catch(() => undefined);
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, recurso, campoCodigo, fixosChave]);
+  }, [value, recurso, campoCodigo]);
 
+  // o código digitado sai na hora (quem clica em Gravar logo depois não o perde); a conferência no servidor, com o filtro do campo,
+  // vem em seguida: achou → a linha inteira; não achou → o campo fica vazio e marcado
   const conferir = async () => {
     const v = texto.trim();
     if (v === ultimo.current) return;
     ultimo.current = v;
     if (!v) { setDesc(''); setNaoAchou(false); onChange(undefined); return; }
+    onChange(v);
     const l = await buscarPorCodigo(recurso, campoCodigo, v, fixos).catch(() => null);
+    if (ultimo.current !== v) return; // já digitaram outro
     setDesc(l ? descreve(l) : '');
     setNaoAchou(!l);
     onChange(l ? String(l[campoCodigo]) : undefined, l ?? undefined);

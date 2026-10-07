@@ -6,6 +6,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@apollo/shared';
 
 /**
@@ -18,18 +19,9 @@ import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@ap
 export function OperadoresCadMaster() {
   // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
   const { tem: pode } = useOpcoesDoForm('FRMCADUSUARIOS');
-  const { data: parceiroOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro ?? p.codigo), label: `${p.codparceiro ?? p.codigo} - ${p.razao ?? ''}` }),
-    { campo: 'fun', operador: 'igual', valor: 'S' },
-  );
   const { data: empresaOptions = [] } = useResourceOptions(
     'cadastro/empresas',
     (e: any) => ({ value: String(e.idempresa ?? e.codigo), label: `${e.idempresa ?? e.codigo} - ${e.razao_social ?? e.fantasia ?? ''}` }),
-  );
-  const { data: supervisorOptions = [] } = useResourceOptions(
-    'cadastro/operadores',
-    (o: any) => ({ value: String(o.codoperador), label: `${o.codoperador} - ${o.nome ?? ''}` }),
   );
 
   return (
@@ -127,29 +119,37 @@ export function OperadoresCadMaster() {
               />
             )}
           />
+          {/* uCadUsuarios.pas:491-493 — GET_PARCEIROS, CODIGO/RAZAO, FUN='S' */}
           <Controller
             control={form.control}
             name="codparceiro"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="&Parceiro (funcionário)"
-                options={parceiroOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Opcional…"
+                recurso="lookup/parceiros"
+                campoCodigo="codparceiro"
+                descricao="razao"
+                fixos={{ fun: 'S' }}
+                value={field.value}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
               />
             )}
           />
+          {/* uCadUsuarios.pas:497-501 — GET_OPERADORES, CODIGO/NOME, DESABILITADO='N' AND TIPO_SIGLA='SUP' (TIPO_SIGLA = O.TIPOOP na view) */}
           <Controller
             control={form.control}
             name="idsupervisor"
             render={({ field }) => (
-              <SelectField
+              <LookupField
                 label="Supervisor"
-                options={supervisorOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Opcional…"
+                recurso="lookup/operadores"
+                campoCodigo="codoperador"
+                descricao="nome"
+                fixos={{ tipoop: 'SUP', desabilitado: 'N' }}
+                value={field.value}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
               />
             )}
           />
