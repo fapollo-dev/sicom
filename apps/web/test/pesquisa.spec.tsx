@@ -86,7 +86,16 @@ describe('Pesquisa (frmPesquisa) no servidor — corte A', () => {
     fireEvent.click(linha);
     expect(onSel).not.toHaveBeenCalled();
     fireEvent.doubleClick(linha);
-    expect(onSel).toHaveBeenCalledWith(expect.objectContaining({ descricao: 'UNILEVER' }));
+    expect(onSel).toHaveBeenCalledTimes(1);
+    expect(onSel.mock.calls[0][0]).toMatchObject({ descricao: 'UNILEVER' });
+    // a fonte da navegação do cadastro: os códigos do resultado inteiro, com a mesma consulta
+    const navegacao = onSel.mock.calls[0][1] as () => Promise<number[]>;
+    expect(typeof navegacao).toBe('function');
+    (global.fetch as any).mockImplementationOnce(async () => ({ ok: true, status: 200, json: async () => ({ codigos: [2, 1], total: 2 }) }));
+    expect(await navegacao()).toEqual([2, 1]);
+    const u = new URL(chamadas().at(-1)!);
+    expect(u.searchParams.get('soCodigos')).toBe('true');
+    expect(u.searchParams.get('campo')).toBe('descricao');
   });
 
   it('o parâmetro da tela parametrizada (tipo da NF) vai ao servidor', async () => {

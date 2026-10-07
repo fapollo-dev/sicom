@@ -125,5 +125,14 @@ test.describe('mnemônicos do .dfm', () => {
     await expect(page.getByRole('dialog')).toBeVisible(); // o clique só posiciona
     await linha.dblclick();
     await expect(page.getByRole('dialog')).toHaveCount(0);
+    // o cadastro navega sobre o RESULTADO da Pesquisa (cdsNavegation): ↓ = o último da grade, ↑ = o primeiro
+    const codigo = page.getByLabel('Código', { exact: true });
+    await expect(codigo).not.toHaveValue(''); // o registro escolhido carregou
+    const escolhido = await codigo.inputValue();
+    await codigo.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(codigo).not.toHaveValue(escolhido);
+    await page.keyboard.press('ArrowUp');
+    await expect(codigo).toHaveValue(escolhido); // a linha confirmada foi a 1ª da grade
   });
 });

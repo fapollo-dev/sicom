@@ -87,8 +87,7 @@ describe('useCadMaster — máquina de estados do form-base (ControlaTela)', () 
     expect(result.current.modo).toBe('browse');
   });
 
-  it('navegação (DBNavigator): primeiro/próximo/anterior/último sobre o cdsNavegation', async () => {
-    // api de navegação: lista [1,2,3] por código; ler(id) devolve {id}
+  it('navegação (DBNavigator) sobre o RESULTADO DA PESQUISA, na ordem da grade; sem pesquisa as setas não andam', async () => {
     const api: ResourceApi<{ id: number; descricao: string }> = {
       listar: vi.fn().mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }] as any),
       ler: vi.fn().mockImplementation(async (id: number) => ({ id, descricao: `R${id}` })),
@@ -98,25 +97,27 @@ describe('useCadMaster — máquina de estados do form-base (ControlaTela)', () 
     };
     const { result } = renderHook(() => useCadMaster(api, 'id'));
 
-    await act(async () => { await result.current.primeiro(); });
-    expect(result.current.registro).toMatchObject({ id: 1 });
-    // lista navegável ordenada por PK ascendente
-    expect(api.listar).toHaveBeenCalledWith({ orderBy: 'id', orderDir: 'asc' });
-
-    await act(async () => { await result.current.proximo(); });
-    expect(result.current.registro).toMatchObject({ id: 2 });
-
+    // antes de qualquer Pesquisa o cdsNavegation está fechado (uCadMaster.pas:870-883)
     await act(async () => { await result.current.ultimo(); });
-    expect(result.current.registro).toMatchObject({ id: 3 });
+    expect(result.current.registro).toBeNull();
+    expect(api.listar).not.toHaveBeenCalled();
 
-    await act(async () => { await result.current.proximo(); }); // já no último → fica no 3
-    expect(result.current.registro).toMatchObject({ id: 3 });
-
+    // a Pesquisa trouxe 30, 10, 20 nessa ordem (a da grade, não a da PK)
+    const fonte = vi.fn().mockResolvedValue([30, 10, 20]);
+    act(() => result.current.definirNavegacao(fonte));
+    await act(async () => { await result.current.primeiro(); });
+    expect(result.current.registro).toMatchObject({ id: 30 });
+    await act(async () => { await result.current.proximo(); });
+    expect(result.current.registro).toMatchObject({ id: 10 });
+    await act(async () => { await result.current.ultimo(); });
+    expect(result.current.registro).toMatchObject({ id: 20 });
+    await act(async () => { await result.current.proximo(); }); // já no último → fica
+    expect(result.current.registro).toMatchObject({ id: 20 });
     await act(async () => { await result.current.anterior(); });
-    expect(result.current.registro).toMatchObject({ id: 2 });
-
-    // a lista navegável é carregada uma só vez (cache do cdsNavegation)
-    expect((api.listar as any).mock.calls.length).toBe(1);
+    expect(result.current.registro).toMatchObject({ id: 10 });
+    // os códigos vêm uma vez só (cache do cdsNavegation) e nunca da tabela inteira
+    expect(fonte).toHaveBeenCalledTimes(1);
+    expect(api.listar).not.toHaveBeenCalled();
   });
 
   it('navegação só atua em browse (setas inertes durante insert/edit)', async () => {
@@ -128,9 +129,11 @@ describe('useCadMaster — máquina de estados do form-base (ControlaTela)', () 
       excluir: vi.fn(),
     };
     const { result } = renderHook(() => useCadMaster(api, 'id'));
+    const fonte = vi.fn().mockResolvedValue([1, 2]);
+    act(() => result.current.definirNavegacao(fonte));
     act(() => result.current.novo()); // insert
     await act(async () => { await result.current.proximo(); });
-    expect(api.listar).not.toHaveBeenCalled();
+    expect(fonte).not.toHaveBeenCalled();
     expect(result.current.modo).toBe('insert');
   });
 });

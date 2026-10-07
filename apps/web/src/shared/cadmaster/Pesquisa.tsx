@@ -64,7 +64,8 @@ interface Props {
   resourcePath: string;
   /** as colunas da grade (o recorte desta tela; a lista de CAMPOS vem da view inteira) */
   colunas: ColunaPesquisa[];
-  onSelecionar: (row: Record<string, any>) => void;
+  /** o registro escolhido e a FONTE DA NAVEGAÇÃO do cadastro: os códigos do resultado inteiro, na ordem da grade (o `cdsNavegation`) */
+  onSelecionar: (row: Record<string, any>, navegacao?: () => Promise<number[]>) => void;
   onFechar: () => void;
   /** parâmetro da tela parametrizada (o tipo da NF, o papel do parceiro) — vai ao servidor, que monta o filtro obrigatório */
   filtroExtra?: { campo: string; operador?: string; valor: string };
@@ -96,6 +97,7 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
   const linhas = useRef<Record<string, any>[]>([]);
   const atual = useRef<Record<string, any> | null>(null);
   const clique = useRef(false);
+  const ordemAtual = useRef<{ field: string; direction: string } | null>(null);
   const corpoRef = useRef<HTMLDivElement>(null);
 
   const extrasQs = useMemo(() => (filtroExtra ? `&${encodeURIComponent(filtroExtra.campo)}=${encodeURIComponent(filtroExtra.valor)}` : ''), [filtroExtra]);
@@ -146,6 +148,7 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
       situacao, pagina: String(Math.max(0, pagination.page - 1)), porPagina: String(pagination.pageSize),
     });
     if (consulta.opcao) qs.set('opcao', consulta.opcao);
+    ordemAtual.current = sort[0] ?? null;
     if (sort[0]) { qs.set('ordenacao', sort[0].field); qs.set('ordemDesc', String(sort[0].direction === 'desc')); }
     try {
       const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
@@ -161,9 +164,18 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consulta, resourcePath, situacao, extrasQs]);
 
+  // os códigos do resultado inteiro, na ordem em que a grade está — pedidos só quando o cadastro navegar (←/→/↑/↓)
+  const fonteDaNavegacao = (c: Consulta) => {
+    const qs = new URLSearchParams({ recurso: resourcePath, campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, situacao, soCodigos: 'true' });
+    if (c.opcao) qs.set('opcao', c.opcao);
+    const o = ordemAtual.current;
+    if (o) { qs.set('ordenacao', o.field); qs.set('ordemDesc', String(o.direction === 'desc')); }
+    const url = `/cadastro/pesquisa?${qs.toString()}${extrasQs}`;
+    return async () => (await pedir<{ codigos: Array<number | string> }>(url)).codigos.map(Number).filter(Number.isFinite);
+  };
   const confirmar = (row?: Record<string, any> | null) => {
     const r = row ?? atual.current ?? linhas.current[0];
-    if (r) onSelecionar(r);
+    if (r) onSelecionar(r, consulta ? fonteDaNavegacao(consulta) : undefined);
   };
 
   const retorno = meta?.retorno ?? colunas[0]?.campo ?? 'id';

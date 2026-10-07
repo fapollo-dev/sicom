@@ -35,6 +35,7 @@ export class PesquisaController {
       porPagina: q.porPagina ? Number(q.porPagina) : undefined,
       empresas: q.empresas ? q.empresas.split(',').map(Number).filter(Number.isInteger) : undefined,
       extras,
+      soCodigos: q.soCodigos === 'true',
     };
     return this.pesquisa.pesquisar(q.recurso, p);
   }

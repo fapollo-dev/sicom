@@ -29353,6 +29353,13 @@ async function main() {
           && apgAb.status === 200 && apgAb.j.total === apgEsp,
           { rcb: [rcbAb.status, rcbAb.j.total, rcbEsp, rcbTd.j.total], apg: [apgAb.status, apgAb.j.total, apgEsp] });
 
+        const nav = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true');
+        const navDesc = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true&ordenacao=descricao&ordemDesc=true');
+        check('PESQUISA §298.8 [o cdsNavegation do cadastro]: só os códigos do resultado inteiro, na ordem da grade (DESCRICAO, a abertura de produtos) e invertidos quando a grade está em ordem decrescente',
+          nav.status === 200 && (nav.j.codigos ?? []).map(Number).join() === `${PA},${PI}` && nav.j.total === 2
+          && (navDesc.j.codigos ?? []).map(Number).join() === `${PI},${PA}`,
+          { nav: nav.j, navDesc: navDesc.j });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

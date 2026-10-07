@@ -28,11 +28,15 @@ export interface ParametrosDaPesquisa {
   empresas?: number[];
   /** parâmetros que a tela declara (ex.: o tipo da NF) */
   extras?: Record<string, string>;
+  /** só os códigos de retorno do resultado inteiro, na ordem — o `cdsNavegation` do cadastro (uCadMaster.pas:547, 870-883) */
+  soCodigos?: boolean;
 }
 
 /** nada que pareça credencial sai na grade nem na lista de campos (o `empresaParaRelatorio` usa a mesma regra) */
 const SEGREDO = /senha|token|certificado|csc|hash|auth|segredo|secret/i;
 const TETO_POR_PAGINA = 1000;
+/** o resultado inteiro para a navegação do cadastro (o legado carrega a view filtrada toda; a maior de hoje tem ~48 mil linhas) */
+const TETO_CODIGOS = 200_000;
 
 /** "RAZAO_SOCIAL" → "Razao social": o título da coluna no legado é o nome capitalizado (uPesquisa.pas:1651-1661) */
 function tituloDaColuna(campo: string): string {
@@ -165,6 +169,11 @@ export class PesquisaService {
     const desc = p.ordenacao ? !!p.ordemDesc : !!t.abertura?.ordemDesc;
     if (ordem) q = q.orderBy(sql.ref(ordem), desc ? 'desc' : 'asc');
     if (porNome.has(t.retorno) && ordem !== t.retorno) q = q.orderBy(sql.ref(t.retorno), 'asc');
+
+    if (p.soCodigos) {
+      const codigos = (await q.clearSelect().select(sql.ref(t.retorno).as('c')).limit(TETO_CODIGOS).execute()).map((r: any) => r.c);
+      return { codigos, total };
+    }
 
     const porPagina = Math.min(Math.max(1, p.porPagina ?? 100), TETO_POR_PAGINA);
     const pagina = Math.max(0, p.pagina ?? 0);

@@ -25,6 +25,8 @@ export interface CadMaster<T> {
   excluir(): Promise<void>;
   cancelar(): void;
   // navegação de registro (DBNavigator sobre o cdsNavegation) — só no browse
+  /** a lista navegável passa a ser o resultado desta Pesquisa (sem fonte: as setas param) */
+  definirNavegacao(fonte?: () => Promise<number[]>): void;
   primeiro(): Promise<void>;
   anterior(): Promise<void>;
   proximo(): Promise<void>;
@@ -48,8 +50,14 @@ export function useCadMaster<T extends Record<string, any>>(
   useConfirmarSaida(modo !== 'browse', 'Deseja sair sem salvar as alterações?');
   const [registro, setRegistro] = useState<T | null>(null);
   const [carregando, setCarregando] = useState(false);
-  // cdsNavegation: lista navegável de códigos, ordenada por PK, carregada sob demanda
+  // cdsNavegation: o RESULTADO DA ÚLTIMA PESQUISA, na ordem da grade (uCadMaster.pas:547 — o TfrmPesquisa recebe o cdsNavegation).
+  // Antes de pesquisar não há lista e as setas não andam (uCadMaster.pas:870-883). Os códigos vêm sob demanda, na 1ª seta.
+  const [fonteNav, setFonteNav] = useState<(() => Promise<number[]>) | null>(null);
   const [navList, setNavList] = useState<number[]>([]);
+  const definirNavegacao = useCallback((fonte?: () => Promise<number[]>) => {
+    setFonteNav(() => fonte ?? null);
+    setNavList([]);
+  }, []);
 
   const carregarPorCodigo = useCallback(
     async (id: number) => {
@@ -107,16 +115,14 @@ export function useCadMaster<T extends Record<string, any>>(
 
   const cancelar = useCallback(() => setModo('browse'), []);
 
-  // garante o cdsNavegation carregado (códigos ordenados por PK, só ativos)
+  // garante o cdsNavegation carregado (os códigos da última Pesquisa; refeitos depois de gravar/excluir)
   const garantirNav = useCallback(async (): Promise<number[]> => {
     if (navList.length) return navList;
-    const rows = await api.listar({ orderBy: colunaCodigo, orderDir: 'asc' });
-    const ids = rows
-      .map((r) => Number(r[colunaCodigo]))
-      .filter((n) => Number.isFinite(n));
+    if (!fonteNav) return [];
+    const ids = await fonteNav();
     setNavList(ids);
     return ids;
-  }, [api, colunaCodigo, navList]);
+  }, [fonteNav, navList]);
 
   // navega para o alvo calculado a partir do índice do registro corrente
   const navegar = useCallback(
@@ -160,6 +166,7 @@ export function useCadMaster<T extends Record<string, any>>(
     gravar,
     excluir,
     cancelar,
+    definirNavegacao,
     primeiro,
     anterior,
     proximo,

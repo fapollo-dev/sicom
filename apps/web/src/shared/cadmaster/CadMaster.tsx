@@ -244,8 +244,9 @@ export function CadMaster<T extends FieldValues>({
             situacaoInicial={situacao}
             onSituacao={setSituacao}
             onFechar={() => setPesquisaAberta(false)}
-            onSelecionar={(row) => {
+            onSelecionar={(row, navegacao) => {
               const id = Number(row[colunaCodigo]);
+              cad.definirNavegacao(navegacao);
               setPesquisaAberta(false);
               void cad.carregarPorCodigo(id); // efeito sincroniza form + código
             }}
