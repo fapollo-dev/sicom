@@ -57,10 +57,10 @@ export function LotesCobrancaCadMaster() {
       schema={loteCobrancaSchema}
       defaultValues={{ codparceiro: undefined, data: hojeISO(), itens: [] }}
       colunasPesquisa={[
-        { campo: 'codlotecob', label: 'Código', tipo: 'text', largura: 110 },
-        { campo: 'codparceiro', label: 'Cobrador', tipo: 'text' },
-        { campo: 'razao', label: 'Razão', tipo: 'text' },
-        { campo: 'data', label: 'Emissão', tipo: 'date', largura: 130 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'cod_cobrador', label: 'Cobrador', tipo: 'text' },
+        { campo: 'cobrador', label: 'Razão', tipo: 'text' },
+        { campo: 'data_cobranca', label: 'Emissão', tipo: 'date', largura: 130 },
       ]}
       outros={[
         { label: 'Relatório geral', onClick: () => imprimir('GERAL') },

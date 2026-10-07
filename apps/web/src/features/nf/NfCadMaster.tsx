@@ -157,14 +157,14 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
       largura="6xl"
       gerenciaEdicaoInterna
       filtroPesquisa={{ campo: 'tipo', operador: 'igual', valor: tipo }}
+      // a grade da Pesquisa com as colunas da GET_NF do legado (rel_get_nf — o STATUS_NFE decodificado; a série não está na view)
       colunasPesquisa={[
-        { campo: 'codnf', label: 'Código', tipo: 'text', largura: 100 },
-        { campo: 'nronf', label: 'Número', tipo: 'text', largura: 120 },
-        { campo: 'serie', label: 'Série', tipo: 'text', largura: 90 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'nronf_descritivo', label: 'Número', tipo: 'text', largura: 120 },
         { campo: 'parceiro', label: PARCEIRO_LABEL[tipo], tipo: 'text' },
-        { campo: 'dtemissao', label: 'Emissão', tipo: 'date', largura: 130 },
-        { campo: 'statusnfe', label: 'Status', tipo: 'text', largura: 100 },
-        { campo: 'totalnf', label: 'Total', tipo: 'text', largura: 130 },
+        { campo: 'data_emissao', label: 'Emissão', tipo: 'date', largura: 130 },
+        { campo: 'status_nfe', label: 'Status', tipo: 'text', largura: 220 },
+        { campo: 'total_nf', label: 'Total', tipo: 'text', largura: 130 },
       ]}
       campos={({ form, editavel, carregar }) => <NfForm form={form} editavel={editavel} tipo={tipo} opts={opts} carregar={carregar} />}
     />

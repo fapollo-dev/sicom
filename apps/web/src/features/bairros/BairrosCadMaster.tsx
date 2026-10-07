@@ -23,7 +23,7 @@ export function BairrosCadMaster() {
       resourcePath="cadastro/bairros"
       pk="idbairro"
       colunasPesquisa={[
-        { campo: 'idbairro', label: 'Código', tipo: 'text', largura: 90 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 90 },
         { campo: 'descricao', label: 'Descrição', tipo: 'text' },
         { campo: 'regiao', label: 'Região', tipo: 'text', largura: 140 },
         { campo: 'ativo', label: 'Ativo', tipo: 'text', largura: 90 },

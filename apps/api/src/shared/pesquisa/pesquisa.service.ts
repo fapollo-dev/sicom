@@ -22,6 +22,8 @@ export interface ParametrosDaPesquisa {
   situacao?: 'ativos' | 'inativos' | 'todos';
   /** a escolha da janela de opções antes da Pesquisa (A pagar / A receber) */
   opcao?: string;
+  /** o complemento da janela de opções (o "Com/Sem centro de custo" do A pagar) */
+  complemento?: string;
   ordenacao?: string;
   ordemDesc?: boolean;
   pagina?: number;
@@ -40,6 +42,9 @@ export interface ParametrosDaPesquisa {
    */
   fixos?: Record<string, string>;
 }
+
+/** a escolha da janela de opções (a opção e o complemento) — no A pagar ela decide a relação */
+export interface Escolha { opcao?: string; complemento?: string }
 
 /** nada que pareça credencial sai na grade nem na lista de campos (o `empresaParaRelatorio` usa a mesma regra) */
 const SEGREDO = /senha|token|certificado|csc|hash|auth|segredo|secret/i;
@@ -68,13 +73,22 @@ export class PesquisaService {
 
   constructor(private readonly dbp: DatabaseProvider) {}
 
-  /** a relação que se lê (a versão integral do legado, quando há) e as colunas que aparecem (sem INDR nem as ocultas do Apollo) */
-  private relacaoDe(t: PesquisaTela): string {
-    return t.relacao ?? t.view;
+  /**
+   * a relação que se lê (a versão integral do legado, quando há) e as ocultas dela — no A pagar, a da opção e do complemento escolhidos
+   * (sem escolha, os padrões da janela); opção ou complemento fora da lista da tela = 422
+   */
+  private leitura(t: PesquisaTela, escolha: Escolha = {}): { relacao: string; ocultas: string[]; opcao?: string } {
+    if (t.opcoes?.length && escolha.opcao && !t.opcoes.some((o) => o.id === escolha.opcao)) throw new BusinessRuleError('PESQUISA_OPCAO_INVALIDA', { opcao: escolha.opcao });
+    if (escolha.complemento && !t.complemento?.some((o) => o.id === escolha.complemento)) throw new BusinessRuleError('PESQUISA_OPCAO_INVALIDA', { complemento: escolha.complemento });
+    const opcao = escolha.opcao ?? t.opcoes?.find((o) => o.padrao)?.id;
+    const r = t.relacaoPorOpcao?.(opcao, escolha.complemento ?? t.complemento?.find((o) => o.padrao)?.id);
+    return r ? { relacao: r.relacao, ocultas: r.ocultas ?? [], opcao } : { relacao: t.relacao ?? t.view, ocultas: t.ocultas ?? [], opcao };
   }
-  private async colunasVisiveis(t: PesquisaTela): Promise<ColunaDaView[]> {
-    const ocultas = new Set(['indr', ...(t.ocultas ?? [])]);
-    return (await this.colunas(this.relacaoDe(t))).filter((c) => !ocultas.has(c.campo));
+  /** as colunas que aparecem na combo e na grade (sem INDR nem as ocultas do Apollo) */
+  private async colunasVisiveis(t: PesquisaTela, escolha?: Escolha): Promise<ColunaDaView[]> {
+    const { relacao, ocultas } = this.leitura(t, escolha);
+    const fora = new Set(['indr', ...ocultas]);
+    return (await this.colunas(relacao)).filter((c) => !fora.has(c.campo));
   }
 
   tela(recurso: string): PesquisaTela {
@@ -102,10 +116,13 @@ export class PesquisaService {
     return cols;
   }
 
-  /** o que a tela precisa para abrir: os campos em ordem alfabética, as operações por tipo, a abertura e as opções */
-  async meta(recurso: string) {
+  /**
+   * o que a tela precisa para abrir: os campos em ordem alfabética, as operações por tipo, a abertura e as opções — os campos e a abertura
+   * da relação da opção e do complemento escolhidos (o A pagar troca de view; sem escolha, a padrão da janela)
+   */
+  async meta(recurso: string, escolha?: Escolha) {
     const t = this.tela(recurso);
-    const cols = await this.colunasVisiveis(t);
+    const cols = await this.colunasVisiveis(t, escolha);
     const campo = t.abertura?.campo && cols.some((c) => c.campo === t.abertura!.campo) ? t.abertura.campo : cols[0].campo;
     const tipo = cols.find((c) => c.campo === campo)!.tipo;
     return {
@@ -122,6 +139,7 @@ export class PesquisaService {
         ordemDesc: !!t.abertura?.ordemDesc,
       },
       opcoes: t.opcoes ?? [],
+      complemento: t.complemento ?? [],
       situacao: !!t.campoAtivo,
       retorno: t.retorno,
       obrigatorio: t.descricaoObrigatorios ?? null,
@@ -137,7 +155,8 @@ export class PesquisaService {
 
   async pesquisar(recurso: string, p: ParametrosDaPesquisa) {
     const t = this.tela(recurso);
-    const cols = await this.colunas(this.relacaoDe(t));
+    const { relacao, opcao } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
+    const cols = await this.colunas(relacao);
     const porNome = new Map(cols.map((c) => [c.campo, c]));
     const db = this.dbp.forTenantRead() as AnyDB;
     const conds: RawBuilder<SqlBool>[] = [];
@@ -152,8 +171,6 @@ export class PesquisaService {
     }
 
     // os filtros obrigatórios da tela (FObrigatoriosPesquisa / o filtro do Create — lojas do operador, aberto/quitado, tipo da NF…)
-    if (t.opcoes?.length && p.opcao && !t.opcoes.some((o) => o.id === p.opcao)) throw new BusinessRuleError('PESQUISA_OPCAO_INVALIDA', { opcao: p.opcao });
-    const opcao = p.opcao ?? t.opcoes?.find((o) => o.padrao)?.id;
     if (t.obrigatorios) {
       const tenant = currentTenant();
       const ctx = {
@@ -200,7 +217,7 @@ export class PesquisaService {
     }
 
     const visiveis = cols.filter((c) => c.campo !== 'indr').map((c) => c.campo);
-    let q = db.selectFrom(this.relacaoDe(t)).select(visiveis.map((c) => sql.ref(c).as(c)));
+    let q = db.selectFrom(relacao).select(visiveis.map((c) => sql.ref(c).as(c)));
     for (const c of conds) q = q.where(c);
 
     const somar = !!p.soma && porNome.get(p.soma)?.tipo === 'numero';
@@ -216,6 +233,7 @@ export class PesquisaService {
     const desc = p.ordenacao ? !!p.ordemDesc : !!t.abertura?.ordemDesc;
     if (ordem) q = q.orderBy(sql.ref(ordem), desc ? 'desc' : 'asc');
     if (porNome.has(t.retorno) && ordem !== t.retorno) q = q.orderBy(sql.ref(t.retorno), 'asc');
+    for (const c of t.desempate ?? []) if (porNome.has(c) && c !== ordem) q = q.orderBy(sql.ref(c), 'asc');
 
     if (p.soCodigos) {
       const codigos = (await q.clearSelect().select(sql.ref(t.retorno).as('c')).limit(TETO_CODIGOS).execute()).map((r: any) => r.c);

@@ -43,10 +43,10 @@ export function ContasBancariasCadMaster() {
       pk="codconta"
       log={{ form: 'FRMCADCONTASBANCARIAS', chave: 'CODCONTA' }}
       colunasPesquisa={[
-        { campo: 'codconta', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
         { campo: 'banco', label: 'Banco', tipo: 'text' },
         { campo: 'titular', label: 'Titular', tipo: 'text' },
-        { campo: 'nroconta', label: 'Nº Conta', tipo: 'text', largura: 140 },
+        { campo: 'nro_conta', label: 'Nº Conta', tipo: 'text', largura: 140 },
         { campo: 'gerente', label: 'Gerente', tipo: 'text' },
         { campo: 'ativo', label: 'Ativo', tipo: 'status', largura: 100 },
       ]}

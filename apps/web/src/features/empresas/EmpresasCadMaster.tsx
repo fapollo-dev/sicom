@@ -143,8 +143,8 @@ export function EmpresasCadMaster() {
       log={{ form: 'FRMCADEMPRESA', chave: 'CODEMPRESA' }}
       pkGerada={false}
       colunasPesquisa={[
-        { campo: 'idempresa', label: 'Código', tipo: 'text', largura: 100 },
-        { campo: 'razao_social', label: 'Razão social', tipo: 'text' },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'razao', label: 'Razão social', tipo: 'text' },
         { campo: 'cnpj', label: 'CNPJ', tipo: 'text', largura: 160 },
         { campo: 'uf', label: 'UF', tipo: 'text', largura: 80 },
         { campo: 'classfiscal', label: 'Regime', tipo: 'text', largura: 100 },

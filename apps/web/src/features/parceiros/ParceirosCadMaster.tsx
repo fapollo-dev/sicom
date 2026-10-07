@@ -172,7 +172,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       // a Pesquisa lista só o papel da tela (CLI='S' p/ Clientes, FRN='S' p/ Fornecedores)
       filtroPesquisa={{ campo: flag, operador: 'igual', valor: 'S' }}
       colunasPesquisa={[
-        { campo: 'codparceiro', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
         { campo: 'razao', label: 'Razão / Nome', tipo: 'text' },
         { campo: 'fantasia', label: 'Fantasia', tipo: 'text' },
         { campo: 'cnpj_cpf', label: 'CNPJ/CPF', tipo: 'text', largura: 170 },

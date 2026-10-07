@@ -31,6 +31,14 @@ export interface PesquisaTela {
   /** as colunas do Apollo no fim da relação (a PK, o código cru…): valem para retorno, filtros e lookups, mas não aparecem na combo de
    *  campos nem na grade */
   ocultas?: string[];
+  /**
+   * a relação (e as ocultas dela) quando ela muda com a escolha da janela de opções e do complemento — o A pagar lê GET_APAGAR nas
+   * abertas e GET_CP nas outras, e as _CEN com "Com centro de custo" (uAPagar.pas:2651-2685); sem ela, `relacao`/`ocultas`
+   */
+  relacaoPorOpcao?: (opcao: string | undefined, complemento: string | undefined) => { relacao: string; ocultas?: string[] };
+  /** as colunas que completam a ordem quando a relação do legado repete o código (pedido × loja, título × baixa, título × centro,
+   *  parceiro × endereço): a página não troca linha de lugar entre uma consulta e outra */
+  desempate?: string[];
   /** o FRM do legado (procedência) */
   form: string;
   /** "Pesquisa <comentário da view>" */
@@ -45,6 +53,8 @@ export interface PesquisaTela {
   descricaoObrigatorios?: string;
   /** a janela de opções antes da Pesquisa (A pagar, A receber) */
   opcoes?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
+  /** o complemento da janela de opções (o `OpcoesCompl` do TfrmOpcoes — o "Com/Sem centro de custo" do A pagar) */
+  complemento?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
   /** os parâmetros que a tela aceita do cliente (o resto é ignorado) — ex.: o tipo da NF */
   extras?: string[];
   /** SetDefaultPesquisa: campo, valor, operação e ordenação de abertura; sem ela, o 1º campo em ordem alfabética */
@@ -79,6 +89,46 @@ const daLoja = (ctx: ContextoDosObrigatorios, coluna: string): RawBuilder<SqlBoo
 const ATIVO = { coluna: 'ativo', sim: 'S', nao: 'N' };
 /** as do Apollo no fim da rel_get_produtos (mig 390) */
 const OCULTAS_PRODUTO = ['idproduto', 'ncmsh'];
+/**
+ * As colunas do Apollo no fim de cada versão integral do legado (as da `get_*` da tela que a produção não tem): tudo o que vem depois
+ * da última coluna da view da produção (`user_tab_cols`, 07/10/2026 — dossiê uPesquisa-corteB-views.md §1). A combo e a grade ficam
+ * com as do legado: GET_PEDIDOCOMPRA 24, GET_APAGAR 53, GET_CP 43, GET_CP_CEN 41, GET_APAGAR_CEN 38, GET_RCB 73, GET_NF 49,
+ * GET_PARCEIROS 61, GET_OPERADORES 11 (a SENHA o SEGREDO tira), GET_EMPRESAS 24 (as 4 SENHA*, idem), GET_CONTAS_BANCARIAS 13,
+ * GET_FORMAS_PGTO 11, GET_LOTE_COBRANCA 5, GET_UNIDADE 5, GET_BAIRRO 5.
+ */
+const OCULTAS = {
+  /** rel_get_pedidocompra (mig 390): depois de VALOR_FRETE */
+  pedidocompra: ['codpedcomp', 'codparceiro', 'fornecedor', 'codoperador', 'codconpagto', 'pc_tipo_frete', 'pc_valor_frete',
+    'pc_nronf_cruzamento', 'idsituacao_nf', 'dtfaturamento', 'dtencerramento', 'indr', 'total', 'qtde_itens', 'empresas'],
+  /** rel_get_apagar (mig 389): depois de OBS_NOTA */
+  apagar: ['codapg', 'codparceiro', 'codempresa', 'consiliado', 'razao', 'duplicata', 'dtvenda', 'dtvenc', 'txjuros', 'dias_atrazo',
+    'dias_tolerancia', 'juro', 'total', 'agrupado', 'contabilizado', 'tipodoc', 'origem', 'cadastrado_manualmente', 'dtpgto', 'idpgto',
+    'codplc', 'idsituacao_nf'],
+  /** get_cp_cen (mig 388): depois de DATA_BX — o centro do rateio que o Apollo já expunha (mig 203) */
+  cpCen: ['codplc', 'descricao', 'codigo_centro_custo'],
+  /** get_rcb (migs 388/399): depois de DATA_AGENDAMENTO */
+  rcb: ['consilidado', 'codgrupo'],
+  /** rel_get_nf (mig 389): depois de NFE_DEVOLVIDA */
+  nf: ['codnf', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'idsituacao_nf', 'situacao', 'statusnfe', 'proc', 'totalnf'],
+  /** rel_get_parceiros (mig 390): depois de EMAIL_VENDEDOR_REPRESENTANTE */
+  parceiros: ['codparceiro', 'tipofj', 'bloqued'],
+  /** rel_get_operadores (mig 393): depois de ATIVO */
+  operadores: ['codoperador', 'idgrupo', 'grupo', 'codparceiro', 'parceiro', 'idsupervisor', 'supervisor', 'desabilita_operacoes_basicas',
+    'desabilita_desconto_pdv', 'solicitar_alteracao_senha', 'codigoauxiliar', 'indr'],
+  /** rel_get_empresas (mig 393): depois de NOME_PARCEIRO */
+  empresas: ['idempresa', 'razao_social', 'figurafiscal', 'serie_nfe', 'despoperacional'],
+  /** rel_get_contas_bancarias (mig 393): depois de ATIVO */
+  contasBancarias: ['codconta', 'codbco', 'nroconta'],
+  /** rel_get_formas_pgto (mig 393): depois de DATA_INATIVO */
+  formasPgto: ['idpgto', 'plccofre', 'cofre', 'codcontacorrente', 'codplanocontas', 'recebe_pdv', 'permite_sangria_pdv',
+    'lanc_movimento_individual', 'tipo'],
+  /** rel_get_lote_cobranca (mig 393): depois de TOTAL_LOTE */
+  loteCobranca: ['codlotecob', 'codparceiro', 'data', 'razao', 'qtd_itens'],
+  /** rel_get_unidade (mig 393): depois de FRACIONADO */
+  unidade: ['codunidade', 'indr', 'producao'],
+  /** rel_get_bairro (mig 393): depois de REGIAO */
+  bairro: ['idbairro', 'indr'],
+};
 /** UCadProduto.pas:6302-6318 (e os ~15 lookups de produto) */
 /** UCadProduto.pas:6332-6393 — os atalhos da pesquisa de produto (e dos lookups de produto do pedido, da NF, da cotação…) */
 const ESTOQUE_E_PRECO = (tabela: 'estoque' | 'estoque_dep') => (codigo: number) => sql<Record<string, unknown>>`
@@ -110,119 +160,153 @@ const permitidosPelaSituacao = (ctx: ContextoDosObrigatorios, tabela: 'situacao_
   return [sql<SqlBool>`(not exists (select 1 from ${sql.table(tabela)} x where x.idsituacao_nf = ${sit})
     or ${sql.ref(coluna)} in (select x.${sql.ref(coluna)} from ${sql.table(tabela)} x where x.idsituacao_nf = ${sit}))`];
 };
-/** a GET_OPERADORES da produção: `WHERE O.LOGIN <> 'SICOM'` */
+/** a GET_OPERADORES da produção: `WHERE O.LOGIN <> 'SICOM'` (o lookup/operadores ainda lê a get_operadores — corte B6) */
 const semSicom = sql<SqlBool>`${sql.ref('login')} <> 'SICOM'`;
-/** `CODIGO_EMPRESA = <loja do login>` na GET_OPERADORES = o operador está na RELACAO_OPERADOR_EMPRESA da loja */
-const daLojaPelaRelacao = (ctx: ContextoDosObrigatorios): RawBuilder<SqlBool> =>
-  sql<SqlBool>`${sql.ref('codoperador')} in (select r.codoperador from relacao_operador_empresa r where r.codempresa = ${ctx.empresa ?? -1})`;
 
 /**
- * Os 26 cadastros do Apollo com Pesquisa. Os nomes de coluna são os da VIEW DO DESTINO (a `get_*` do Apollo); onde a view do destino
- * ainda não tem a coluna do legado, o filtro vai pela tabela base (o alargamento das views é o corte B do dossiê). A procedência de
- * cada item (arquivo:linha do legado e o V$SQL da produção) está em tools/pesquisa/telas-pesquisa.json.
+ * Os 26 cadastros do Apollo com Pesquisa. Onde há `relacao`, os nomes de coluna são os dela — a versão integral do legado (corte B,
+ * dossiê uPesquisa-corteB-views.md), com as do Apollo `ocultas` no fim; sem ela, os da VIEW DO DESTINO (a `get_*` do Apollo), e onde
+ * essa view ainda não tem a coluna do legado o filtro vai pela tabela base. A procedência de cada item (arquivo:linha do legado e o
+ * V$SQL da produção) está em tools/pesquisa/telas-pesquisa.json.
  */
 export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
-  'cadastro/unidades': { view: 'get_unidade', form: 'FRMCADUNIDADE', titulo: 'Unidades', retorno: 'codigo', campoAtivo: ATIVO },
+  // B4: a GET_UNIDADE da produção (rel_get_unidade, mig 393) — CODIGO = CODUNIDADE, o WHERE INDR <> 'E' dentro da view
+  'cadastro/unidades': { view: 'get_unidade', relacao: 'rel_get_unidade', ocultas: OCULTAS.unidade, form: 'FRMCADUNIDADE', titulo: 'Unidades',
+    retorno: 'codigo', campoAtivo: ATIVO },
   'cadastro/operacoes-conta': { view: 'get_operacoes_conta', form: 'FRMCADOPERACOESCONTA', titulo: 'Operações de conta', retorno: 'codopconta',
     abertura: { campo: 'codopconta', operacao: 'igual' } },
-  // frmCadBairro só existe no binário da produção (TABELA_CADASTRO/MENUEXPRESS): a situação segue o form-base (presumida)
-  'cadastro/bairros': { view: 'get_bairro', form: 'FRMCADBAIRRO', titulo: 'Bairros', retorno: 'idbairro', campoAtivo: ATIVO },
+  // frmCadBairro só existe no binário da produção (TABELA_CADASTRO/MENUEXPRESS): a situação segue o form-base (presumida). B4: a
+  // GET_BAIRRO da produção (rel_get_bairro, mig 393) — CODIGO = IDBAIRRO, REGIAO decodificada (o 'O' = 'CENTRO' do legado, mantido)
+  'cadastro/bairros': { view: 'get_bairro', relacao: 'rel_get_bairro', ocultas: OCULTAS.bairro, form: 'FRMCADBAIRRO', titulo: 'Bairros',
+    retorno: 'codigo', campoAtivo: ATIVO },
   // a GET_PLC da produção só mostra as contas com DESCCODPLC de mais de 5 caracteres (55 ficam de fora)
   'cadastro/plc': { view: 'get_plc', form: 'FRMCADPLC', titulo: 'Centro de custo', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' },
     obrigatorios: () => [sql<SqlBool>`length(coalesce(${sql.ref('desccodplc')}, '')) > 5`], descricaoObrigatorios: 'contas com mais de 5 caracteres' },
   'cadastro/bancos': { view: 'get_bancos', form: 'FRMCADBANCOS', titulo: 'Bancos', retorno: 'codigo' },
   'cadastro/ncm': { view: 'get_ncm', form: 'FRMCADNCM', titulo: 'NCM', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },
-  // uPedidoCompra.pas:7150-7162: a janela "PEDIDO DE COMPRA" — aberto = FECHADO='N' nas lojas (o FORNECEDOR_ATIVO='S' entra com a view do corte B)
-  'compras/pedidos': { view: 'get_pedidocompra', form: 'FRMPEDIDOCOMPRA', titulo: 'Pedido de compra', retorno: 'codpedcomp',
-    abertura: { campo: 'fornecedor', operacao: 'qualquer', ordenacao: 'codpedcomp' },
+  // B2: a GET_PEDIDOCOMPRA da produção (rel_get_pedidocompra, mig 390): uma linha por pedido × loja (PEDIDO_COMPRA_EMPRESA, mantida
+  // pelo gatilho da mig 401), com o IDEMPRESA da loja, o FECHADO DA LOJA (PEDIDO_COMPRA_QTDE) e o FORNECEDOR_ATIVO. A janela "PEDIDO
+  // DE COMPRA" (uPedidoCompra.pas:7150-7162): "Trazer somente aberto" = FECHADO = 'N' AND IDEMPRESA in (<lojas>) AND
+  // FORNECEDOR_ATIVO = 'S' (:7160, o V$SQL da produção); "Trazer todos" = sem filtro nenhum. Abre em PARCEIRO / Em qualquer lugar e
+  // ordena por NROPEDIDO (SetDefaultPesquisa, :762); retorno CODIGO (= CODPEDCOMP). Na produção, loja 1: 1.429 abertos × 3.982 pela
+  // regra anterior (o FECHADO do cabeçalho e o CSV das lojas)
+  'compras/pedidos': { view: 'get_pedidocompra', relacao: 'rel_get_pedidocompra', ocultas: OCULTAS.pedidocompra, form: 'FRMPEDIDOCOMPRA',
+    titulo: 'Pedido de compra', retorno: 'codigo', desempate: ['idempresa'],
+    abertura: { campo: 'parceiro', operacao: 'qualquer', ordenacao: 'nropedido' },
     opcoes: [{ id: 'abertos', rotulo: 'Trazer somente aberto', padrao: true }, { id: 'todos', rotulo: 'Trazer todos' }],
-    obrigatorios: async (ctx) => {
-      if (ctx.opcao !== 'abertos') return [];
-      const lojas = await ctx.lojas();
-      // o pedido multi-loja: a dona ou uma das lojas da lista (o legado tem uma linha por pedido × loja)
-      return [sql<SqlBool>`${sql.ref('fechado')} = 'N'`,
-        sql<SqlBool>`(${sql.ref('idempresa')} in (${sql.join(lojas)}) or exists (select 1 from unnest(string_to_array(replace(coalesce(${sql.ref('empresas')}, ''), ' ', ''), ',')) e where e ~ '^[0-9]+$' and e::int in (${sql.join(lojas)})))`];
-    },
-    // uPedidoCompra.pas:735-760
+    obrigatorios: async (ctx) => (ctx.opcao !== 'abertos' ? [] : [
+      sql<SqlBool>`${sql.ref('fechado')} = 'N'`, emLista('idempresa', await ctx.lojas()), sql<SqlBool>`${sql.ref('fornecedor_ativo')} = 'S'`]),
+    // uPedidoCompra.pas:735-760 — o FECHADO da linha é o da loja: o pedido baixado numa loja e aberto na outra pinta só a linha da que baixou
     cores: [
       { coluna: 'fechado', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Pedido baixado' },
       { coluna: 'bonificacao', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Pedido com bonificação' },
       { coluna: 'dt_vencimento', op: '<', hoje: true, cor: 'VERDE', legenda: 'Pedido vencido' },
     ] },
-  // uNF.pas:6202-6300: TIPO da tela e a loja do login
-  'fiscal/nf': { view: 'get_nf', form: 'FRMNF', titulo: 'Notas fiscais', retorno: 'codnf', extras: ['tipo'],
-    abertura: { campo: 'parceiro', operacao: 'qualquer', ordenacao: 'codnf' },
+  // uNF.pas:6202-6300: TIPO da tela e a loja do login (:6291); abre em PARCEIRO / Em qualquer lugar ordenando por CODIGO (:6302);
+  // retorno CODIGO (= CODNF — a variável Filtro de :6288 nunca é atribuída, uPesquisa.pas:826-829 cai no CODIGO). B4: a GET_NF da
+  // produção (rel_get_nf, mig 389) — 49 colunas, NRO_NF numérico e o STATUS_NFE DECODIFICADO (o operador procura "CANCELADA")
+  'fiscal/nf': { view: 'get_nf', relacao: 'rel_get_nf', ocultas: OCULTAS.nf, form: 'FRMNF', titulo: 'Notas fiscais', retorno: 'codigo', extras: ['tipo'],
+    abertura: { campo: 'parceiro', operacao: 'qualquer', ordenacao: 'codigo' },
     obrigatorios: (ctx) => [
       ...(ctx.extras.tipo === 'E' || ctx.extras.tipo === 'S' ? [sql<SqlBool>`${sql.ref('tipo')} = ${ctx.extras.tipo}`] : []),
       daLoja(ctx, 'idempresa')],
-    // uNF.pas:6211-6283 — o STATUS_NFE decodificado da GET_NF (P/C com TPEMISSAO 1 ou 6/7, D); a cor só depende do código
+    // uNF.pas:6211-6283 — as 5 regras do STATUS_NFE comparam o TEXTO da GET_NF (P/C com TPEMISSAO 1 = "… NA RECEITA"/"ENVIADA A
+    // RECEITA", 6/7 = "… EM CONTINGENCIA"; D = "NFE DENEGADA NA RECEITA"); depois PROCESSADA, OBS_NF e NF_IMPORTACAO_NFE
     cores: [
-      { coluna: 'statusnfe', op: '=', valor: 'P', cor: 'AZUL', legenda: 'NFe Emitida' },
-      { coluna: 'statusnfe', op: '=', valor: 'C', cor: 'VERMELHO', legenda: 'NFe Cancelada' },
-      { coluna: 'statusnfe', op: '=', valor: 'D', cor: 'AMARELO', legenda: 'NFe Denegada' },
-      { coluna: 'statusnfe', op: '=', valor: 'P', cor: 'AZUL', legenda: 'NFe Emitida em contingência' },
-      { coluna: 'statusnfe', op: '=', valor: 'C', cor: 'VERMELHO', legenda: 'NFe Cancelada em contingência' },
-      { coluna: 'proc', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Notas processadas' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE ENVIADA A RECEITA', cor: 'AZUL', legenda: 'NFe Emitida' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE CANCELADA NA RECEITA', cor: 'VERMELHO', legenda: 'NFe Cancelada' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE DENEGADA NA RECEITA', cor: 'AMARELO', legenda: 'NFe Denegada' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE ENVIADA EM CONTINGENCIA', cor: 'AZUL', legenda: 'NFe Emitida em contingência' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE CANCELADA EM CONTINGENCIA', cor: 'VERMELHO', legenda: 'NFe Cancelada em contingência' },
+      { coluna: 'processada', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Notas processadas' },
       { coluna: 'obs_nf', op: '<>', valor: '', cor: 'FUSHIA', legenda: 'NFe com Obs' },
       { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
-      { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'Transferência entre lojas' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'NFe Transferência entre lojas' },
     ] },
   'cadastro/marcas': { view: 'get_marcas', form: 'FRMCADMARCAS', titulo: 'Marcas', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },
   'cadastro/cidades': { view: 'get_cidades', form: 'FRMCADCIDADES', titulo: 'Cidades', retorno: 'idcidade' },
   'cadastro/familias': { view: 'get_familias_prod', form: 'FRMCADFAMILIAPROD', titulo: 'Família de produtos', retorno: 'codigo', campoAtivo: ATIVO,
     // UCadFamiliaProd.pas
     cores: [{ coluna: 'ativo', op: '=', valor: 'N', cor: 'VERMELHO', legenda: 'Categoria Inativa' }] },
-  // uAPagar.pas:2630-2720: "Status das contas a pagar" nas lojas; ordena por VENCIMENTO. A view do destino não tem ADCREDITO: vai pela
-  // tabela. O complemento "com centro de custo" (GET_APAGAR_CEN/GET_CP_CEN) entra com as views do corte B.
-  'cadastro/apagar': { view: 'get_apagar', form: 'FRMAPAGAR', titulo: 'Contas a pagar', retorno: 'codapg', abertura: { ordenacao: 'dtvenc' }, totalizador: true,
+  // B3 — uAPagar.pas:2630-2720: a janela "Status das contas a pagar" com o complemento "Com/Sem centro de custo" (DefaultComp := 1 =
+  // Sem, :2643-2644) escolhe a VIEW (:2651-2685): "Somente abertas" → GET_APAGAR (o WHERE dos abertos está dentro dela) ou
+  // GET_APAGAR_CEN; as outras → GET_CP ou GET_CP_CEN (título × baixa; as _CEN, × centro do rateio) com o estado no filtro; sempre
+  // CODIGO_EMPRESA in (<lojas>); retorno CODIGO (= CODAPG, :2654); SetDefault('', '', tpQualquerLugar, False, 'VENCIMENTO') (:2691) — o
+  // 1º campo alfabético DA VIEW ESCOLHIDA; o VALOR é o líquido (valor + vendor − desconto). O status da tela é sempre o de GET_APAGAR
+  // (FNomeConfig, :2688). As versões integrais: rel_get_apagar (389), get_apagar_cen (397), get_cp (391), get_cp_cen (388).
+  'cadastro/apagar': { view: 'get_apagar', form: 'FRMAPAGAR', titulo: 'Contas a pagar', retorno: 'codigo', abertura: { ordenacao: 'vencimento' }, totalizador: true,
     opcoes: [{ id: 'abertas', rotulo: 'Somente abertas', padrao: true }, { id: 'quitadas', rotulo: 'Somente quitadas' },
       { id: 'adiantamento', rotulo: 'Adiantamento de crédito' }, { id: 'agrupadas', rotulo: 'Agrupadas' }, { id: 'todas', rotulo: 'Todas' }],
+    complemento: [{ id: 'com', rotulo: 'Com centro de custo' }, { id: 'sem', rotulo: 'Sem centro de custo', padrao: true }],
+    relacaoPorOpcao: (opcao, complemento) => {
+      const comCentro = complemento === 'com';
+      if (opcao === 'abertas') return comCentro ? { relacao: 'get_apagar_cen' } : { relacao: 'rel_get_apagar', ocultas: OCULTAS.apagar };
+      return comCentro ? { relacao: 'get_cp_cen', ocultas: OCULTAS.cpCen } : { relacao: 'get_cp' };
+    },
+    desempate: ['data_bx', 'centro_custo'],
     obrigatorios: async (ctx) => {
-      const adcredito = sql`(select coalesce(a.adcredito, 'N') from apagar a where a.codapg = ${sql.ref('get_apagar.codapg')})`;
       const quitada = sql`coalesce(${sql.ref('quitada')}, 'N')`;
+      const adcredito = sql`coalesce(${sql.ref('adcredito')}, 'N')`;
       const agrupado = sql`coalesce(${sql.ref('agrupado')}, 'N')`;
+      // a condição de estado das opções sobre a GET_CP (:2659-2684); "Somente abertas" não tem — o recorte é a própria GET_APAGAR
       const estado: Record<string, RawBuilder<SqlBool>> = {
-        abertas: sql<SqlBool>`${quitada} = 'N' and ${adcredito} = 'N' and ${agrupado} = 'N'`,
-        quitadas: sql<SqlBool>`${quitada} = 'S' and ${adcredito} = 'N' and ${agrupado} = 'N'`,
+        quitadas: sql<SqlBool>`${sql.ref('quitada')} = 'S' and ${adcredito} = 'N' and ${agrupado} = 'N'`,
         adiantamento: sql<SqlBool>`${adcredito} = 'S' and ${quitada} = 'N' and ${agrupado} = 'N'`,
         agrupadas: sql<SqlBool>`${agrupado} = 'S'`,
         // "Todas" NÃO traz agrupadas nem adiantamento quitado
         todas: sql<SqlBool>`not (${adcredito} = 'S' and ${quitada} = 'S') and ${agrupado} = 'N'`,
       };
-      return [emLista('codempresa', await ctx.lojas()), ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
+      return [emLista('codigo_empresa', await ctx.lojas()), ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
     },
-    // uAPagar.pas:2692-2708
+    // uAPagar.pas:2692-2708 — o FORNECEDOR_POSSUI_DEBITO só existe na GET_APAGAR (nas outras views a regra não casa, como no legado)
     cores: [
       { coluna: 'bloqueio', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Compromisso bloqueado' },
       { coluna: 'fornecedor_possui_debito', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Fornecedor possui débito' },
     ] },
-  // uCadUsuarios.pas:662/679: só os operadores da loja do login. O CODIGO_EMPRESA da GET_OPERADORES da produção é o
-  // RELACAO_OPERADOR_EMPRESA.CODEMPRESA (LEFT JOIN — uma linha por operador × loja), e a view tira o login SICOM
-  'cadastro/operadores': { view: 'get_operadores', form: 'FRMCADUSUARIOS', titulo: 'Operadores', retorno: 'codoperador',
-    obrigatorios: (ctx) => [semSicom, daLojaPelaRelacao(ctx)] },
+  // uCadUsuarios.pas:662/679: só os operadores da loja do login. B4: a GET_OPERADORES da produção (rel_get_operadores, mig 393) — uma
+  // linha por operador × loja (o CODIGO_EMPRESA é o RELACAO_OPERADOR_EMPRESA.CODEMPRESA), sem o SICOM e sem os excluídos (WHERE da
+  // view), o TIPOOP decodificado e a TIPO_SIGLA; CODIGO = CODOPERADOR. (A view expõe o INDR do Apollo no fim: o filtro INDR = 'I' do
+  // serviço dá o mesmo conjunto — na produção OPERADORES.INDR só tem I, E e nulo.)
+  'cadastro/operadores': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCADUSUARIOS', titulo: 'Operadores',
+    retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
   'cadastro/precos': { view: 'get_preco', form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'id_preco', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },
-  'cadastro/empresas': { view: 'get_empresas', form: 'FRMCADEMPRESA', titulo: 'Empresas', retorno: 'idempresa' },
-  // uCadClientes.pas:4835-4876: o papel do menu (Clientes = CLI, Fornecedores = FRN…); o menu "Parceiros" não filtra papel
-  'cadastro/parceiros': { view: 'get_parceiros', form: 'FRMCADCLIENTES', titulo: 'Parceiros', retorno: 'codparceiro',
+  // B4: a GET_EMPRESAS da produção (rel_get_empresas, mig 393) — CODIGO = IDEMPRESA; as SENHA* vêm nulas e o SEGREDO as tira
+  'cadastro/empresas': { view: 'get_empresas', relacao: 'rel_get_empresas', ocultas: OCULTAS.empresas, form: 'FRMCADEMPRESA', titulo: 'Empresas',
+    retorno: 'codigo' },
+  // uCadClientes.pas:4835-4876: o papel do menu (Clientes = CLI, Fornecedores = FRN…); o menu "Parceiros" não filtra papel. B4: a
+  // GET_PARCEIROS da produção (rel_get_parceiros, mig 390) — uma linha POR ENDEREÇO (o CNPJ/CIDADE de um endereço que não é o padrão
+  // acha o parceiro), com ENDERECO_ATIVO, REALIZA_RETENCOES, BLOQUEADO e DATA_ULTIMA_COMPRA; CODIGO = CODPARCEIRO
+  'cadastro/parceiros': { view: 'get_parceiros', relacao: 'rel_get_parceiros', ocultas: OCULTAS.parceiros, form: 'FRMCADCLIENTES', titulo: 'Parceiros',
+    retorno: 'codigo', desempate: ['cod_part_sped'],
     campoAtivo: { coluna: 'ativado', sim: 'S', nao: 'N' }, extras: ['cli', 'frn', 'tra', 'fun', 'con'],
     obrigatorios: (ctx) => (['cli', 'frn', 'tra', 'fun', 'con'] as const).filter((k) => ctx.extras[k] === 'S').map((k) => sql<SqlBool>`${sql.ref(k)} = 'S'`),
-    // uCadClientes.pas:3785-3810: o ENDERECO_ATIVADO não existe na GET_PARCEIROS da produção (a regra nunca casa no legado — fiel)
+    // uCadClientes.pas:3785-3810: BLOQUEADO e DATA_ULTIMA_COMPRA (há mais de 35 dias) passam a casar; o ENDERECO_ATIVADO não existe na
+    // GET_PARCEIROS da produção (a coluna é ENDERECO_ATIVO — a regra nunca casa no legado, fiel)
     cores: [
-      { coluna: 'bloqued', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Parceiro Bloqueado' },
+      { coluna: 'bloqueado', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Parceiro Bloqueado' },
       { coluna: 'endereco_ativado', op: '=', valor: 'N', cor: 'ROXO', legenda: 'Endereco Desativado' },
       { coluna: 'data_ultima_compra', op: 'ndias', opDias: '>', dias: 35, cor: 'AZUL', legenda: 'Data da última compra maior que 35 dias.' },
     ] },
   'cadastro/motivos-operacao': { view: 'get_motivos_operacao', form: 'FRMCADMOTIVOOPERACOES', titulo: 'Motivos de operação', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },
-  // o legado mostra as formas de todas as lojas (sem recorte)
-  'cadastro/formas-pgto': { view: 'get_formas_pgto', form: 'FRMCADFORMAPGTO', titulo: 'Formas de pagamento', retorno: 'idpgto' },
-  'cobranca/lotes-md': { view: 'get_lote_cobranca', form: 'FRMCADLOTECOBRANCA', titulo: 'Lotes de cobrança', retorno: 'codlotecob',
-    abertura: { campo: 'razao', operacao: 'qualquer' } },
-  // uCadAReceber.pas:1326-1349 e 2714: "CONTAS A RECEBER" nas lojas; CONSILIADO='S' quando a loja do login fecha caixa
-  'cadastro/areceber': { view: 'get_areceber', viewLegado: 'GET_RCB', form: 'FRMCADARECEBER', titulo: 'Contas a receber', retorno: 'codrcb', totalizador: true,
-    abertura: { campo: 'razao', operacao: 'qualquer', ordenacao: 'razao' },
+  // o legado mostra as formas de todas as lojas (sem recorte). B4: a GET_FORMAS_PGTO da produção (rel_get_formas_pgto, mig 393) — o
+  // DESTINO decodificado (CAIXA, CARTAO…), CONTA_CORRENTE = o código, CONTA_CONTABIL = o CODIREDUZIDO; CODIGO = IDPGTO
+  'cadastro/formas-pgto': { view: 'get_formas_pgto', relacao: 'rel_get_formas_pgto', ocultas: OCULTAS.formasPgto, form: 'FRMCADFORMAPGTO',
+    titulo: 'Formas de pagamento', retorno: 'codigo' },
+  // B4: a GET_LOTE_COBRANCA da produção (rel_get_lote_cobranca, mig 393) — CODIGO = CODLOTECOB, COBRADOR, COD_COBRADOR, DATA_COBRANCA,
+  // TOTAL_LOTE; sem SetDefault (UCadLoteCobranca.pas herda o form-base): abre no 1º alfabético, COBRADOR — o que a abertura em RAZAO
+  // da view anterior imitava
+  'cobranca/lotes-md': { view: 'get_lote_cobranca', relacao: 'rel_get_lote_cobranca', ocultas: OCULTAS.loteCobranca, form: 'FRMCADLOTECOBRANCA',
+    titulo: 'Lotes de cobrança', retorno: 'codigo' },
+  // uCadAReceber.pas:1326-1349: "CONTAS A RECEBER" nas lojas (IDEMPRESA in (<lojas>)); CONSILIADO='S' quando a loja do login fecha
+  // caixa; as opções por TRIM(QUITADA)/TRIM(AGRUPADO). B3: a Pesquisa é sobre a GET_RCB (SetaDataset(…, 'GET_RCB', 'GET_RCB'), :2590 —
+  // get_rcb, migs 388/399): título × baixa, os nomes do legado (CLIENTE, DATA_VENCIMENTO…); abre e ordena em CLIENTE
+  // (SetDefaultPesquisa('CLIENTE','',tpQualquerLugar,false,'CLIENTE'), :2714); retorno CODIGO (= CODRCB)
+  'cadastro/areceber': { view: 'get_areceber', viewLegado: 'GET_RCB', relacao: 'get_rcb', ocultas: OCULTAS.rcb, form: 'FRMCADARECEBER',
+    titulo: 'Contas a receber', retorno: 'codigo', totalizador: true, desempate: ['data_pagamento'],
+    abertura: { campo: 'cliente', operacao: 'qualquer', ordenacao: 'cliente' },
     opcoes: [{ id: 'abertos', rotulo: 'Trazer somente abertos', padrao: true }, { id: 'liquidados', rotulo: 'Trazer somente liquidados' },
       { id: 'agrupados', rotulo: 'Agrupados' }, { id: 'todos', rotulo: 'Trazer todos' }],
     obrigatorios: async (ctx) => {
@@ -233,28 +317,33 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
         liquidados: sql<SqlBool>`${quitada} = 'S' and ${agrupado} = 'N'`,
         agrupados: sql<SqlBool>`${agrupado} = 'S'`,
       };
-      return [emLista('codempresa', await ctx.lojas()),
+      return [emLista('idempresa', await ctx.lojas()),
         sql<SqlBool>`(coalesce((select e.fechamento_caixa from empresas e where e.idempresa = ${ctx.empresa ?? -1}), 'N') <> 'S' or ${sql.ref('consiliado')} = 'S')`,
         ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
     },
-    // uCadAReceber.pas:2612-2636 (DATA_VENCIMENTO < hoje)
+    // uCadAReceber.pas:2611-2635: QUITADA, REGISTRO_ARQ_REMESSA e DATA_VENCIMENTO < hoje — os nomes da GET_RCB
     cores: [
       { coluna: 'quitada', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Liquidada' },
       { coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'ROXO', legenda: 'Boletos Bancários emitidos' },
-      { coluna: 'dtvenc', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'Vencida' },
+      { coluna: 'data_vencimento', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'Vencida' },
     ] },
   'cadastro/historico-contabil': { view: 'get_historico_contabil', form: 'FRMCADHISTORICOCONTABIL', titulo: 'Histórico contábil', retorno: 'codhistcontabil',
     abertura: { campo: 'codigo', operacao: 'igual' } },
   'cadastro/situacoes-nf': { view: 'get_situacao_nf', form: 'FRMCADSITUACAONF', titulo: 'Situação da nota fiscal', retorno: 'idsituacao_nf' },
   'cadastro/cfops': { view: 'get_cfop', form: 'FRMCADCFOP', titulo: 'CFOP', retorno: 'codcfop', abertura: { campo: 'codigo', operacao: 'igual' } },
-  // o legado mostra as contas de todas as lojas (sem recorte)
-  'cadastro/contas-bancarias': { view: 'get_contas_bancarias', form: 'FRMCADCONTASBANCARIAS', titulo: 'Contas bancárias', retorno: 'codconta', campoAtivo: ATIVO },
+  // o legado mostra as contas de todas as lojas (sem recorte). B4: a GET_CONTAS_BANCARIAS da produção (rel_get_contas_bancarias, mig
+  // 393) — JOIN BANCOS, NRO_CONTA, AGENCIA, NRO_BANCO, DATA_ABERTURA, TELEFOMNE (sic); CODIGO = CODCONTA
+  'cadastro/contas-bancarias': { view: 'get_contas_bancarias', relacao: 'rel_get_contas_bancarias', ocultas: OCULTAS.contasBancarias,
+    form: 'FRMCADCONTASBANCARIAS', titulo: 'Contas bancárias', retorno: 'codigo', campoAtivo: ATIVO },
 
   // ── os LOOKUPS (o TfrmPesquisa.Create de um campo de outra tela): a view inteira, sem situação nem recorte próprio — o filtro de cada
   // campo vem do chamador como `f_<coluna>` (FRN='S', CLASSE='A'…). Abertura: o 1º campo em ordem alfabética, salvo o SetDefault.
   // idsituacao_nf: os parceiros permitidos pela situação do documento (GetParceirosPermitidos — uAPagar.pas:6115, uCadAReceber.pas:680,
-  // uMovCaixa.pas:740); sem lista na situação, todos (a mesma regra do gravar, modules/shared/situacao-restricoes.ts)
-  'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' },
+  // uMovCaixa.pas:740); sem lista na situação, todos (a mesma regra do gravar, modules/shared/situacao-restricoes.ts). B4: a GET_PARCEIROS
+  // da produção (rel_get_parceiros) — uma linha por endereço; o `campoCodigo` da web (codparceiro) e o `fixos` (cli/frn/fun/tra/con,
+  // ativado, tipo_pessoa) continuam: codparceiro fica oculta no fim, e ENDERECO_ATIVO/REALIZA_RETENCOES passam a ser filtráveis
+  'lookup/parceiros': { view: 'get_parceiros', relacao: 'rel_get_parceiros', ocultas: OCULTAS.parceiros, form: 'FRMPESQUISA', titulo: 'Parceiros',
+    retorno: 'codigo', desempate: ['cod_part_sped'], abertura: { campo: 'razao', operacao: 'qualquer' },
     extras: ['idsituacao_nf'], obrigatorios: (ctx) => permitidosPelaSituacao(ctx, 'situacao_nf_parceiros', 'codparceiro') },
   // naoComposto: IMPRIMIRCOMP = 'N' (uCadAgendaPromocao.pas:438-439, UCadPromocao.pas:919-920 — a GET_PRODUTOS da produção dá
   // COALESCE(IMPRIMIRCOMP,'N'): o nulo entra, 804 produtos na produção);
@@ -291,9 +380,11 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/plano-contas': { view: 'get_plano_contas', form: 'FRMPESQUISA', titulo: 'Plano de contas', retorno: 'codplanocontas' },
   'lookup/cfops': { view: 'get_cfop', form: 'FRMPESQUISA', titulo: 'CFOP', retorno: 'codcfop' },
   'lookup/operadores': { view: 'get_operadores', form: 'FRMPESQUISA', titulo: 'Operadores', retorno: 'codoperador', obrigatorios: () => [semSicom] },
-  // o operador do controle de permissões (uCtrlPermissoes.pas:1464-1466 spdBuscaUsuario e :380-384 btnClone): CODIGO_EMPRESA = a loja do login
-  'lookup/operadores-da-loja': { view: 'get_operadores', form: 'FRMCTRLPERMISSOES', titulo: 'Operadores', retorno: 'codoperador',
-    obrigatorios: (ctx) => [semSicom, daLojaPelaRelacao(ctx)] },
+  // o operador do controle de permissões (uCtrlPermissoes.pas:1464-1466 spdBuscaUsuario e :380-384 btnClone): CODIGO_EMPRESA = a loja
+  // do login. B4: sobre a GET_OPERADORES da produção (rel_get_operadores) — a coluna da loja no lugar do subselect na relação; a view
+  // já tira o SICOM e os excluídos; o `campoCodigo` da web (codoperador) fica oculto no fim
+  'lookup/operadores-da-loja': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCTRLPERMISSOES',
+    titulo: 'Operadores', retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
 

@@ -40,16 +40,18 @@ export function ContasReceberCadMaster() {
       titulo="Contas a Receber"
       resourcePath="cadastro/areceber"
       pk="codrcb"
+      // a Pesquisa lê a GET_RCB do legado: o código que volta é o CODIGO (= codrcb)
+      viewPk="codigo"
       log={{ form: 'FRMCADARECEBER', chave: 'CODRCB' }}
       schema={areceberSchema}
       defaultValues={defaultValues}
       largura="5xl"
       gerenciaEdicaoInterna
       colunasPesquisa={[
-        { campo: 'codrcb', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
         { campo: 'duplicata', label: 'Duplicata', tipo: 'text', largura: 140 },
-        { campo: 'razao', label: 'Cliente', tipo: 'text' },
-        { campo: 'dtvenc', label: 'Vencimento', tipo: 'date', largura: 130 },
+        { campo: 'cliente', label: 'Cliente', tipo: 'text' },
+        { campo: 'data_vencimento', label: 'Vencimento', tipo: 'date', largura: 130 },
         { campo: 'valor', label: 'Valor', tipo: 'text', largura: 120 },
         { campo: 'quitada', label: 'Quitada', tipo: 'text', largura: 90 },
       ]}

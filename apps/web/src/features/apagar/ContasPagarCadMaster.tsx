@@ -38,16 +38,18 @@ export function ContasPagarCadMaster() {
       titulo="Contas a Pagar"
       resourcePath="cadastro/apagar"
       pk="codapg"
+      // a Pesquisa lê a view do legado da opção escolhida (GET_APAGAR/GET_CP e as _CEN): o código que volta é o CODIGO (= codapg)
+      viewPk="codigo"
       log={{ form: 'FRMAPAGAR', chave: 'CODAPG' }}
       schema={apagarSchema}
       defaultValues={defaultValues}
       largura="5xl"
       gerenciaEdicaoInterna
       colunasPesquisa={[
-        { campo: 'codapg', label: 'Código', tipo: 'text', largura: 100 },
-        { campo: 'duplicata', label: 'Duplicata', tipo: 'text', largura: 140 },
-        { campo: 'razao', label: 'Fornecedor', tipo: 'text' },
-        { campo: 'dtvenc', label: 'Vencimento', tipo: 'date', largura: 130 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'nr_documento', label: 'Duplicata', tipo: 'text', largura: 140 },
+        { campo: 'fornecedor', label: 'Fornecedor', tipo: 'text' },
+        { campo: 'vencimento', label: 'Vencimento', tipo: 'date', largura: 130 },
         { campo: 'valor', label: 'Valor', tipo: 'text', largura: 120 },
         { campo: 'quitada', label: 'Paga', tipo: 'text', largura: 90 },
       ]}

@@ -26,7 +26,7 @@ export function FormasPgtoCadMaster() {
       pk="idpgto"
       log={{ form: 'FRMCADFORMAPGTO', chave: 'IDPGTO' }}
       colunasPesquisa={[
-        { campo: 'idpgto', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
         { campo: 'modalidade', label: 'Modalidade', tipo: 'text' },
         { campo: 'atalho', label: 'Atalho', tipo: 'text', largura: 100 },
         { campo: 'destino', label: 'Destino', tipo: 'text', largura: 120 },

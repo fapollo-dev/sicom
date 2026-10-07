@@ -29283,6 +29283,8 @@ async function main() {
     {
       const pgPq = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       const [PA, PI, MX] = [992990, 992991, 992992];
+      // os parceiros dos fixtures do corte B (§298.15-§298.17)
+      const [FA, FI] = [998301, 998302];
       const pq = async (qs: string) => {
         const r = await fetch(`${base}/cadastro/pesquisa?${qs}`, { headers: H });
         return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
@@ -29339,19 +29341,20 @@ async function main() {
         const marcaInat = await pq('recurso=cadastro/marcas&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=inativos');
         const nfE = await pq('recurso=fiscal/nf&campo=parceiro&operacao=qualquer&valor=&tipo=E&porPagina=1000');
         const nfS = await pq('recurso=fiscal/nf&campo=parceiro&operacao=qualquer&valor=&tipo=S&porPagina=1000');
-        const nfEsperado = Number((await pgPq.query(`SELECT count(*) n FROM get_nf WHERE tipo = 'E' AND idempresa = 1`)).rows[0].n);
+        const nfEsperado = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_nf WHERE tipo = 'E' AND idempresa = 1`)).rows[0].n);
         check('PESQUISA §298.5 [o recorte de cada tela]: a marca excluída (INDR=E) não aparece nem em "Todos" nem em "Não" (excluído nunca aparece — uCadMaster.pas:540-544); a NF de entrada só traz TIPO=E da loja do login (uNF.pas:6291)',
           marcaTodos.status === 200 && marcaTodos.j.total === 0 && marcaInat.j.total === 0
           && nfE.status === 200 && nfE.j.total === nfEsperado && (nfE.j.linhas ?? []).every((l: any) => l.tipo === 'E' && Number(l.idempresa) === 1)
           && (nfS.j.linhas ?? []).every((l: any) => l.tipo === 'S'),
           { marca: [marcaTodos.j.total, marcaInat.j.total], nfE: [nfE.status, nfE.j.total, nfEsperado] });
 
-        const rcbAb = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=abertos&porPagina=1000');
-        const rcbTd = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=todos&porPagina=1000');
-        const rcbEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_areceber WHERE codempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].n);
-        const apgAb = await pq('recurso=cadastro/apagar&campo=razao&operacao=qualquer&valor=&opcao=abertas&porPagina=1000');
-        const apgEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_apagar g JOIN apagar a ON a.codapg = g.codapg WHERE g.codempresa = 1 AND coalesce(g.quitada,'N') = 'N' AND coalesce(a.adcredito,'N') = 'N' AND coalesce(g.agrupado,'N') = 'N'`)).rows[0].n);
-        check('PESQUISA §298.6 [as opções antes da Pesquisa]: A receber "Trazer somente abertos" = QUITADA=N e AGRUPADO=N na loja (uCadAReceber.pas:1344-1349), "Trazer todos" ≥ abertos; A pagar "Somente abertas" sem quitada, adiantamento nem agrupada (uAPagar.pas:2638-2649)',
+        // corte B3: as opções contam sobre a relação do legado — a GET_RCB (título × baixa) e a GET_APAGAR (o WHERE dos abertos na view)
+        const rcbAb = await pq('recurso=cadastro/areceber&campo=cliente&operacao=qualquer&valor=&opcao=abertos&porPagina=1000');
+        const rcbTd = await pq('recurso=cadastro/areceber&campo=cliente&operacao=qualquer&valor=&opcao=todos&porPagina=1000');
+        const rcbEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_rcb WHERE idempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].n);
+        const apgAb = await pq('recurso=cadastro/apagar&campo=fornecedor&operacao=qualquer&valor=&opcao=abertas&porPagina=1000');
+        const apgEsp = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_apagar WHERE codigo_empresa = 1`)).rows[0].n);
+        check('PESQUISA §298.6 [as opções antes da Pesquisa]: A receber "Trazer somente abertos" = QUITADA=N e AGRUPADO=N na loja (uCadAReceber.pas:1344-1349) sobre a GET_RCB, "Trazer todos" ≥ abertos; A pagar "Somente abertas" = a GET_APAGAR da loja (sem quitada, adiantamento nem agrupada dentro da view — uAPagar.pas:2651-2655)',
           rcbAb.status === 200 && rcbAb.j.total === rcbEsp && rcbTd.j.total >= rcbAb.j.total && (rcbAb.j.linhas ?? []).every((l: any) => String(l.quitada).trim() === 'N')
           && apgAb.status === 200 && apgAb.j.total === apgEsp,
           { rcb: [rcbAb.status, rcbAb.j.total, rcbEsp, rcbTd.j.total], apg: [apgAb.status, apgAb.j.total, apgEsp] });
@@ -29380,6 +29383,128 @@ async function main() {
           && cfgId != null && cfgAtivoMp === 'S' && inativoNaLoja.j.total === 0,
           { loja2: [noH2.status, noH2J.total, noH2J.code], inativoNaLoja: inativoNaLoja.j.total, cfgId, cfgAtivoMp });
 
+        // ── corte B2/B3/B4: a Pesquisa lê a VERSÃO INTEGRAL DO LEGADO (as rel_get_*/get_rcb/get_cp… do construtor) — os fixtures: o
+        // fornecedor com 2 endereços (1 desativado) e outro inativo, um pedido de 2 lojas (baixado só na 1), títulos com baixas e rateio,
+        // e notas com o status da NFe de cada regra de cor
+        const metaDe = async (qs: string) => { const r = await fetch(`${base}/cadastro/pesquisa/meta?${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const plcs = (await pgPq.query(`SELECT codplc FROM plc ORDER BY codplc LIMIT 2`)).rows.map((r: any) => Number(r.codplc));
+        await pgPq.query(`INSERT INTO parceiros (codparceiro, razao, cli, frn, ativado, bloqued, dtultcompra) VALUES
+          (${FA}, 'PESQ298B FORNECEDOR ATIVO', 'S', 'S', 'S', 'S', current_date - 60), (${FI}, 'PESQ298B FORNECEDOR INATIVO', 'N', 'S', 'N', 'N', current_date - 60)`);
+        await pgPq.query(`INSERT INTO parceiros_end (codend, codparceiro, ativado, cidade, cnpj_cpf) VALUES
+          (998303, ${FA}, 'S', 'PESQ298B CIDADE A', '11.111.111/0001-11'), (998304, ${FA}, 'N', 'PESQ298B CIDADE B', '22.222.222/0001-22')`);
+        await pgPq.query(`INSERT INTO pedidocompra (codpedcomp, idempresa, codparceiro, data, fechado, empresas) VALUES
+          (998305, 1, ${FA}, now(), 'N', '1, 2'), (998306, 1, ${FI}, now(), 'N', '1')`);
+        await pgPq.query(`INSERT INTO pedidocompra_i (codpedcompi, codpedcomp, idproduto, fatorembalagem, vrcusto) VALUES (998307, 998305, ${PA}, 1, 1), (998308, 998306, ${PA}, 1, 1)`);
+        await pgPq.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, fechado, totalcusto) VALUES (998307, 1, 'S', 10), (998307, 2, 'N', 5), (998308, 1, 'N', 3)`);
+        await pgPq.query(`INSERT INTO apagar (codapg, codempresa, codparceiro, duplicata, valor, vendor, desconto, dtvenc, quitada, codgrupo, bloqueio) VALUES
+          (998311, 1, ${FA}, 'PESQ298B-AB', 100, 5, 2, current_date - 3, 'N', 998311, 'N'), (998312, 1, ${FA}, 'PESQ298B-QT', 50, 0, 0, current_date - 10, 'S', NULL, 'S')`);
+        await pgPq.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo) VALUES (998313, 998311, $1, 60, 998311), (998314, 998311, $2, 40, 998311)`, [plcs[0], plcs[1] ?? plcs[0]]);
+        await pgPq.query(`INSERT INTO apagar_bx (codapgbx, codapg, codempresa, valorpg, dtpgto, indr) VALUES
+          (998315, 998312, 1, 20, now() - interval '5 day', 'I'), (998316, 998312, 1, 30, now() - interval '4 day', 'I')`);
+        await pgPq.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, valor, dtvenda, dtvenc, quitada, agrupado) VALUES
+          (998317, 1, ${FA}, 'PESQ298B-RA', 70, now(), current_date - 2, 'N', 'N'), (998318, 1, ${FA}, 'PESQ298B-RQ', 80, now(), current_date + 5, 'S', 'N')`);
+        await pgPq.query(`INSERT INTO areceber_bx (codrcbbx, codrcb, codempresa, valorpg, dtpgto, indr) VALUES (998319, 998318, 1, 30, now(), 'I'), (998320, 998318, 1, 50, now(), 'I')`);
+        await pgPq.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, statusnfe, tpemissao, proc) VALUES
+          (998321, 1, 'E', 55, '1', '998321', current_date, current_date, ${FA}, 'P', 6, 'N'), (998322, 1, 'E', 55, '1', '998322', current_date, current_date, ${FA}, 'C', 1, 'N'),
+          (998323, 1, 'E', 55, '1', '998323', current_date, current_date, ${FA}, NULL, 1, 'S')`);
+
+        // B2 — o pedido de compra pela GET_PEDIDOCOMPRA (uma linha por pedido × loja, o FECHADO da loja e o FORNECEDOR_ATIVO)
+        const pedMeta = await metaDe('recurso=compras/pedidos');
+        const pedAb1 = await pq('recurso=compras/pedidos&campo=parceiro&operacao=qualquer&valor=PESQ298B&opcao=abertos');
+        const pedAb2R = await fetch(`${base}/cadastro/pesquisa?recurso=compras/pedidos&campo=parceiro&operacao=qualquer&valor=PESQ298B&opcao=abertos`, { headers: { ...H, 'x-empresa-id': '2' } });
+        const pedAb2 = (await pedAb2R.json().catch(() => ({}))) as any;
+        const pedTd = await pq('recurso=compras/pedidos&campo=parceiro&operacao=qualquer&valor=PESQ298B&opcao=todos');
+        const pedNav = await pq('recurso=compras/pedidos&campo=parceiro&operacao=qualquer&valor=PESQ298B&opcao=todos&soCodigos=true');
+        const pedTudo = await pq('recurso=compras/pedidos&campo=parceiro&operacao=qualquer&valor=&opcao=abertos&porPagina=1');
+        const pedEsp = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_pedidocompra WHERE fechado = 'N' AND idempresa IN (1) AND fornecedor_ativo = 'S'`)).rows[0].n);
+        // a regra anterior (o FECHADO do cabeçalho e a loja na lista do pedido) traria os 2 pedidos do fornecedor na loja 1
+        const pedAntes = Number((await pgPq.query(`SELECT count(*) n FROM get_pedidocompra WHERE codpedcomp IN (998305, 998306) AND fechado = 'N'
+          AND (idempresa = 1 OR '1' = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`)).rows[0].n);
+        const pedCor = (loja: number) => [...new Set((pedTd.j.linhas ?? []).filter((l: any) => Number(l.codigo) === 998305 && Number(l.idempresa) === loja).map((l: any) => l._cor ?? '-'))].join();
+        // (a GET_PEDIDOCOMPRA também junta PARCEIROS_END sem filtro e agrupa pelo CODEND: o fornecedor com 2 endereços dá 2 linhas por loja)
+        check('PESQUISA §298.15 [corte B2 — a GET_PEDIDOCOMPRA do legado]: "Trazer somente aberto" = FECHADO da LOJA = N, IDEMPRESA nas lojas e FORNECEDOR_ATIVO = S (uPedidoCompra.pas:7160): o pedido de 2 lojas baixado na loja 1 não aparece na 1 e aparece na 2, o do fornecedor inativo não aparece (a regra anterior trazia os 2); "Trazer todos" = uma linha por pedido × loja × endereço do fornecedor, a cor "baixado" só nas linhas da loja que baixou, e a navegação repete o código; abre em PARCEIRO ordenando por NROPEDIDO (:762), retorno CODIGO, 24 colunas',
+          pedMeta.status === 200 && pedMeta.j.abertura?.campo === 'parceiro' && pedMeta.j.abertura?.ordenacao === 'nropedido' && pedMeta.j.retorno === 'codigo'
+          && (pedMeta.j.colunas ?? []).length === 24 && !(pedMeta.j.colunas ?? []).some((c: any) => c.campo === 'codpedcomp')
+          && pedAb1.status === 200 && pedAb1.j.total === 0 && pedAntes === 2
+          && pedAb2R.status === 200 && pedAb2.total === 2 && (pedAb2.linhas ?? []).every((l: any) => Number(l.codigo) === 998305 && Number(l.idempresa) === 2)
+          && new Set((pedAb2.linhas ?? []).map((l: any) => Number(l.codparceiro_end))).size === 2
+          && pedTd.j.total === 5 && pedCor(1) === 'VERMELHO' && pedCor(2) === '-'
+          && (pedNav.j.codigos ?? []).map(Number).join() === '998305,998305,998305,998305,998306'
+          && pedTudo.j.total === pedEsp,
+          { meta: [pedMeta.status, pedMeta.j.abertura, pedMeta.j.retorno, (pedMeta.j.colunas ?? []).length], ab1: [pedAb1.status, pedAb1.j.total, pedAntes],
+            ab2: [pedAb2R.status, pedAb2.total, (pedAb2.linhas ?? []).map((l: any) => [l.codigo, l.idempresa, l.codparceiro_end])],
+            td: [pedTd.j.total, pedCor(1), pedCor(2)], nav: pedNav.j.codigos, tudo: [pedTudo.j.total, pedEsp] });
+
+        // B3 — o A pagar: a opção e o complemento escolhem a view; o A receber pela GET_RCB
+        const apMeta = await metaDe('recurso=cadastro/apagar');
+        const apMetaQt = await metaDe('recurso=cadastro/apagar&opcao=quitadas');
+        const apMetaCen = await metaDe('recurso=cadastro/apagar&opcao=abertas&complemento=com');
+        const nomesDe = (m: any) => (m.j.colunas ?? []).map((c: any) => c.campo) as string[];
+        const apAb = await pq('recurso=cadastro/apagar&campo=nr_documento&operacao=qualquer&valor=PESQ298B&opcao=abertas');
+        const apAbCen = await pq('recurso=cadastro/apagar&campo=nr_documento&operacao=qualquer&valor=PESQ298B&opcao=abertas&complemento=com');
+        const apQt = await pq('recurso=cadastro/apagar&campo=nr_documento&operacao=qualquer&valor=PESQ298B&opcao=quitadas');
+        const apQtRuim = await pq('recurso=cadastro/apagar&campo=fornecedor_possui_debito&operacao=igual&valor=S&opcao=quitadas');
+        const apCompRuim = await pq('recurso=cadastro/apagar&campo=nr_documento&operacao=qualquer&valor=&complemento=xyz');
+        const rcMeta = await metaDe('recurso=cadastro/areceber');
+        const rcAb = await pq('recurso=cadastro/areceber&campo=duplicata&operacao=qualquer&valor=PESQ298B&opcao=abertos');
+        const rcLq = await pq('recurso=cadastro/areceber&campo=duplicata&operacao=qualquer&valor=PESQ298B&opcao=liquidados');
+        check('PESQUISA §298.16 [corte B3 — a view do A pagar pela opção, o A receber pela GET_RCB]: "Somente abertas" lê a GET_APAGAR (53 colunas, abre no 1º alfabético BAIXA_AUTENTICA_TRANS e ordena por VENCIMENTO; VALOR líquido = valor + vendor − desconto; a cor do FORNECEDOR_POSSUI_DEBITO); com "Com centro de custo", a GET_APAGAR_CEN (uma linha por centro do rateio); "Somente quitadas" a GET_CP (título × baixa, 43 colunas, sem FORNECEDOR_POSSUI_DEBITO → campo dela = 422; a cor do BLOQUEIO) — uAPagar.pas:2651-2708; complemento fora da lista = 422; o A receber abre e ordena em CLIENTE (uCadAReceber.pas:2714), retorno CODIGO, 73 colunas, a cor da DATA_VENCIMENTO vencida e a da QUITADA (uCadAReceber.pas:2611-2635), o liquidado com 2 baixas 2 vezes',
+          apMeta.status === 200 && nomesDe(apMeta).length === 53 && nomesDe(apMeta).includes('fornecedor_possui_debito') && apMeta.j.abertura?.campo === 'baixa_autentica_trans'
+          && apMeta.j.abertura?.ordenacao === 'vencimento' && apMeta.j.retorno === 'codigo' && (apMeta.j.complemento ?? []).length === 2
+          && nomesDe(apMetaQt).length === 43 && nomesDe(apMetaQt).includes('data_bx') && !nomesDe(apMetaQt).includes('fornecedor_possui_debito') && apMetaQt.j.abertura?.campo === 'adcredito'
+          && nomesDe(apMetaCen).length === 38 && nomesDe(apMetaCen).includes('centro_custo')
+          && apAb.status === 200 && apAb.j.total === 1 && Number(apAb.j.linhas?.[0]?.codigo) === 998311 && Number(apAb.j.linhas?.[0]?.valor) === 103 && apAb.j.linhas?.[0]?._cor === 'AZUL'
+          && apAbCen.j.total === 2 && (apAbCen.j.linhas ?? []).every((l: any) => Number(l.codigo) === 998311)
+          && apQt.j.total === 2 && (apQt.j.linhas ?? []).every((l: any) => Number(l.codigo) === 998312 && l._cor === 'VERMELHO')
+          && apQtRuim.status === 422 && apQtRuim.j.code === 'PESQUISA_CAMPO_INVALIDO' && apCompRuim.status === 422 && apCompRuim.j.code === 'PESQUISA_OPCAO_INVALIDA'
+          && rcMeta.status === 200 && rcMeta.j.abertura?.campo === 'cliente' && rcMeta.j.abertura?.ordenacao === 'cliente' && rcMeta.j.retorno === 'codigo' && nomesDe(rcMeta).length === 73
+          && rcAb.j.total === 1 && Number(rcAb.j.linhas?.[0]?.codigo) === 998317 && rcAb.j.linhas?.[0]?._cor === 'VERMELHO'
+          && rcLq.j.total === 2 && (rcLq.j.linhas ?? []).every((l: any) => Number(l.codigo) === 998318 && l._cor === 'VERDE'),
+          { ap: [apMeta.status, nomesDe(apMeta).length, apMeta.j.abertura, apMeta.j.retorno], qt: [nomesDe(apMetaQt).length, apMetaQt.j.abertura?.campo], cen: nomesDe(apMetaCen).length,
+            ab: [apAb.status, apAb.j.total, apAb.j.linhas?.[0]?.codigo, apAb.j.linhas?.[0]?.valor, apAb.j.linhas?.[0]?._cor], abCen: apAbCen.j.total, qtL: [apQt.j.total, (apQt.j.linhas ?? []).map((l: any) => l._cor)],
+            ruim: [apQtRuim.status, apQtRuim.j.code, apCompRuim.status, apCompRuim.j.code], rc: [rcMeta.status, rcMeta.j.abertura, nomesDe(rcMeta).length, rcAb.j.total, rcAb.j.linhas?.[0]?._cor, rcLq.j.total] });
+
+        // B4 — NF, parceiros, operadores e as demais pela versão integral: a cor da NF pelo TEXTO do status, o parceiro por endereço,
+        // e o retorno (CODIGO) = a chave que o cadastro carrega em toda linha de toda tela
+        const nfB = await pq('recurso=fiscal/nf&campo=parceiro&operacao=qualquer&valor=PESQ298B&tipo=E');
+        const nfCor = (cod: number) => (nfB.j.linhas ?? []).find((l: any) => Number(l.codigo) === cod)?._cor ?? null;
+        const nfMeta = await metaDe('recurso=fiscal/nf');
+        const nfCanc = await pq('recurso=fiscal/nf&campo=status_nfe&operacao=qualquer&valor=CANCELADA&tipo=E&porPagina=1000');
+        const nfCancEsp = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_nf WHERE tipo = 'E' AND idempresa = 1 AND status_nfe LIKE '%CANCELADA%'`)).rows[0].n);
+        const parTd = await pq('recurso=cadastro/parceiros&campo=razao&operacao=qualquer&valor=PESQ298B&situacao=todos');
+        const parCor = (cod: number) => [...new Set((parTd.j.linhas ?? []).filter((l: any) => Number(l.codigo) === cod).map((l: any) => l._cor))].join();
+        const parCidadeB = await pq('recurso=cadastro/parceiros&campo=cidade&operacao=igual&valor=PESQ298B%20CIDADE%20B&situacao=todos');
+        const lkEndAtivo = await pq('recurso=lookup/parceiros&campo=razao&operacao=qualquer&valor=PESQ298B&f_endereco_ativo=S');
+        const opAdm = await pq('recurso=cadastro/operadores&campo=login&operacao=igual&valor=ADMIN');
+        const RETORNO_E_CHAVE: Array<[string, string, number, string]> = [
+          ['compras/pedidos', 'codpedcomp', 24, '&opcao=todos'], ['fiscal/nf', 'codnf', 49, '&tipo=E'], ['cadastro/parceiros', 'codparceiro', 61, '&situacao=todos'],
+          ['lookup/parceiros', 'codparceiro', 61, ''], ['cadastro/operadores', 'codoperador', 10, ''], ['lookup/operadores-da-loja', 'codoperador', 10, ''],
+          ['cadastro/empresas', 'idempresa', 20, ''], ['cadastro/contas-bancarias', 'codconta', 13, '&situacao=todos'], ['cadastro/formas-pgto', 'idpgto', 11, ''],
+          ['cobranca/lotes-md', 'codlotecob', 5, ''], ['cadastro/unidades', 'codunidade', 5, '&situacao=todos'], ['cadastro/bairros', 'idbairro', 5, '&situacao=todos'],
+          ['cadastro/apagar', 'codapg', 53, '&opcao=abertas'],
+        ];
+        const retornoRuim: unknown[] = [];
+        for (const [rec, chave, ncols, extra] of RETORNO_E_CHAVE) {
+          const m = await metaDe(`recurso=${rec}`);
+          const r = await pq(`recurso=${rec}&porPagina=1000${extra}`);
+          const linhas = (r.j.linhas ?? []) as any[];
+          const certo = m.status === 200 && m.j.retorno === 'codigo' && nomesDe(m).length === ncols && !nomesDe(m).includes(chave) && r.status === 200
+            && linhas.every((l: any) => l.codigo != null && Number(l.codigo) === Number(l[chave]));
+          if (!certo) retornoRuim.push({ rec, meta: [m.status, m.j.retorno, nomesDe(m).length], pesq: [r.status, r.j.code, linhas.length] });
+        }
+        check('PESQUISA §298.17 [corte B4 — NF, parceiros, operadores e as demais pela versão integral do legado]: a cor da NF pelo TEXTO do STATUS_NFE (contingência = AZUL, cancelada na receita = VERMELHO, processada = VERDE — uNF.pas:6211-6283) e a busca por "CANCELADA" no texto; o parceiro uma vez POR ENDEREÇO (acha pela cidade do endereço que não é o padrão), BLOQUEADO vermelho e a última compra há mais de 35 dias azul (uCadClientes.pas:3788-3808), o ENDERECO_ATIVO filtrável no lookup; o operador com o TIPOOP decodificado; e em toda tela o retorno CODIGO = a chave que o cadastro carrega, com só as colunas do legado na combo',
+          nfB.status === 200 && nfB.j.total === 3 && nfCor(998321) === 'AZUL' && nfCor(998322) === 'VERMELHO' && nfCor(998323) === 'VERDE'
+          && (nfMeta.j.legenda ?? []).some((l: any) => l.legenda === 'NFe Emitida em contingência') && nfMeta.j.abertura?.campo === 'parceiro' && nfMeta.j.abertura?.ordenacao === 'codigo'
+          && nfCanc.status === 200 && nfCanc.j.total === nfCancEsp && (nfCanc.j.linhas ?? []).some((l: any) => Number(l.codigo) === 998322)
+          && parTd.status === 200 && parTd.j.total === 3 && parCor(FA) === 'VERMELHO' && parCor(FI) === 'AZUL'
+          && parCidadeB.j.total === 1 && Number(parCidadeB.j.linhas?.[0]?.codigo) === FA && parCidadeB.j.linhas?.[0]?.endereco_ativo === 'N'
+          && lkEndAtivo.status === 200 && lkEndAtivo.j.total === 1 && Number(lkEndAtivo.j.linhas?.[0]?.codparceiro) === FA
+          && opAdm.status === 200 && opAdm.j.linhas?.[0]?.tipoop === 'Supervisor(a)' && opAdm.j.linhas?.[0]?.tipo_sigla === 'SUP'
+          && retornoRuim.length === 0,
+          { nf: [nfB.status, nfB.j.total, nfCor(998321), nfCor(998322), nfCor(998323), nfMeta.j.abertura], canc: [nfCanc.status, nfCanc.j.total, nfCancEsp],
+            par: [parTd.status, parTd.j.total, parCor(FA), parCor(FI)], cidadeB: [parCidadeB.j.total, parCidadeB.j.linhas?.[0]?.endereco_ativo], lk: [lkEndAtivo.status, lkEndAtivo.j.total],
+            op: [opAdm.status, opAdm.j.linhas?.[0]?.tipoop, opAdm.j.linhas?.[0]?.tipo_sigla], retornoRuim });
+
         const nav = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true');
         const navDesc = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true&ordenacao=descricao&ordemDesc=true');
         check('PESQUISA §298.8 [o cdsNavegation do cadastro]: só os códigos do resultado inteiro, na ordem da grade (DESCRICAO, a abertura de produtos) e invertidos quando a grade está em ordem decrescente',
@@ -29387,7 +29512,7 @@ async function main() {
           && (navDesc.j.codigos ?? []).map(Number).join() === `${PI},${PA}`,
           { nav: nav.j, navDesc: navDesc.j });
 
-        const frnTotal = Number((await pgPq.query(`SELECT count(*) n FROM get_parceiros WHERE frn = 'S'`)).rows[0].n);
+        const frnTotal = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_parceiros WHERE frn = 'S'`)).rows[0].n);
         const lkFrn = await pq('recurso=lookup/parceiros&campo=razao&operacao=qualquer&valor=&f_frn=S&porPagina=1000');
         const lkCod = await pq('recurso=lookup/produtos&campo=idproduto&operacao=igual&valor=' + PA);
         const lkRuim = await pq('recurso=lookup/parceiros&f_nao_existe=S');
@@ -29409,12 +29534,12 @@ async function main() {
           plcSit = await pq(`recurso=lookup/plc&campo=descricao&operacao=qualquer&valor=&idsituacao_nf=${sitLivre}&porPagina=50`);
           await pgPq.query(`DELETE FROM situacao_nf_plc WHERE idsituacao_nf = $1 AND codplc = $2`, [sitLivre, umPlc]);
         }
-        const cliFrnEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_parceiros WHERE (cli = 'S' OR frn = 'S') AND ativado = 'S'`)).rows[0].n);
+        const cliFrnEsp = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_parceiros WHERE (cli = 'S' OR frn = 'S') AND ativado = 'S'`)).rows[0].n);
         const cliFrn = await pq('recurso=lookup/parceiros&campo=razao&operacao=qualquer&valor=&f_cli%7Cfrn=S&f_ativado=S&porPagina=1');
-        const opEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_operadores g WHERE g.login <> 'SICOM' AND coalesce(g.indr,'I') = 'I'
-          AND g.codoperador IN (SELECT r.codoperador FROM relacao_operador_empresa r WHERE r.codempresa = 1)`)).rows[0].n);
+        // corte B4: a GET_OPERADORES do legado (rel_get_operadores) — CODIGO_EMPRESA = a loja; a view já tira o SICOM e os excluídos
+        const opEsp = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_operadores g WHERE g.codigo_empresa = 1 AND coalesce(g.indr,'I') = 'I'`)).rows[0].n);
         const opLoja = await pq('recurso=lookup/operadores-da-loja&campo=nome&operacao=qualquer&valor=&porPagina=1');
-        check('PESQUISA §298.10 [o filtro do campo que não é igualdade]: centro de custo no tamanho da máscara da empresa (lancavel), só os centros da lista da situação quando ela tem lista, cliente = CLI OU FRN e ativo, e os operadores da loja do login pela RELACAO_OPERADOR_EMPRESA sem o SICOM',
+        check('PESQUISA §298.10 [o filtro do campo que não é igualdade]: centro de custo no tamanho da máscara da empresa (lancavel), só os centros da lista da situação quando ela tem lista, cliente = CLI OU FRN e ativo, e os operadores da loja do login (CODIGO_EMPRESA da GET_OPERADORES — a RELACAO_OPERADOR_EMPRESA, sem o SICOM)',
           plcLanc.status === 200 && plcLanc.j.total === plcEsp
           && (sitLivre == null || umPlc == null || (plcSit.j.total === 1 && Number(plcSit.j.linhas?.[0]?.codplc) === Number(umPlc)))
           && cliFrn.status === 200 && cliFrn.j.total === cliFrnEsp && opLoja.status === 200 && opLoja.j.total === opEsp,
@@ -29436,8 +29561,8 @@ async function main() {
         const metaProd = (await (await fetch(`${base}/cadastro/pesquisa/meta?recurso=cadastro/produtos`, { headers: H })).json()) as any;
         const det = async (t: string) => { const r = await fetch(`${base}/cadastro/pesquisa/detalhe?recurso=cadastro/produtos&tecla=${t}&codigo=${PA}`, { headers: H }); return { status: r.status, j: (await r.json()) as any }; };
         const [f8, f12, fx] = [await det('f8'), await det('f12'), await det('f5')];
-        const somaEsp = Number((await pgPq.query(`SELECT coalesce(sum(valor), 0) s FROM get_areceber WHERE codempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].s);
-        const rcbSoma = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=abertos&soma=valor&porPagina=1');
+        const somaEsp = Number((await pgPq.query(`SELECT coalesce(sum(valor), 0) s FROM get_rcb WHERE idempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].s);
+        const rcbSoma = await pq('recurso=cadastro/areceber&campo=cliente&operacao=qualquer&valor=&opcao=abertos&soma=valor&porPagina=1');
         check('PESQUISA §298.12 [corte D — o que se lê na grade]: o produto inativo vem VERMELHO e o ativo sem cor (a 1ª regra do cdsColoracao do UCadProduto); a legenda só com as regras cuja coluna a view tem; F8 = os preços por loja (MULTI_PRECO), F12 = o estoque de produção indisponível com o motivo, tecla fora da lista = 422; o totalizador do A receber soma o resultado inteiro',
           corDe(PI) === 'VERMELHO' && corDe(PA) === null
           && (metaProd.legenda ?? []).some((l: any) => l.legenda === 'Produto Inativo') && (metaProd.detalhes ?? []).length === 5
@@ -29457,7 +29582,8 @@ async function main() {
                  (992981, 7, 'frmPesquisa', 'frmCadProduto', 'GET_NCM', NULL, $1, now())`, [jsonLegado]);
         const stUrl = (rec: string) => `${base}/cadastro/pesquisa/status?recurso=${encodeURIComponent(rec)}`;
         const st1 = (await (await fetch(stUrl('cadastro/parceiros'), { headers: H })).json()) as any;
-        const put = await fetch(stUrl('cadastro/parceiros'), { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'codparceiro', operacao: 'entre', valor: '1', valor2: '9' }) });
+        // (corte B4: a combo é a da GET_PARCEIROS do legado — o código é CODIGO; o CODPARCEIRO do Apollo fica oculto)
+        const put = await fetch(stUrl('cadastro/parceiros'), { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'codigo', operacao: 'entre', valor: '1', valor2: '9' }) });
         const linhaDepois = (await pgPq.query(`SELECT codconfigtela, configuracao FROM config_status_tela WHERE idoperador = 7 AND upper(view_pesq) = 'GET_PARCEIROS'`)).rows;
         const st2 = (await (await fetch(stUrl('cadastro/parceiros'), { headers: H })).json()) as any;
         const del = await fetch(stUrl('cadastro/parceiros'), { method: 'DELETE', headers: H });
@@ -29466,8 +29592,8 @@ async function main() {
         const stLookupJ = (await stLookup.json().catch(() => ({}))) as any;
         check('PESQUISA §298.13 [corte E — o status da tela, Ctrl+Shift+S/D]: a linha do legado (frmPesquisa + frmCadClientes + GET_PARCEIROS + edtCodigo, Razao / Em Qualquer Lugar) reabre a Pesquisa de parceiros; gravar troca a MESMA linha (JSON do legado com o título da coluna e o texto da operação); apagar tira só a desta chave (a do GET_NCM fica — o legado apagaria a 1ª do operador); no lookup não há chave → 422',
           st1?.campo === 'razao' && st1?.operacao === 'qualquer'
-          && put.status === 204 && linhaDepois.length === 1 && Number(linhaDepois[0].codconfigtela) === 992980 && String(linhaDepois[0].configuracao).includes('"valorAuxiliar":"Codparceiro"')
-          && st2?.campo === 'codparceiro' && st2?.operacao === 'entre' && st2?.valor === '1' && st2?.valor2 === '9'
+          && put.status === 204 && linhaDepois.length === 1 && Number(linhaDepois[0].codconfigtela) === 992980 && String(linhaDepois[0].configuracao).includes('"valorAuxiliar":"Codigo"')
+          && st2?.campo === 'codigo' && st2?.operacao === 'entre' && st2?.valor === '1' && st2?.valor2 === '9'
           && del.status === 204 && sobrou.join() === '992981' && stLookup.status === 422 && stLookupJ.code === 'PESQUISA_STATUS_SEM_CHAVE',
           { st1, put: put.status, linhaDepois: linhaDepois.map((l: any) => l.codconfigtela), st2, del: del.status, sobrou, lookup: [stLookup.status, stLookupJ.code] });
         await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`);
@@ -29482,6 +29608,18 @@ async function main() {
           && ruimNum.j.code === 'PESQUISA_NUMERO_INVALIDO' && ruimRec.j.code === 'PESQUISA_DESCONHECIDA' && ruimOpc.j.code === 'PESQUISA_OPCAO_INVALIDA',
           { c: [ruimCampo.status, ruimCampo.j.code], o: ruimOp.j.code, n: ruimNum.j.code, r: ruimRec.j.code, op: ruimOpc.j.code });
       } finally {
+        await pgPq.query(`DELETE FROM nf WHERE codnf = ANY($1)`, [[998321, 998322, 998323]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM areceber_bx WHERE codrcb = ANY($1)`, [[998317, 998318]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM areceber WHERE codrcb = ANY($1)`, [[998317, 998318]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM apagar_bx WHERE codapg = ANY($1)`, [[998311, 998312]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM cx_apagar WHERE codapg = ANY($1)`, [[998311, 998312]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM apagar WHERE codapg = ANY($1)`, [[998311, 998312]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi = ANY($1)`, [[998307, 998308]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = ANY($1)`, [[998305, 998306]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = ANY($1)`, [[998305, 998306]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM pedidocompra WHERE codpedcomp = ANY($1)`, [[998305, 998306]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM parceiros_end WHERE codparceiro = ANY($1)`, [[FA, FI]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM parceiros WHERE codparceiro = ANY($1)`, [[FA, FI]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM codauxiliar WHERE codauxiliar = 'AUX298'`).catch(() => undefined);
         await pgPq.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[PA, PI]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[PA, PI]]).catch(() => undefined);

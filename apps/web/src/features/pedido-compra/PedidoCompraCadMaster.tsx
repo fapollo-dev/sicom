@@ -120,11 +120,14 @@ export function PedidoCompraCadMaster() {
       defaultValues={defaultValues}
       largura="6xl"
       gerenciaEdicaoInterna
+      // a grade da Pesquisa com as colunas da GET_PEDIDOCOMPRA do legado (rel_get_pedidocompra — uma linha por pedido × loja, o FECHADO
+      // e o TOTAL_PEDIDO da loja); o código que volta é o CODIGO (= codpedcomp, que a relação guarda oculta no fim)
       colunasPesquisa={[
-        { campo: 'codpedcomp', label: 'Código', tipo: 'text', largura: 110 },
-        { campo: 'fornecedor', label: 'Fornecedor', tipo: 'text' },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'parceiro', label: 'Fornecedor', tipo: 'text' },
+        { campo: 'idempresa', label: 'Loja', tipo: 'text', largura: 80 },
         { campo: 'data', label: 'Data', tipo: 'date', largura: 130 },
-        { campo: 'total', label: 'Total', tipo: 'currency', largura: 140 },
+        { campo: 'total_pedido', label: 'Total', tipo: 'currency', largura: 140 },
         { campo: 'fechado', label: 'Fechado', tipo: 'text', largura: 100 },
       ]}
       campos={({ form, editavel }) => (

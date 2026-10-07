@@ -37,9 +37,10 @@ export class PesquisaController {
     return this.pesquisa.detalhe(recurso, tecla, Number(codigo));
   }
 
+  /** `opcao`/`complemento` (opcionais): os campos da relação da escolha da janela — o A pagar troca de view (GET_APAGAR/GET_CP/_CEN) */
   @Get('meta')
-  meta(@Query('recurso') recurso: string) {
-    return this.pesquisa.meta(recurso);
+  meta(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
+    return this.pesquisa.meta(recurso, { opcao: opcao || undefined, complemento: complemento || undefined });
   }
 
   @Get()
@@ -54,6 +55,7 @@ export class PesquisaController {
       valor2: q.valor2,
       situacao: q.situacao === 'inativos' || q.situacao === 'todos' ? q.situacao : 'ativos',
       opcao: q.opcao || undefined,
+      complemento: q.complemento || undefined,
       ordenacao: q.ordenacao || undefined,
       ordemDesc: q.ordemDesc === 'true',
       pagina: q.pagina ? Number(q.pagina) : 0,
