@@ -180,9 +180,11 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
  * Operações de Conta, Contas Bancárias e Marcas são DECLARATIVAS (engine CRUD) —
  * cada uma é só uma config; o engine herda auditoria/soft-delete/outbox/RBAC.
  */
+import { PesquisaController } from '../../shared/pesquisa/pesquisa.controller';
+import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
 @Module({
   imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
-  controllers: [SugestaoPromocaoController, RelPerdasController, PisCofinsCadController, ExportaNfeController, 
+  controllers: [PesquisaController, SugestaoPromocaoController, RelPerdasController, PisCofinsCadController, ExportaNfeController, 
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)
     ContasBancariasCrudController, // engine (FK/lookup)
@@ -281,7 +283,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [RegistrosLogService, HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [PesquisaService, RegistrosLogService, HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

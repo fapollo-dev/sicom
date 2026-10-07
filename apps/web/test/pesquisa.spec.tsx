@@ -1,79 +1,121 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Pesquisa } from '../src/shared/cadmaster/Pesquisa';
+import { ShortcutScope } from '../src/shared/keyboard';
 
 const COLUNAS = [
   { campo: 'codigo', label: 'Código' },
   { campo: 'descricao', label: 'Descrição' },
 ];
 
+function meta(extra: Record<string, unknown> = {}) {
+  return {
+    titulo: 'Marcas',
+    colunas: [
+      { campo: 'codigo', titulo: 'Codigo', tipo: 'numero' },
+      { campo: 'descricao', titulo: 'Descricao', tipo: 'texto' },
+      { campo: 'dtcadastro', titulo: 'Dtcadastro', tipo: 'data' },
+    ],
+    operacoes: {
+      texto: ['igual', 'diferente', 'comeca', 'termina', 'qualquer', 'contido'],
+      numero: ['igual', 'diferente', 'entre', 'maior', 'menor', 'contido'],
+      data: ['igual', 'diferente', 'entre', 'maior', 'menor', 'contido'],
+    },
+    abertura: { campo: 'descricao', operacao: 'qualquer', valor: null, ordenacao: null, ordemDesc: false },
+    opcoes: [],
+    situacao: true,
+    retorno: 'codigo',
+    obrigatorio: null,
+    ...extra,
+  };
+}
+
+let metaAtual = meta();
+const chamadas = () => (global.fetch as any).mock.calls.map((c: unknown[]) => String(c[0])) as string[];
+const pesquisas = () => chamadas().filter((u) => u.includes('/cadastro/pesquisa?'));
+
 beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({
+  metaAtual = meta();
+  global.fetch = vi.fn().mockImplementation(async (url: string) => ({
     ok: true,
     status: 200,
-    json: async () => [
-      { codigo: 1, descricao: 'NESTLE' },
-      { codigo: 2, descricao: 'UNILEVER' },
-    ],
-  }) as any;
+    json: async () =>
+      String(url).includes('/pesquisa/meta')
+        ? metaAtual
+        : { linhas: [{ codigo: 1, descricao: 'NESTLE' }, { codigo: 2, descricao: 'UNILEVER' }], total: 2, pagina: 0, porPagina: 100 },
+  })) as any;
 });
 
-/**
- * Pesquisa agora é Modal + DataTable do DS. Os testes validam o CONTRATO da tela
- * (núcleo do frmPesquisa) sobre a UX do DS: lista carregada pela view, clique
- * seleciona, F6 cicla a situação (re-fetch), Esc fecha.
- */
-describe('Pesquisa (frmPesquisa) — Modal + DataTable do DS', () => {
-  it('carrega a lista pela view (situacao=ativos) e mostra as linhas', async () => {
-    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} />);
-    await waitFor(() => screen.getByText('NESTLE'));
-    expect(screen.getByText('UNILEVER')).toBeTruthy();
-    const calls = (global.fetch as any).mock.calls.map((c: any[]) => String(c[0]));
-    expect(calls.some((u: string) => u.includes('situacao=ativos'))).toBe(true);
+const abrir = (props: Partial<Parameters<typeof Pesquisa>[0]> = {}) =>
+  render(
+    <ShortcutScope>
+      <Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} {...props} />
+    </ShortcutScope>,
+  );
+
+async function pesquisarCom(texto: string) {
+  const campo = await screen.findByLabelText('Texto');
+  fireEvent.change(campo, { target: { value: texto } });
+  fireEvent.keyDown(campo, { key: 'Enter' });
+}
+
+describe('Pesquisa (frmPesquisa) no servidor — corte A', () => {
+  it('abre VAZIA (o legado não abre carregado) e o Enter no valor pesquisa no servidor com campo, operação, valor e situação', async () => {
+    abrir({ situacaoInicial: 'inativos' });
+    await screen.findByLabelText('Texto');
+    expect(pesquisas()).toHaveLength(0);
+    await pesquisarCom('nest');
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    const u = new URL(pesquisas().at(-1)!);
+    expect(u.searchParams.get('recurso')).toBe('cadastro/marcas');
+    expect(u.searchParams.get('campo')).toBe('descricao');
+    expect(u.searchParams.get('operacao')).toBe('qualquer');
+    expect(u.searchParams.get('valor')).toBe('NEST'); // o campo de texto só aceita maiúsculas
+    expect(u.searchParams.get('situacao')).toBe('inativos');
+    expect(u.searchParams.get('pagina')).toBe('0'); // a 1ª página do DS (1) é a 0 do servidor
+    expect(await screen.findByText('UNILEVER')).toBeTruthy();
+    expect(screen.getByText(/2 registros/)).toBeTruthy();
   });
 
-  it('clique na linha seleciona o registro (onRowClick → onSelecionar)', async () => {
+  it('o clique simples só posiciona; o duplo clique confirma a linha', async () => {
     const onSel = vi.fn();
-    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={onSel} onFechar={() => {}} />);
-    await waitFor(() => screen.getByText('UNILEVER'));
-    fireEvent.click(screen.getByText('UNILEVER'));
+    abrir({ onSelecionar: onSel });
+    await pesquisarCom('');
+    const linha = await screen.findByText('UNILEVER');
+    fireEvent.click(linha);
+    expect(onSel).not.toHaveBeenCalled();
+    fireEvent.doubleClick(linha);
     expect(onSel).toHaveBeenCalledWith(expect.objectContaining({ descricao: 'UNILEVER' }));
   });
 
-  it('F6 cicla a situação (rdgAtivo) e refaz a busca: ativos→inativos→todos', async () => {
-    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} />);
-    await waitFor(() => screen.getByText('NESTLE'));
-    const calls = () => (global.fetch as any).mock.calls.map((c: any[]) => String(c[0]));
-
-    fireEvent.keyDown(window, { key: 'F6' }); // ativos → inativos
-    await waitFor(() => expect(calls().some((u: string) => u.includes('situacao=inativos'))).toBe(true));
-
-    fireEvent.keyDown(window, { key: 'F6' }); // inativos → todos
-    await waitFor(() => expect(calls().some((u: string) => u.includes('situacao=todos'))).toBe(true));
+  it('o parâmetro da tela parametrizada (tipo da NF) vai ao servidor', async () => {
+    abrir({ filtroExtra: { campo: 'tipo', operador: 'igual', valor: 'E' } });
+    await pesquisarCom('x');
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    expect(new URL(pesquisas().at(-1)!).searchParams.get('tipo')).toBe('E');
   });
 
-  it('F3 põe o foco no filtro (SetaFocoFrame) e F5 limpa a busca (cdsFiltros.EmptyDataSet)', async () => {
-    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={() => {}} />);
-    await waitFor(() => screen.getByText('UNILEVER'));
-
-    fireEvent.keyDown(window, { key: 'F3' });
-    const busca = document.querySelector<HTMLInputElement>('[role="dialog"] input[aria-label="Buscar"]')!;
-    expect(document.activeElement).toBe(busca);
-
-    fireEvent.change(busca, { target: { value: 'NEST' } });
-    await waitFor(() => expect(screen.queryByText('UNILEVER')).toBeNull());
-
-    fireEvent.keyDown(window, { key: 'F5' });
-    expect(busca.value).toBe('');
-    await waitFor(() => screen.getByText('UNILEVER'));
+  it('tela com opções antes da Pesquisa (A pagar): escolhe, Enter, e a opção vai na consulta', async () => {
+    metaAtual = meta({ opcoes: [{ id: 'abertas', rotulo: 'Somente abertas', padrao: true }, { id: 'todas', rotulo: 'Todas' }] });
+    abrir();
+    const todas = await screen.findByLabelText('Todas');
+    fireEvent.click(todas);
+    fireEvent.keyDown(todas, { key: 'Enter' });
+    await pesquisarCom('a');
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    expect(new URL(pesquisas().at(-1)!).searchParams.get('opcao')).toBe('todas');
   });
 
-  it('Esc fecha (onClose do Modal do DS)', async () => {
+  it('F3 limpa o valor e põe o foco nele (SetaFocoFrame); Esc fecha', async () => {
     const user = userEvent.setup();
     const onFechar = vi.fn();
-    render(<Pesquisa resourcePath="cadastro/marcas" colunas={COLUNAS} onSelecionar={() => {}} onFechar={onFechar} />);
-    await waitFor(() => screen.getByText('NESTLE'));
+    abrir({ onFechar });
+    const campo = await screen.findByLabelText('Texto');
+    fireEvent.change(campo, { target: { value: 'ABC' } });
+    act(() => { fireEvent.keyDown(window, { key: 'F3', code: 'F3' }); });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Texto')));
+    expect((screen.getByLabelText('Texto') as HTMLInputElement).value).toBe('');
     await user.keyboard('{Escape}');
     await waitFor(() => expect(onFechar).toHaveBeenCalled());
   });

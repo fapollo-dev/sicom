@@ -9050,6 +9050,10 @@ async function main() {
       // o "Imprimir" da análise no Manifesto_Destinatario_Itens.fr3 (todos / cadastrados / não cadastrados)
       await pgImp.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (990504, 1, 'Manifesto_Destinatario_Itens.fr3', 'x', 'DEFAULT', $1)
           ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64')]);
+      // a GET_NF_MANIFESTO só mostra a janela de DIAS_RETROATIVOS_FILTRO_MANIFESTO (90 dias): a nota do XML é de 08/07/2026 e saiu da janela
+      // em 07/10/2026 — a data dela vai a "hoje − 5" para o teste não depender do dia em que roda
+      await pgImp.query(`UPDATE nf SET dtemissao = current_date - 5 WHERE chavenfe = $1`, [chAn]);
+      await pgImp.query(`UPDATE nfe_nao_cadastradas SET dtemissao = current_date - 5 WHERE chavenfe = $1`, [chAn]);
       const impI = async (f: string) => { const r = await fetch(`${base}/compras/manifesto-dfe/itens/${chAn}/impressao?filtro=${f}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
       const [iTodos, iCad, iNao] = [await impI('todos'), await impI('cadastrados'), await impI('nao-cadastrados')];
       await pgImp.query(`DELETE FROM relatorios WHERE codrelatorio = 990504`);
@@ -9058,7 +9062,7 @@ async function main() {
           && iTodos.j.datasets.frxDBDatasetDadosNota[0].TOTAL_NF === 63.44 && 'RAZAOSOCIAL' in (iTodos.j.datasets?.frxDBDatasetDadosEmpresa?.[0] ?? {})
           && iCad.status === 200 && iCad.j.datasets?.frxDBDatasetProdManifesto?.length === 2
           && iNao.status === 422 && iNao.j.message === 'Não existem produtos listados para construir o relatório.',
-        { iTodos: [iTodos.status, iTodos.j.code, iTodos.j.datasets?.frxDBDatasetDadosNota], iCad: iCad.status, iNao: [iNao.status, iNao.j.message] });
+        { iTodos: [iTodos.status, iTodos.j.code, JSON.stringify(iTodos.j.datasets?.frxDBDatasetDadosNota), iTodos.j.datasets?.frxDBDatasetProdManifesto?.map((i: any) => i.NROITEM), Object.keys(iTodos.j.datasets?.frxDBDatasetDadosEmpresa?.[0] ?? {}).slice(0, 8)], iCad: [iCad.status, iCad.j.datasets?.frxDBDatasetProdManifesto?.length], iNao: [iNao.status, iNao.j.message] });
       if (Number(impAn.codnf) > 0) { await pgImp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(impAn.codnf)]); await pgImp.query(`DELETE FROM apagar WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); await pgImp.query(`DELETE FROM nf WHERE codnf = $1`, [Number(impAn.codnf)]).catch(() => undefined); }
       await pgImp.query(`DELETE FROM nfe_eventos WHERE chave_acesso = $1`, [chAn]);
       await pgImp.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chAn]);
@@ -29273,6 +29277,96 @@ async function main() {
         await pgRt.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1)`, [[SG1, SG2]]).catch(() => undefined);
         if (empAntes) await pgRt.query(`UPDATE empresas SET imprenda = $1, contsocial = $2 WHERE idempresa = 1`, [empAntes.imprenda, empAntes.contsocial]).catch(() => undefined);
         await pgRt.end();
+      }
+    }
+    // ══ §298 A PESQUISA NO SERVIDOR (frmPesquisa, corte A — docs/04-screen-dossier/dossiers/retaguarda/uPesquisa.md) ════════════════
+    {
+      const pgPq = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const [PA, PI, MX] = [992990, 992991, 992992];
+      const pq = async (qs: string) => {
+        const r = await fetch(`${base}/cadastro/pesquisa?${qs}`, { headers: H });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        await pgPq.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (${PA},'7899000992990','PESQ298 ZEBU ATIVO','UN',2,'T01','S'), (${PI},'7899000992991','PESQ298 ZEBU INATIVO','UN',2,'T01','N')
+          ON CONFLICT (idproduto) DO UPDATE SET ativo = EXCLUDED.ativo, descricao = EXCLUDED.descricao`);
+        await pgPq.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (${PA},'7899000992990','AUX298',1,3) ON CONFLICT DO NOTHING`);
+        await pgPq.query(`INSERT INTO marcas (idmarca, descricao, indr) VALUES (${MX}, 'PESQ298 EXCLUIDA', 'E') ON CONFLICT (idmarca) DO UPDATE SET indr = 'E'`);
+
+        const metaR = await fetch(`${base}/cadastro/pesquisa/meta?recurso=cadastro/produtos`, { headers: H });
+        const meta = (await metaR.json()) as any;
+        const nomes = (meta.colunas ?? []).map((c: any) => c.campo);
+        check('PESQUISA §298.1 [o que a tela abre]: a de produtos abre em DESCRICAO / Em qualquer lugar ordenando por DESCRICAO (UCadProduto.pas:6296-6300); os campos são todas as colunas da view em ordem alfabética, sem INDR; as operações por tipo (texto: 6, com Começado/Terminado/Em qualquer lugar; número: Entre/Maior/Menor)',
+          metaR.status === 200 && meta.abertura?.campo === 'descricao' && meta.abertura?.operacao === 'qualquer' && meta.abertura?.ordenacao === 'descricao'
+          && nomes.join(',') === [...nomes].sort().join(',') && !nomes.includes('indr') && meta.operacoes?.texto?.includes('termina') && meta.operacoes?.numero?.includes('entre') && meta.situacao === true,
+          { abertura: meta.abertura, nomes });
+
+        const total = Number((await pgPq.query(`SELECT count(*) n FROM get_produtos WHERE ativo = 'S'`)).rows[0].n);
+        const tudo = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=&porPagina=1');
+        const zebu = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=zebu');
+        const zebuInat = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=ZEBU&situacao=inativos');
+        const zebuTodos = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298+ZEBU&situacao=todos');
+        check('PESQUISA §298.2 [acha qualquer registro, com a situação do cadastro]: texto vazio traz a view inteira com o TOTAL (sem o teto de 200); "zebu" acha só o ativo (ATIVO=S, o rdgAtivo "Sim"), "Não" só o inativo, "Todos" os dois; o "+" separa palavras em ordem (PESQ298+ZEBU)',
+          tudo.status === 200 && tudo.j.total === total && tudo.j.linhas?.length === 1
+          && zebu.j.linhas?.map((l: any) => l.idproduto).join() === String(PA)
+          && zebuInat.j.linhas?.map((l: any) => l.idproduto).join() === String(PI)
+          && zebuTodos.j.total === 2,
+          { tudo: [tudo.status, tudo.j.total, total], zebu: zebu.j.linhas?.map((l: any) => l.idproduto), inat: zebuInat.j.linhas?.map((l: any) => l.idproduto), todos: zebuTodos.j.total });
+
+        const aux = await pq('recurso=cadastro/produtos&campo=codbarra&operacao=igual&valor=AUX298');
+        const vazioNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=');
+        const entre = await pq(`recurso=cadastro/produtos&campo=idproduto&operacao=entre&valor=${PA}&valor2=${PI}&situacao=todos`);
+        const contido = await pq(`recurso=cadastro/produtos&campo=idproduto&operacao=contido&valor=${PA},${PI}&situacao=todos`);
+        const termina = await pq('recurso=cadastro/produtos&campo=descricao&operacao=termina&valor=ZEBU+ATIVO');
+        check('PESQUISA §298.3 [as operações do legado]: o código de barras acha também pelo código auxiliar (a consulta auxiliar); número vazio pesquisa = 0 (nada); Entre inclusivo; Contido em; Terminado com',
+          aux.j.linhas?.map((l: any) => l.idproduto).join() === String(PA) && vazioNum.status === 200 && vazioNum.j.total === 0
+          && entre.j.total === 2 && contido.j.total === 2 && termina.j.linhas?.map((l: any) => l.idproduto).join() === String(PA),
+          { aux: aux.j.linhas?.map((l: any) => l.idproduto), vazio: [vazioNum.status, vazioNum.j.total], entre: entre.j.total, contido: contido.j.total, termina: termina.j.total });
+
+        const p0 = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=&porPagina=2&pagina=0');
+        const p1 = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=&porPagina=2&pagina=1');
+        const ids0 = (p0.j.linhas ?? []).map((l: any) => l.idproduto);
+        const ids1 = (p1.j.linhas ?? []).map((l: any) => l.idproduto);
+        check('PESQUISA §298.4 [página sobre o total]: duas páginas de 2 sem repetir linha e com o mesmo total',
+          ids0.length === 2 && ids1.length === 2 && !ids0.some((x: number) => ids1.includes(x)) && p0.j.total === p1.j.total,
+          { ids0, ids1, t: [p0.j.total, p1.j.total] });
+
+        const marcaTodos = await pq('recurso=cadastro/marcas&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos');
+        const marcaInat = await pq('recurso=cadastro/marcas&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=inativos');
+        const nfE = await pq('recurso=fiscal/nf&campo=parceiro&operacao=qualquer&valor=&tipo=E&porPagina=1000');
+        const nfS = await pq('recurso=fiscal/nf&campo=parceiro&operacao=qualquer&valor=&tipo=S&porPagina=1000');
+        const nfEsperado = Number((await pgPq.query(`SELECT count(*) n FROM get_nf WHERE tipo = 'E' AND idempresa = 1`)).rows[0].n);
+        check('PESQUISA §298.5 [o recorte de cada tela]: a marca excluída (INDR=E) não aparece nem em "Todos" nem em "Não" (excluído nunca aparece — uCadMaster.pas:540-544); a NF de entrada só traz TIPO=E da loja do login (uNF.pas:6291)',
+          marcaTodos.status === 200 && marcaTodos.j.total === 0 && marcaInat.j.total === 0
+          && nfE.status === 200 && nfE.j.total === nfEsperado && (nfE.j.linhas ?? []).every((l: any) => l.tipo === 'E' && Number(l.idempresa) === 1)
+          && (nfS.j.linhas ?? []).every((l: any) => l.tipo === 'S'),
+          { marca: [marcaTodos.j.total, marcaInat.j.total], nfE: [nfE.status, nfE.j.total, nfEsperado] });
+
+        const rcbAb = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=abertos&porPagina=1000');
+        const rcbTd = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=todos&porPagina=1000');
+        const rcbEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_areceber WHERE codempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].n);
+        const apgAb = await pq('recurso=cadastro/apagar&campo=razao&operacao=qualquer&valor=&opcao=abertas&porPagina=1000');
+        const apgEsp = Number((await pgPq.query(`SELECT count(*) n FROM get_apagar g JOIN apagar a ON a.codapg = g.codapg WHERE g.codempresa = 1 AND coalesce(g.quitada,'N') = 'N' AND coalesce(a.adcredito,'N') = 'N' AND coalesce(g.agrupado,'N') = 'N'`)).rows[0].n);
+        check('PESQUISA §298.6 [as opções antes da Pesquisa]: A receber "Trazer somente abertos" = QUITADA=N e AGRUPADO=N na loja (uCadAReceber.pas:1344-1349), "Trazer todos" ≥ abertos; A pagar "Somente abertas" sem quitada, adiantamento nem agrupada (uAPagar.pas:2638-2649)',
+          rcbAb.status === 200 && rcbAb.j.total === rcbEsp && rcbTd.j.total >= rcbAb.j.total && (rcbAb.j.linhas ?? []).every((l: any) => String(l.quitada).trim() === 'N')
+          && apgAb.status === 200 && apgAb.j.total === apgEsp,
+          { rcb: [rcbAb.status, rcbAb.j.total, rcbEsp, rcbTd.j.total], apg: [apgAb.status, apgAb.j.total, apgEsp] });
+
+        const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
+        const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
+        const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');
+        const ruimRec = await pq('recurso=cadastro/nao-existe');
+        const ruimOpc = await pq('recurso=cadastro/areceber&opcao=xyz');
+        check('PESQUISA §298.7 [entrada inválida = 422 com o código, nunca SQL cru]: campo fora da view, operação fora do tipo, número inválido, tela sem pesquisa e opção inexistente',
+          ruimCampo.status === 422 && ruimCampo.j.code === 'PESQUISA_CAMPO_INVALIDO' && ruimOp.j.code === 'PESQUISA_OPERACAO_INVALIDA'
+          && ruimNum.j.code === 'PESQUISA_NUMERO_INVALIDO' && ruimRec.j.code === 'PESQUISA_DESCONHECIDA' && ruimOpc.j.code === 'PESQUISA_OPCAO_INVALIDA',
+          { c: [ruimCampo.status, ruimCampo.j.code], o: ruimOp.j.code, n: ruimNum.j.code, r: ruimRec.j.code, op: ruimOpc.j.code });
+      } finally {
+        await pgPq.query(`DELETE FROM codauxiliar WHERE codauxiliar = 'AUX298'`).catch(() => undefined);
+        await pgPq.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[PA, PI]]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM marcas WHERE idmarca = $1`, [MX]).catch(() => undefined);
+        await pgPq.end();
       }
     }
   } finally {

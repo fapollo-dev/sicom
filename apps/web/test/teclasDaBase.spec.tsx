@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, createMemoryRouter, RouterProvider } from 'react-router-dom';
@@ -205,10 +205,22 @@ describe('as teclas da base de cadastro TfrmCadMaster', () => {
     expect(screen.getByText(/Ativo \[F6\]/).textContent).toContain('Sim');
     act(() => { fireEvent.keyDown(window, { key: 'F6', code: 'F6' }); });
     expect(screen.getByText(/Ativo \[F6\]/).textContent).toContain('Não');
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => (String(url).includes('/pesquisa/meta')
+        ? { colunas: [{ campo: 'nome', titulo: 'Nome', tipo: 'texto' }], operacoes: { texto: ['qualquer'], numero: [], data: [] },
+            abertura: { campo: 'nome', operacao: 'qualquer', valor: null, ordenacao: null, ordemDesc: false }, opcoes: [], situacao: true, retorno: 'id', obrigatorio: null }
+        : { linhas: [], total: 0 }),
+    })) as any;
     act(() => { fireEvent.keyDown(window, { key: 'F3', code: 'F3' }); });
     await screen.findByRole('dialog');
-    const chamadas = (global.fetch as any).mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(chamadas.some((u: string) => u.includes('situacao=inativos'))).toBe(true);
+    // a Pesquisa abre vazia; a situação do cadastro vai na consulta (Enter no valor)
+    const texto = await screen.findByLabelText('Texto');
+    fireEvent.keyDown(texto, { key: 'Enter' });
+    await waitFor(() => {
+      const chamadas = (global.fetch as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(chamadas.some((u: string) => u.includes('/cadastro/pesquisa?') && u.includes('situacao=inativos'))).toBe(true);
+    });
   });
 
   it('Esc em inclusão não sai da tela (o cadastro segura a tecla)', () => {

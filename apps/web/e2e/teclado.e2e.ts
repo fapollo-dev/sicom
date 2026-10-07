@@ -107,16 +107,23 @@ test.describe('mnemônicos do .dfm', () => {
     await expect(itens).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('a Pesquisa tem F3 (foca o filtro) e F5 (limpa) próprios', async ({ page }) => {
+  test('a Pesquisa no servidor: abre vazia, Enter pesquisa e o duplo clique carrega o registro; F3 limpa e foca o valor', async ({ page }) => {
     await entrar(page);
     await page.goto('/cadastro/bancos');
     await page.getByRole('button', { name: /Pesquisar/ }).waitFor();
     await page.keyboard.press('F3');
-    const busca = page.getByRole('dialog').getByLabel('Buscar');
-    await busca.fill('xyz');
-    await page.keyboard.press('F5');
-    await expect(busca).toHaveValue('');
+    const valor = page.getByRole('dialog').getByLabel('Texto');
+    await valor.fill('xyz');
     await page.keyboard.press('F3');
-    await expect(busca).toBeFocused();
+    await expect(valor).toHaveValue('');
+    await expect(valor).toBeFocused();
+    const resposta = page.waitForResponse((r) => r.url().includes('/cadastro/pesquisa?') && r.url().includes('recurso=cadastro%2Fbancos'));
+    await page.keyboard.press('Enter');
+    expect((await resposta).ok()).toBe(true);
+    const linha = page.getByRole('dialog').getByRole('row').nth(1);
+    await linha.click();
+    await expect(page.getByRole('dialog')).toBeVisible(); // o clique só posiciona
+    await linha.dblclick();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });

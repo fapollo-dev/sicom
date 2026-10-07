@@ -1,0 +1,1798 @@
+{
+  "_meta": {
+    "o_que": "Como cada um dos 26 cadastros do Apollo abre a Pesquisa no legado (TfrmCadMaster.btnPesquisaClick e os que o substituem) x o Apollo hoje. Corte A da paridade da Pesquisa.",
+    "data": "2026-10-07",
+    "fontes": "fonte Delphi de mai/2020 (/Library/SicomGit/retaguarda-master/fonte/Units, lido em cópias UTF-8) + Oracle de PRODUÇÃO em READ ONLY (user_views, user_tab_cols, V$SQL, CONFIG_STATUS_TELA, TABELA_CADASTRO, MENUEXPRESS)",
+    "regra_do_form_base": {
+      "situacao": "uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973) — rdgAtivo Sim => <campo> = 'S'; Não => 'N'; Todos => nada; F6 cicla (uCadMaster.pas:993-1004)",
+      "indr": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR) — soma (COALESCE(INDR,'I') = 'I'); quase todas as views já excluem INDR='E' no WHERE",
+      "montagem": "filtro = FObrigatoriosPesquisa + [' AND '] + situação + [' AND (COALESCE(INDR,'I')='I')'] (uCadMaster.pas:524-547); GET_PRODUTOS ganha (IDEMPRESA = <loja>) dentro da Pesquisa",
+      "retorno": "uCadMaster.pas:1063-1064 (padrão CODIGO)",
+      "view": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+      "abertura": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "apollo_hoje": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa. Pesquisa.tsx busca uma vez GET /<recurso>?situacao=… (+ filtroExtra) e filtra no navegador; crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite); crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+    "operacoes": "nomes do apps/api/src/shared/pesquisa/pesquisa-sql.ts: igual, diferente, comeca, termina, qualquer, contido, entre, maior, menor",
+    "nao_provado": "bairros (form só no binário); a situação de operadores e situacoes-nf no binário novo (o fonte não tem ATIVO no cds)"
+  },
+  "cadastro/unidades": {
+    "pasta": "unidades",
+    "form": "FRMCADUNIDADE (FrmCadUnidade em TABELA_CADASTRO)",
+    "unit": "UCadUnidade.pas (TFrmCadUnidade = class(TfrmCadMaster) :14; SetaDataset 'UNIDADE' :73)",
+    "viewLegado": "GET_UNIDADE",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";UNIDADES (user_tab_comments)",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "padrão do form-base; cds UDMUnidade.dfm:154 tem ATIVO; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "GET_UNIDADE: 11 linhas, todas ATIVO='S'"
+    },
+    "indr": {
+      "tabela": true,
+      "cdsTem": "UDMUnidade.dfm:128",
+      "viewExpoe": false,
+      "viewExclui": "WHERE (COALESCE(INDR,'I') <> 'E') (user_views)",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "ATIVO = 'S'",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 11,
+      "menu": "6 acessos / 5 operadores (MENUEXPRESS)"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_unidade (expõe indr e ativo, sem WHERE)",
+      "viewMigration": "350_unidade_view.sql",
+      "config": "modules/cadastro/unidade.crud.ts:16-23",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codunidade",
+        "sigla",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "F6 do Apollo age sobre INDR: 'Inativos' mostra EXCLUÍDOS e 'Ativos' inclui ATIVO='N' (hoje sem efeito prático: as 11 estão ATIVO='S')"
+    ]
+  },
+  "cadastro/operacoes-conta": {
+    "pasta": "operacoes-conta",
+    "form": "FRMCADOPERACOESCONTA (rbacForm do Apollo)",
+    "unit": "uCadOperacoesConta.pas (TfrmCadOperacoesConta = class(TfrmCadMaster) :13; SetaDataset 'OPERACOES_CONTA' :46)",
+    "viewLegado": "GET_OPERACOES_CONTA",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "tabela OPERACOES_CONTA sem ATIVO; cds udmCadOperacoesConta.dfm:5 só CODOPCONTA/DESCRICAO/TIPO",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 1,
+      "menu": "sem acesso em MENUEXPRESS e sem linha em TABELA_CADASTRO (tela sem uso na produção)"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_operacoes_conta (descricao, codopconta, tipo — sem coluna CODIGO)",
+      "viewMigration": "003_operacoes_conta.sql",
+      "config": "modules/cadastro/operacoes-conta.crud.ts:11-17",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codopconta",
+        "descricao",
+        "tipo"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": []
+  },
+  "cadastro/bairros": {
+    "pasta": "bairros",
+    "form": "frmCadBairro (só no binário da produção: TABELA_CADASTRO GET_BAIRRO -> frmCadBairro; MENUEXPRESS FRMCADBAIRRO 2 acessos)",
+    "unit": "AUSENTE do fonte de mai/2020 (nenhum uCadBairro*.pas). O dossiê uCadBairros.md diz 'não existe form no legado' — a produção desmente",
+    "viewLegado": "GET_BAIRRO",
+    "viewProcedencia": "produção: view GET_BAIRRO (ATIVO, CODIGO, DESCRICAO, IDCIDADE, REGIAO), WHERE COALESCE(INDR,'I') <> 'E'",
+    "titulo": ";BAIRROS",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "NÃO PROVADO (sem fonte): presumido pelo padrão do form-base, porque a tabela BAIRRO e a view têm ATIVO",
+      "producao": "GET_BAIRRO: 0 linhas"
+    },
+    "indr": {
+      "tabela": true,
+      "viewExpoe": false,
+      "viewExclui": "WHERE COALESCE(INDR,'I') <> 'E'",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "ATIVO = 'S' (presumido)",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (VARCHAR2)",
+      "procedencia": "presumido: uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "presumido: uCadMaster.pas:1063-1064 (padrão CODIGO) (a view expõe CODIGO = IDBAIRRO)"
+    },
+    "cores": null,
+    "producao": {
+      "linhas": 0,
+      "menu": "2 acessos / 2 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_bairro (idbairro, descricao, ativo, idcidade, regiao, indr — sem coluna CODIGO)",
+      "viewMigration": "010_bairro.sql",
+      "config": "modules/cadastro/bairro.crud.ts:12-19",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "idbairro",
+        "descricao",
+        "regiao",
+        "ativo"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "a view da produção decodifica REGIAO 'O' como 'CENTRO' (e o WHEN 'C' THEN 'OESTE' é inalcançável); o Apollo corrigiu para OESTE"
+    ],
+    "divergencias": [
+      "F6 do Apollo age sobre INDR, não sobre ATIVO (tabela vazia na produção)"
+    ]
+  },
+  "cadastro/plc": {
+    "pasta": "plc",
+    "form": "FRMCADPLC (frmCadPLC)",
+    "unit": "uCadPLC.pas (SetaDataset 'PLC' :705; DM uRdmPLC — cdsPLC uRdmPLC.dfm:138 sem ATIVO e sem INDR)",
+    "viewLegado": "GET_PLC",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "tabela PLC sem ATIVO; cds sem ATIVO",
+    "indr": {
+      "tabela": true,
+      "cdsTem": false,
+      "viewExpoe": false,
+      "viewExclui": "WHERE CHARACTER_LENGTH(PLC.DESCCODPLC) > 5 AND COALESCE(PLC.INDR,'I') <> 'E' (user_views)",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "filtroDaView": "CHARACTER_LENGTH(DESCCODPLC) > 5 — a Pesquisa nunca mostra as contas de nível alto (DESCCODPLC com até 5 caracteres)",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": "GET_PLC 332 (PLC tem 388: 55 com DESCCODPLC <= 5 caracteres ficam fora; 1 excluída)",
+      "menu": "447 acessos / 14 operadores",
+      "vsql": "07/10 15:20 GET_PLC where CHARACTER_LENGTH(CODIGO_EXTENSO) = 8 AND CODIGO IN (...) — é um lookup de outra tela, não o cadastro"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_plc (codplc, codigo, desccodplc, descricao, codpai, tpconta, nivelconta, codcontabil, indr) — SEM o filtro de comprimento",
+      "viewMigration": "349_plc_cadastro.sql",
+      "config": "modules/cadastro/plc.crud.ts:33-46",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codplc",
+        "desccodplc",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "o Apollo lista as ~55 contas de nível alto (DESCCODPLC <= 5) que a Pesquisa do legado esconde",
+      "F6 'Inativos' do Apollo mostra excluídas (no legado não há rádio: cds sem ATIVO)"
+    ]
+  },
+  "cadastro/bancos": {
+    "pasta": "cadastro-bancos",
+    "form": "FRMCADBANCOS (frmCadBancos)",
+    "unit": "uCadBancos.pas (SetaDataset 'BANCOS' :77; cds uRDmCadBancos.dfm:77 sem ATIVO/INDR)",
+    "viewLegado": "GET_BANCOS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";BANCOS",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "tabela BANCOS sem ATIVO",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "AGENCIA (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 594,
+      "menu": "57 acessos / 9 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_bancos (mesmas colunas da produção)",
+      "viewMigration": "001_init.sql",
+      "config": "modules/cadastro/bancos.controller.ts:29-32 -> banco.repository.ts:33-35 -> banco.queries.ts:37",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": null,
+      "filtroExtra": null,
+      "situacao": "controller próprio: ignora situação, campo/valor e limite",
+      "limite": "sem limite (traz as 594)"
+    },
+    "observacoes": [],
+    "divergencias": []
+  },
+  "cadastro/ncm": {
+    "pasta": "ncm",
+    "form": "FRMCADNCM (frmCadNCM)",
+    "unit": "uCadNCM.pas (SetaDataset 'NCM' tcManual :99; cds uRDMCadNCM.dfm:114 sem ATIVO/INDR)",
+    "viewLegado": "GET_NCM",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 11344,
+      "menu": "37 acessos / 5 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_ncm",
+      "viewMigration": "012_ncm.sql",
+      "config": "modules/cadastro/ncm.crud.ts:16-35",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codigo",
+        "ncmsh",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "200 de 11.344 sem ordem"
+    ]
+  },
+  "compras/pedidos": {
+    "pasta": "pedido-compra",
+    "form": "FRMPEDIDOCOMPRA (frmPedidoCompra)",
+    "unit": "uPedidoCompra.pas (TfrmPedidoCompra = class(TfrmCadMasterDet) :55; SetaDataset 'PEDIDOCOMPRA' :726; btnPesquisaClick :7145-7170 -> inherited)",
+    "viewLegado": "GET_PEDIDOCOMPRA",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view: uma linha por pedido x loja participante (INNER JOIN PEDIDO_COMPRA_EMPRESA, IDEMPRESA = PCE.CODEMPRESA, FECHADO = COALESCE(PQ.FECHADO,'N') da loja), exclui INDR no JOIN",
+    "titulo": ";PEDIDO DE COMPRA;",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "tabela sem ATIVO; cds udmPedidoCompra.dfm:11 sem ATIVO",
+    "indr": {
+      "tabela": true,
+      "cdsTem": false,
+      "viewExpoe": false,
+      "viewExclui": "INNER JOIN ... AND (COALESCE(P.INDR,'I')='I')",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [
+      {
+        "condicao": "FECHADO = 'N'",
+        "valorDe": "opção 0 da janela",
+        "procedencia": "uPedidoCompra.pas:7160"
+      },
+      {
+        "condicao": "IDEMPRESA in (<lojas>)",
+        "valorDe": "dmPrincipal.GetMultiEmpresa (udmPrincipal.pas:2619-2643 + TrocarEmpresa :3672-3705): janela de empresas com as lojas do operador (RELACAO_OPERADOR_EMPRESA); as marcadas; nenhuma marcada => a loja do login",
+        "procedencia": "uPedidoCompra.pas:7149,7160"
+      },
+      {
+        "condicao": "FORNECEDOR_ATIVO = 'S'",
+        "valorDe": "opção 0 (ATIVADO do fornecedor)",
+        "procedencia": "uPedidoCompra.pas:7160"
+      }
+    ],
+    "whereLegadoPadrao": "FECHADO = 'N' AND IDEMPRESA in (<lojas>) AND FORNECEDOR_ATIVO='S'",
+    "opcoesAntes": {
+      "titulo": "PEDIDO DE COMPRA",
+      "procedencia": "uPedidoCompra.pas:7150-7162; TfrmOpcoes UOpcoes.pas:111-170 (padrão = 1ª opção; Esc fecha com a opção marcada; só 'Cancelar' devolve -1)",
+      "itens": [
+        {
+          "id": "abertos",
+          "rotulo": "Trazer somente aberto",
+          "padrao": true,
+          "filtro": "FECHADO = 'N' AND IDEMPRESA in (<lojas>) AND FORNECEDOR_ATIVO='S'"
+        },
+        {
+          "id": "todos",
+          "rotulo": "Trazer todos",
+          "filtro": "nenhum (todas as lojas, abertos e fechados)"
+        }
+      ],
+      "cancelar": "Opcao -1 cai no else => sem filtro (igual a 'Trazer todos') e a Pesquisa abre",
+      "obs": "a janela de empresas (GetMultiEmpresa) aparece antes, mesmo para 'Trazer todos'"
+    },
+    "abertura": {
+      "campo": "PARCEIRO",
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": "NROPEDIDO",
+      "primeiroAlfabetico": "BONIFICACAO",
+      "procedencia": "uPedidoCompra.pas:762 SetDefaultPesquisa('PARCEIRO', '', tpQualquerLugar, False, 'NROPEDIDO')"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 3,
+    "coresProcedencia": "uPedidoCompra.pas:734-760 (FECHADO=S vermelho; BONIFICACAO=S azul; DT_VENCIMENTO < hoje verde)",
+    "producao": {
+      "linhas": "GET_PEDIDOCOMPRA 14.761 linhas / 12.570 pedidos; FECHADO N 2.265 / S 12.496; PEDIDOCOMPRA INDR='E' 217",
+      "vsql": "dossiê §2.3 (V$SQL 07/10/2026): where (DATA = '07/10/2026') and FECHADO = 'N' AND IDEMPRESA in (1,2) AND FORNECEDOR_ATIVO='S' — igual ao fonte",
+      "menu": "30.122 acessos / 26 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_pedidocompra (uma linha por pedido; fechado do cabeçalho; expõe indr e o CSV empresas)",
+      "viewMigration": "303_pedido_multiloja.sql",
+      "config": "modules/compras/pedido-compra.aggregate.ts:68-98",
+      "softDelete": true,
+      "empresaScoped": true,
+      "colunasPesquisa": [
+        "codpedcomp",
+        "codparceiro",
+        "fornecedor",
+        "data",
+        "fechado",
+        "total",
+        "empresas"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)",
+      "empresasColuna": "empresas (idempresa = login OU login no CSV)"
+    },
+    "observacoes": [
+      "TfrmCadMaster soma INDR? não: o cds não tem INDR"
+    ],
+    "divergencias": [
+      "sem a janela de opções: o padrão do legado (só abertos da loja + fornecedor ativo) não existe — o Apollo lista fechados",
+      "lojas: só a do login (legado: as marcadas na janela de empresas)",
+      "FECHADO no legado é por loja (PQ.FECHADO); no Apollo é o do cabeçalho",
+      "falta FORNECEDOR_ATIVO = 'S'",
+      "F6 'Inativos' do Apollo mostra os 217 excluídos"
+    ]
+  },
+  "fiscal/nf": {
+    "pasta": "nf",
+    "form": "FRMNF (frmNF)",
+    "unit": "uNF.pas (TfrmNF = class(TfrmCadMasterDetalhe) :88; btnPesquisaClick próprio :6202-6303, SEM inherited => sem rdgAtivo/INDR do form-base)",
+    "viewLegado": "GET_NF",
+    "viewProcedencia": "uNF.pas:6285-6298 (TfrmPesquisa.Create(Self, 'GET_NF', ...))",
+    "titulo": ";NF",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "btnPesquisaClick próprio não monta situação; cds udmNF.dfm:1342 sem ATIVO",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [
+      {
+        "condicao": "TIPO = '<E|S>'",
+        "valorDe": "TipoNota da tela (Notas de entrada = 'E', Notas de saída = 'S'; uNF.pas:7367/7421/8047/8053)",
+        "procedencia": "uNF.pas:6291"
+      },
+      {
+        "condicao": "IDEMPRESA = <loja do login>",
+        "valorDe": "dmPrincipal.EmpresaCODEMPRESA (uma loja, não a janela de empresas)",
+        "procedencia": "uNF.pas:6291"
+      }
+    ],
+    "whereLegadoPadrao": "TIPO = '<E|S>' AND IDEMPRESA = <loja>",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": "PARCEIRO",
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": "CODIGO",
+      "primeiroAlfabetico": "ALIQUOTA_FUNRURAL",
+      "procedencia": "uNF.pas:6302 SetDefault('PARCEIRO', '', tpQualquerLugar, False, 'CODIGO')"
+    },
+    "empresaObrigatoria": false,
+    "camposInteiros": "NRO_NF (uNF.pas:6296)",
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uNF.pas:6288 passa a variável local Filtro, nunca atribuída ('') => uPesquisa.pas:826-829 usa CODIGO"
+    },
+    "cores": 9,
+    "coresProcedencia": "uNF.pas:6209-6281 (STATUS_NFE x5, PROCESSADA, OBS_NF <> '', NF_IMPORTACAO_NFE S/T)",
+    "producao": {
+      "linhas": 50113,
+      "menu": "entrada 19.358 / 21 ops; saída 9.887 / 22 ops",
+      "statusSalvos": "2 em CONFIG_STATUS_TELA (op 84, 2025: Nro_nf / Igual a; op 59, 2020: índice 23 / Contido em)",
+      "viewObs": "INNER JOIN PARCEIROS: NF sem parceiro não aparece"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_nf (17 colunas; a produção tem 49)",
+      "viewMigration": "025_nf.sql",
+      "config": "modules/cadastro/nf.aggregate.ts:221-225,748",
+      "softDelete": false,
+      "empresaScoped": true,
+      "colunasPesquisa": [
+        "codnf",
+        "nronf",
+        "serie",
+        "tipo",
+        "codparceiro",
+        "dtemissao",
+        "statusnfe",
+        "proc",
+        "totalnf"
+      ],
+      "filtroExtra": {
+        "campo": "tipo",
+        "operador": "igual",
+        "valor": "<E|S>",
+        "procedencia": "web features/nf/NfCadMaster.tsx:183"
+      },
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "F3 da NF: o FormKeyDown chama o btnPesquisaClick próprio (uNF.pas:11294-11298)"
+    ],
+    "divergencias": [
+      "o recorte (tipo + loja) bate; o problema é o teto: 200 de ~25 mil por tipo/loja, sem ordem e sem abrir em PARCEIRO"
+    ]
+  },
+  "cadastro/marcas": {
+    "pasta": "marcas",
+    "form": "FRMCADMARCAS (frmCadMarcas)",
+    "unit": "uCadMarcas.pas (SetaDataset 'MARCAS' :50; cds uDMCadMarcas.dfm:11 tem INDR :31, sem ATIVO)",
+    "viewLegado": "GET_MARCAS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "cds sem ATIVO => rdgAtivo invisível (uCadMaster.pas:1049)",
+    "indr": {
+      "tabela": true,
+      "cdsTem": "uDMCadMarcas.dfm:31",
+      "viewExpoe": true,
+      "viewExclui": false,
+      "clausula": "(COALESCE(INDR, 'I') = 'I')",
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [
+      {
+        "condicao": "(COALESCE(INDR, 'I') = 'I')",
+        "valorDe": "form-base (INDR exposto pela view)",
+        "procedencia": "uCadMaster.pas:540-544"
+      }
+    ],
+    "whereLegadoPadrao": " (COALESCE(INDR, 'I') = 'I')",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 1,
+      "menu": "5 acessos / 2 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_marcas (igual à produção: expõe indr)",
+      "viewMigration": "006_marcas.sql",
+      "config": "modules/cadastro/marcas.crud.ts:11-17",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codigo",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "o form-base ACUMULA a cláusula INDR em FObrigatoriosPesquisa a cada F3 (inofensivo: repete a mesma condição)"
+    ],
+    "divergencias": [
+      "'Ativos' = legado; mas o Apollo oferece 'Inativos' (= excluídos), que o legado não tem (sem rádio)"
+    ]
+  },
+  "cadastro/cidades": {
+    "pasta": "cidades",
+    "form": "FRMCADCIDADES (rbacForm do Apollo)",
+    "unit": "uCadCidades.pas (TfrmCadCidades = class(TfrmCadMaster) :13; SetaDataset no FormActivate :63; FCampoRetornoPesquisa := 'IDCIDADE' :64)",
+    "viewLegado": "GET_CIDADES",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";CIDADES",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CIDADE (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "IDCIDADE",
+      "procedencia": "uCadCidades.pas:64 (a view não tem CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 5564,
+      "menu": "sem acesso em MENUEXPRESS e sem linha em TABELA_CADASTRO"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_cidades (idcidade, iduf, cidade, uf)",
+      "viewMigration": "013_cidades.sql",
+      "config": "modules/cadastro/cidade.crud.ts:11-19",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "idcidade",
+        "cidade",
+        "iduf",
+        "uf"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "200 de 5.564 sem ordem"
+    ]
+  },
+  "cadastro/familias": {
+    "pasta": "familias",
+    "form": "FRMCADFAMILIAPROD (frmCadFamiliaProd)",
+    "unit": "UCadFamiliaProd.pas (SetaDataset 'FAMILIAS_PROD' :617; FCampoAtivo/FValorAtivo explícitos :620-621; cds uRDmCadFamiliaProd.dfm:11 com ATIVO :86 e EXCLUIDO :61)",
+    "viewLegado": "GET_FAMILIAS_PROD",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";CATEGORIAS E DEPARTAMENTOS",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "UCadFamiliaProd.pas:620-621; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "S 2.467 / N 1 / nulo 5 (os nulos só aparecem em 'Todos')"
+    },
+    "indr": {
+      "tabela": false,
+      "clausula": null,
+      "obs": "exclusão lógica = EXCLUIDO='S' + ATIVO='N'; a view não expõe EXCLUIDO — 'Sim' esconde a excluída pelo ATIVO"
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "ATIVO = 'S'",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (CHAR)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 1,
+    "coresProcedencia": "UCadFamiliaProd.pas:622-630 (ATIVO='N' vermelho 'Categoria Inativa')",
+    "producao": {
+      "linhas": 2473,
+      "menu": "85 acessos / 6 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_familias_prod (expõe ativo e excluido)",
+      "viewMigration": "348_familias_cadastro.sql",
+      "config": "modules/cadastro/familias.crud.ts:29-43 (exclusaoLogica {excluido S, ativo N})",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codfamilia",
+        "tipo",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "clicar no rádio Ativo abre a Pesquisa (rdgAtivoClick, UCadFamiliaProd.pas:681-689)"
+    ],
+    "divergencias": [
+      "situação ignorada: o Apollo lista ativas, inativas e EXCLUÍDAS; o legado abre só ATIVO='S'",
+      "200 de 2.473"
+    ]
+  },
+  "cadastro/apagar": {
+    "pasta": "apagar",
+    "form": "FRMAPAGAR (frmAPagar — 31.986 acessos; o FRMCADAPAGAR/uCadAPagar.pas:510-526 é variante antiga fora do menu)",
+    "unit": "uAPagar.pas (TfrmAPagar = class(TfrmMaster) :32 — NÃO herda o TfrmCadMaster; btnPesquisaClick :2630-2720)",
+    "viewLegado": "GET_APAGAR | GET_APAGAR_CEN | GET_CP | GET_CP_CEN (conforme a janela de opções)",
+    "viewProcedencia": "uAPagar.pas:2651-2685",
+    "titulo": ";CONTAS A PAGAR | ;CONTAS A PAGAR CENTRO DE CUSTO | ;CONTAS A PAGAR 2 | ;CONTAS A PAGAR 2 CENTRO DE CUSTO",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "TfrmMaster: não há rdgAtivo",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [
+      {
+        "condicao": "CODIGO_EMPRESA in (<lojas>)",
+        "valorDe": "dmPrincipal.GetMultiEmpresa (udmPrincipal.pas:2619-2643 + TrocarEmpresa :3672-3705): janela de empresas com as lojas do operador (RELACAO_OPERADOR_EMPRESA); as marcadas; nenhuma marcada => a loja do login",
+        "procedencia": "uAPagar.pas:2636,2654-2684"
+      },
+      {
+        "condicao": "a condição de estado da opção escolhida (ver opcoesAntes)",
+        "valorDe": "janela 'Status das contas a pagar'",
+        "procedencia": "uAPagar.pas:2651-2685"
+      }
+    ],
+    "whereLegadoPadrao": "GET_APAGAR: CODIGO_EMPRESA in (<lojas>)",
+    "opcoesAntes": {
+      "titulo": "Status das contas a pagar",
+      "procedencia": "uAPagar.pas:2638-2649 (Opcoes; OpcoesCompl 'Com centro de custo;Sem centro de custo'; DefaultComp := 1 => 'Sem'; MultComp False); só abre com ShowModal = mrOk (Esc não abre)",
+      "complemento": [
+        {
+          "id": "com_cc",
+          "rotulo": "Com centro de custo",
+          "views": "GET_APAGAR_CEN / GET_CP_CEN"
+        },
+        {
+          "id": "sem_cc",
+          "rotulo": "Sem centro de custo",
+          "padrao": true,
+          "views": "GET_APAGAR / GET_CP"
+        }
+      ],
+      "itens": [
+        {
+          "id": "abertas",
+          "rotulo": "Somente abertas",
+          "padrao": true,
+          "view": "GET_APAGAR (sem CC) / GET_APAGAR_CEN (com CC)",
+          "filtro": "CODIGO_EMPRESA in (<lojas>) — a view GET_APAGAR já filtra QUITADA='N' AND COALESCE(ADCREDITO,'N')='N' AND COALESCE(AGRUPADO,'N')='N'"
+        },
+        {
+          "id": "quitadas",
+          "rotulo": "Somente quitadas",
+          "view": "GET_CP / GET_CP_CEN",
+          "filtro": "CODIGO_EMPRESA in (<lojas>) AND QUITADA = 'S' AND COALESCE(ADCREDITO,'N') = 'N' AND COALESCE(AGRUPADO,'N') = 'N'"
+        },
+        {
+          "id": "adiantamento",
+          "rotulo": "Adiantamento de crédito",
+          "view": "GET_CP / GET_CP_CEN",
+          "filtro": "CODIGO_EMPRESA in (<lojas>) AND COALESCE(ADCREDITO,'N') = 'S' AND COALESCE(QUITADA,'N') = 'N' AND COALESCE(AGRUPADO,'N') = 'N'"
+        },
+        {
+          "id": "agrupadas",
+          "rotulo": "Agrupadas",
+          "view": "GET_CP / GET_CP_CEN",
+          "filtro": "CODIGO_EMPRESA in (<lojas>) AND COALESCE(AGRUPADO,'N') = 'S'"
+        },
+        {
+          "id": "todas",
+          "rotulo": "Todas",
+          "view": "GET_CP / GET_CP_CEN",
+          "filtro": "CODIGO_EMPRESA in (<lojas>) AND (NOT (COALESCE(ADCREDITO,'N') = 'S' AND COALESCE(QUITADA,'N') = 'S')) AND COALESCE(AGRUPADO,'N') = 'N' — 'Todas' NÃO traz agrupadas nem adiantamento quitado"
+        }
+      ]
+    },
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": "VENCIMENTO",
+      "primeiroAlfabetico": "GET_APAGAR: BAIXA_AUTENTICA_TRANS · GET_APAGAR_CEN: BANCO · GET_CP / GET_CP_CEN: ADCREDITO (todas VARCHAR2)",
+      "procedencia": "uAPagar.pas:2691 SetDefault('', '', tpQualquerLugar, False, 'VENCIMENTO') => 1º alfabético da view escolhida"
+    },
+    "empresaObrigatoria": false,
+    "totalizador": true,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uAPagar.pas:2654 (explícito)"
+    },
+    "cores": 2,
+    "coresProcedencia": "uAPagar.pas:2695-2709 (BLOQUEIO=S vermelho; FORNECEDOR_POSSUI_DEBITO=S azul)",
+    "producao": {
+      "linhas": "GET_APAGAR 7.796 (abertas); GET_CP 56.070; APAGAR loja 1: 43.713 títulos, 5.878 abertos, 1º vencimento 2020-02-01",
+      "vsql": "07/10 14:47-15:51: GET_APAGAR where (VENCIMENTO between '03/10/2026' and '05/10/2026') and CODIGO_EMPRESA in (1,2) · (FORNECEDOR like '%PINHEIRA%') and CODIGO_EMPRESA in (1) · (VALOR = 700.34) and CODIGO_EMPRESA in (1) — igual ao fonte (abertas, sem CC)",
+      "statusSalvos": "1 (op 102, 2025: Vencimento / Entre)",
+      "menu": "31.986 acessos / 45 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_apagar (todos os estados; expõe codempresa, quitada, agrupado — sem adcredito)",
+      "viewMigration": "045_apagar_gestao_bx.sql",
+      "config": "modules/cobranca/apagar.controller.ts:25-28 -> apagar.service.ts:44-74",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codapg",
+        "duplicata",
+        "razao",
+        "dtvenc",
+        "dtvenda",
+        "valor",
+        "quitada",
+        "tipodoc"
+      ],
+      "filtroExtra": null,
+      "situacao": "service próprio: entende abertos/liquidados/agrupados; a Pesquisa manda ativos/inativos/todos => SEM filtro de estado",
+      "limite": "200",
+      "empresa": "codempresa = loja do login (uma)",
+      "ordem": "dtvenc asc"
+    },
+    "observacoes": [
+      "se o operador desmarcar os dois complementos, OpcaoCompl[0] estoura (array vazio) — uAPagar.pas:2653"
+    ],
+    "divergencias": [
+      "o Apollo lista todos os estados (quitadas, agrupadas, adiantamentos) e ordena pelo vencimento MAIS ANTIGO com teto 200: na loja 1 a Pesquisa mostra títulos de 2020 e nenhum aberto atual",
+      "sem janela de opções/centro de custo; sem multi-loja"
+    ]
+  },
+  "cadastro/operadores": {
+    "pasta": "operadores",
+    "form": "FRMCADUSUARIOS (frmCadUsuarios)",
+    "unit": "uCadUsuarios.pas (FormCreate :675-686; btnPesquisaClick :510-514 só herda; cds uRdmCadUsuarios.dfm:199 com INDR :334 e SEM ATIVO)",
+    "viewLegado": "GET_OPERADORES",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view: uma linha por operador x empresa (LEFT JOIN RELACAO_OPERADOR_EMPRESA), WHERE LOGIN <> 'SICOM' AND COALESCE(INDR,'I') <> 'E'",
+    "titulo": ";OPERADORES",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "fonte: cds sem ATIVO => rádio invisível e sem filtro. A view da produção expõe ATIVO (538 S / 32 N): se o binário novo pôs ATIVO no cds, o rádio filtra — NÃO PROVADO",
+    "indr": {
+      "tabela": true,
+      "cdsTem": "uRdmCadUsuarios.dfm:334",
+      "viewExpoe": false,
+      "viewExclui": "WHERE COALESCE(O.INDR,'I') <> 'E'",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [
+      {
+        "condicao": "CODIGO_EMPRESA = <loja do login>",
+        "valorDe": "dmPrincipal.EmpresaCODEMPRESA",
+        "procedencia": "uCadUsuarios.pas:679 (FormCreate) e :662 (edtCodigoKeyUp)"
+      }
+    ],
+    "whereLegadoPadrao": "CODIGO_EMPRESA = <loja>",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": "570 (193 operadores repetidos por loja); loja 1: 219",
+      "statusSalvos": "1 (op 1, 2023: Nome / Em Qualquer Lugar)",
+      "menu": "1.815 acessos / 41 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_operadores (uma linha por operador, sem empresa; expõe ativo e indr)",
+      "viewMigration": "051_operadores.sql",
+      "config": "modules/cadastro/operadores.aggregate.ts:36-70",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codoperador",
+        "nome",
+        "login",
+        "tipoop"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "o cadastro usa CadMasterDet (web features/operadores/OperadoresCadMaster.tsx:36)"
+    ],
+    "divergencias": [
+      "o Apollo lista operadores de TODAS as lojas; o legado só os ligados à loja do login",
+      "F6 'Inativos' mostra os 8 excluídos"
+    ]
+  },
+  "cadastro/precos": {
+    "pasta": "precos",
+    "form": "FRMCADTABELAPRECO (frmCadTabelaPreco)",
+    "unit": "UCadTabelaPreco.pas (SetaDataset 'PRECO' :67; cds UDmCadTabelaPreco.dfm:95 com INDR :129 e ATIVO :158)",
+    "viewLegado": "GET_PRECO",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view WHERE COALESCE(INDR,'I') = 'I'",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "padrão; cds UDmCadTabelaPreco.dfm:158; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "GET_PRECO: 0 linhas"
+    },
+    "indr": {
+      "tabela": true,
+      "cdsTem": "UDmCadTabelaPreco.dfm:129",
+      "viewExpoe": false,
+      "viewExclui": "WHERE COALESCE(INDR,'I') = 'I'",
+      "clausula": null,
+      "procedencia": "uCadMaster.pas:540-544 (cds com INDR E a view GET_<TABELA> expõe INDR)"
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "ATIVO = 'S'",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (CHAR)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 0,
+      "menu": "4 acessos / 3 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_preco (expõe ativo e indr)",
+      "viewMigration": "011_preco.sql",
+      "config": "modules/cadastro/preco.crud.ts:11-18",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "id_preco",
+        "descricao",
+        "valor_reajuste",
+        "reajuste",
+        "ativo"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "F6 do Apollo age sobre INDR, não sobre ATIVO (tabela vazia na produção)"
+    ]
+  },
+  "compras/condicoes-pagto": {
+    "pasta": "condicoes-pagto",
+    "form": "FRMCADCONDICOESPAGTO (frmCadCondicoesPagto)",
+    "unit": "uCadCondicoesPagto.pas (FormCreate :59-64, SetaDataSet 'CONDICOES_PAGTO'; cds uRDMCadCondicoesPagto.dfm:72 sem ATIVO/INDR)",
+    "viewLegado": "GET_CONDICOES_PAGTO",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); a view da produção só tem CODIGO e DESCRICAO",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 53,
+      "menu": "11 acessos / 4 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_condicoes_pagto (codigo, codconpagto, descricao, cd1..cd8, dtcadastro)",
+      "viewMigration": "067_condicoes_pagto_parcelas.sql",
+      "config": "modules/compras/condicoes-pagto.crud.ts:14-21",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codconpagto",
+        "descricao",
+        "cd1",
+        "cd2",
+        "cd3"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": []
+  },
+  "cadastro/empresas": {
+    "pasta": "empresas",
+    "form": "FRMCADEMPRESA (frmCadEmpresa)",
+    "unit": "UCadEmpresa.pas (SetaDataset 'EMPRESAS' :2175; cds udmCadEmpresa.dfm:5 sem ATIVO/INDR)",
+    "viewLegado": "GET_EMPRESAS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";EMPRESAS",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "BAIRRO (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 5,
+      "menu": "734 acessos / 11 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_empresas (13 colunas; a produção tem 24, inclusive as senhas)",
+      "viewMigration": "032_empresas.sql",
+      "config": "modules/cadastro/empresas.crud.ts:78-109",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "idempresa",
+        "razao_social",
+        "cnpj",
+        "uf",
+        "classfiscal"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "GET_EMPRESAS da produção expõe SENHAADMIN/SENHACANCEL/SENHADESC/SENHAGAVETA na Pesquisa — não reproduzir"
+    ],
+    "divergencias": []
+  },
+  "cadastro/parceiros": {
+    "pasta": "parceiros",
+    "form": "FRMCADCLIENTES (frmCadClientes)",
+    "unit": "uCadClientes.pas (TfrmCadClientes = class(TfrmCadMasterDetalhe) :37; FormCreate :3776-3829; btnPesquisaClick :2328-2333 liga a etiqueta e herda)",
+    "viewLegado": "GET_PARCEIROS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view: LEFT JOIN PARCEIROS_END => uma linha por endereço",
+    "titulo": ";PARCEIROS",
+    "campoAtivo": {
+      "coluna": "ATIVADO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "uCadClientes.pas:3825-3826; cds udmParceiros.dfm:79 tem ATIVADO; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "ATIVADO S 18.245 / N 906"
+    },
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [
+      {
+        "condicao": "<CLI|FRN|TRA|FUN|CON> = 'S' (só quando aberto por um menu de papel)",
+        "valorDe": "frmMenuSuperior.MenuEscolhido: Clientes=CLI, Fornecedores=FRN, Transportadoras=TRA, Funcionarios=FUN, Convenios=CON; menu 'Parceiros' => nenhum",
+        "procedencia": "uCadClientes.pas:4835-4876 (ControleTipoParceiro(True), chamado em :3782)"
+      }
+    ],
+    "whereLegadoPadrao": "menu Parceiros: ATIVADO = 'S' · menu Clientes: CLI = 'S' AND ATIVADO = 'S'",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVADO (CHAR)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "etiqueta": true,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 3,
+    "coresProcedencia": "uCadClientes.pas:3785-3810 (BLOQUEADO=S vermelho; ENDERECO_ATIVADO=N roxo — coluna inexistente: a view tem ENDERECO_ATIVO; DATA_ULTIMA_COMPRA NDIAS > 35 azul)",
+    "producao": {
+      "linhas": "19.151 linhas / 19.089 parceiros",
+      "statusSalvos": "1 (op 1, 2023: Razao / Em Qualquer Lugar)",
+      "menu": "Parceiros 8.826+2.527 (37 ops) · Convênios 6.519+339 · Clientes 1.227 · Funcionários 825 · Fornecedores 802"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_parceiros (uma linha por parceiro, endereço padrão; expõe ativado, cli/frn/fun/tra/con)",
+      "viewMigration": "017_parceiros.sql",
+      "config": "modules/cadastro/parceiro.aggregate.ts:24-33,116",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codparceiro",
+        "razao",
+        "fantasia",
+        "cnpj_cpf",
+        "cidade",
+        "uf",
+        "tipofj",
+        "cli",
+        "frn",
+        "fun",
+        "tra",
+        "con"
+      ],
+      "filtroExtra": {
+        "campo": "<cli|frn>",
+        "operador": "igual",
+        "valor": "S",
+        "procedencia": "web features/parceiros/ParceirosCadMaster.tsx:190; só as rotas cliente/fornecedor (app/router.tsx:198-199)"
+      },
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "F3 pelo teclado passa pelo btnPesquisaClick virtual do form-base (o do uCadClientes não tem override) — a etiqueta só liga pelo botão"
+    ],
+    "divergencias": [
+      "situação ignorada: 'Ativos' traz também os 906 ATIVADO='N'",
+      "não há o menu 'Parceiros' sem papel (o mais usado) nem Funcionários/Transportadoras/Convênios",
+      "200 de ~19 mil sem ordem"
+    ]
+  },
+  "cadastro/motivos-operacao": {
+    "pasta": "motivos-operacao",
+    "form": "FRMCADMOTIVOOPERACOES (FrmCadMotivoOperacoes)",
+    "unit": "uMotivoOperacoes.pas (SetaDataset 'MOTIVOS_OPERACAO' :107; cds uDmMotivosOperacoes.dfm:43 sem ATIVO/INDR)",
+    "viewLegado": "GET_MOTIVOS_OPERACAO",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view WHERE COALESCE(M.INDR,'I') <> 'E'",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": true,
+      "cdsTem": false,
+      "viewExpoe": false,
+      "viewExclui": "WHERE COALESCE(M.INDR,'I') <> 'E'",
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": "34 (MOTIVOS_OPERACAO: 4 excluídos)",
+      "menu": "42 acessos / 8 operadores",
+      "vsql": "07/10 12:47-12:58: GET_MOTIVOS_OPERACAO where (CODIGO = 0) and TIPO_OPERACAO = 'PERDA' — lookup de outra tela (número vazio = 0)"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_motivos_operacao (expõe indr)",
+      "viewMigration": "059_ajuste_estoque.sql",
+      "config": "modules/cadastro/motivos-operacao.crud.ts:10-16",
+      "softDelete": true,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codigo",
+        "descricao",
+        "tipo_operacao"
+      ],
+      "filtroExtra": null,
+      "situacao": "crud-engine.service.ts:60-65 (situação só age com softDelete e vira INDR: ativos=INDR 'I', inativos=INDR 'E' = EXCLUÍDOS, todos)",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "F6 'Inativos' do Apollo mostra os 4 excluídos (o legado não tem rádio)"
+    ]
+  },
+  "cadastro/formas-pgto": {
+    "pasta": "formas-pgto",
+    "form": "FRMCADFORMAPGTO (frmCadFormaPgto)",
+    "unit": "uCadFormaPgto.pas (SetaDataset 'FORMAS_PGTO' :504; cds uRdmCadFormaPgto.dfm:5 sem ATIVO; a tabela tem INATIVO, não ATIVO)",
+    "viewLegado": "GET_FORMAS_PGTO",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";FORMAS DE PAGAMENTO",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "FCampoAtivo padrão 'ATIVO' não existe no cds => sem filtro; a coluna INATIVO não é usada",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATALHO (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": "47, de todas as lojas (1:12, 2:11, 50:1, 51:12, 52:11); INATIVO todas 'N'",
+      "menu": "242 acessos / 7 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_formas_pgto",
+      "viewMigration": "052_formas_pgto.sql",
+      "config": "modules/cadastro/formas-pgto.crud.ts:13-25",
+      "softDelete": false,
+      "empresaScoped": true,
+      "colunasPesquisa": [
+        "idpgto",
+        "modalidade",
+        "atalho",
+        "destino"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "o Apollo mostra só a loja do login; o legado mostra as formas de TODAS as lojas"
+    ]
+  },
+  "cobranca/lotes-md": {
+    "pasta": "lotes-md",
+    "form": "FRMCADLOTECOBRANCA (frmCadLoteCobranca)",
+    "unit": "UCadLoteCobranca.pas (SetaDataset 'LOTE_COBRANCA' :190; cds uDMCadLoteCobranca.dfm:6 sem ATIVO/INDR)",
+    "viewLegado": "GET_LOTE_COBRANCA",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";LOTE_COBRANCAS",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "COBRADOR (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 0,
+      "menu": "20 acessos / 7 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_lote_cobranca (codlotecob, codparceiro, data, razao, qtd_itens — nomes diferentes dos da produção: CODIGO, COBRADOR, COD_COBRADOR, DATA_COBRANCA, TOTAL_LOTE)",
+      "viewMigration": "016_lote_cobranca_full.sql",
+      "config": "modules/cobranca/lotes-md.controller.ts:43-58 -> lote-cobranca.aggregate.ts:15-34",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codlotecob",
+        "codparceiro"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "colunas da view com outros nomes (o campo de abertura COBRADOR não existe no destino)"
+    ]
+  },
+  "cadastro/areceber": {
+    "pasta": "areceber",
+    "form": "FRMCADARECEBER (frmCadAReceber)",
+    "unit": "uCadAReceber.pas (TfrmCadAReceber = class(TfrmCadMaster) :36; SetaDataset com View 'GET_RCB' :2590; btnPesquisaClick :1321-1352 -> inherited; F3 pelo FormKeyUp :2673-2708 com a mesma lógica, sem TRIM)",
+    "viewLegado": "GET_RCB",
+    "viewProcedencia": "uCadAReceber.pas:2590 SetaDataset(..., 'GET_RCB', 'GET_RCB') => FViewPesquisa (uCadMaster.pas:1479-1486)",
+    "titulo": ";A RECEBER",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "cds udmCadAReceber.dfm:12 sem ATIVO (GET_RCB tem ATIVADO, do cliente, mas FCampoAtivo é o padrão ATIVO)",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [
+      {
+        "condicao": "IDEMPRESA in (<lojas>)",
+        "valorDe": "dmPrincipal.GetMultiEmpresa (udmPrincipal.pas:2619-2643 + TrocarEmpresa :3672-3705): janela de empresas com as lojas do operador (RELACAO_OPERADOR_EMPRESA); as marcadas; nenhuma marcada => a loja do login",
+        "procedencia": "uCadAReceber.pas:1326-1333"
+      },
+      {
+        "condicao": "CONSILIADO = 'S'",
+        "valorDe": "só se EMPRESAS.FECHAMENTO_CAIXA = 'S' da loja do login (nenhuma loja da produção tem)",
+        "procedencia": "uCadAReceber.pas:1328-1331"
+      },
+      {
+        "condicao": "a condição de estado da opção escolhida (ver opcoesAntes)",
+        "valorDe": "janela 'CONTAS A RECEBER'",
+        "procedencia": "uCadAReceber.pas:1344-1349"
+      }
+    ],
+    "whereLegadoPadrao": "IDEMPRESA in (<lojas>) AND TRIM(QUITADA) = 'N' AND TRIM(AGRUPADO) = 'N'",
+    "opcoesAntes": {
+      "titulo": "CONTAS A RECEBER",
+      "procedencia": "uCadAReceber.pas:1335-1349; UOpcoes.pas:111-170 (padrão = 1ª; só 'Cancelar' devolve -1)",
+      "itens": [
+        {
+          "id": "abertos",
+          "rotulo": "Trazer somente abertos",
+          "padrao": true,
+          "filtro": "TRIM(QUITADA) = 'N' AND TRIM(AGRUPADO) = 'N'"
+        },
+        {
+          "id": "liquidados",
+          "rotulo": "Trazer somente liquidados",
+          "filtro": "TRIM(QUITADA) = 'S' AND TRIM(AGRUPADO) = 'N'"
+        },
+        {
+          "id": "agrupados",
+          "rotulo": "Agrupados",
+          "filtro": "TRIM(AGRUPADO) = 'S'"
+        },
+        {
+          "id": "todos",
+          "rotulo": "Trazer todos",
+          "filtro": "só as lojas"
+        }
+      ],
+      "cancelar": "Opcao -1 => só as lojas (abre a Pesquisa assim mesmo)"
+    },
+    "abertura": {
+      "campo": "CLIENTE",
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": "CLIENTE",
+      "primeiroAlfabetico": "AGRUPADO",
+      "procedencia": "uCadAReceber.pas:2714 SetDefaultPesquisa('CLIENTE','',tpQualquerLugar,false,'CLIENTE')"
+    },
+    "empresaObrigatoria": false,
+    "totalizador": true,
+    "totalizadorProcedencia": "uCadAReceber.pas:2585",
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 3,
+    "coresProcedencia": "uCadAReceber.pas:2611-2635 (QUITADA=S verde; REGISTRO_ARQ_REMESSA=S roxo; DATA_VENCIMENTO < hoje vermelho)",
+    "producao": {
+      "linhas": "GET_RCB 100.767; loja 1: 72.729 títulos, 15.992 abertos, 1º vencimento '0202-01-13' (data inválida)",
+      "menu": "8.326 acessos / 42 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_areceber (todos os estados; expõe codempresa, quitada, agrupado, consiliado)",
+      "viewMigration": "410_get_areceber_juro_producao.sql",
+      "config": "modules/cobranca/areceber.controller.ts:28-29 -> areceber.service.ts:76-123",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codrcb",
+        "duplicata",
+        "razao",
+        "dtvenc",
+        "dtvenda",
+        "valor",
+        "quitada",
+        "tipodoc"
+      ],
+      "filtroExtra": null,
+      "situacao": "service próprio: abertos/liquidados/agrupados; a Pesquisa manda ativos/inativos/todos => SEM filtro de estado",
+      "limite": "200",
+      "empresa": "codempresa = loja do login (uma)",
+      "ordem": "dtvenc asc"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "como no A pagar: todos os estados, vencimento mais antigo primeiro, teto 200 => os abertos atuais não aparecem",
+      "sem janela de opções; sem multi-loja; não abre em CLIENTE"
+    ]
+  },
+  "cadastro/historico-contabil": {
+    "pasta": "historico-contabil",
+    "form": "FRMCADHISTORICOCONTABIL (frmCadHistoricoContabil)",
+    "unit": "uCadHistoricoContabil.pas (TfrmCadHistoricoContabil = class(TfrmCadMasterDet) :14; SetaDataset :256; btnPesquisaClick :114-122 herda; cds udmCadHistoricoContabil.dfm:10 sem ATIVO/INDR)",
+    "viewLegado": "GET_HISTORICO_CONTABIL",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CODIGO (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 54,
+      "menu": "62 acessos / 3 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_historico_contabil (+ coringas)",
+      "viewMigration": "231_cad_historico_contabil.sql",
+      "config": "modules/cadastro/historico-contabil.crud.ts:18-26",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codhistcontabil",
+        "deschist",
+        "status",
+        "coringas"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": []
+  },
+  "cadastro/situacoes-nf": {
+    "pasta": "situacao-nf",
+    "form": "FRMCADSITUACAONF (frmCadSituacaoNF)",
+    "unit": "UCadSituacaoNF.pas (SetaDataset 'SITUACAO_NF' :1128; cds UdmCadSituacaoNF.dfm:11 SEM ATIVO)",
+    "viewLegado": "GET_SITUACAO_NF",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "campoAtivoProcedencia": "fonte: cds sem ATIVO => rádio invisível e sem filtro. Tabela e view têm ATIVO (194, todas 'S'); binário novo NÃO PROVADO",
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "ATIVO (CHAR)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 194,
+      "statusSalvos": "1 (op 84, 2020: índice 1 = CODIGO)",
+      "menu": "662 acessos / 11 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_situacao_nf (coalesce(ativo,'S'), qtde_cfop)",
+      "viewMigration": "321_situacao_importacao_auto.sql",
+      "config": "modules/cadastro/situacao-nf.aggregate.ts:23-35",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "idsituacao_nf",
+        "descricao",
+        "tipo",
+        "tipo_operacao",
+        "ativo",
+        "qtde_cfop"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": []
+  },
+  "cadastro/cfops": {
+    "pasta": "cfop",
+    "form": "FRMCADCFOP (frmCadCFOP)",
+    "unit": "UCadCFOP.pas (SetaDataset 'CFOP' tcManual :443; FCampoRetornoPesquisa := 'CFOP' :444; cds uRDMCadCFOP.dfm:269 sem ATIVO/INDR)",
+    "viewLegado": "GET_CFOP",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": "(view sem comentário)",
+    "campoAtivo": null,
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "igual",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "CFOP (NUMBER)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CFOP",
+      "procedencia": "UCadCFOP.pas:444 (a view não tem CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": 398,
+      "menu": "349 acessos / 10 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_cfop (codcfop, codigo, descricao, tipo, tipoestado, devolucao)",
+      "viewMigration": "346_cfop_cadastro_completo.sql",
+      "config": "modules/cadastro/cfop.crud.ts:35-53",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "codcfop",
+        "descricao"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [],
+    "divergencias": [
+      "200 de 398 sem ordem"
+    ]
+  },
+  "cadastro/contas-bancarias": {
+    "pasta": "contas-bancarias",
+    "form": "FRMCADCONTASBANCARIAS (frmCadContasBancarias)",
+    "unit": "UCadContasBancarias.pas (SetaDataset 'CONTAS_BANCARIAS' :427; cds uRDmCadContaBancaria.dfm:178 com ATIVO :293)",
+    "viewLegado": "GET_CONTAS_BANCARIAS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView)",
+    "titulo": ";CONTAS BANCARIAS",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "padrão; cds uRDmCadContaBancaria.dfm:293; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "36, todas ATIVO='S'"
+    },
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [],
+    "whereLegadoPadrao": "ATIVO = 'S'",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": null,
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": null,
+      "primeiroAlfabetico": "AGENCIA (VARCHAR2)",
+      "procedencia": "uCadMaster.pas:556-557 SetDefault('', '', tpQualquerLugar, False, FCampoOrdenacao) => uPesquisa.pas:1672 cbbCampos.ItemIndex := 0 (1º campo em ordem alfabética); tpQualquerLugar => texto 'Em Qualquer Lugar', número/data 'Igual a' (uComunPesquisaRel.pas:629-656)"
+    },
+    "empresaObrigatoria": false,
+    "retorno": {
+      "campo": "CODIGO",
+      "procedencia": "uCadMaster.pas:1063-1064 (padrão CODIGO)"
+    },
+    "cores": 0,
+    "producao": {
+      "linhas": "36, de todas as lojas (1:25, 2:6, 50:1, 51:2, 52:2)",
+      "menu": "392 acessos / 15 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_contas_bancarias",
+      "viewMigration": "004_contas_bancarias.sql",
+      "config": "modules/cadastro/contas-bancarias.crud.ts:18-31",
+      "softDelete": false,
+      "empresaScoped": true,
+      "colunasPesquisa": [
+        "codconta",
+        "banco",
+        "titular",
+        "nroconta",
+        "gerente",
+        "ativo"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)"
+    },
+    "observacoes": [
+      "clicar no rádio Ativo abre a Pesquisa (rdgAtivoClick, UCadContasBancarias.pas:432-440)",
+      "cadastro usa CadMasterDet no web"
+    ],
+    "divergencias": [
+      "o Apollo mostra só a loja do login (o legado mostra as contas de todas as lojas)",
+      "situação ignorada (sem softDelete)"
+    ]
+  },
+  "cadastro/produtos": {
+    "pasta": "produtos",
+    "form": "FRMCADPRODUTO (frmCadProduto)",
+    "unit": "UCadProduto.pas (TfrmCadProduto = class(TfrmCadMasterDetalhe) :52; FormCreate :6273-6420; btnPesquisaClick :3730-3756 liga etiqueta e herda; F2 alterna barras/PLU: SetTipoBusca :7846-7866)",
+    "viewLegado": "GET_PRODUTOS",
+    "viewProcedencia": "uCadMaster.pas:1479-1486 (FView := 'GET_'+FTabela; FViewPesquisa := FView); view: uma linha por produto x loja (FROM MULTI_PRECO)",
+    "titulo": ";PRODUTOS",
+    "campoAtivo": {
+      "coluna": "ATIVO",
+      "sim": "S",
+      "nao": "N",
+      "viewTemColuna": true,
+      "procedencia": "UCadProduto.pas:6408-6409; cds udmCadProduto.dfm:136; uCadMaster.pas:525-538 (só se cdsPrincipal.FindField(FCampoAtivo)<>nil; padrão ATIVO / 'S;N' em :972-973)",
+      "producao": "o ATIVO da view é o MULTI_PRECO.ATIVO DA LOJA: ATIVO_PELA_MULTIPRECO = 'N' em CONFIGURACOES, mas CONFIGURACOES_ESPECIFICAS (id 30, Modulo/Todos) = 'S' e a view usa COALESCE(CE.VALOR, C.VALOR). Loja 1: S 17.347 / N 30.464 (PRODUTOS.ATIVO = 'N' só em 582)"
+    },
+    "indr": {
+      "tabela": false,
+      "clausula": null
+    },
+    "obrigatorios": [
+      {
+        "condicao": "(IDEMPRESA = <loja do login>)",
+        "valorDe": "dmPrincipal.EmpresaCODEMPRESA",
+        "procedencia": "uPesquisa.pas:2555-2564 SetaEmpresaObrigatoria (só para GET_PRODUTOS)"
+      }
+    ],
+    "whereLegadoPadrao": "ATIVO = 'S' AND  (IDEMPRESA = <loja>)",
+    "opcoesAntes": null,
+    "abertura": {
+      "campo": "DESCRICAO",
+      "operacao": "qualquer",
+      "valor": "",
+      "ordenacao": "DESCRICAO",
+      "primeiroAlfabetico": "ABC",
+      "procedencia": "UCadProduto.pas:6296-6300 SetDefaultPesquisa('DESCRICAO', '', tpQualquerLugar, False, 'DESCRICAO', <union CODAUXILIAR>, 'CODBARRA')",
+      "consAux": "union all select 'F','T', PR.* from CODAUXILIAR C LEFT JOIN get_produtos PR ON (PR.codbarra = C.codbarra) where C.codauxiliar = '<valor>' (quando o campo é CODBARRA)",
+      "campoAux": "CODBARRA"
+    },
+    "empresaObrigatoria": "IDEMPRESA = <loja do login>",
+    "etiqueta": true,
+    "detalhes": "F8 preços (MULTI_PRECO) · F9 códigos auxiliares · F10 estoque · F11 estoque depósito · F12 estoque produção (UCadProduto.pas:6332-6393)",
+    "retorno": {
+      "campo": "CODBARRA",
+      "procedencia": "UCadProduto.pas:6294 (busca por barras); em PLU (F2) vira '' => CODIGO (UCadProduto.pas:7858-7862; uPesquisa.pas:826-829)"
+    },
+    "cores": 2,
+    "coresProcedencia": "UCadProduto.pas:6301-6317 (ATIVO=N vermelho 'Produto Inativo'; PROMOCAO=S azul)",
+    "producao": {
+      "linhas": "204.115 (47.811 por loja 1/2/51/52; 12.871 na loja 50)",
+      "vsql": "dossiê §2.3: where (DESCRICAO like '%BENTO%') and ATIVO = 'S' AND  (IDEMPRESA = 2) — igual ao fonte. 07/10 16:06 (outro chamador): o union do código auxiliar no binário novo é INNER JOIN e LEVA os obrigatórios ('... where c.codauxiliar = ''789...'' AND PRODUTO_PAI IS NULL AND (IDEMPRESA = 1)'); o fonte usa LEFT JOIN sem obrigatórios",
+      "menu": "38.638 acessos / 58 operadores"
+    },
+    "apollo": {
+      "estado": "estado no commit d196a812 (HEAD); o working tree já está mudando Pesquisa.tsx e criando apps/api/src/shared/pesquisa",
+      "view": "get_produtos (uma linha por produto, sem loja; ativo = produtos.ativo; 11 colunas, a produção tem 95)",
+      "viewMigration": "020_produtos.sql",
+      "config": "modules/cadastro/produto.aggregate.ts:66-69,473 (não empresaScoped, sem softDelete)",
+      "softDelete": false,
+      "empresaScoped": false,
+      "colunasPesquisa": [
+        "idproduto",
+        "codbarra",
+        "descricao",
+        "ncmsh",
+        "marca",
+        "aliquota",
+        "ativo"
+      ],
+      "filtroExtra": null,
+      "situacao": "sem softDelete: a situação (F6) é ignorada pelo servidor",
+      "limite": "crud-engine.service.ts:99 (limit 200 sem ORDER BY; a Pesquisa.tsx não manda campo/valor nem limite)",
+      "retorno": "idproduto (pk)"
+    },
+    "observacoes": [
+      "o Apollo já resolve ATIVO_PELA_MULTIPRECO em relatórios (rel-sem-movimento.service.ts:117-118, config.resolver)"
+    ],
+    "divergencias": [
+      "situação ignorada: 'Ativos' traz inativos",
+      "mesmo ligando a situação, produtos.ativo está errado para a Pesquisa: o legado filtra o MULTI_PRECO.ATIVO da loja (~30 mil inativos por loja contra 582)",
+      "sem recorte por loja (loja 50: 12.871 no legado, 47,8 mil no Apollo)",
+      "200 sem ordem; não abre em DESCRICAO; sem o union do código auxiliar; retorno idproduto em vez de CODBARRA"
+    ]
+  }
+}

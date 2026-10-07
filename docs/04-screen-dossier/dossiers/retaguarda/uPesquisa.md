@@ -35,6 +35,26 @@ existe mas nenhuma unit a usa (código morto).
 
 ---
 
+## 0. Estado da conversão (07/10/2026)
+
+**Corte A entregue.** `GET /cadastro/pesquisa/meta` e `GET /cadastro/pesquisa` (`apps/api/src/shared/pesquisa/`): campo + operação +
+valor no banco com as regras do §3.4 (`pesquisa-sql.ts`, testado em `test/pesquisa-sql.spec.ts`), excluído (INDR) nunca aparece, a
+situação pelo campo de ativo de cada tela, os filtros obrigatórios e as opções antes da Pesquisa (A pagar, A receber, Pedido de compra),
+a abertura por tela, o código de barras pelo código auxiliar e a página sobre o total (sem o teto de 200). As 26 telas estão em
+`telas.ts`, com a procedência em `tools/pesquisa/telas-pesquisa.json`. Web: `shared/cadmaster/Pesquisa.tsx` (abre vazia; &Campos /
+O&peração / Texto-Valor-Data; Enter pesquisa e vai à grade; clique só posiciona; Enter/duplo clique/&OK confirmam). Smoke §298 (7
+checks), jsdom `pesquisa.spec.tsx`, e2e `teclado.e2e.ts`.
+
+O levantamento das 26 telas corrigiu este dossiê em dois pontos: o **ATIVO de produtos é o da loja** (a GET_PRODUTOS da produção lê o
+MULTI_PRECO: `CONFIGURACOES_ESPECIFICAS` id 30 = 'S' prevalece sobre `ATIVO_PELA_MULTIPRECO='N'` — ~30 mil inativos por loja contra 582
+em `produtos.ativo`; o §8 dizia o contrário) e, no binário novo, o union do código auxiliar é INNER JOIN e **leva** os filtros
+obrigatórios (o §2.2 descreve o fonte de 2020).
+
+**Fica para o corte B (as views do destino iguais às da produção):** GET_PRODUTOS por loja (IDEMPRESA e o ATIVO da loja; hoje o
+destino tem uma linha por produto e `produtos.ativo`), o `FORNECEDOR_ATIVO='S'` do pedido aberto e o FECHADO por loja, o complemento
+"com centro de custo" do A pagar (GET_APAGAR_CEN/GET_CP_CEN), as colunas que faltam nas views (GET_NF 17 de 49, GET_EMPRESAS…). **Corte
+C:** o cadastro navegar sobre o resultado e o teto de 200 do `useResourceOptions`. **D/E/F** como no §12.
+
 ## 1. Resumo para quem tem pressa
 
 **O legado:** o operador escolhe **campo** (todas as colunas da view, em ordem alfabética) + **operação** (por tipo do

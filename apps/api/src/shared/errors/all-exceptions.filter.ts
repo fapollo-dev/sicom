@@ -747,6 +747,13 @@ const CODE_PT: Record<string, string> = {
   VENDA_JA_IMPORTADA: 'Cupom fiscal já importado. Informe a senha administrativa para continuar.',
   PERIODO_OBRIGATORIO: 'Informe o período (data inicial e final).',
   EMPRESA_FORA_DO_ESCOPO: 'Nenhuma das empresas escolhidas está liberada para o operador.',
+  // a Pesquisa (frmPesquisa) no servidor
+  PESQUISA_DESCONHECIDA: 'Esta tela não tem pesquisa configurada.',
+  PESQUISA_CAMPO_INVALIDO: 'O campo escolhido não existe nesta pesquisa.',
+  PESQUISA_OPERACAO_INVALIDA: 'A operação escolhida não vale para este tipo de campo.',
+  PESQUISA_NUMERO_INVALIDO: 'Informe um número válido para pesquisar.',
+  PESQUISA_DATA_INVALIDA: 'Informe uma data válida para pesquisar.',
+  PESQUISA_OPCAO_INVALIDA: 'Opção de pesquisa inválida.',
   MIX_SEM_LOJA: 'Marque ao menos uma loja além da empresa em que você está (ela é o depósito do comparativo).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // importar a devolução de vendas na NF de entrada (uNF.pas:5900)
