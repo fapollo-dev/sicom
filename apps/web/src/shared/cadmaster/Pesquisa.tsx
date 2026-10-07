@@ -9,6 +9,7 @@ import { ShortcutScope, useShortcut } from '../keyboard';
 import { apiHeaders, handle401 } from '../auth/session';
 import { useMensagem } from '../mensagem';
 import { hojeNaLoja } from '../tempo';
+import { exportarGradeCsv } from '../export/exportarGradeCsv';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -270,6 +271,30 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       setMarcados(new Map(r.linhas.map((l) => [chaveDe(l), l])));
     } catch (e) { mensagem.erro(e); }
   };
+  // Ctrl+A (Excel) e Ctrl+B (CSV) na grade (uPesquisa.pas:1127-1138): o resultado inteiro, com todas as colunas da view — o legado
+  // exporta o dataset carregado; aqui vem do servidor em páginas de 1.000
+  const exportar = async () => {
+    if (!consulta || !meta) return;
+    const todas: Record<string, any>[] = [];
+    try {
+      for (let pagina = 0; ; pagina++) {
+        const qs = new URLSearchParams({ recurso: resourcePath, campo: consulta.campo, operacao: consulta.operacao, valor: consulta.valor, valor2: consulta.valor2, situacao, pagina: String(pagina), porPagina: '1000' });
+        if (consulta.opcao) qs.set('opcao', consulta.opcao);
+        const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+        todas.push(...r.linhas);
+        if (!r.linhas.length || todas.length >= r.total) break;
+      }
+      // o valor como o operador lê: número com vírgula decimal (o Excel em português), data dd/mm/aaaa
+      const formata = (v: unknown, tipo: TipoCampo) => {
+        if (v == null || v === '') return '';
+        if (tipo === 'numero') { const n = Number(v); return Number.isFinite(n) ? n.toLocaleString('pt-BR', { maximumFractionDigits: 6, useGrouping: false }) : String(v); }
+        if (tipo === 'data') { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v); }
+        return String(v);
+      };
+      exportarGradeCsv(todas, meta.colunas.map((c) => ({ titulo: c.titulo, valor: (l: Record<string, any>) => formata(l[c.campo], c.tipo) })), `Pesquisa ${meta.titulo ?? resourcePath}`);
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const confirmar = (row?: Record<string, any> | null) => {
     if (multisselecao && onSelecionarVarios) {
       const escolhidas = marcados.size ? [...marcados.values()] : [row ?? linhaPosicionada()].filter((x): x is Record<string, any> => !!x);
@@ -392,9 +417,15 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
               }}
               // Espaço marca/desmarca a linha e desce; T marca/desmarca todos (com o foco na grade)
               onKeyDownCapture={(e) => {
-                if (!multisselecao) return;
                 const linhaEl = (e.target as HTMLElement).closest?.('[role="row"][tabindex]');
                 if (!linhaEl) return;
+                if (e.ctrlKey && (e.code === 'KeyA' || e.code === 'KeyB')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void exportar();
+                  return;
+                }
+                if (!multisselecao) return;
                 if (e.key === ' ') {
                   e.preventDefault();
                   e.stopPropagation();

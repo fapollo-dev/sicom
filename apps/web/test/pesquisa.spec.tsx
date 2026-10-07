@@ -231,3 +231,28 @@ describe('Pesquisa — a multisseleção (HabilitaMultiselecao)', () => {
     expect(varios).toHaveBeenCalledWith([expect.objectContaining({ codigo: 1 }), expect.objectContaining({ codigo: 3 })]);
   });
 });
+
+describe('Pesquisa — exportar o resultado (Ctrl+A / Ctrl+B na grade)', () => {
+  it('com o foco na grade, Ctrl+B exporta o resultado inteiro com as colunas da view, formatado', async () => {
+    metaAtual = meta();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual
+        : { linhas: [{ codigo: 1.5, descricao: 'NESTLE', dtcadastro: '2026-10-07T03:00:00.000Z' }], total: 1 },
+    })) as any;
+    const criado: Blob[] = [];
+    (URL as any).createObjectURL = vi.fn((b: Blob) => { criado.push(b); return 'blob:x'; });
+    (URL as any).revokeObjectURL = vi.fn();
+    abrir();
+    await pesquisarCom('');
+    const celula = await screen.findByText('NESTLE');
+    const linha = celula.closest('[role="row"]') as HTMLElement;
+    linha.setAttribute('tabindex', linha.getAttribute('tabindex') ?? '0');
+    linha.focus();
+    fireEvent.keyDown(linha, { key: 'b', code: 'KeyB', ctrlKey: true });
+    await waitFor(() => expect(criado.length).toBe(1));
+    const texto = await new Promise<string>((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.readAsText(criado[0]); });
+    expect(texto).toContain('Codigo;Descricao;Dtcadastro');
+    expect(texto).toContain('1,5;NESTLE;07/10/2026');
+  });
+});
