@@ -754,6 +754,7 @@ const CODE_PT: Record<string, string> = {
   PESQUISA_NUMERO_INVALIDO: 'Informe um número válido para pesquisar.',
   PESQUISA_DATA_INVALIDA: 'Informe uma data válida para pesquisar.',
   PESQUISA_OPCAO_INVALIDA: 'Opção de pesquisa inválida.',
+  PESQUISA_DETALHE_DESCONHECIDO: 'Esta pesquisa não tem esse atalho de detalhe.',
   MIX_SEM_LOJA: 'Marque ao menos uma loja além da empresa em que você está (ela é o depósito do comparativo).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // importar a devolução de vendas na NF de entrada (uNF.pas:5900)

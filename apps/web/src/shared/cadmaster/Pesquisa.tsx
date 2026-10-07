@@ -34,6 +34,16 @@ const ROTULO_OP: Record<Operacao, string> = {
   igual: 'Igual a', diferente: 'Diferente de', comeca: 'Começado com', termina: 'Terminado com', qualquer: 'Em qualquer lugar',
   contido: 'Contido em', entre: 'Entre', maior: 'Maior que', menor: 'Menor que',
 };
+// as cores do legado (GetColor) nos tokens do DS — AMARELO e PRETO o legado pinta de preto: a linha fica na cor normal. O `[&_*]`
+// leva a cor às células, que têm a sua própria classe de texto
+const CLASSE_DA_COR: Record<string, string> = {
+  VERMELHO: 'text-fg-danger [&_*]:text-fg-danger',
+  AZUL: 'text-fg-brand [&_*]:text-fg-brand',
+  VERDE: 'text-fg-success [&_*]:text-fg-success',
+  ROXO: 'text-chart-5 [&_*]:text-chart-5',
+  FUSHIA: 'text-chart-5 [&_*]:text-chart-5',
+  AZUL_PETROLEO: 'text-chart-2 [&_*]:text-chart-2',
+};
 // o exemplo do "Contido em" por tipo (cbbOperacaoExit, uPesquisa.pas:404-418)
 const EXEMPLO_CONTIDO: Record<TipoCampo, string> = { texto: 'Exemplo: APOLLO,SISTEMAS', numero: 'Exemplo: 5.1,6.9,7.8', data: 'Exemplo: 13/10/2011' };
 
@@ -46,7 +56,15 @@ interface Meta {
   situacao: boolean;
   retorno: string;
   obrigatorio: string | null;
+  /** a legenda das cores (a grade à parte do legado) */
+  legenda?: Array<{ cor: string; legenda: string }>;
+  /** os atalhos de detalhe da linha (F8-F12 na pesquisa de produto) e o rótulo do legado */
+  detalhes?: Array<{ tecla: string; titulo: string }>;
+  rotuloDetalhes?: string | null;
+  /** o totalizador (A pagar, A receber): as colunas numéricas que se pode somar */
+  totalizador?: string[] | null;
 }
+interface Detalhe { titulo: string; linhas: Array<Record<string, unknown>>; indisponivel: string | null; cabecalho: string }
 interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; n: number }
 
 async function pedir<T>(caminho: string): Promise<T> {
@@ -98,6 +116,9 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const [valor2, setValor2] = useState('');
   const [consulta, setConsulta] = useState<Consulta | null>(null);
   const [total, setTotal] = useState<number | null>(null);
+  const [colunaSoma, setColunaSoma] = useState<string | null>(null);
+  const [soma, setSoma] = useState<number | null>(null);
+  const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
   const linhas = useRef<Record<string, any>[]>([]);
   const atual = useRef<Record<string, any> | null>(null);
   const clique = useRef(false);
@@ -123,6 +144,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         setOperacao(m.abertura.operacao);
         setValor(m.abertura.valor ?? (tipo === 'data' ? hojeNaLoja() : ''));
         setValor2(tipo === 'data' ? hojeNaLoja() : '');
+        setColunaSoma(m.totalizador?.[0] ?? null);
         const padrao = m.opcoes.find((o) => o.padrao)?.id ?? m.opcoes[0]?.id ?? null;
         setOpcao(padrao);
         setOpcaoEscolhida(!m.opcoes.length);
@@ -160,12 +182,14 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       situacao, pagina: String(Math.max(0, pagination.page - 1)), porPagina: String(pagination.pageSize),
     });
     if (consulta.opcao) qs.set('opcao', consulta.opcao);
+    if (colunaSoma) qs.set('soma', colunaSoma);
     ordemAtual.current = sort[0] ?? null;
     if (sort[0]) { qs.set('ordenacao', sort[0].field); qs.set('ordemDesc', String(sort[0].direction === 'desc')); }
     try {
-      const r = await pedir<{ linhas: Record<string, any>[]; total: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
+      const r = await pedir<{ linhas: Record<string, any>[]; total: number; soma?: number }>(`/cadastro/pesquisa?${qs.toString()}${extrasQs}`);
       linhas.current = r.linhas;
       setTotal(r.total);
+      setSoma(r.soma ?? null);
       return { data: r.linhas, total: r.total };
     } catch (e) {
       mensagem.erro(e);
@@ -174,7 +198,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       return { data: [], total: 0 };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consulta, resourcePath, situacao, extrasQs]);
+  }, [consulta, resourcePath, situacao, extrasQs, colunaSoma]);
 
   // os códigos do resultado inteiro, na ordem em que a grade está — pedidos só quando o cadastro navegar (←/→/↑/↓)
   const fonteDaNavegacao = (c: Consulta) => {
@@ -185,6 +209,27 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     const url = `/cadastro/pesquisa?${qs.toString()}${extrasQs}`;
     return async () => (await pedir<{ codigos: Array<number | string> }>(url)).codigos.map(Number).filter(Number.isFinite);
   };
+  // a linha posicionada: a que tem o foco do teclado na grade; senão a clicada; senão a 1ª
+  const linhaPosicionada = (): Record<string, any> | null => {
+    const corpo = corpoRef.current;
+    const linhaComFoco = (document.activeElement as HTMLElement | null)?.closest('[role="row"][tabindex]');
+    if (corpo && linhaComFoco && corpo.contains(linhaComFoco)) {
+      const i = Array.from(corpo.querySelectorAll('[role="row"][tabindex]')).indexOf(linhaComFoco);
+      if (i >= 0 && linhas.current[i]) return linhas.current[i];
+    }
+    return atual.current ?? linhas.current[0] ?? null;
+  };
+  // o atalho de detalhe (o cdsDetalhes, uPesquisa.pas:1867-1907): a consulta da linha numa janela "código - auxiliar - descrição"
+  const abrirDetalhe = async (tecla: string) => {
+    const l = linhaPosicionada();
+    if (!l || !meta) return false;
+    const codigo = l[meta.retorno];
+    try {
+      const d = await pedir<Omit<Detalhe, 'cabecalho'>>(`/cadastro/pesquisa/detalhe?recurso=${encodeURIComponent(resourcePath)}&tecla=${tecla}&codigo=${encodeURIComponent(String(codigo))}`);
+      setDetalhe({ ...d, cabecalho: [codigo, l.codbarra, l.descricao].filter((x) => x != null && x !== '').join(' - ') });
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const confirmar = (row?: Record<string, any> | null) => {
     const r = row ?? atual.current ?? linhas.current[0];
     if (r) onSelecionar(r, consulta ? fonteDaNavegacao(consulta) : undefined);
@@ -232,6 +277,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   return (
     <ShortcutScope>
       <TeclasDaPesquisa
+        detalhes={consulta && !detalhe ? (meta?.detalhes ?? []).map((d) => d.tecla) : []}
+        abrirDetalhe={abrirDetalhe}
         focarValor={() => {
           setValor('');
           setTimeout(() => document.querySelector<HTMLElement>('[data-pesquisa="valor"] input')?.focus(), 0);
@@ -285,6 +332,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 toolbar={{ enableSearch: false, enableFilters: false }}
                 paginationConfig={{ enabled: true, initialPageSize: 100 }}
                 cardBreakpoint={false}
+                // a cor da 1ª regra que casa (calculada no servidor — `_cor`)
+                getRowClassName={({ row }: { row: any }) => CLASSE_DA_COR[row._cor] ?? ''}
                 // o clique só posiciona (o legado confirma com Enter, duplo clique ou OK); o Enter na linha focada confirma
                 onRowClick={(row: any) => {
                   if (clique.current) { clique.current = false; atual.current = row; return; }
@@ -292,9 +341,49 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 }}
               />
             </div>
+            {(meta.totalizador?.length || meta.rotuloDetalhes) ? (
+              <div className="flex flex-wrap items-end gap-gp-md">
+                {!!meta.totalizador?.length && (
+                  <>
+                    <div className="w-48">
+                      <SelectField label="Total" value={colunaSoma ?? undefined} onChange={(v) => setColunaSoma(v || null)}
+                        options={meta.totalizador.map((c) => ({ value: c, label: meta.colunas.find((x) => x.campo === c)?.titulo ?? c }))} />
+                    </div>
+                    <span className="pb-2 text-body-sm font-semibold tabular-nums" aria-label="Soma">
+                      {soma == null ? '' : soma.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </>
+                )}
+                {meta.rotuloDetalhes && <small className="pb-2 text-fg-muted">{meta.rotuloDetalhes}</small>}
+              </div>
+            ) : null}
+            {!!meta.legenda?.length && (
+              <div role="list" aria-label="Legenda" className="flex flex-wrap gap-x-gp-md gap-y-gp-xs text-body-xs">
+                {meta.legenda.map((l, i) => (
+                  <span key={i} role="listitem" className={CLASSE_DA_COR[l.cor] ?? 'text-fg-default'}>■ {l.legenda}</span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
+      {detalhe && (
+        <Modal open onClose={() => setDetalhe(null)} size="lg" title={`${detalhe.titulo}: ${detalhe.cabecalho}`}
+          secondaryAction={{ label: 'Fechar', onClick: () => setDetalhe(null) }}>
+          {detalhe.indisponivel ? (
+            <p className="text-body-sm text-fg-muted">{detalhe.indisponivel}</p>
+          ) : (
+            <DataTable
+              rows={detalhe.linhas.map((l, i) => ({ __i: i, ...l }))}
+              columns={Object.keys(detalhe.linhas[0] ?? {}).map((k) => ({ field: k, headerName: k, type: typeof detalhe.linhas[0][k] === 'number' ? 'number' : 'text', sortable: true })) as any}
+              getRowId={(r: any) => r.__i}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              paginationConfig={{ enabled: false }}
+              cardBreakpoint={false}
+            />
+          )}
+        </Modal>
+      )}
     </ShortcutScope>
   );
 }
@@ -332,7 +421,15 @@ function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDo
  * ao cadastro de baixo. F3 = SetaFocoFrame (limpa o valor e põe o foco). O F5/F7 (filtros acumulados) e o F6 (modo do filtro da
  * coluna) voltam nos cortes B/E do dossiê.
  */
-function TeclasDaPesquisa({ focarValor }: { focarValor: () => void }) {
+function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe }: {
+  focarValor: () => void; detalhes: string[]; abrirDetalhe: (tecla: string) => Promise<false | void>;
+}) {
   useShortcut('f3', () => focarValor());
+  // F8-F12: os atalhos de detalhe da pesquisa (o `ATALHO` do cdsDetalhes — na de produto, preços, códigos auxiliares e estoques)
+  useShortcut('f8', () => void abrirDetalhe('f8'), { when: detalhes.includes('f8') });
+  useShortcut('f9', () => void abrirDetalhe('f9'), { when: detalhes.includes('f9') });
+  useShortcut('f10', () => void abrirDetalhe('f10'), { when: detalhes.includes('f10') });
+  useShortcut('f11', () => void abrirDetalhe('f11'), { when: detalhes.includes('f11') });
+  useShortcut('f12', () => void abrirDetalhe('f12'), { when: detalhes.includes('f12') });
   return null;
 }

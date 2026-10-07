@@ -129,3 +129,45 @@ describe('Pesquisa (frmPesquisa) no servidor — corte A', () => {
     await waitFor(() => expect(onFechar).toHaveBeenCalled());
   });
 });
+
+describe('Pesquisa — corte D: cores + legenda, atalhos de detalhe e totalizador', () => {
+  const linhas = [{ codigo: 1, descricao: 'ATIVO', _cor: null }, { codigo: 2, descricao: 'INATIVO', _cor: 'VERMELHO' }];
+  beforeEach(() => {
+    metaAtual = meta({
+      legenda: [{ cor: 'VERMELHO', legenda: 'Produto Inativo' }],
+      detalhes: [{ tecla: 'f8', titulo: 'Consulta de Preços' }],
+      rotuloDetalhes: '[F8] - Preços do produto',
+      totalizador: ['codigo'],
+    });
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual
+        : String(url).includes('/pesquisa/detalhe') ? { titulo: 'Consulta de Preços', linhas: [{ Idempresa: 1, Vrvenda: 9.9 }], indisponivel: null }
+        : { linhas, total: 2, soma: 3 },
+    })) as any;
+  });
+
+  it('a linha da regra pinta com o token do DS e a legenda aparece; o total soma a coluna escolhida no servidor', async () => {
+    abrir();
+    await pesquisarCom('');
+    const inativa = await screen.findByText('INATIVO');
+    expect(inativa.closest('[role="row"]')?.className).toContain('text-fg-danger');
+    expect(screen.getByText('ATIVO').closest('[role="row"]')?.className).not.toContain('text-fg-danger');
+    expect(screen.getByRole('list', { name: 'Legenda' }).textContent).toContain('Produto Inativo');
+    expect(pesquisas().some((u) => new URL(u).searchParams.get('soma') === 'codigo')).toBe(true);
+    expect(screen.getByLabelText('Soma').textContent).toBe('3,00');
+    expect(screen.getByText('[F8] - Preços do produto')).toBeTruthy();
+  });
+
+  it('F8 abre o detalhe da linha posicionada (o cdsDetalhes)', async () => {
+    abrir();
+    await pesquisarCom('');
+    fireEvent.click(await screen.findByText('INATIVO'));
+    act(() => { fireEvent.keyDown(window, { key: 'F8', code: 'F8' }); });
+    expect(await screen.findByText(/Consulta de Preços: 2 - INATIVO/)).toBeTruthy();
+    const u = new URL(chamadas().find((x) => x.includes('/pesquisa/detalhe'))!);
+    expect(u.searchParams.get('tecla')).toBe('f8');
+    expect(u.searchParams.get('codigo')).toBe('2');
+    expect(await screen.findByText(/9,9/)).toBeTruthy(); // número no formato do DS
+  });
+});

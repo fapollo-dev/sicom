@@ -1,5 +1,6 @@
 import { sql, type RawBuilder, type SqlBool } from 'kysely';
 import type { Operacao } from './pesquisa-sql';
+import type { RegraDeCor } from './cores';
 
 export interface ContextoDosObrigatorios {
   /** a loja do login (`dmPrincipal.EmpresaCODEMPRESA`) */
@@ -41,6 +42,22 @@ export interface PesquisaTela {
   /** a consulta auxiliar (`FConsAux`/`FCampoAux`, uPesquisa.pas:2234-2242): pesquisar por este campo acha também por ela (o código de
    *  barras pelo código auxiliar) */
   alternativa?: { campo: string; condicao: (valor: string) => RawBuilder<SqlBool> };
+  /** as cores da grade + legenda (o `cdsColoracao` do chamador); a regra cuja coluna a view do destino não tem fica de fora até o corte B */
+  cores?: RegraDeCor[];
+  /** os atalhos de detalhe da grade (o `cdsDetalhes`: a tecla abre a consulta da linha — uPesquisa.pas:1867-1907) e o rótulo deles */
+  detalhes?: Detalhe[];
+  rotuloDetalhes?: string;
+  /** o totalizador aberto com a soma (TotalizaFinanceiro — A pagar, A receber) */
+  totalizador?: boolean;
+}
+
+export interface Detalhe {
+  tecla: 'f8' | 'f9' | 'f10' | 'f11' | 'f12';
+  /** o TEXTO_TELA da janela */
+  titulo: string;
+  /** a consulta do detalhe da linha (o código de retorno dela); sem consulta, o motivo */
+  consulta?: (codigo: number) => RawBuilder<Record<string, unknown>>;
+  indisponivel?: string;
 }
 
 /** `IN (…)` de números já validados (lojas do operador) */
@@ -50,6 +67,30 @@ export const emLista = (coluna: string, valores: number[]): RawBuilder<SqlBool> 
 /** a loja do login (`dmPrincipal.EmpresaCODEMPRESA`) */
 const daLoja = (ctx: ContextoDosObrigatorios, coluna: string): RawBuilder<SqlBool> => sql<SqlBool>`${sql.ref(coluna)} = ${ctx.empresa ?? -1}`;
 const ATIVO = { coluna: 'ativo', sim: 'S', nao: 'N' };
+/** UCadProduto.pas:6302-6318 (e os ~15 lookups de produto) */
+/** UCadProduto.pas:6332-6393 — os atalhos da pesquisa de produto (e dos lookups de produto do pedido, da NF, da cotação…) */
+const ESTOQUE_E_PRECO = (tabela: 'estoque' | 'estoque_dep') => (codigo: number) => sql<Record<string, unknown>>`
+  select e.idempresa as "Empresa", e.qtde as "Qtde", e.minimo as "Minimo", e.maximo as "Maximo", m.vrcusto as "ValorCusto",
+         m.vrcustorep as "ValorCustoRep", m.vrcustoreal as "ValorCustoReal", m.vrvenda as "ValorVenda"
+    from ${sql.table(tabela)} e join multi_preco m on m.idproduto = e.idproduto and m.idempresa = e.idempresa
+   where e.idproduto = ${codigo} order by e.idempresa`;
+const DETALHES_PRODUTO: Detalhe[] = [
+  { tecla: 'f8', titulo: 'Consulta de Preços', consulta: (codigo) => sql<Record<string, unknown>>`
+      select idempresa as "Idempresa", vrvenda as "Vrvenda", promocao as "Promocao", vrpromo as "Vrpromo"
+        from multi_preco where idproduto = ${codigo} order by idempresa` },
+  { tecla: 'f9', titulo: 'Consulta dos Códigos Auxiliares', consulta: (codigo) => sql<Record<string, unknown>>`
+      select c.codauxiliar as "Codauxiliar", c.fatoremb as "Fatoremb" from codauxiliar c
+       where c.codbarra = (select p.codbarra from produtos p where p.idproduto = ${codigo}) order by c.codauxiliar` },
+  { tecla: 'f10', titulo: 'Consulta do Estoque', consulta: ESTOQUE_E_PRECO('estoque') },
+  { tecla: 'f11', titulo: 'Consulta do Estoque do Déposito', consulta: ESTOQUE_E_PRECO('estoque_dep') },
+  { tecla: 'f12', titulo: 'Consulta do Estoque de Produção',
+    indisponivel: 'O estoque de produção não vem para o Apollo: a ESTOQUE_PROD parou (desde 2025 todo item de NF tem ORIGEM_ESTOQUE = E; 8 saldos residuais).' },
+];
+const ROTULO_DETALHES_PRODUTO = '[F8] - Preços do produto  [F9] - Códigos Auxiliares [F10] - Estoque  [F11] - Estoque Depósito  [F12] - Estoque Produção';
+const CORES_PRODUTO: RegraDeCor[] = [
+  { coluna: 'ativo', op: '=', valor: 'N', cor: 'VERMELHO', legenda: 'Produto Inativo' },
+  { coluna: 'promocao', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Produto em promoção' },
+];
 /** a lista da situação do documento (SITUACAO_NF_PLC / SITUACAO_NF_PARCEIROS): com lista, só ela; sem lista, tudo */
 const permitidosPelaSituacao = (ctx: ContextoDosObrigatorios, tabela: 'situacao_nf_plc' | 'situacao_nf_parceiros', coluna: 'codplc' | 'codparceiro'): RawBuilder<SqlBool>[] => {
   const sit = Number(ctx.extras.idsituacao_nf);
@@ -89,19 +130,39 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       // o pedido multi-loja: a dona ou uma das lojas da lista (o legado tem uma linha por pedido × loja)
       return [sql<SqlBool>`${sql.ref('fechado')} = 'N'`,
         sql<SqlBool>`(${sql.ref('idempresa')} in (${sql.join(lojas)}) or exists (select 1 from unnest(string_to_array(replace(coalesce(${sql.ref('empresas')}, ''), ' ', ''), ',')) e where e ~ '^[0-9]+$' and e::int in (${sql.join(lojas)})))`];
-    } },
+    },
+    // uPedidoCompra.pas:735-760
+    cores: [
+      { coluna: 'fechado', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Pedido baixado' },
+      { coluna: 'bonificacao', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Pedido com bonificação' },
+      { coluna: 'dt_vencimento', op: '<', hoje: true, cor: 'VERDE', legenda: 'Pedido vencido' },
+    ] },
   // uNF.pas:6202-6300: TIPO da tela e a loja do login
   'fiscal/nf': { view: 'get_nf', form: 'FRMNF', titulo: 'Notas fiscais', retorno: 'codnf', extras: ['tipo'],
     abertura: { campo: 'parceiro', operacao: 'qualquer', ordenacao: 'codnf' },
     obrigatorios: (ctx) => [
       ...(ctx.extras.tipo === 'E' || ctx.extras.tipo === 'S' ? [sql<SqlBool>`${sql.ref('tipo')} = ${ctx.extras.tipo}`] : []),
-      daLoja(ctx, 'idempresa')] },
+      daLoja(ctx, 'idempresa')],
+    // uNF.pas:6211-6283 — o STATUS_NFE decodificado da GET_NF (P/C com TPEMISSAO 1 ou 6/7, D); a cor só depende do código
+    cores: [
+      { coluna: 'statusnfe', op: '=', valor: 'P', cor: 'AZUL', legenda: 'NFe Emitida' },
+      { coluna: 'statusnfe', op: '=', valor: 'C', cor: 'VERMELHO', legenda: 'NFe Cancelada' },
+      { coluna: 'statusnfe', op: '=', valor: 'D', cor: 'AMARELO', legenda: 'NFe Denegada' },
+      { coluna: 'statusnfe', op: '=', valor: 'P', cor: 'AZUL', legenda: 'NFe Emitida em contingência' },
+      { coluna: 'statusnfe', op: '=', valor: 'C', cor: 'VERMELHO', legenda: 'NFe Cancelada em contingência' },
+      { coluna: 'proc', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Notas processadas' },
+      { coluna: 'obs_nf', op: '<>', valor: '', cor: 'FUSHIA', legenda: 'NFe com Obs' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'Transferência entre lojas' },
+    ] },
   'cadastro/marcas': { view: 'get_marcas', form: 'FRMCADMARCAS', titulo: 'Marcas', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },
   'cadastro/cidades': { view: 'get_cidades', form: 'FRMCADCIDADES', titulo: 'Cidades', retorno: 'idcidade' },
-  'cadastro/familias': { view: 'get_familias_prod', form: 'FRMCADFAMILIAPROD', titulo: 'Família de produtos', retorno: 'codigo', campoAtivo: ATIVO },
+  'cadastro/familias': { view: 'get_familias_prod', form: 'FRMCADFAMILIAPROD', titulo: 'Família de produtos', retorno: 'codigo', campoAtivo: ATIVO,
+    // UCadFamiliaProd.pas
+    cores: [{ coluna: 'ativo', op: '=', valor: 'N', cor: 'VERMELHO', legenda: 'Categoria Inativa' }] },
   // uAPagar.pas:2630-2720: "Status das contas a pagar" nas lojas; ordena por VENCIMENTO. A view do destino não tem ADCREDITO: vai pela
   // tabela. O complemento "com centro de custo" (GET_APAGAR_CEN/GET_CP_CEN) entra com as views do corte B.
-  'cadastro/apagar': { view: 'get_apagar', form: 'FRMAPAGAR', titulo: 'Contas a pagar', retorno: 'codapg', abertura: { ordenacao: 'dtvenc' },
+  'cadastro/apagar': { view: 'get_apagar', form: 'FRMAPAGAR', titulo: 'Contas a pagar', retorno: 'codapg', abertura: { ordenacao: 'dtvenc' }, totalizador: true,
     opcoes: [{ id: 'abertas', rotulo: 'Somente abertas', padrao: true }, { id: 'quitadas', rotulo: 'Somente quitadas' },
       { id: 'adiantamento', rotulo: 'Adiantamento de crédito' }, { id: 'agrupadas', rotulo: 'Agrupadas' }, { id: 'todas', rotulo: 'Todas' }],
     obrigatorios: async (ctx) => {
@@ -117,7 +178,12 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
         todas: sql<SqlBool>`not (${adcredito} = 'S' and ${quitada} = 'S') and ${agrupado} = 'N'`,
       };
       return [emLista('codempresa', await ctx.lojas()), ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
-    } },
+    },
+    // uAPagar.pas:2692-2708
+    cores: [
+      { coluna: 'bloqueio', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Compromisso bloqueado' },
+      { coluna: 'fornecedor_possui_debito', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Fornecedor possui débito' },
+    ] },
   // uCadUsuarios.pas:662/679: só os operadores da loja do login. O CODIGO_EMPRESA da GET_OPERADORES da produção é o
   // RELACAO_OPERADOR_EMPRESA.CODEMPRESA (LEFT JOIN — uma linha por operador × loja), e a view tira o login SICOM
   'cadastro/operadores': { view: 'get_operadores', form: 'FRMCADUSUARIOS', titulo: 'Operadores', retorno: 'codoperador',
@@ -129,7 +195,13 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // uCadClientes.pas:4835-4876: o papel do menu (Clientes = CLI, Fornecedores = FRN…); o menu "Parceiros" não filtra papel
   'cadastro/parceiros': { view: 'get_parceiros', form: 'FRMCADCLIENTES', titulo: 'Parceiros', retorno: 'codparceiro',
     campoAtivo: { coluna: 'ativado', sim: 'S', nao: 'N' }, extras: ['cli', 'frn', 'tra', 'fun', 'con'],
-    obrigatorios: (ctx) => (['cli', 'frn', 'tra', 'fun', 'con'] as const).filter((k) => ctx.extras[k] === 'S').map((k) => sql<SqlBool>`${sql.ref(k)} = 'S'`) },
+    obrigatorios: (ctx) => (['cli', 'frn', 'tra', 'fun', 'con'] as const).filter((k) => ctx.extras[k] === 'S').map((k) => sql<SqlBool>`${sql.ref(k)} = 'S'`),
+    // uCadClientes.pas:3785-3810: o ENDERECO_ATIVADO não existe na GET_PARCEIROS da produção (a regra nunca casa no legado — fiel)
+    cores: [
+      { coluna: 'bloqued', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Parceiro Bloqueado' },
+      { coluna: 'endereco_ativado', op: '=', valor: 'N', cor: 'ROXO', legenda: 'Endereco Desativado' },
+      { coluna: 'data_ultima_compra', op: 'ndias', opDias: '>', dias: 35, cor: 'AZUL', legenda: 'Data da última compra maior que 35 dias.' },
+    ] },
   'cadastro/motivos-operacao': { view: 'get_motivos_operacao', form: 'FRMCADMOTIVOOPERACOES', titulo: 'Motivos de operação', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },
   // o legado mostra as formas de todas as lojas (sem recorte)
@@ -137,7 +209,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'cobranca/lotes-md': { view: 'get_lote_cobranca', form: 'FRMCADLOTECOBRANCA', titulo: 'Lotes de cobrança', retorno: 'codlotecob',
     abertura: { campo: 'razao', operacao: 'qualquer' } },
   // uCadAReceber.pas:1326-1349 e 2714: "CONTAS A RECEBER" nas lojas; CONSILIADO='S' quando a loja do login fecha caixa
-  'cadastro/areceber': { view: 'get_areceber', form: 'FRMCADARECEBER', titulo: 'Contas a receber', retorno: 'codrcb',
+  'cadastro/areceber': { view: 'get_areceber', form: 'FRMCADARECEBER', titulo: 'Contas a receber', retorno: 'codrcb', totalizador: true,
     abertura: { campo: 'razao', operacao: 'qualquer', ordenacao: 'razao' },
     opcoes: [{ id: 'abertos', rotulo: 'Trazer somente abertos', padrao: true }, { id: 'liquidados', rotulo: 'Trazer somente liquidados' },
       { id: 'agrupados', rotulo: 'Agrupados' }, { id: 'todos', rotulo: 'Trazer todos' }],
@@ -152,7 +224,13 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       return [emLista('codempresa', await ctx.lojas()),
         sql<SqlBool>`(coalesce((select e.fechamento_caixa from empresas e where e.idempresa = ${ctx.empresa ?? -1}), 'N') <> 'S' or ${sql.ref('consiliado')} = 'S')`,
         ...(ctx.opcao && estado[ctx.opcao] ? [estado[ctx.opcao]] : [])];
-    } },
+    },
+    // uCadAReceber.pas:2612-2636 (DATA_VENCIMENTO < hoje)
+    cores: [
+      { coluna: 'quitada', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Liquidada' },
+      { coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'ROXO', legenda: 'Boletos Bancários emitidos' },
+      { coluna: 'dtvenc', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'Vencida' },
+    ] },
   'cadastro/historico-contabil': { view: 'get_historico_contabil', form: 'FRMCADHISTORICOCONTABIL', titulo: 'Histórico contábil', retorno: 'codhistcontabil',
     abertura: { campo: 'codigo', operacao: 'igual' } },
   'cadastro/situacoes-nf': { view: 'get_situacao_nf', form: 'FRMCADSITUACAONF', titulo: 'Situação da nota fiscal', retorno: 'idsituacao_nf' },
@@ -176,7 +254,8 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       ...(ctx.extras.ativoCompra === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where coalesce(p.ativo_compra, 'S') <> 'N')`] : []),
       ...(ctx.extras.semFilho === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where p.idproduto_pai is null)`] : []),
     ],
-    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` } },
+    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
+    cores: CORES_PRODUTO, detalhes: DETALHES_PRODUTO, rotuloDetalhes: ROTULO_DETALHES_PRODUTO },
   // a GET_PLC da produção (DESCCODPLC com mais de 5 caracteres); lancavel=S: só a conta no tamanho da máscara da empresa
   // (CHARACTER_LENGTH(CODIGO_EXTENSO) = máscara — uAPagar.pas:771-778, uCadAReceber.pas:547-553, uCadFormaPgto.pas:239-241,
   // uMovCaixa.pas:712-716, UCadFamiliaProd.pas:209-211; o mesmo do scrap.service); idsituacao_nf: os centros da situação
@@ -206,5 +285,6 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // código auxiliar. A GET_PRODUTOS da produção é por loja (IDEMPRESA e o ATIVO da MULTI_PRECO) — a do destino ainda não: corte B.
   'cadastro/produtos': { view: 'get_produtos', form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto', campoAtivo: ATIVO,
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
-    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` } },
+    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
+    cores: CORES_PRODUTO, detalhes: DETALHES_PRODUTO, rotuloDetalhes: ROTULO_DETALHES_PRODUTO },
 };

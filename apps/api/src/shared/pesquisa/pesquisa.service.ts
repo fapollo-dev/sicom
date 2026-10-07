@@ -6,6 +6,7 @@ import { currentTenant } from '../tenant/tenant-context';
 import { empresasDoOperador } from '../acesso/empresas-do-operador';
 import { condicaoDoUsuario, operacaoDeAbertura, OPERACOES, tipoDoCampo, type Operacao, type TipoCampo } from './pesquisa-sql';
 import { TELAS_DA_PESQUISA, type PesquisaTela } from './telas';
+import { corDaLinha } from './cores';
 
 type AnyDB = Kysely<any>;
 
@@ -30,6 +31,8 @@ export interface ParametrosDaPesquisa {
   extras?: Record<string, string>;
   /** só os códigos de retorno do resultado inteiro, na ordem — o `cdsNavegation` do cadastro (uCadMaster.pas:547, 870-883) */
   soCodigos?: boolean;
+  /** o totalizador: a soma desta coluna numérica no resultado inteiro (o `cbbCamposSoma` + `edtTotal`) */
+  soma?: string;
   /**
    * o filtro obrigatório do LOOKUP (o 7º parâmetro do `TfrmPesquisa.Create` de cada campo — `FRN = 'S'`, `CLASSE = 'A'`…), como
    * igualdades coluna = valor (ou `IN` com vírgula). A coluna tem de existir na view; o valor é tipado pela coluna. Nunca SQL do cliente.
@@ -112,6 +115,13 @@ export class PesquisaService {
       situacao: !!t.campoAtivo,
       retorno: t.retorno,
       obrigatorio: t.descricaoObrigatorios ?? null,
+      // a legenda das cores (a grade à parte do legado) — só as regras cuja coluna a view do destino tem
+      legenda: (t.cores ?? []).filter((r) => cols.some((c) => c.campo === r.coluna)).map((r) => ({ cor: r.cor, legenda: r.legenda })),
+      // os atalhos de detalhe (F8-F12 na pesquisa de produto) e o rótulo do legado
+      detalhes: (t.detalhes ?? []).map((d) => ({ tecla: d.tecla, titulo: d.titulo })),
+      rotuloDetalhes: t.rotuloDetalhes ?? null,
+      // o totalizador: as colunas numéricas, em ordem alfabética (a 1ª abre somada, como o ItemIndex 0 do legado)
+      totalizador: t.totalizador ? cols.filter((c) => c.tipo === 'numero').map((c) => c.campo) : null,
     };
   }
 
@@ -183,7 +193,13 @@ export class PesquisaService {
     let q = db.selectFrom(t.view).select(visiveis.map((c) => sql.ref(c).as(c)));
     for (const c of conds) q = q.where(c);
 
-    const total = Number(((await q.clearSelect().select(sql<string>`count(*)`.as('n')).executeTakeFirst()) as { n: string } | undefined)?.n ?? 0);
+    const somar = !!p.soma && porNome.get(p.soma)?.tipo === 'numero';
+    const agregado = (await q.clearSelect()
+      .select(sql<string>`count(*)`.as('n'))
+      .$if(somar, (x) => x.select(sql<string>`coalesce(sum(${sql.ref(p.soma ?? '')}), 0)`.as('s')))
+      .executeTakeFirst()) as { n: string; s?: string } | undefined;
+    const total = Number(agregado?.n ?? 0);
+    const soma = somar && agregado?.s != null ? Number(agregado.s) : undefined;
 
     // a ordem: a pedida (coluna da view), a de abertura da tela, e a coluna de retorno para a página ser estável
     const ordem = p.ordenacao && porNome.has(p.ordenacao) ? p.ordenacao : t.abertura?.ordenacao && porNome.has(t.abertura.ordenacao) ? t.abertura.ordenacao : null;
@@ -198,7 +214,21 @@ export class PesquisaService {
 
     const porPagina = Math.min(Math.max(1, p.porPagina ?? 100), TETO_POR_PAGINA);
     const pagina = Math.max(0, p.pagina ?? 0);
-    const linhas = await q.limit(porPagina).offset(pagina * porPagina).execute();
-    return { linhas, total, pagina, porPagina };
+    const linhas = (await q.limit(porPagina).offset(pagina * porPagina).execute()) as Array<Record<string, unknown>>;
+    // a cor de cada linha: a 1ª regra que casa (GetColor)
+    const regras = (t.cores ?? []).filter((r) => porNome.has(r.coluna));
+    if (regras.length) for (const l of linhas) l._cor = corDaLinha(regras, l);
+    return { linhas, total, pagina, porPagina, ...(soma != null ? { soma } : {}) };
+  }
+
+  /** o detalhe da linha (a tecla do `cdsDetalhes`): a consulta com o código de retorno dela */
+  async detalhe(recurso: string, tecla: string, codigo: number) {
+    const t = this.tela(recurso);
+    const d = (t.detalhes ?? []).find((x) => x.tecla === tecla);
+    if (!d) throw new BusinessRuleError('PESQUISA_DETALHE_DESCONHECIDO', { recurso, tecla });
+    if (!d.consulta) return { titulo: d.titulo, linhas: [], indisponivel: d.indisponivel ?? null };
+    if (!Number.isFinite(codigo)) throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { codigo });
+    const linhas = (await d.consulta(codigo).execute(this.dbp.forTenantRead() as AnyDB)).rows;
+    return { titulo: d.titulo, linhas, indisponivel: null };
   }
 }

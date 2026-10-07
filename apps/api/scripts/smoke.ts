@@ -29402,6 +29402,24 @@ async function main() {
           lNc.j.total === eNc && lAc.j.total === eAc && lSf.j.total === eSf,
           { nc: [lNc.status, lNc.j.total, eNc], ac: [lAc.j.total, eAc], sf: [lSf.j.total, eSf] });
 
+        // corte D: as cores (a 1ª regra que casa), a legenda, os atalhos de detalhe e o totalizador
+        await pgPq.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES (${PA}, 1, 12.34) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 12.34`);
+        const corZebu = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos');
+        const corDe = (id: number) => (corZebu.j.linhas ?? []).find((l: any) => Number(l.idproduto) === id)?._cor ?? null;
+        const metaProd = (await (await fetch(`${base}/cadastro/pesquisa/meta?recurso=cadastro/produtos`, { headers: H })).json()) as any;
+        const det = async (t: string) => { const r = await fetch(`${base}/cadastro/pesquisa/detalhe?recurso=cadastro/produtos&tecla=${t}&codigo=${PA}`, { headers: H }); return { status: r.status, j: (await r.json()) as any }; };
+        const [f8, f12, fx] = [await det('f8'), await det('f12'), await det('f5')];
+        const somaEsp = Number((await pgPq.query(`SELECT coalesce(sum(valor), 0) s FROM get_areceber WHERE codempresa = 1 AND trim(quitada) = 'N' AND trim(agrupado) = 'N'`)).rows[0].s);
+        const rcbSoma = await pq('recurso=cadastro/areceber&campo=razao&operacao=qualquer&valor=&opcao=abertos&soma=valor&porPagina=1');
+        check('PESQUISA §298.12 [corte D — o que se lê na grade]: o produto inativo vem VERMELHO e o ativo sem cor (a 1ª regra do cdsColoracao do UCadProduto); a legenda só com as regras cuja coluna a view tem; F8 = os preços por loja (MULTI_PRECO), F12 = o estoque de produção indisponível com o motivo, tecla fora da lista = 422; o totalizador do A receber soma o resultado inteiro',
+          corDe(PI) === 'VERMELHO' && corDe(PA) === null
+          && (metaProd.legenda ?? []).some((l: any) => l.legenda === 'Produto Inativo') && (metaProd.detalhes ?? []).length === 5
+          && f8.status === 200 && (f8.j.linhas ?? []).some((l: any) => Number(l.Idempresa) === 1 && Number(l.Vrvenda) === 12.34)
+          && f12.status === 200 && typeof f12.j.indisponivel === 'string' && fx.status === 422 && fx.j.code === 'PESQUISA_DETALHE_DESCONHECIDO'
+          && rcbSoma.status === 200 && Math.abs(Number(rcbSoma.j.soma) - somaEsp) < 0.005,
+          { cores: [corDe(PA), corDe(PI)], legenda: metaProd.legenda, f8: f8.j, f12: f12.j.indisponivel, fx: [fx.status, fx.j.code], soma: [rcbSoma.status, rcbSoma.j.soma, somaEsp] });
+        await pgPq.query(`DELETE FROM multi_preco WHERE idproduto = ${PA} AND idempresa = 1`);
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

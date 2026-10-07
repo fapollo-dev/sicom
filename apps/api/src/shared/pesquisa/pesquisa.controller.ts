@@ -12,6 +12,11 @@ import { PesquisaService, type ParametrosDaPesquisa } from './pesquisa.service';
 export class PesquisaController {
   constructor(private readonly pesquisa: PesquisaService) {}
 
+  @Get('detalhe')
+  detalhe(@Query('recurso') recurso: string, @Query('tecla') tecla: string, @Query('codigo') codigo: string) {
+    return this.pesquisa.detalhe(recurso, tecla, Number(codigo));
+  }
+
   @Get('meta')
   meta(@Query('recurso') recurso: string) {
     return this.pesquisa.meta(recurso);
@@ -36,6 +41,7 @@ export class PesquisaController {
       empresas: q.empresas ? q.empresas.split(',').map(Number).filter(Number.isInteger) : undefined,
       extras,
       soCodigos: q.soCodigos === 'true',
+      soma: q.soma || undefined,
       fixos: Object.fromEntries(Object.entries(q).filter(([k]) => k.startsWith('f_') && k.length > 2).map(([k, v]) => [k.slice(2), String(v)])),
     };
     return this.pesquisa.pesquisar(q.recurso, p);
