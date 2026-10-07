@@ -46,18 +46,13 @@ import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa
 
 type Linha = Record<string, any>;
 
-/**
- * As opções de produto de uma sub-grade (composição, decomposição, receita): os produtos DAS LINHAS (pelo nome, da view) na frente
- * do combo de 200 — a grade mostra o nome de todos e a janela de editar (ComposicaoModal/DecomposicaoModal/ReceitaModal, que ainda
- * são combos) acha o produto do item que se edita.
- */
-function useOpcoesDosProdutos(codigos: ReadonlyArray<unknown>, base: Opcao[]): Opcao[] {
+/** os produtos DAS LINHAS de uma sub-grade (composição, decomposição, receita), pelo nome da view — a grade mostra o nome de todos */
+function useOpcoesDosProdutos(codigos: ReadonlyArray<unknown>): Opcao[] {
   const nomes = useNomesDosCodigos('lookup/produtos', 'idproduto', codigos);
-  return useMemo(() => {
-    const dasLinhas = Array.from(nomes?.values() ?? []).map((l) => ({ value: String(l.idproduto), label: `${l.codbarra} - ${l.descricao}` }));
-    const ja = new Set(dasLinhas.map((o) => o.value));
-    return [...dasLinhas, ...base.filter((o) => !ja.has(o.value))];
-  }, [nomes, base]);
+  return useMemo(
+    () => Array.from(nomes.values()).map((l) => ({ value: String(l.idproduto), label: `${l.codbarra} - ${l.descricao}` })),
+    [nomes],
+  );
 }
 
 /**
@@ -109,12 +104,6 @@ export function ProdutoCadMaster() {
   const { data: aliquotaOptions = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({
     value: String(a.codigo),
     label: `${a.codigo} - ${a.descricao}`,
-  }));
-  // Produtos (F4 — kit/BOM): só para as janelas de item das 3 sub-grids (Composição, Decomposição, Receita), que ainda são combos;
-  // cada sub-grid põe na frente os produtos das suas linhas (useOpcoesDosProdutos). label = "codbarra - descrição".
-  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
-    value: String(r.idproduto ?? r.codigo),
-    label: `${r.codbarra} - ${r.descricao}`,
   }));
 
   // OnNewRecord do legado: ativo/ativo_compra='S', balanca='N', controle de validade='S',
@@ -212,9 +201,9 @@ export function ProdutoCadMaster() {
             unidadeOptions={unidadeOptions}
           />
           {/* F4 — kit/BOM: 3 sub-grids na MESMA form, espelhando o padrão dos códigos auxiliares. */}
-          <ComposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
-          <DecomposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
-          <ReceitaSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          <ComposicaoSection form={form} editavel={editavel} />
+          <DecomposicaoSection form={form} editavel={editavel} />
+          <ReceitaSection form={form} editavel={editavel} />
           {/* Fator de conversão de unidades (tabFatorConversao) — grid na MESMA form; PARA = unidade do produto. */}
           <FatorConversaoSection
             form={form}
@@ -1262,11 +1251,9 @@ const fmtBRL = (n: number) =>
 function ComposicaoSection({
   form,
   editavel,
-  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
 }) {
   const pode = useContext(PodeCtx);
   const mensagem = useMensagem();
@@ -1282,7 +1269,7 @@ function ComposicaoSection({
     keyName: 'fieldId',
   });
   // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
-  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01), produtosDoCombo);
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01));
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: ComposicaoItemDto) => {
@@ -1385,7 +1372,6 @@ function ComposicaoSection({
       {editIdx != null && (
         <ComposicaoModal
           inicial={editIdx >= 0 ? (fields[editIdx] as ComposicaoItemDto) : undefined}
-          produtoOptions={produtoOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -1407,11 +1393,9 @@ function ComposicaoSection({
 function DecomposicaoSection({
   form,
   editavel,
-  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
 }) {
   const pode = useContext(PodeCtx);
   const { fields, append, update, remove } = useFieldArray<
@@ -1424,7 +1408,7 @@ function DecomposicaoSection({
     keyName: 'fieldId',
   });
   // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
-  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01), produtosDoCombo);
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01));
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: DecomposicaoItemDto) => {
@@ -1540,7 +1524,6 @@ function DecomposicaoSection({
       {editIdx != null && (
         <DecomposicaoModal
           inicial={editIdx >= 0 ? (fields[editIdx] as DecomposicaoItemDto) : undefined}
-          produtoOptions={produtoOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -1560,11 +1543,9 @@ function DecomposicaoSection({
 function ReceitaSection({
   form,
   editavel,
-  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
 }) {
   const { fields, append, update, remove } = useFieldArray<
     CriarProdutoDto,
@@ -1576,7 +1557,7 @@ function ReceitaSection({
     keyName: 'fieldId',
   });
   // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
-  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_receita), produtosDoCombo);
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_receita));
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: ReceitaItemDto) => {
@@ -1666,7 +1647,6 @@ function ReceitaSection({
       {editIdx != null && (
         <ReceitaModal
           inicial={editIdx >= 0 ? (fields[editIdx] as ReceitaItemDto) : undefined}
-          produtoOptions={produtoOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />

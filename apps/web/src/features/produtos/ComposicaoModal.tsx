@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Modal } from '../../shared/ui/Modal';
 import type { ComposicaoItemDto } from '@apollo/shared';
-import { SelectField } from '../../shared/ui/SelectField';
+import { LookupField } from '../../shared/ui/LookupField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
-import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 
 /**
  * Modal de ADICIONAR/EDITAR um item de COMPOSIÇÃO (kit — F4). Espelha o `CodAuxiliarModal`:
@@ -22,13 +21,12 @@ interface Props {
   /** item a EDITAR (vem do field array) ou undefined p/ ADICIONAR um novo. */
   inicial?: ComposicaoItemDto;
   /** lookup de produtos (idproduto → "codbarra - descrição"). */
-  produtoOptions: Opcao[];
   onFechar: () => void;
   /** devolve o item pronto ao pai (que faz append/update no useFieldArray). */
   onConfirmar: (item: ComposicaoItemDto) => void;
 }
 
-export function ComposicaoModal({ inicial, produtoOptions, onFechar, onConfirmar }: Props) {
+export function ComposicaoModal({ inicial, onFechar, onConfirmar }: Props) {
   const [item, setItem] = useState<ComposicaoItemDto>(inicial ?? COMPOSICAO_VAZIO);
   const set = <K extends keyof ComposicaoItemDto>(k: K, v: ComposicaoItemDto[K]) =>
     setItem((i) => ({ ...i, [k]: v }));
@@ -44,12 +42,17 @@ export function ComposicaoModal({ inicial, produtoOptions, onFechar, onConfirmar
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <SelectField
+          {/* UCadProduto.pas:1795/1942/1969 — no legado o Adicionar abre a Pesquisa da GET_PRODUTOS_ESTOQUE da loja com MULTISSELEÇÃO
+              (vários de uma vez, abrindo em DESCRICAO "começado com"); aqui, um por vez, sem o teto de 200 do combo (a multisseleção é o
+              corte D da Pesquisa) */}
+          <LookupField
             label="&Produto (componente)"
-            options={produtoOptions}
-            value={item.idproduto_01 != null ? String(item.idproduto_01) : undefined}
-            onChange={(v) => set('idproduto_01', v ? Number(v) : undefined)}
-            placeholder="Selecione o produto…"
+            recurso="lookup/produtos"
+            campoCodigo="idproduto"
+            campoDigitado="codbarra"
+            descricao="descricao"
+            value={item.idproduto_01 ?? undefined}
+            onChange={(cod) => set('idproduto_01', cod ? Number(cod) : undefined)}
           />
         </div>
         <NumberField

@@ -79,16 +79,14 @@ type OpcaoCfop = Opcao & { tipo: string | null };
 type OpcaoSituacao = Opcao & { tipo: string | null; qtdeCfop: number; importacaoAuto?: string | null };
 
 type LookupOptions = {
-  /** só para a janela do item (NfItemModal); o CFOP do cabeçalho é o campo de lookup com `cfopFixos` */
-  cfopOptions: OpcaoCfop[];
-  /** o filtro do CFOP do cabeçalho (btnAddCFOPClick, uNF.pas:2977): TIPO da nota e, com situação que tem CFOP, só os dela */
+  /** o filtro do CFOP do cabeçalho e do item (btnAddCFOPClick, uNF.pas:2977; btnCFOPClick, uItensNF.pas:1080): TIPO da nota e, com
+   *  situação que tem CFOP, só os dela */
   cfopFixos?: Record<string, string>;
   situacaoOptions: OpcaoSituacao[];
   /** a situação do CABEÇALHO: só as do tipo da nota que têm CFOP (a consulta do legado faz JOIN com os CFOPs dela) */
   situacaoNfOptions?: Opcao[];
   aliquotaOptions: Opcao[];
   unidadeOptions: Opcao[];
-  produtoOptions: Opcao[];
   modeloOptions: Opcao[];
 };
 
@@ -104,13 +102,8 @@ type LookupOptions = {
  * As TRAVAS de estado (proc/contabilizado/enviada/cancelada) desabilitam os campos (o servidor reforça 422).
  */
 export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
-  // ── LOOKUPs ── (o parceiro, a transportadora, o CFOP do cabeçalho e o centro de custo são campos de lookup com a Pesquisa da view;
-  // os combos abaixo ficam só para a janela do item, NfItemModal, e para as tabelas pequenas)
-  const { data: cfopOptions = [] } = useResourceOptions('cadastro/cfops', (c: any): OpcaoCfop => ({
-    value: String(c.codcfop).trim(),
-    label: `${c.codcfop} - ${c.descricao}`,
-    tipo: c.tipo ?? null,
-  }));
+  // ── LOOKUPs ── (o parceiro, a transportadora, o CFOP, o centro de custo e o produto do item são campos de lookup com a Pesquisa da
+  // view; os combos abaixo são das tabelas pequenas)
   const { data: situacaoOptions = [] } = useResourceOptions('cadastro/situacoes-nf', (s: any): OpcaoSituacao => ({
     value: String(s.idsituacao_nf),
     label: `${s.idsituacao_nf} - ${s.descricao}`,
@@ -126,14 +119,10 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
     value: String(u.sigla),
     label: `${u.sigla} - ${u.descricao}`,
   }));
-  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
-    value: String(r.idproduto ?? r.codigo),
-    label: `${r.codbarra} - ${r.descricao}`,
-  }));
 
   const modeloOptions = tipo === 'E' ? toStr(NF_MODELO_OPCOES_ENTRADA) : toStr(NF_MODELO_OPCOES_SAIDA);
   const opts: LookupOptions = {
-    cfopOptions, situacaoOptions, aliquotaOptions, unidadeOptions, produtoOptions, modeloOptions,
+    situacaoOptions, aliquotaOptions, unidadeOptions, modeloOptions,
   };
 
   const defaultValues = useMemo<Partial<CriarNfDto>>(
@@ -194,7 +183,6 @@ const DEFERRED_TABS = new Set(['pedidos', 'servico', 'cce', 'impexp', 'devcompra
  */
 function useOpcoesDaSituacao(form: UseFormReturn<CriarNfDto>, tipo: NfTipo, opts: LookupOptions): LookupOptions {
   const sit = Number(form.watch('idsituacao_nf') ?? 0);
-  const cfopAtual = String(form.watch('cfop') ?? '').trim();
   const { data: cfopsDaSituacao } = useQuery({
     queryKey: ['cadastro/situacoes-nf', sit, 'cfops'],
     queryFn: () => createResourceApi<{ cfops?: Array<{ codcfop: unknown }> }>('cadastro/situacoes-nf').ler(sit),
@@ -204,12 +192,10 @@ function useOpcoesDaSituacao(form: UseFormReturn<CriarNfDto>, tipo: NfTipo, opts
   return useMemo(() => {
     const situacaoNfOptions = opts.situacaoOptions.filter((o) => (o.tipo === tipo && o.qtdeCfop > 0) || Number(o.value) === sit);
     const filtroSit = sit > 0 && cfopsDaSituacao && cfopsDaSituacao.size > 0 ? cfopsDaSituacao : null;
-    const cfopOptions = opts.cfopOptions.filter((o) =>
-      o.value === cfopAtual || ((!o.tipo || o.tipo === tipo) && (!filtroSit || filtroSit.has(o.value))));
     // o CFOP do cabeçalho: GET_CFOP com 'TIPO = <tipo da nota>' + FiltroCFOPSituacao 'AND (CFOP IN (…))' (btnAddCFOPClick, uNF.pas:2977)
     const cfopFixos: Record<string, string> = { tipo, ...(filtroSit ? { codcfop: Array.from(filtroSit).join(',') } : {}) };
-    return { ...opts, situacaoNfOptions, cfopOptions, cfopFixos };
-  }, [opts, tipo, sit, cfopAtual, cfopsDaSituacao]);
+    return { ...opts, situacaoNfOptions, cfopFixos };
+  }, [opts, tipo, sit, cfopsDaSituacao]);
 }
 
 function NfForm({
@@ -1552,18 +1538,12 @@ function ItensSection({
     setEditIdx(null);
   };
 
-  // o produto da grade: o nome só dos códigos da nota (GET_PRODUTOS — 47.812 na produção; o combo trazia 200). A janela do item
-  // (NfItemModal) recebe esses produtos na frente dos do combo — o item que se edita aparece com o nome
+  // o produto da grade: o nome só dos códigos da nota (GET_PRODUTOS — 47.812 na produção; o combo trazia 200)
   const nomesProd = useNomesDosCodigos('lookup/produtos', 'idproduto', (fields as NfItemDto[]).map((f) => f.codproduto));
-  const produtoOptions = useMemo(() => {
-    const daNota = Array.from(nomesProd?.values() ?? []).map((l) => ({ value: String(l.idproduto), label: `${l.codbarra} - ${l.descricao}` }));
-    const ja = new Set(daNota.map((o) => o.value));
-    return [...daNota, ...opts.produtoOptions.filter((o) => !ja.has(o.value))];
-  }, [nomesProd, opts.produtoOptions]);
   const rotuloProduto = (codproduto?: number) => {
     if (codproduto == null) return '';
-    const o = produtoOptions.find((op) => op.value === String(codproduto));
-    return o ? o.label : String(codproduto);
+    const l = nomesProd.get(String(codproduto));
+    return l ? `${l.codbarra} - ${l.descricao}` : String(codproduto);
   };
 
   const itensDaNota = fields as Array<NfItemDto & { fieldId: string }>;
@@ -1703,7 +1683,7 @@ function ItensSection({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fields, itens, remove, produtoOptions],
+    [fields, itens, remove, nomesProd],
   );
 
   return (
@@ -1839,8 +1819,9 @@ function ItensSection({
         <NfItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as NfItemDto) : undefined}
           tipo={form.getValues('tipo') as 'E' | 'S' | undefined}
-          produtoOptions={produtoOptions}
-          cfopOptions={opts.cfopOptions}
+          cfopFixos={opts.cfopFixos ?? { tipo: String(form.getValues('tipo') ?? '') }}
+          // o produto filho não entra na nota de entrada que não é devolução (PRODUTO_PAI IS NULL — uItensNF.pas:1324)
+          semFilho={form.getValues('tipo') === 'E' && String(form.getValues('finalidade') ?? '') !== '4'}
           aliquotaOptions={opts.aliquotaOptions}
           unidadeOptions={opts.unidadeOptions}
           onFechar={() => setEditIdx(null)}

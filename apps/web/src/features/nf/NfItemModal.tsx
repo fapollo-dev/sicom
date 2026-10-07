@@ -4,6 +4,7 @@ import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import { ORIGEM_OPCOES, type NfItemDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
+import { LookupField } from '../../shared/ui/LookupField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
@@ -32,8 +33,10 @@ interface Props {
   inicial?: NfItemDto;
   /** tipo da nota: o preço de venda (VRVENDA) só existe no item de ENTRADA */
   tipo?: 'E' | 'S';
-  produtoOptions: Opcao[];
-  cfopOptions: Opcao[];
+  /** o filtro do CFOP (TIPO da nota e os CFOPs da situação — btnCFOPClick, uItensNF.pas:1080) */
+  cfopFixos: Record<string, string>;
+  /** a nota de entrada que não é devolução não aceita produto filho (uItensNF.pas:1324) */
+  semFilho?: boolean;
   aliquotaOptions: Opcao[];
   unidadeOptions: Opcao[];
   onFechar: () => void;
@@ -43,8 +46,8 @@ interface Props {
 export function NfItemModal({
   inicial,
   tipo,
-  produtoOptions,
-  cfopOptions,
+  cfopFixos,
+  semFilho,
   aliquotaOptions,
   unidadeOptions,
   onFechar,
@@ -86,13 +89,17 @@ export function NfItemModal({
         {erro && <small className="text-fg-danger">{erro}</small>}
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <SelectField
+            {/* uItensNF.pas:1324 — GET_PRODUTOS, digita-se o código de barras (acha também pelo código auxiliar) */}
+            <LookupField
               label="&Produto"
-              options={produtoOptions}
-              value={item.codproduto != null ? String(item.codproduto) : undefined}
+              recurso="lookup/produtos"
+              campoCodigo="idproduto"
+              campoDigitado="codbarra"
+              descricao="descricao"
+              parametros={semFilho ? { semFilho: 'S' } : undefined}
+              value={item.codproduto ?? undefined}
               // outro produto: a descrição volta a ser a dele (preenchida no gravar)
-              onChange={(v) => setItem((i) => ({ ...i, codproduto: v ? Number(v) : (undefined as unknown as number), descricao: undefined }))}
-              placeholder="Selecione o produto…"
+              onChange={(cod) => setItem((i) => (String(i.codproduto ?? '') === String(cod ?? '') ? i : { ...i, codproduto: cod ? Number(cod) : (undefined as unknown as number), descricao: undefined }))}
             />
           </div>
           <div className="sm:col-span-2">
@@ -150,12 +157,14 @@ export function NfItemModal({
           <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Fiscal</legend>
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
             <div ref={cfopRef}>
-              <SelectField
+              <LookupField
                 label="CFOP [F9]"
-                options={cfopOptions}
+                recurso="lookup/cfops"
+                campoCodigo="codcfop"
+                descricao="descricao"
+                fixos={cfopFixos}
                 value={item.cfop ?? undefined}
-                onChange={(v) => set('cfop', v || undefined)}
-                placeholder="Selecione o CFOP…"
+                onChange={(cod) => set('cfop', cod?.trim() || undefined)}
               />
             </div>
             <SelectField
@@ -225,12 +234,11 @@ export function NfItemModal({
 function TeclasDoItemNf({ fator, cfop }: { fator: RefObject<HTMLDivElement | null>; cfop: RefObject<HTMLDivElement | null> }) {
   // F6 = SetaFoco(edtFatorEmb) (FormKeyDown do uItensNF) — o "Fator embal. [F6]"
   useShortcut('f6', () => focarMnemonico(fator.current?.querySelector<HTMLInputElement>('input')));
-  // F9 = btnCFOPClick (FormKeyDown do uItensNF) — a Pesquisa de CFOP do tipo da nota, dentro/fora do estado e da situação: aqui a
-  // lista do CFOP (as opções já têm esse filtro), aberta
+  // F9 = btnCFOPClick (FormKeyDown do uItensNF) — a Pesquisa de CFOP do tipo da nota e da situação: o "…" do campo de lookup
   useShortcut('f9', () => {
-    const gatilho = cfop.current?.querySelector<HTMLElement>('button,[role=combobox]');
-    if (focarMnemonico(gatilho) === false) return false;
-    gatilho!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+    const botao = cfop.current?.querySelector<HTMLButtonElement>('button');
+    if (!botao || botao.disabled) return false;
+    botao.click();
   });
   // o FormKeyDown do uItensNF não chama o `inherited`: o Alt+← e o Ctrl+E da base não valem com a janela aberta
   useShortcut('ctrl+e', () => undefined);

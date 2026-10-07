@@ -26,11 +26,17 @@ const inputDoRotulo = (rotulo: string) => {
 
 describe('FRMITENSNF — a janela do item da nota (FormKeyDown do uItensNF)', () => {
   beforeEach(() => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ editarDescricao: false }) }) as any;
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => (String(url).includes('/pesquisa/meta')
+        ? { titulo: 'CFOP', colunas: [{ campo: 'codcfop', titulo: 'Codcfop', tipo: 'texto' }], operacoes: { texto: ['igual'], numero: [], data: [] },
+            abertura: { campo: 'codcfop', operacao: 'igual', valor: null, ordenacao: null, ordemDesc: false }, opcoes: [], situacao: false, retorno: 'codcfop', obrigatorio: null }
+        : { editarDescricao: false, linhas: [], total: 0 }),
+    })) as any;
   });
   const abrir = () => render(
     <ShortcutScope>
-      <NfItemModal tipo="E" produtoOptions={[]} cfopOptions={[{ value: '1102', label: '1102 - Compra' }]} aliquotaOptions={[]} unidadeOptions={[]}
+      <NfItemModal tipo="E" cfopFixos={{ tipo: 'E' }} aliquotaOptions={[]} unidadeOptions={[]}
         onFechar={() => {}} onConfirmar={() => {}} />
     </ShortcutScope>,
   );
@@ -41,10 +47,10 @@ describe('FRMITENSNF — a janela do item da nota (FormKeyDown do uItensNF)', ()
     tecla('F6');
     expect(document.activeElement).toBe(inputDoRotulo('Fator embal. [F6]'));
     tecla('F9');
-    // a Pesquisa de CFOP do legado: aqui a lista do CFOP, focada e aberta
-    expect(document.activeElement).toBe(inputDoRotulo('CFOP [F9]'));
-    expect(document.activeElement?.getAttribute('aria-expanded')).toBe('true');
-    expect(document.querySelector('[role="listbox"]')).toBeTruthy();
+    // a Pesquisa de CFOP do legado (btnCFOPClick), com o filtro do campo (o tipo da nota)
+    expect(await screen.findByText('Pesquisa CFOP')).toBeTruthy();
+    const meta = (global.fetch as any).mock.calls.map((c: unknown[]) => String(c[0])).find((u: string) => u.includes('/pesquisa/meta'));
+    expect(meta).toContain('recurso=lookup%2Fcfops');
   });
 
   it('sem o inherited: o Ctrl+E e o Alt+← da tela não passam da janela; o &Ok e o &Cancelar levam a letra', async () => {
@@ -56,7 +62,7 @@ describe('FRMITENSNF — a janela do item da nota (FormKeyDown do uItensNF)', ()
       <ShortcutScope>
         <Atalho combo="ctrl+e" fn={trocaEmpresa} />
         <Atalho combo="alt+arrowleft" fn={voltaCampo} />
-        <NfItemModal produtoOptions={[]} cfopOptions={[]} aliquotaOptions={[]} unidadeOptions={[]} onFechar={onFechar} onConfirmar={onConfirmar} />
+        <NfItemModal cfopFixos={{ tipo: 'E' }} aliquotaOptions={[]} unidadeOptions={[]} onFechar={onFechar} onConfirmar={onConfirmar} />
       </ShortcutScope>,
     );
     await waitFor(() => dialogo());

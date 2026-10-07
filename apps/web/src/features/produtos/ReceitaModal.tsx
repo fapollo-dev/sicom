@@ -2,10 +2,9 @@ import { useState } from 'react';
 import { Modal } from '../../shared/ui/Modal';
 import type { ReceitaItemDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
-import { SelectField } from '../../shared/ui/SelectField';
+import { LookupField } from '../../shared/ui/LookupField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
-import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 
 /**
  * Modal de ADICIONAR/EDITAR um item de RECEITA (ficha técnica — F4). Espelha o
@@ -23,13 +22,12 @@ interface Props {
   /** item a EDITAR (vem do field array) ou undefined p/ ADICIONAR um novo. */
   inicial?: ReceitaItemDto;
   /** lookup de produtos (idproduto → "codbarra - descrição"). */
-  produtoOptions: Opcao[];
   onFechar: () => void;
   /** devolve o item pronto ao pai (que faz append/update no useFieldArray). */
   onConfirmar: (item: ReceitaItemDto) => void;
 }
 
-export function ReceitaModal({ inicial, produtoOptions, onFechar, onConfirmar }: Props) {
+export function ReceitaModal({ inicial, onFechar, onConfirmar }: Props) {
   const [item, setItem] = useState<ReceitaItemDto>(inicial ?? RECEITA_VAZIO);
   const set = <K extends keyof ReceitaItemDto>(k: K, v: ReceitaItemDto[K]) =>
     setItem((i) => ({ ...i, [k]: v }));
@@ -45,12 +43,17 @@ export function ReceitaModal({ inicial, produtoOptions, onFechar, onConfirmar }:
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <SelectField
+          {/* UCadProduto.pas:1795/1942/1969 — no legado o Adicionar abre a Pesquisa da GET_PRODUTOS_ESTOQUE da loja com MULTISSELEÇÃO
+              (vários de uma vez, abrindo em DESCRICAO "começado com"); aqui, um por vez, sem o teto de 200 do combo (a multisseleção é o
+              corte D da Pesquisa) */}
+          <LookupField
             label="&Ingrediente"
-            options={produtoOptions}
-            value={item.idproduto_receita != null ? String(item.idproduto_receita) : undefined}
-            onChange={(v) => set('idproduto_receita', v ? Number(v) : undefined)}
-            placeholder="Selecione o ingrediente…"
+            recurso="lookup/produtos"
+            campoCodigo="idproduto"
+            campoDigitado="codbarra"
+            descricao="descricao"
+            value={item.idproduto_receita ?? undefined}
+            onChange={(cod) => set('idproduto_receita', cod ? Number(cod) : undefined)}
           />
         </div>
         <NumberField
