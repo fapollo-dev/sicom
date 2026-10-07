@@ -175,7 +175,7 @@ export function ContasBancariasCadMaster() {
             render={({ field }) => (
               <LookupField
                 label="Plano de contas"
-                recurso="lookup/plano-contas"
+                recurso="lookup/plano-contas" campoDigitado="codireduzido"
                 campoCodigo="codplanocontas"
                 descricao="descricao"
                 fixos={{ classe: 'A', tipo: 'E' }}

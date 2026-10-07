@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { type UseFormReturn, useFieldArray } from 'react-hook-form';
-import { useQuery } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { Modal } from '../../shared/ui/Modal';
@@ -9,12 +8,11 @@ import {
   type CriarParceiroDto,
   type PgtoParceiroDto,
   type RelParceiroDto,
-  type VendedorParceiroDto,
-} from '@apollo/shared';
+  type VendedorParceiroDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { LookupField } from '../../shared/ui/LookupField';
-import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 /**
  * Detalhes 1:N do PARCEIRO (Fase 2) — espelham o grid de Endereços (ParceirosCadMaster):
@@ -26,29 +24,8 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
  * (PARCEIROS_REL) e Vendedores (PARCEIROS_VENDEDORES).
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 type Linha = Record<string, any>;
-
-/**
- * Os nomes SÓ dos códigos que a grade mostra — a Pesquisa da view com "Contido em" (`campo IN (1,2,3)`). O combo de antes
- * (`useResourceOptions`) trazia 200 linhas sem ordem da tabela inteira e a grade caía no código cru para o resto.
- */
-function useNomesDosCodigos(recurso: string, campo: string, codigos: ReadonlyArray<number | null | undefined>) {
-  const lista = Array.from(new Set(codigos.filter((c): c is number => c != null))).sort((a, b) => a - b);
-  return useQuery({
-    queryKey: ['pesquisa-nomes', recurso, campo, lista],
-    enabled: lista.length > 0,
-    queryFn: async () => {
-      const qs = new URLSearchParams({ recurso, campo, operacao: 'contido', valor: lista.join(','), situacao: 'todos', porPagina: '1000' });
-      const r = await fetch(`${BASE}/cadastro/pesquisa?${qs.toString()}`, { headers: apiHeaders() });
-      handle401(r);
-      if (!r.ok) throw new Error(r.statusText);
-      const j = (await r.json()) as { linhas: Linha[] };
-      return new Map(j.linhas.map((l) => [String(l[campo]), l]));
-    },
-  });
-}
 
 /** célula utilitária: "cod - nome" a partir da linha da view (sem a linha, o código cru). */
 function rotuloCodigo(nomes: Map<string, Linha> | undefined, value: number | undefined, coluna: string): string {
@@ -78,7 +55,7 @@ export function BancosSection({
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   // a grade mostra "cod - banco" só dos bancos das linhas (get_bancos expõe a PK CODBCO como `codigo`)
-  const { data: nomesBancos } = useNomesDosCodigos('lookup/bancos', 'codigo', fields.map((f) => f.codbco));
+  const nomesBancos = useNomesDosCodigos('lookup/bancos', 'codigo', fields.map((f) => f.codbco));
 
   const onConfirmar = (item: BancoParceiroDto) => {
     if (editIdx == null) return;
@@ -419,7 +396,7 @@ export function VendedoresSection({
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   // a grade mostra "cod - razão" só dos vendedores das linhas
-  const { data: nomesVendedores } = useNomesDosCodigos('lookup/parceiros', 'codparceiro', fields.map((f) => f.codvendedor));
+  const nomesVendedores = useNomesDosCodigos('lookup/parceiros', 'codparceiro', fields.map((f) => f.codvendedor));
 
   const onConfirmar = (item: VendedorParceiroDto) => {
     if (editIdx == null) return;

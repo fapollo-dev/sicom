@@ -9,8 +9,7 @@ import {
   pedidoCompraSchema,
   PC_TIPO_FRETE_OPCOES,
   type CriarPedidoCompraDto,
-  type PedidoCompraItemDto,
-} from '@apollo/shared';
+  type PedidoCompraItemDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -19,14 +18,14 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
 import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
-  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido,
-} from './pedidoCompraApi';
+  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido } from './pedidoCompraApi';
 import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import type { PendenciasFornecedor } from './pedidoCompraApi';
@@ -34,6 +33,8 @@ import type { PedidoCompraParcelaDto } from '@apollo/shared';
 import { NumberField } from '../../shared/ui/NumberField';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useShortcut } from '../../shared/keyboard';
+import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
+
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => hojeNaLoja();
@@ -87,26 +88,7 @@ const freteOptions: Opcao[] = PC_TIPO_FRETE_OPCOES.map((o) => ({ value: o.value,
  */
 export function PedidoCompraCadMaster() {
   // ── LOOKUPs ──
-  // Fornecedor: só parceiros FRN='S' (SegFornecedor do legado; o servidor reforça no `validar`).
-  const { data: fornecedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'frn', operador: 'igual', valor: 'S' },
-  );
-  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
-    value: String(r.idproduto ?? r.codigo),
-    label: `${r.codbarra} - ${r.descricao}`,
-  }));
-  // mapa idproduto → alíquota-código (para o motor precificar o item). Reusa o MESMO fetch de produtos
-  // (react-query dedupe por queryKey) — só um `select` diferente.
-  const { data: produtoAliqPares = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
-    value: String(r.idproduto ?? r.codigo),
-    label: String(r.aliquota ?? ''),
-  }));
-  const produtoAliquotas = useMemo(
-    () => Object.fromEntries(produtoAliqPares.map((o) => [o.value, o.label])) as Record<string, string>,
-    [produtoAliqPares],
-  );
+  // O fornecedor (cabeçalho) e o produto (o modal do item) são LookupField; a grade dos itens nomeia os produtos pelos códigos dela.
   // corte-2: condição de pagamento (lookup GLOBAL). Rótulo mostra os prazos (CD1..CD8) em dias.
   const { data: condicaoOptions = [] } = useResourceOptions('compras/condicoes-pagto', (c: any) => {
     const dias = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8']
@@ -146,7 +128,7 @@ export function PedidoCompraCadMaster() {
         { campo: 'fechado', label: 'Fechado', tipo: 'text', largura: 100 },
       ]}
       campos={({ form, editavel }) => (
-        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} produtoAliquotas={produtoAliquotas} />
+        <PedidoForm form={form} editavel={editavel} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
       )}
     />
   );
@@ -157,19 +139,13 @@ export function PedidoCompraCadMaster() {
 function PedidoForm({
   form,
   editavel,
-  fornecedorOptions,
-  produtoOptions,
   condicaoOptions,
   situacaoOptions,
-  produtoAliquotas,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
-  fornecedorOptions: Opcao[];
-  produtoOptions: Opcao[];
   condicaoOptions: Opcao[];
   situacaoOptions: Opcao[];
-  produtoAliquotas: Record<string, string>;
 }) {
   // TRAVA de estado (espelha o `travado` da NF via watch): pedido FECHADO é read-only. `fechado` não
   // está no schema de escrita (é state-controlled), mas o read do agregado o traz e o reset o mantém.
@@ -201,8 +177,8 @@ function PedidoForm({
         </div>
       )}
 
-      <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
-      <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} pendForn={pendForn} />
+      <CabecalhoBand form={form} editavel={liberado} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
+      <ItensSection form={form} editavel={liberado} pendForn={pendForn} />
       <PendenciasFornecedorSection form={form} dados={pendForn} />
       <ParcelasSection form={form} editavel={liberado} />
       <RecebimentoSection form={form} />
@@ -243,13 +219,11 @@ const CD_KEYS = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as cons
 function CabecalhoBand({
   form,
   editavel,
-  fornecedorOptions,
   condicaoOptions,
   situacaoOptions,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
-  fornecedorOptions: Opcao[];
   condicaoOptions: Opcao[];
   situacaoOptions: Opcao[];
 }) {
@@ -287,18 +261,22 @@ function CabecalhoBand({
         ))}
       </div>
 
-      {/* linha 1: Fornecedor (largo) */}
+      {/* linha 1: Fornecedor (largo) — uPedidoCompra.pas:6597 (edtCODPARCEIRO): GET_PARCEIROS com FRN='S' AND (ATIVADO='S' OR ATIVADO
+          IS NULL) AND (ENDERECO_ATIVO='S' OR ENDERECO_ATIVO IS NULL); o FRN vai no campo, os dois "OR … IS NULL" ficam no servidor */}
       <div>
         <Controller
           control={form.control}
           name="codparceiro"
           render={({ field }) => (
-            <SelectField
+            <LookupField
               label="Fornecedor"
-              options={fornecedorOptions}
-              value={field.value != null ? String(field.value) : undefined}
-              onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-              placeholder="Selecione o fornecedor…"
+              recurso="lookup/parceiros"
+              campoCodigo="codparceiro"
+              descricao="razao"
+              fixos={{ frn: 'S' }}
+              value={field.value as number | undefined}
+              onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+              disabled={!editavel}
               error={err.codparceiro?.message as string | undefined}
             />
           )}
@@ -447,14 +425,10 @@ function CabecalhoBand({
 function ItensSection({
   form,
   editavel,
-  produtoOptions,
-  produtoAliquotas,
   pendForn,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
-  produtoAliquotas: Record<string, string>;
   pendForn: PendenciasFornecedor | null;
 }) {
   const { tem: pode } = useOpcoesDoForm('FRMPEDIDOCOMPRA');
@@ -509,10 +483,12 @@ function ItensSection({
     setEditIdx(null);
   };
 
+  // o nome dos produtos da grade: só os códigos dos itens do pedido (o combo de 200 deixava a maior parte sem nome)
+  const produtosDosItens = useLinhasDosCodigos('lookup/produtos', 'idproduto', fields.map((f) => (f as PedidoCompraItemDto).idproduto));
   const rotuloProduto = (idproduto?: number) => {
     if (idproduto == null) return '';
-    const o = produtoOptions.find((op) => op.value === String(idproduto));
-    return o ? o.label : String(idproduto);
+    const l = produtosDosItens.get(String(idproduto));
+    return l ? `${l.codbarra ?? ''} - ${l.descricao ?? ''}` : String(idproduto);
   };
 
   const itens = fields as Array<PedidoCompraItemDto & { fieldId: string }>;
@@ -613,7 +589,7 @@ function ItensSection({
         ],
       },
     ],
-    [fields, remove, produtoOptions, lojasPedido.length, codpedcomp, mensagem, pode],
+    [fields, remove, produtosDosItens, lojasPedido.length, codpedcomp, mensagem, pode],
   );
 
   return (
@@ -654,8 +630,6 @@ function ItensSection({
         <PedidoCompraItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as PedidoCompraItemDto) : undefined}
           lojas={lojasPedido}
-          produtoOptions={produtoOptions}
-          produtoAliquotas={produtoAliquotas}
           codparceiro={(form.getValues() as { codparceiro?: number }).codparceiro ?? null}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}

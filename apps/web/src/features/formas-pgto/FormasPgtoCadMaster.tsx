@@ -83,7 +83,7 @@ export function FormasPgtoCadMaster() {
             render={({ field }) => (
               <LookupField
                 label="Centro de custo / co&fre"
-                recurso="lookup/plc"
+                recurso="lookup/plc" campoDigitado="desccodplc"
                 parametros={{ lancavel: 'S' }}
                 campoCodigo="codplc"
                 descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
@@ -100,7 +100,7 @@ export function FormasPgtoCadMaster() {
             render={({ field }) => (
               <LookupField
                 label="Conta contábil (débito)"
-                recurso="lookup/plano-contas"
+                recurso="lookup/plano-contas" campoDigitado="codireduzido"
                 campoCodigo="codplanocontas"
                 descricao="descricao_completa"
                 fixos={{ classe: 'A', tipo: 'E' }}

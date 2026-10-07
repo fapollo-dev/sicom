@@ -17,8 +17,7 @@ import {
   type NfItemDto,
   type NfReferenciaDto,
   type NfContabilItemDto,
-  totalProdutoItem,
-} from '@apollo/shared';
+  totalProdutoItem } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -53,6 +52,8 @@ import { transmitirNf, cancelarNf, cceNf, xmlDaNota } from './nfNfeApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 import { ShortcutScope, useShortcut, focarMnemonico } from '../../shared/keyboard';
+import { LookupField } from '../../shared/ui/LookupField';
+import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -72,17 +73,19 @@ const fmtBRL = (n: number) =>
 const toStr = (opts: ReadonlyArray<{ value: number; label: string }>): Opcao[] =>
   opts.map((o) => ({ value: String(o.value), label: o.label }));
 
+type Linha = Record<string, any>;
+
 type OpcaoCfop = Opcao & { tipo: string | null };
 type OpcaoSituacao = Opcao & { tipo: string | null; qtdeCfop: number; importacaoAuto?: string | null };
 
 type LookupOptions = {
-  parceiroOptions: Opcao[];
-  transpOptions: Opcao[];
+  /** só para a janela do item (NfItemModal); o CFOP do cabeçalho é o campo de lookup com `cfopFixos` */
   cfopOptions: OpcaoCfop[];
+  /** o filtro do CFOP do cabeçalho (btnAddCFOPClick, uNF.pas:2977): TIPO da nota e, com situação que tem CFOP, só os dela */
+  cfopFixos?: Record<string, string>;
   situacaoOptions: OpcaoSituacao[];
   /** a situação do CABEÇALHO: só as do tipo da nota que têm CFOP (a consulta do legado faz JOIN com os CFOPs dela) */
   situacaoNfOptions?: Opcao[];
-  plcOptions: Opcao[];
   aliquotaOptions: Opcao[];
   unidadeOptions: Opcao[];
   produtoOptions: Opcao[];
@@ -101,19 +104,8 @@ type LookupOptions = {
  * As TRAVAS de estado (proc/contabilizado/enviada/cancelada) desabilitam os campos (o servidor reforça 422).
  */
 export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
-  const flag = PAPEL_FLAG[tipo];
-
-  // ── LOOKUPs ──
-  const { data: parceiroOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: flag, operador: 'igual', valor: 'S' },
-  );
-  const { data: transpOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'tra', operador: 'igual', valor: 'S' },
-  );
+  // ── LOOKUPs ── (o parceiro, a transportadora, o CFOP do cabeçalho e o centro de custo são campos de lookup com a Pesquisa da view;
+  // os combos abaixo ficam só para a janela do item, NfItemModal, e para as tabelas pequenas)
   const { data: cfopOptions = [] } = useResourceOptions('cadastro/cfops', (c: any): OpcaoCfop => ({
     value: String(c.codcfop).trim(),
     label: `${c.codcfop} - ${c.descricao}`,
@@ -125,10 +117,6 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
     tipo: s.tipo ?? null,
     qtdeCfop: Number(s.qtde_cfop ?? 0),
     importacaoAuto: s.importacao_auto_nf ? String(s.importacao_auto_nf).trim().toUpperCase() : null,
-  }));
-  const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
-    value: String(c.codplc),
-    label: `${c.desccodplc ?? c.codplc} - ${c.descricao}`,
   }));
   const { data: aliquotaOptions = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({
     value: String(a.codigo),
@@ -145,8 +133,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
 
   const modeloOptions = tipo === 'E' ? toStr(NF_MODELO_OPCOES_ENTRADA) : toStr(NF_MODELO_OPCOES_SAIDA);
   const opts: LookupOptions = {
-    parceiroOptions, transpOptions, cfopOptions, situacaoOptions,
-    plcOptions, aliquotaOptions, unidadeOptions, produtoOptions, modeloOptions,
+    cfopOptions, situacaoOptions, aliquotaOptions, unidadeOptions, produtoOptions, modeloOptions,
   };
 
   const defaultValues = useMemo<Partial<CriarNfDto>>(
@@ -219,7 +206,9 @@ function useOpcoesDaSituacao(form: UseFormReturn<CriarNfDto>, tipo: NfTipo, opts
     const filtroSit = sit > 0 && cfopsDaSituacao && cfopsDaSituacao.size > 0 ? cfopsDaSituacao : null;
     const cfopOptions = opts.cfopOptions.filter((o) =>
       o.value === cfopAtual || ((!o.tipo || o.tipo === tipo) && (!filtroSit || filtroSit.has(o.value))));
-    return { ...opts, situacaoNfOptions, cfopOptions };
+    // o CFOP do cabeçalho: GET_CFOP com 'TIPO = <tipo da nota>' + FiltroCFOPSituacao 'AND (CFOP IN (…))' (btnAddCFOPClick, uNF.pas:2977)
+    const cfopFixos: Record<string, string> = { tipo, ...(filtroSit ? { codcfop: Array.from(filtroSit).join(',') } : {}) };
+    return { ...opts, situacaoNfOptions, cfopOptions, cfopFixos };
   }, [opts, tipo, sit, cfopAtual, cfopsDaSituacao]);
 }
 
@@ -318,9 +307,9 @@ function NfForm({
           {aba === 'fin' && <FinTab form={form} liberado={liberado} tipo={tipo} irParaCobranca={irCobranca} />}
           {aba === 'ref' && <ReferenciasSection form={form} editavel={liberado} />}
           {aba === 'dados' && <DadosGeraisTab form={form} editavel={liberado} />}
-          {aba === 'transp' && <TransporteSection form={form} editavel={liberado} transpOptions={opts.transpOptions} />}
+          {aba === 'transp' && <TransporteSection form={form} editavel={liberado} />}
           {aba === 'contabil' && (
-            <ContabilSection form={form} editavel={liberado} situacaoOptions={opts.situacaoOptions} plcOptions={opts.plcOptions} />
+            <ContabilSection form={form} editavel={liberado} situacaoOptions={opts.situacaoOptions} />
           )}
           {DEFERRED_TABS.has(aba) && <PlaceholderTab nome={mainTabs.find((t) => t.id === aba)?.label ?? ''} />}
         </TabPanel>
@@ -466,12 +455,16 @@ function CabecalhoBand({
           control={form.control}
           name="cfop"
           render={({ field }) => (
-            <SelectField
+            // uNF.pas:2977 (btnAddCFOPClick) — GET_CFOP, TIPO = tipo da nota e, com situação que tem CFOP, CFOP IN (os dela)
+            <LookupField
               label="CFOP"
-              options={opts.cfopOptions}
+              recurso="lookup/cfops"
+              campoCodigo="codcfop"
+              descricao="descricao"
+              fixos={opts.cfopFixos ?? { tipo }}
               value={field.value ?? undefined}
-              onChange={(v) => field.onChange(v || undefined)}
-              placeholder="Selecione o CFOP…"
+              onChange={(cod) => field.onChange(cod?.trim() || undefined)}
+              disabled={!editavel}
               error={err.cfop?.message as string | undefined}
             />
           )}
@@ -512,12 +505,16 @@ function CabecalhoBand({
           control={form.control}
           name="codparceiro"
           render={({ field }) => (
-            <SelectField
+            // uNF.pas:3138-3164 (btnAddParceiroClick) — GET_PARCEIROS, FRN = 'S' na entrada e CLI = 'S' na saída
+            <LookupField
               label={`&${PARCEIRO_LABEL[tipo]} (destinatário / remetente)`}
-              options={opts.parceiroOptions}
-              value={field.value != null ? String(field.value) : undefined}
-              onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-              placeholder={`Selecione o ${PARCEIRO_LABEL[tipo].toLowerCase()}…`}
+              recurso="lookup/parceiros"
+              campoCodigo="codparceiro"
+              descricao="razao"
+              fixos={{ [PAPEL_FLAG[tipo]]: 'S' }}
+              value={field.value ?? undefined}
+              onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+              disabled={!editavel}
               error={err.codparceiro?.message as string | undefined}
             />
           )}
@@ -1555,9 +1552,17 @@ function ItensSection({
     setEditIdx(null);
   };
 
+  // o produto da grade: o nome só dos códigos da nota (GET_PRODUTOS — 47.812 na produção; o combo trazia 200). A janela do item
+  // (NfItemModal) recebe esses produtos na frente dos do combo — o item que se edita aparece com o nome
+  const nomesProd = useNomesDosCodigos('lookup/produtos', 'idproduto', (fields as NfItemDto[]).map((f) => f.codproduto));
+  const produtoOptions = useMemo(() => {
+    const daNota = Array.from(nomesProd?.values() ?? []).map((l) => ({ value: String(l.idproduto), label: `${l.codbarra} - ${l.descricao}` }));
+    const ja = new Set(daNota.map((o) => o.value));
+    return [...daNota, ...opts.produtoOptions.filter((o) => !ja.has(o.value))];
+  }, [nomesProd, opts.produtoOptions]);
   const rotuloProduto = (codproduto?: number) => {
     if (codproduto == null) return '';
-    const o = opts.produtoOptions.find((op) => op.value === String(codproduto));
+    const o = produtoOptions.find((op) => op.value === String(codproduto));
     return o ? o.label : String(codproduto);
   };
 
@@ -1698,7 +1703,7 @@ function ItensSection({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fields, itens, remove, opts.produtoOptions],
+    [fields, itens, remove, produtoOptions],
   );
 
   return (
@@ -1834,7 +1839,7 @@ function ItensSection({
         <NfItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as NfItemDto) : undefined}
           tipo={form.getValues('tipo') as 'E' | 'S' | undefined}
-          produtoOptions={opts.produtoOptions}
+          produtoOptions={produtoOptions}
           cfopOptions={opts.cfopOptions}
           aliquotaOptions={opts.aliquotaOptions}
           unidadeOptions={opts.unidadeOptions}
@@ -1851,11 +1856,9 @@ function ItensSection({
 function TransporteSection({
   form,
   editavel,
-  transpOptions,
 }: {
   form: UseFormReturn<CriarNfDto>;
   editavel: boolean;
-  transpOptions: Opcao[];
 }) {
   const err = form.formState.errors;
   return (
@@ -1866,12 +1869,16 @@ function TransporteSection({
             control={form.control}
             name="codtransp"
             render={({ field }) => (
-              <SelectField
+              // uNF.pas:3226 (btnAddTransportadoraClick) — GET_PARCEIROS, TRA = 'S'
+              <LookupField
                 label="Transportadora"
-                options={transpOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione a transportadora…"
+                recurso="lookup/parceiros"
+                campoCodigo="codparceiro"
+                descricao="razao"
+                fixos={{ tra: 'S' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={err.codtransp?.message as string | undefined}
               />
             )}
@@ -1930,12 +1937,10 @@ function ContabilSection({
   form,
   editavel,
   situacaoOptions,
-  plcOptions,
 }: {
   form: UseFormReturn<CriarNfDto>;
   editavel: boolean;
   situacaoOptions: Opcao[];
-  plcOptions: Opcao[];
 }) {
   const { fields, append, update, remove } = useFieldArray<CriarNfDto, 'contabil', 'fieldId'>({
     control: form.control,
@@ -2003,6 +2008,13 @@ function ContabilSection({
   };
 
   const linhas = fields as Array<NfContabilItemDto & { fieldId: string }>;
+  // o centro de custo da grade: o nome só dos códigos das linhas (GET_PLC — 388 contas na produção)
+  const nomesCc = useNomesDosCodigos('lookup/plc', 'codplc', linhas.map((l) => l.codcc));
+  const rotuloCc = (v?: number) => {
+    if (v == null) return '';
+    const l = nomesCc?.get(String(v));
+    return l ? `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}` : String(v);
+  };
   const soma = linhas.reduce((s, it) => s + (Number(it.valor) || 0), 0);
   const total = Number(form.watch('totalnf')) || 0;
   const diff = Math.round((total - soma) * 100) / 100;
@@ -2020,7 +2032,7 @@ function ContabilSection({
         field: 'codcc',
         headerName: 'Centro de custo',
         type: 'text',
-        valueGetter: (row) => rotulo(plcOptions, row.codcc),
+        valueGetter: (row) => rotuloCc(row.codcc),
       },
       {
         field: 'valor',
@@ -2057,7 +2069,8 @@ function ContabilSection({
         ],
       },
     ],
-    [fields, remove, situacaoOptions, plcOptions],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fields, remove, situacaoOptions, nomesCc],
   );
 
   return (
@@ -2095,7 +2108,6 @@ function ContabilSection({
           situacaoOptions={situacaoOptions.filter((o) => sitsPermitidas.includes(Number(o.value))
             || (editIdx >= 0 && Number(o.value) === Number((fields[editIdx] as NfContabilItemDto).idsituacao_nf)))}
           detalhesSit={detalhesSit}
-          plcOptions={plcOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -2108,7 +2120,6 @@ function ContabilModal({
   inicial,
   situacaoOptions,
   detalhesSit,
-  plcOptions,
   onFechar,
   onConfirmar,
 }: {
@@ -2116,7 +2127,6 @@ function ContabilModal({
   situacaoOptions: Opcao[];
   /** por situação: os centros de custo dela (SITUACAO_NF_PLC) e se é de bonificação (CFOP 1910/2910) */
   detalhesSit: Record<number, { ccs: number[]; bonificacao: boolean }>;
-  plcOptions: Opcao[];
   onFechar: () => void;
   onConfirmar: (item: NfContabilItemDto) => void;
 }) {
@@ -2153,16 +2163,16 @@ function ContabilModal({
           }}
           placeholder="Selecione a situação…"
         />
-        <SelectField
+        {/* uLancamentoContabilNF.pas:238 (btnAddPLCClick) — GET_PLC, CHARACTER_LENGTH(CODIGO_EXTENSO) = a máscara da empresa (lancavel)
+            e, quando a situação tem centros de custo, CODIGO IN (os dela) (o parâmetro idsituacao_nf do lookup) */}
+        <LookupField
           label="Ce&ntro de custo"
-          options={(() => {
-            // a pesquisa de centro de custo mostra só os da situação, quando ela tem (btnAddPLCClick, :216)
-            const ccs = item.idsituacao_nf != null ? detalhesSit[item.idsituacao_nf]?.ccs ?? [] : [];
-            return ccs.length ? plcOptions.filter((o) => ccs.includes(Number(o.value)) || Number(o.value) === Number(item.codcc)) : plcOptions;
-          })()}
-          value={item.codcc != null ? String(item.codcc) : undefined}
-          onChange={(v) => set('codcc', v ? Number(v) : undefined)}
-          placeholder="Selecione o centro de custo…"
+          recurso="lookup/plc"
+          campoCodigo="codplc"
+          descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
+          parametros={{ lancavel: 'S', idsituacao_nf: item.idsituacao_nf }}
+          value={item.codcc ?? undefined}
+          onChange={(cod) => set('codcc', cod ? Number(cod) : undefined)}
         />
         {/* sem o "&Valor" do uLancamentoContabilNF: o conferidor lê esta página contra o uNF, onde "Valor" não tem letra */}
         <CurrencyField label="Valor" value={item.valor} onChange={(v) => set('valor', v)} />

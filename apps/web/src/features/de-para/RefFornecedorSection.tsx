@@ -6,8 +6,10 @@ import { Button } from '../../shared/ui/Button';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { listarDePara, criarDePara, removerDePara } from './deParaApi';
+import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
+
 
 /** TIPOREF (descritivo): 'E' EAN / 'P' código do produto. */
 const TIPOREF_OPCOES = [
@@ -35,19 +37,14 @@ export function RefFornecedorSection({ codfor, idproduto, editavel }: { codfor?:
   const [codref, setCodref] = useState('');
   const [tiporef, setTiporef] = useState<string>('E');
 
-  const { data: produtoOptions = [] } = useResourceOptions(
-    'cadastro/produtos',
-    (p: any) => ({ value: String(p.idproduto ?? p.codigo), label: `${p.idproduto ?? p.codigo} - ${p.descricao ?? ''}` }),
-    { campo: 'ativo', operador: 'igual', valor: 'S' },
-  );
-  const { data: fornecedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao ?? p.fantasia ?? ''}` }),
-    { campo: 'frn', operador: 'igual', valor: 'S' },
-  );
+  // na tela do fornecedor a grade mostra o produto: o nome só dos códigos da lista (a lista traz a razão, não a descrição)
+  const produtosDaLista = useLinhasDosCodigos('lookup/produtos', 'idproduto', modoProduto ? [] : lista.map((r) => r.idproduto));
   const rotuloProduto = useCallback(
-    (id: unknown) => produtoOptions.find((o) => String(o.value) === String(id))?.label ?? String(id ?? ''),
-    [produtoOptions],
+    (id: unknown) => {
+      const l = produtosDaLista.get(String(id));
+      return l ? `${id} - ${l.descricao ?? ''}` : String(id ?? '');
+    },
+    [produtosDaLista],
   );
 
   const recarregar = useCallback(async () => {
@@ -116,9 +113,13 @@ export function RefFornecedorSection({ codfor, idproduto, editavel }: { codfor?:
         <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
           <div className="sm:col-span-2">
             {modoProduto ? (
-              <SelectField label="Fornecedor" options={fornecedorOptions} value={alvo != null ? String(alvo) : undefined} onChange={(v) => setAlvo(v ? Number(v) : undefined)} placeholder="Selecione…" />
+              // UCadProduto.pas:4225 (edtCodForRef) — GET_PARCEIROS com FRN='S'
+              <LookupField label="Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao={(l) => l.razao ?? l.fantasia ?? ''}
+                fixos={{ frn: 'S' }} value={alvo} onChange={(cod) => setAlvo(cod ? Number(cod) : undefined)} />
             ) : (
-              <SelectField label="&Produto" options={produtoOptions} value={alvo != null ? String(alvo) : undefined} onChange={(v) => setAlvo(v ? Number(v) : undefined)} placeholder="Selecione…" />
+              // uCadClientes.pas:1058 (edtCodProd) — GET_PRODUTOS SEM filtro (o inativo só sai pintado de vermelho na Pesquisa)
+              <LookupField label="&Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao"
+                value={alvo} onChange={(cod) => setAlvo(cod ? Number(cod) : undefined)} />
             )}
           </div>
           <div className="sm:col-span-2"><Field label="&Cód. do fornecedor" value={codref} maxLength={60} onChange={(e) => setCodref(e.target.value)} /></div>

@@ -2,12 +2,11 @@ import { useRef, useState, type RefObject } from 'react';
 import { Modal } from '../../shared/ui/Modal';
 import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import type { PedidoCompraItemDto } from '@apollo/shared';
-import { SelectField } from '../../shared/ui/SelectField';
+import { LookupField } from '../../shared/ui/LookupField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
-import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { herdarItemPedido, precificarItemPedido } from './pedidoCompraApi';
 
@@ -34,7 +33,6 @@ interface Props {
   inicial?: PedidoCompraItemDto;
   /** as lojas do pedido: com mais de uma, a quantidade é digitada POR LOJA e a do item é a soma. */
   lojas?: LojaDoPedido[];
-  produtoOptions: Opcao[];
   /** idproduto → alíquota-código (legado; o preço do item agora é calculado no servidor). */
   produtoAliquotas?: Record<string, string>;
   /** o fornecedor do pedido — o fator pode vir da referência dele (mig 307) */
@@ -43,7 +41,7 @@ interface Props {
   onConfirmar: (item: PedidoCompraItemDto) => void;
 }
 
-export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, codparceiro, onFechar, onConfirmar }: Props) {
+export function PedidoCompraItemModal({ inicial, lojas = [], codparceiro, onFechar, onConfirmar }: Props) {
   const mensagem = useMensagem();
   const [item, setItem] = useState<PedidoCompraItemDto>(inicial ?? ITEM_VAZIO);
   // mig 303: pedido de mais de uma loja → a quantidade é POR LOJA (PEDIDO_COMPRA_QTDE); loja fechada não se mexe
@@ -155,12 +153,17 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, cod
         {erro && <small className="text-fg-danger">{erro}</small>}
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <SelectField
+            {/* uPedidoCompra.pas:4441 — a GET_PRODUTOS_PC: digita-se o código de barras (que acha também pelo código auxiliar), só o ativo
+                para compra e que não é filho; a loja/UF da view entram com o corte B */}
+            <LookupField
               label="&Produto"
-              options={produtoOptions}
-              value={item.idproduto != null ? String(item.idproduto) : undefined}
-              onChange={(v) => void escolherProduto(v)}
-              placeholder="Selecione o produto…"
+              recurso="lookup/produtos"
+              campoCodigo="idproduto"
+              campoDigitado="codbarra"
+              descricao="descricao"
+              parametros={{ ativoCompra: 'S', semFilho: 'S' }}
+              value={item.idproduto ?? undefined}
+              onChange={(cod, linha) => { if (!cod || linha) void escolherProduto(cod); }}
             />
             {origem && (
               <small className="text-fg-muted">

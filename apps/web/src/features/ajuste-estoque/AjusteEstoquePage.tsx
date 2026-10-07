@@ -9,6 +9,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { listarAjustes, ajustarEstoque, estornarAjuste, consultarAjustes, consultaAjusteQuery, type FiltroConsultaAjuste } from './ajusteEstoqueApi';
 import { Field } from '../../shared/ui/Field';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -37,10 +38,6 @@ export function AjusteEstoquePage() {
   const [minimo, setMinimo] = useState<number | undefined>(undefined);
   const [maximo, setMaximo] = useState<number | undefined>(undefined);
 
-  const { data: produtoOptions = [] } = useResourceOptions(
-    'cadastro/produtos',
-    (p: any) => ({ value: String(p.idproduto ?? p.codigo), label: `${p.idproduto ?? p.codigo} - ${p.descricao ?? ''}` }),
-  );
   const { data: motivoOptions = [] } = useResourceOptions(
     'cadastro/motivos',
     (m: any) => ({ value: String(m.codmotivo), label: m.descricao ?? '' }),
@@ -113,8 +110,10 @@ export function AjusteEstoquePage() {
       <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md" disabled={executando}>
         <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Novo ajuste</legend>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-80">
-            <SelectField label="Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione o produto…" />
+          {/* UajusteEstoque.pas:165 — GET_PRODUTOS sem filtro (o legado devolve o CODBARRA ao edit; aqui o campo grava o idproduto) */}
+          <div className="w-96">
+            <LookupField label="Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao" value={idproduto}
+              onChange={(cod) => setIdproduto(cod ? Number(cod) : undefined)} />
           </div>
           <div className="w-52">
             <SelectField label="Operação" options={AJUSTE_OPERACAO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={operacao} onChange={setOperacao} />
@@ -147,7 +146,7 @@ export function AjusteEstoquePage() {
         <DataTable columns={colunas} rows={ajustes} loading={carregando} />
       </section>
 
-      <ConsultaAjustes produtoOptions={produtoOptions} />
+      <ConsultaAjustes />
     </div>
   );
 }
@@ -159,7 +158,7 @@ const diaHora = (v: unknown) => (v ? `${String(v).slice(0, 10).split('-').revers
  * A aba "Histórico" do legado (`TbsConsulta`: Produto, Data inicial/final, Filtrar e Imprimir no AjusteEstoque.fr3 do cliente). Aberta
  * pelo "Detalhar" do kardex do produto com `?idproduto=&data=`: as duas datas no dia do movimento e o produto, já filtrada.
  */
-function ConsultaAjustes({ produtoOptions }: { produtoOptions: Array<{ value: string; label: string }> }) {
+function ConsultaAjustes() {
   const mensagem = useMensagem();
   const [f, setF] = useState<FiltroConsultaAjuste>({});
   const [linhas, setLinhas] = useState<Array<Record<string, unknown>> | null>(null);
@@ -192,9 +191,10 @@ function ConsultaAjustes({ produtoOptions }: { produtoOptions: Array<{ value: st
     <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <h2 className="text-body-sm font-semibold text-fg-default">Histórico</h2>
       <div className="flex flex-wrap items-end gap-gp-sm">
-        <div className="w-80">
-          <SelectField label="Produto" options={produtoOptions} value={f.idproduto != null ? String(f.idproduto) : undefined}
-            onChange={(v) => setF({ ...f, idproduto: v ? Number(v) : undefined })} placeholder="Todos" />
+        {/* UajusteEstoque.pas:190 — GET_PRODUTOS → IDPRODUTO, sem filtro; vazio = todos */}
+        <div className="w-96">
+          <LookupField label="Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao" value={f.idproduto}
+            onChange={(cod) => setF((x) => ({ ...x, idproduto: cod ? Number(cod) : undefined }))} />
         </div>
         <div className="w-40"><Field label="Data inicial" type="date" value={f.dtini ?? ''} onChange={(e) => setF({ ...f, dtini: e.target.value || undefined })} /></div>
         <div className="w-40"><Field label="Data final" type="date" value={f.dtfim ?? ''} onChange={(e) => setF({ ...f, dtfim: e.target.value || undefined })} /></div>

@@ -118,7 +118,7 @@ describe('FRMPRECIFICACAOPRODUTO — o item do pedido de compra (FormKeyDown do 
 
   it('F3 foca a quantidade, F5 o desconto, F9 confirma', async () => {
     const onConfirmar = vi.fn();
-    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} produtoOptions={[{ value: '5', label: 'P' }]} onFechar={() => {}} onConfirmar={onConfirmar} /></ShortcutScope>);
+    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} onFechar={() => {}} onConfirmar={onConfirmar} /></ShortcutScope>);
     await waitFor(() => dialogo());
     tecla('F3');
     expect(document.activeElement).toBe(inputDoRotulo('Qtde (embalagens) [F3]'));
@@ -129,8 +129,7 @@ describe('FRMPRECIFICACAOPRODUTO — o item do pedido de compra (FormKeyDown do 
   });
 
   it('F3 no pedido de várias lojas: a 1ª loja aberta', async () => {
-    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} lojas={[{ idempresa: 1, fechado: true }, { idempresa: 2, fechado: false }]}
-      produtoOptions={[]} onFechar={() => {}} onConfirmar={() => {}} /></ShortcutScope>);
+    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} lojas={[{ idempresa: 1, fechado: true }, { idempresa: 2, fechado: false }]} onFechar={() => {}} onConfirmar={() => {}} /></ShortcutScope>);
     await waitFor(() => dialogo());
     tecla('F3');
     expect(document.activeElement).toBe(inputDoRotulo('Loja 2'));
@@ -139,11 +138,12 @@ describe('FRMPRECIFICACAOPRODUTO — o item do pedido de compra (FormKeyDown do 
   it('F11: a venda sugerida vira a praticada e a margem é refeita no servidor', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ vrvendasug: 7.5, pmz: 5, margeml2: 10 }) });
     global.fetch = fetchMock as any;
-    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} produtoOptions={[]} onFechar={() => {}} onConfirmar={() => {}} /></ShortcutScope>);
+    render(<ShortcutScope><PedidoCompraItemModal inicial={ITEM} onFechar={() => {}} onConfirmar={() => {}} /></ShortcutScope>);
     await waitFor(() => dialogo());
     await act(async () => { tecla('F11'); });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const corpo = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    // o 1º fetch pode ser o do LookupField (a descrição do produto); o da margem é o que leva corpo
+    await waitFor(() => expect(fetchMock.mock.calls.some((c: any[]) => c[1]?.body)).toBe(true));
+    const corpo = JSON.parse(String(fetchMock.mock.calls.find((c: any[]) => c[1]?.body)![1].body));
     expect(corpo.vrvenda).toBe(7.5);
     await waitFor(() => expect((inputDoRotulo('Venda (praticada)') as HTMLInputElement).value).toBe('7,50'));
   });

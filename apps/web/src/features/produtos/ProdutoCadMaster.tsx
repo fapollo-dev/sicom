@@ -13,8 +13,7 @@ import {
   type ComposicaoItemDto,
   type DecomposicaoItemDto,
   type ReceitaItemDto,
-  type FatorConversaoItemDto,
-} from '@apollo/shared';
+  type FatorConversaoItemDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -42,6 +41,24 @@ import { precificarProduto } from './precificacaoApi';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { getSessao } from '../../shared/auth/session';
 import { useShortcut } from '../../shared/keyboard';
+import { LookupField } from '../../shared/ui/LookupField';
+import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
+
+type Linha = Record<string, any>;
+
+/**
+ * As opções de produto de uma sub-grade (composição, decomposição, receita): os produtos DAS LINHAS (pelo nome, da view) na frente
+ * do combo de 200 — a grade mostra o nome de todos e a janela de editar (ComposicaoModal/DecomposicaoModal/ReceitaModal, que ainda
+ * são combos) acha o produto do item que se edita.
+ */
+function useOpcoesDosProdutos(codigos: ReadonlyArray<unknown>, base: Opcao[]): Opcao[] {
+  const nomes = useNomesDosCodigos('lookup/produtos', 'idproduto', codigos);
+  return useMemo(() => {
+    const dasLinhas = Array.from(nomes?.values() ?? []).map((l) => ({ value: String(l.idproduto), label: `${l.codbarra} - ${l.descricao}` }));
+    const ja = new Set(dasLinhas.map((o) => o.value));
+    return [...dasLinhas, ...base.filter((o) => !ja.has(o.value))];
+  }, [nomes, base]);
+}
 
 /**
  * a LOJA DA SESSÃO (`dmPrincipal.EmpresaCODEMPRESA` no legado) — a edição inline de preço acontece em `precos.0` e a de
@@ -82,41 +99,19 @@ export function ProdutoCadMaster() {
     'cadastro/unidades',
     (r: any) => ({ value: String(r.sigla), label: `${r.sigla} - ${r.descricao}` }),
   );
-  // Fornecedor: parceiro FRN='S' → "cod - razão".
-  const { data: fornecedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
-    { campo: 'frn', operador: 'igual', valor: 'S' },
-  );
+  // Fornecedor, grupo, departamento, seção e produto pai: campos de lookup com a Pesquisa da view (eram combos cortados em 200).
   // Marca: o view expõe a PK ora como idmarca, ora como codigo.
   const { data: marcaOptions = [] } = useResourceOptions('cadastro/marcas', (m: any) => ({
     value: String(m.idmarca ?? m.codigo),
     label: `${m.idmarca ?? m.codigo} - ${m.descricao}`,
   }));
-  // Famílias (catálogo único, discriminado por TIPO): G=grupo, D=departamento, O=seção.
-  const { data: grupoOptions = [] } = useResourceOptions(
-    'cadastro/familias',
-    (f: any) => ({ value: String(f.codfamilia), label: f.descricao }),
-    { campo: 'tipo', operador: 'igual', valor: 'G' },
-  );
-  const { data: dptoOptions = [] } = useResourceOptions(
-    'cadastro/familias',
-    (f: any) => ({ value: String(f.codfamilia), label: f.descricao }),
-    { campo: 'tipo', operador: 'igual', valor: 'D' },
-  );
-  const { data: secaoOptions = [] } = useResourceOptions(
-    'cadastro/familias',
-    (f: any) => ({ value: String(f.codfamilia), label: f.descricao }),
-    { campo: 'tipo', operador: 'igual', valor: 'O' },
-  );
   // Alíquota (código fiscal, chave natural CODIGO) → "codigo - descrição".
   const { data: aliquotaOptions = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({
     value: String(a.codigo),
     label: `${a.codigo} - ${a.descricao}`,
   }));
-  // Produtos (F4 — kit/BOM): lista TODOS os produtos (um componente/ingrediente é qualquer
-  // produto). Reusado nas 3 sub-grids (Composição, Decomposição, Receita). A PK ora vem como
-  // idproduto, ora como codigo → value; label = "codbarra - descrição".
+  // Produtos (F4 — kit/BOM): só para as janelas de item das 3 sub-grids (Composição, Decomposição, Receita), que ainda são combos;
+  // cada sub-grid põe na frente os produtos das suas linhas (useOpcoesDosProdutos). label = "codbarra - descrição".
   const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
     value: String(r.idproduto ?? r.codigo),
     label: `${r.codbarra} - ${r.descricao}`,
@@ -204,11 +199,7 @@ export function ProdutoCadMaster() {
             form={form}
             editavel={editavel}
             unidadeOptions={unidadeOptions}
-            fornecedorOptions={fornecedorOptions}
             marcaOptions={marcaOptions}
-            grupoOptions={grupoOptions}
-            dptoOptions={dptoOptions}
-            secaoOptions={secaoOptions}
           />
           {/* Preços INLINE logo após a Principal — espelha o legado (preço/custo na aba Principal). */}
           <PrecosSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
@@ -231,7 +222,7 @@ export function ProdutoCadMaster() {
             unidadeSiglaOptions={unidadeSiglaOptions}
           />
           {/* Produtos filhos (aba TsFilhos) — vínculo pai/fator + grid read-only das variações filhas. */}
-          <ProdutosFilhosSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          <ProdutosFilhosSection form={form} editavel={editavel} />
           {/* Posição de estoque (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex), read-only. */}
           <PosicaoEstoqueSection form={form} />
           {/* Histórico das movimentações (TbsHistoricoMovimentacoes) — as sub-abas de consulta e as impressões no layout do cliente. */}
@@ -242,7 +233,7 @@ export function ProdutoCadMaster() {
           <OutrosSection form={form} editavel={editavel} />
           <ComplementosSection form={form} editavel={editavel} />
           {/* mig 314 — Fornecedores desassociados (TbsFornecedoresDesassociados): as importações do pedido pulam o produto. */}
-          <FornecedoresDesassociadosSection form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} />
+          <FornecedoresDesassociadosSection form={form} editavel={editavel} />
           {/* Referência Fornecedor (CODREFERENCIA_FOR / DE-PARA) — visto por idproduto; só p/ produto gravado. */}
           <fieldset className="rounded-radius-md border border-border p-pad-md">
             <legend className="px-pad-xs text-fg-muted">Referência Fornecedor</legend>
@@ -264,11 +255,9 @@ export function ProdutoCadMaster() {
 function FornecedoresDesassociadosSection({
   form,
   editavel,
-  fornecedorOptions,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
-  fornecedorOptions: Opcao[];
 }) {
   const { fields, append, remove } = useFieldArray<CriarProdutoDto, 'fornecedores_desassociados', 'fieldId'>({
     control: form.control,
@@ -276,6 +265,12 @@ function FornecedoresDesassociadosSection({
     keyName: 'fieldId',
   });
   const [escolhido, setEscolhido] = useState<string | undefined>(undefined);
+  // a lista: "cod - razão" só dos fornecedores dela
+  const nomes = useNomesDosCodigos('lookup/parceiros', 'codparceiro', fields.map((f) => f.codparceiro));
+  const rotulo = (cod: unknown) => {
+    const l = nomes?.get(String(cod ?? ''));
+    return l ? `${cod} - ${l.razao ?? ''}` : String(cod ?? '');
+  };
   const adicionar = () => {
     const c = Number(escolhido);
     if (!c) return;
@@ -287,8 +282,10 @@ function FornecedoresDesassociadosSection({
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Fornecedores desassociados</legend>
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="min-w-64">
-            <SelectField label="Fornecedor" options={fornecedorOptions} value={escolhido} onChange={(v) => setEscolhido(v || undefined)} placeholder="Selecione…" />
+          <div className="min-w-80 flex-1">
+            {/* UCadProduto.pas:1837 (BtnAdicionarProdFornDesassociadosClick) — GET_PARCEIROS, FRN = 'S' AND ATIVADO = 'S' */}
+            <LookupField label="Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S', ativado: 'S' }}
+              value={escolhido} onChange={(cod) => setEscolhido(cod || undefined)} disabled={!editavel} />
           </div>
           <Button label="Desassociar fornecedor" variant="soft" onClick={adicionar} />
         </div>
@@ -298,7 +295,7 @@ function FornecedoresDesassociadosSection({
           <ul className="flex flex-col gap-gp-2xs">
             {fields.map((f, i) => (
               <li key={f.fieldId} className="flex items-center justify-between rounded-radius-base border border-border-subtle px-pad-sm py-pad-xs text-body-sm">
-                <span>{rotuloOpcao(fornecedorOptions, Number(f.codparceiro))}</span>
+                <span>{rotulo(f.codparceiro)}</span>
                 <Button label="Remover" variant="ghost" onClick={() => remove(i)} />
               </li>
             ))}
@@ -320,20 +317,12 @@ function PrincipalSection({
   form,
   editavel,
   unidadeOptions,
-  fornecedorOptions,
   marcaOptions,
-  grupoOptions,
-  dptoOptions,
-  secaoOptions,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
   unidadeOptions: Opcao[];
-  fornecedorOptions: Opcao[];
   marcaOptions: Opcao[];
-  grupoOptions: Opcao[];
-  dptoOptions: Opcao[];
-  secaoOptions: Opcao[];
 }) {
   const pode = useContext(PodeCtx);
   // dica visual: só sinaliza inválido quando há conteúdo (a obrigatoriedade é do schema).
@@ -425,12 +414,16 @@ function PrincipalSection({
             control={form.control}
             name="codfor"
             render={({ field }) => (
-              <SelectField
+              // UCadProduto.pas:4195 (ChamauPesquisa 00) — GET_PARCEIROS, FRN = 'S' AND ATIVADO = 'S'
+              <LookupField
                 label="Fornecedor"
-                options={fornecedorOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione o fornecedor…"
+                recurso="lookup/parceiros"
+                campoCodigo="codparceiro"
+                descricao="razao"
+                fixos={{ frn: 'S', ativado: 'S' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={form.formState.errors.codfor?.message as string | undefined}
               />
             )}
@@ -453,12 +446,16 @@ function PrincipalSection({
             control={form.control}
             name="codgrupo"
             render={({ field }) => (
-              <SelectField
+              // UCadProduto.pas:4207 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'GRUPO' (G) AND ATIVO = 'S'
+              <LookupField
                 label="Grupo"
-                options={grupoOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione o grupo…"
+                recurso="lookup/familias"
+                campoCodigo="codfamilia"
+                descricao="descricao"
+                fixos={{ tipo: 'G', ativo: 'S' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={form.formState.errors.codgrupo?.message as string | undefined}
               />
             )}
@@ -467,12 +464,16 @@ function PrincipalSection({
             control={form.control}
             name="coddpto"
             render={({ field }) => (
-              <SelectField
+              // UCadProduto.pas:4201 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'DEPARTAMENTO' (D) AND ATIVO = 'S'
+              <LookupField
                 label="Departamento"
-                options={dptoOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione o departamento…"
+                recurso="lookup/familias"
+                campoCodigo="codfamilia"
+                descricao="descricao"
+                fixos={{ tipo: 'D', ativo: 'S' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={form.formState.errors.coddpto?.message as string | undefined}
               />
             )}
@@ -481,12 +482,16 @@ function PrincipalSection({
             control={form.control}
             name="codsecao"
             render={({ field }) => (
-              <SelectField
+              // UCadProduto.pas:4283 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'SECAO' (O) AND ATIVO = 'S'
+              <LookupField
                 label="Seção"
-                options={secaoOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione a seção…"
+                recurso="lookup/familias"
+                campoCodigo="codfamilia"
+                descricao="descricao"
+                fixos={{ tipo: 'O', ativo: 'S' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
                 error={form.formState.errors.codsecao?.message as string | undefined}
               />
             )}
@@ -1257,7 +1262,7 @@ const fmtBRL = (n: number) =>
 function ComposicaoSection({
   form,
   editavel,
-  produtoOptions,
+  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
@@ -1276,6 +1281,8 @@ function ComposicaoSection({
     name: 'composicoes',
     keyName: 'fieldId',
   });
+  // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01), produtosDoCombo);
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: ComposicaoItemDto) => {
@@ -1400,7 +1407,7 @@ function ComposicaoSection({
 function DecomposicaoSection({
   form,
   editavel,
-  produtoOptions,
+  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
@@ -1416,6 +1423,8 @@ function DecomposicaoSection({
     name: 'decomposicoes',
     keyName: 'fieldId',
   });
+  // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01), produtosDoCombo);
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: DecomposicaoItemDto) => {
@@ -1551,7 +1560,7 @@ function DecomposicaoSection({
 function ReceitaSection({
   form,
   editavel,
-  produtoOptions,
+  produtoOptions: produtosDoCombo,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
@@ -1566,6 +1575,8 @@ function ReceitaSection({
     name: 'receitas',
     keyName: 'fieldId',
   });
+  // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
+  const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_receita), produtosDoCombo);
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const onConfirmar = (item: ReceitaItemDto) => {
@@ -1805,11 +1816,9 @@ function FatorConversaoSection({
 function ProdutosFilhosSection({
   form,
   editavel,
-  produtoOptions,
 }: {
   form: UseFormReturn<CriarProdutoDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
 }) {
   const idproduto = Number(form.watch('idproduto' as never)) || undefined;
   const [filhos, setFilhos] = useState<ProdutoFilho[]>([]);
@@ -1831,11 +1840,6 @@ function ProdutosFilhosSection({
     };
   }, [idproduto]);
 
-  // O pai não pode ser o próprio produto (validado no servidor) — filtra o self do picker.
-  const paiOptions = useMemo(
-    () => produtoOptions.filter((o) => o.value !== String(idproduto ?? '')),
-    [produtoOptions, idproduto],
-  );
 
   const columns = useMemo<DataTableColumnDef<ProdutoFilho & { _id: number }>[]>(
     () => [
@@ -1861,12 +1865,17 @@ function ProdutosFilhosSection({
             control={form.control}
             name="idproduto_pai"
             render={({ field }) => (
-              <SelectField
+              // UCadProduto.pas:4295 (ChamauPesquisa 14) — GET_PRODUTOS, 'CODIGO <> <o próprio produto>' (fora da igualdade do campo:
+              // o próprio produto fica marcado aqui e o servidor recusa no gravar)
+              <LookupField
                 label="Produto pai"
-                options={paiOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione o produto pai…"
+                recurso="lookup/produtos"
+                campoCodigo="idproduto"
+                descricao={(l) => `${l.codbarra} - ${l.descricao}`}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
+                error={idproduto != null && Number(field.value) === idproduto ? 'O produto pai não pode ser o próprio produto.' : undefined}
               />
             )}
           />

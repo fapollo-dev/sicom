@@ -14,10 +14,13 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { AgendaPromocaoRelatorios } from './AgendaPromocaoRelatorios';
 import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
+import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 const n = (v: unknown) => Number(v) || 0;
+
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtDt = (v: unknown) => (v ? new Date(String(v)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const simNao = (v: unknown) => (String(v) === 'S' || String(v) === 'T' ? '✓' : '—');
@@ -81,19 +84,19 @@ export function AgendaPromocaoCadMaster() {
   const [tabloide, setTabloide] = useState<'S' | 'N'>('N');
   const [interno, setInterno] = useState<'S' | 'N'>('N');
 
-  const { data: produtoOptions = [] } = useResourceOptions(
-    'cadastro/produtos',
-    (p: any) => ({ value: String(p.idproduto ?? p.codigo), label: `${p.idproduto ?? p.codigo} - ${p.descricao ?? ''}` }),
-    { campo: 'ativo', operador: 'igual', valor: 'S' },
-  );
   const { data: empresaOptions = [] } = useResourceOptions('cadastro/empresas', (e: any) => ({
     value: String(e.idempresa ?? e.codempresa), label: `${e.idempresa ?? e.codempresa} - ${e.fantasia ?? e.razao_social ?? ''}`,
   }));
   const alternarLoja = (id: number, marcada: boolean) =>
     setLojas((xs) => (marcada ? [...new Set([...xs, id])].sort((a, b) => a - b) : xs.filter((x) => x !== id)));
+  // o nome dos produtos da grade: só os códigos dos itens (a agenda lida do servidor não traz a descrição)
+  const produtosDosItens = useLinhasDosCodigos('lookup/produtos', 'idproduto', itens.map((it) => it.idproduto));
   const rotuloProduto = useCallback(
-    (id: unknown) => produtoOptions.find((o) => String(o.value) === String(id))?.label ?? String(id ?? ''),
-    [produtoOptions],
+    (id: unknown) => {
+      const l = produtosDosItens.get(String(id));
+      return l ? `${id} - ${l.descricao ?? ''}` : String(id ?? '');
+    },
+    [produtosDosItens],
   );
 
   const recarregar = useCallback(async () => {
@@ -134,7 +137,7 @@ export function AgendaPromocaoCadMaster() {
   useShortcut('f2', () => {
     if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
     setIdproduto(undefined);
-    produtoRef.current?.querySelector<HTMLElement>('button,[role=combobox]')?.focus();
+    produtoRef.current?.querySelector<HTMLElement>('input')?.focus();
   });
   // "Marcar produto como ativo/inativo" (uCadAgendaPromocao:1412/1446) — vale ao gravar
   const alternarAtivo = (id: number) =>
@@ -322,7 +325,9 @@ export function AgendaPromocaoCadMaster() {
         {/* Adder de itens (produto + preços + mídia) */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-            <div ref={produtoRef} className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+            {/* uCadAgendaPromocao.pas:438-439 — GET_PRODUTOS com ATIVO='S' AND IMPRIMIRCOMP='N' (o naoComposto vai pela tabela no servidor) */}
+            <div ref={produtoRef} className="sm:col-span-2"><LookupField label="&Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao"
+              fixos={{ ativo: 'S' }} parametros={{ naoComposto: 'S' }} value={idproduto} onChange={(cod) => setIdproduto(cod ? Number(cod) : undefined)} /></div>
             <CurrencyField label="Vr. &Venda" value={vrvenda} onChange={setVrvenda} />
             <CurrencyField label="Vr. &Promocional" value={vlrpromocao} onChange={setVlrpromocao} />
             <CurrencyField label="Vr. &Fidelidade" value={vrclube} onChange={setVrclube} />

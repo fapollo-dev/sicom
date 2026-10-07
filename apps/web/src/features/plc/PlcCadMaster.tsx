@@ -61,7 +61,7 @@ export function PlcCadMaster() {
             <div className="sm:col-span-3">
               {/* uCadPLC.pas:159 — GET_PLANO_CONTAS, CLASSE='ANALITICA' (= classe 'A') */}
               <Controller control={form.control} name="codcontabil" render={({ field }) => (
-                <LookupField label="Lançamento contábil" recurso="lookup/plano-contas" campoCodigo="codplanocontas" descricao="descricao_completa"
+                <LookupField label="Lançamento contábil" recurso="lookup/plano-contas" campoDigitado="codireduzido" campoCodigo="codplanocontas" descricao="descricao_completa"
                   fixos={{ classe: 'A' }} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                   onChange={(cod) => field.onChange(cod ? Number(cod) : '')} disabled={!editavel} />
               )} />

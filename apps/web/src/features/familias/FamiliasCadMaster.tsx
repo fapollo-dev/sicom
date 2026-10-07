@@ -74,7 +74,7 @@ export function FamiliasCadMaster() {
               )} />
               {/* UCadFamiliaProd.pas:209-211 — GET_PLC; o filtro do legado (comprimento da máscara) não é igualdade: fica no servidor */}
               <Controller control={form.control} name="codplc" render={({ field }) => (
-                <LookupField label="Centro de custo de perdas" recurso="lookup/plc" parametros={{ lancavel: 'S' }} campoCodigo="codplc"
+                <LookupField label="Centro de custo de perdas" recurso="lookup/plc" campoDigitado="desccodplc" parametros={{ lancavel: 'S' }} campoCodigo="codplc"
                   descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
                   value={field.value != null && (field.value as unknown) !== '' ? String(field.value) : undefined}
                   onChange={(cod) => field.onChange(cod ? Number(cod) : '')} disabled={!editavel} />

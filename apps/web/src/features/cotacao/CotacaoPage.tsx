@@ -4,14 +4,15 @@ import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
+import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 import {
   listarCotacoes, obterCotacao, criarCotacao, excluirCotacao,
   lancarPrecosCotacao, apurarCotacao, definirGanhadorCotacao, gerarPedidoCotacao,
   fecharCotacao, reabrirCotacao,
-  type CotacaoLista, type CotacaoDetalhe,
-} from './cotacaoApi';
+  type CotacaoLista, type CotacaoDetalhe } from './cotacaoApi';
+
 
 const brl = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const chave = (codctcforn: number, codcpr: number) => `${codctcforn}:${codcpr}`;
@@ -33,7 +34,9 @@ export function CotacaoPage() {
   const [novaDesc, setNovaDesc] = useState('');
   const [prodSel, setProdSel] = useState('');
   const [prodQtd, setProdQtd] = useState<number | undefined>(1);
+  const [prodRotulo, setProdRotulo] = useState('');
   const [fornSel, setFornSel] = useState('');
+  const [fornRotulo, setFornRotulo] = useState('');
   const [novosProdutos, setNovosProdutos] = useState<Array<{ idproduto: number; descricao: string; quantidade: number }>>([]);
   const [novosFornecedores, setNovosFornecedores] = useState<Array<{ codparceiro: number; nome: string }>>([]);
 
@@ -41,9 +44,9 @@ export function CotacaoPage() {
   const [fornPreco, setFornPreco] = useState('');
   const [precoEdit, setPrecoEdit] = useState<Record<number, { valor?: number; icms?: number }>>({});
 
-  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({ value: String(r.idproduto ?? r.codigo), label: `${r.codbarra} - ${r.descricao}` }));
-  const { data: fornecedorOptions = [] } = useResourceOptions('cadastro/parceiros', (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }), { campo: 'frn', operador: 'igual', valor: 'S' });
-  const nomeForn = useMemo(() => new Map(fornecedorOptions.map((o) => [o.value, o.label])), [fornecedorOptions]);
+  // o nome dos fornecedores convidados da cotação aberta: só os códigos dela (o detalhe não traz a razão)
+  const fornDaCotacao = useLinhasDosCodigos('lookup/parceiros', 'codparceiro', sel?.fornecedores.map((f) => f.codparceiro) ?? []);
+  const nomeForn = useMemo(() => new Map([...fornDaCotacao].map(([cod, l]) => [cod, `${cod} - ${l.razao ?? ''}`])), [fornDaCotacao]);
 
   const carregarLista = useCallback(async () => {
     setCarregando(true);
@@ -73,18 +76,20 @@ export function CotacaoPage() {
     const idproduto = Number(prodSel);
     if (!idproduto) return;
     if (novosProdutos.some((p) => p.idproduto === idproduto)) return mensagem.erro('Produto já adicionado.');
-    const desc = produtoOptions.find((o) => o.value === prodSel)?.label ?? String(idproduto);
+    const desc = prodRotulo || String(idproduto);
     setNovosProdutos((l) => [...l, { idproduto, descricao: desc, quantidade: Number(prodQtd) > 0 ? Number(prodQtd) : 1 }]);
     setProdSel('');
+    setProdRotulo('');
     setProdQtd(1);
   };
   const addFornecedor = () => {
     const codparceiro = Number(fornSel);
     if (!codparceiro) return;
     if (novosFornecedores.some((f) => f.codparceiro === codparceiro)) return mensagem.erro('Fornecedor já convidado.');
-    const nome = fornecedorOptions.find((o) => o.value === fornSel)?.label ?? String(codparceiro);
+    const nome = fornRotulo || String(codparceiro);
     setNovosFornecedores((l) => [...l, { codparceiro, nome }]);
     setFornSel('');
+    setFornRotulo('');
   };
   const criar = async () => {
     if (busy) return;
@@ -307,10 +312,16 @@ export function CotacaoPage() {
           <div className="w-80"><Field label="&Descrição da cotação" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: Cotação hortifruti jul/2026" /></div>
         </div>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-96"><SelectField label="&Produto" value={prodSel} onChange={setProdSel} options={produtoOptions} placeholder="Selecione o produto" /></div>
+          {/* uCadCotacao.pas:870 — GET_PRODUTOS com ATIVO_COMPRA <> 'N' (:833; com mais de uma loja, o subselect da MULTI_PRECO, :847-851):
+              nenhum dos dois é igualdade numa coluna da view do destino — fica no servidor */}
+          <div className="w-96"><LookupField label="&Produto" recurso="lookup/produtos" parametros={{ ativoCompra: 'S' }} campoCodigo="idproduto" descricao={(l) => `${l.codbarra ?? ''} - ${l.descricao ?? ''}`}
+            value={prodSel} onChange={(cod, l) => { setProdSel(cod ?? ''); setProdRotulo(cod && l ? `${l.codbarra ?? ''} - ${l.descricao ?? ''}` : ''); }} /></div>
           <div className="w-28"><NumberField label="&Qtde" value={prodQtd} decimais={2} min={0} onChange={setProdQtd} /></div>
           <Button label="&Adicionar produto" variant="ghost" onClick={addProduto} />
-          <div className="w-96"><SelectField label="&Fornecedor" value={fornSel} onChange={setFornSel} options={fornecedorOptions} placeholder="Selecione o fornecedor (FRN)" /></div>
+          {/* uCadCotacao.pas:314 — o legado filtra ATIVADO <> 'N' (sem FRN); o FRN='S' fica porque o servidor recusa o não-fornecedor
+              (COTACAO_FORNECEDOR_INVALIDO) */}
+          <div className="w-96"><LookupField label="&Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S' }}
+            value={fornSel} onChange={(cod, l) => { setFornSel(cod ?? ''); setFornRotulo(cod && l ? `${cod} - ${l.razao ?? ''}` : ''); }} /></div>
           <Button label="Con&vidar fornecedor" variant="ghost" onClick={addFornecedor} />
         </div>
         {(novosProdutos.length > 0 || novosFornecedores.length > 0) && (

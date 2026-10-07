@@ -29393,6 +29393,15 @@ async function main() {
           && cliFrn.status === 200 && cliFrn.j.total === cliFrnEsp && opLoja.status === 200 && opLoja.j.total === opEsp,
           { plc: [plcLanc.status, plcLanc.j.total, plcEsp, masc], sit: [sitLivre, umPlc, plcSit.j.total], cliFrn: [cliFrn.status, cliFrn.j.total, cliFrnEsp], op: [opLoja.status, opLoja.j.total, opEsp] });
 
+        const prodEsp = async (cond: string) => Number((await pgPq.query(`SELECT count(*) n FROM get_produtos g WHERE g.idproduto IN (SELECT p.idproduto FROM produtos p WHERE ${cond})`)).rows[0].n);
+        const [eNc, eAc, eSf] = [await prodEsp(`p.imprimircomp = 'N'`), await prodEsp(`coalesce(p.ativo_compra, 'S') <> 'N'`), await prodEsp(`p.idproduto_pai IS NULL`)];
+        const [lNc, lAc, lSf] = [await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&naoComposto=S&porPagina=1'),
+          await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&ativoCompra=S&porPagina=1'),
+          await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&semFilho=S&porPagina=1')];
+        check('PESQUISA §298.11 [o filtro do produto que a view do destino não tem]: IMPRIMIRCOMP=N da agenda/promoção (o nulo fica de fora, como no Oracle), ATIVO_COMPRA<>N da cotação/pedido e o que não é filho (importar XML)',
+          lNc.j.total === eNc && lAc.j.total === eAc && lSf.j.total === eSf,
+          { nc: [lNc.status, lNc.j.total, eNc], ac: [lAc.j.total, eAc], sf: [lSf.j.total, eSf] });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');

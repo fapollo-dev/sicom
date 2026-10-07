@@ -10,6 +10,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
@@ -97,6 +98,27 @@ const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'lev
   D: { shape: 'doisgrids', grupoA: 'Grupo A — leve', grupoB: 'Grupo B — desconto adicional', filhoValor: true },
 };
 
+/**
+ * O produto do adder de cada aba — o TfrmPesquisa da GET_PRODUTOS do legado (código + descrição + Pesquisa), no lugar do combo de 200.
+ * Devolve o código e, quando o servidor confirma, o rótulo para a grade (os itens desta tela só nascem dos adders).
+ */
+function ProdutoDaAba({ label, fixos, parametros, value, onChange }: {
+  label: string;
+  fixos?: Record<string, string>;
+  parametros?: Record<string, string>;
+  value: number | undefined;
+  onChange: (idproduto: number | undefined, rotulo?: string) => void;
+}) {
+  return (
+    <LookupField label={label} recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao" fixos={fixos} parametros={parametros} value={value}
+      onChange={(cod, l) => onChange(cod ? Number(cod) : undefined, cod && l ? `${cod} - ${l.descricao ?? ''}` : undefined)} />
+  );
+}
+/** AdicionarProduto (UCadPromocao.pas:919-920): Preço Fixo, Desconto Fixo/Variável, Leve Pague, Produto Grátis e Desconto Adicional —
+ *  ATIVO='S' AND IMPRIMIRCOMP='N' (o naoComposto vai pela tabela no servidor) */
+const PRODUTO_ATIVO = { ativo: 'S' };
+const NAO_COMPOSTO = { naoComposto: 'S' };
+
 export function PromocaoCadMaster() {
   const mensagem = useMensagem();
   const [lista, setLista] = useState<Promocao[]>([]);
@@ -147,36 +169,28 @@ export function PromocaoCadMaster() {
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
-  const { data: produtoOptions = [] } = useResourceOptions(
-    'cadastro/produtos',
-    (p: any) => ({ value: String(p.idproduto ?? p.codigo), label: `${p.idproduto ?? p.codigo} - ${p.descricao ?? ''}` }),
-    { campo: 'ativo', operador: 'igual', valor: 'S' },
-  );
-  const rotuloProduto = useCallback(
-    (id: unknown) => produtoOptions.find((o) => String(o.value) === String(id))?.label ?? String(id ?? ''),
-    [produtoOptions],
-  );
-  // recursos do alvo da Categoria (por SUBTIPO): famílias (O/D/G/S), fornecedores (F), marcas (M); produtos (P) reusa acima.
-  const { data: familiaOptions = [] } = useResourceOptions('cadastro/familias', (f: any) => ({ value: String(f.codfamilia), label: `${f.codfamilia} - ${f.descricao ?? ''}`, tipo: String(f.tipo ?? '') }));
-  const { data: fornecedorOptions = [] } = useResourceOptions('cadastro/parceiros', (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao ?? p.fantasia ?? ''}` }), { campo: 'frn', operador: 'igual', valor: 'S' });
-  // get_marcas expõe a PK ora como idmarca, ora como codigo (igual ao ProdutoCadMaster) → fallback obrigatório.
+  // o rótulo de cada alvo escolhido nos adders (a linha da Pesquisa), chaveado por dimensão:código — P produto, O/D/G/S família,
+  // F fornecedor. Os itens desta tela só nascem dos adders (não há edição de promoção gravada), então a grade sempre o encontra.
+  const [rotulos, setRotulos] = useState<Record<string, string>>({});
+  const guardarRotulo = (dimensao: string, id: number | undefined, rotulo?: string) => {
+    if (id != null && rotulo) setRotulos((m) => ({ ...m, [`${dimensao}:${id}`]: rotulo }));
+  };
+  const rotuloProduto = useCallback((id: unknown) => rotulos[`P:${id}`] ?? String(id ?? ''), [rotulos]);
+  // a Marca (M) segue no combo: tabela pequena. get_marcas expõe a PK ora como idmarca, ora como codigo (igual ao ProdutoCadMaster).
   const { data: marcaOptions = [] } = useResourceOptions('cadastro/marcas', (m: any) => ({ value: String(m.idmarca ?? m.codigo), label: `${m.idmarca ?? m.codigo} - ${m.descricao ?? ''}` }));
-  // opções do alvo conforme o SUBTIPO ativo (O/D/G/S filtram famílias por tipo).
-  const alvoOptions = useMemo(() => {
-    if (SUBTIPO_FAMILIA.has(subtipoCat)) return (familiaOptions as any[]).filter((o) => o.tipo === subtipoCat);
-    if (subtipoCat === 'P') return produtoOptions;
-    if (subtipoCat === 'F') return fornecedorOptions;
-    if (subtipoCat === 'M') return marcaOptions;
-    return [];
-  }, [subtipoCat, familiaOptions, produtoOptions, fornecedorOptions, marcaOptions]);
   const rotuloAlvo = useCallback(
     (subtipo: unknown, id: unknown) => {
       const st = String(subtipo ?? '');
-      const src = SUBTIPO_FAMILIA.has(st) ? (familiaOptions as any[]) : st === 'P' ? produtoOptions : st === 'F' ? fornecedorOptions : st === 'M' ? marcaOptions : [];
-      return (src as any[]).find((o) => String(o.value) === String(id))?.label ?? String(id ?? '');
+      if (st === 'M') return marcaOptions.find((o) => String(o.value) === String(id))?.label ?? String(id ?? '');
+      return rotulos[`${st}:${id}`] ?? String(id ?? '');
     },
-    [familiaOptions, produtoOptions, fornecedorOptions, marcaOptions],
+    [rotulos, marcaOptions],
   );
+  // os adders de produto: o código vai para o estado da aba e o rótulo para a grade
+  const escolherProduto = (set: (v: number | undefined) => void) => (id: number | undefined, rotulo?: string) => {
+    set(id);
+    guardarRotulo('P', id, rotulo);
+  };
 
   const recarregar = useCallback(async () => {
     setCarregando(true);
@@ -515,7 +529,7 @@ export function PromocaoCadMaster() {
           {mec?.shape === 'produto' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <div className="sm:col-span-3"><ProdutoDaAba label="&Produto" fixos={PRODUTO_ATIVO} parametros={NAO_COMPOSTO} value={idproduto} onChange={escolherProduto(setIdproduto)} /></div>
                 <div className="sm:col-span-2">
                   {mec.unidade === 'percent'
                     ? <NumberField label={mec.rotulo!} value={valorItem} onChange={setValorItem} decimais={2} min={0} max={100} />
@@ -557,7 +571,8 @@ export function PromocaoCadMaster() {
           {mec?.shape === 'combo' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                <div className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                {/* UCadPromocao.pas:1271 (BtnBuscaProdutoCombo) — GET_PRODUTOS sem filtro */}
+                <div className="sm:col-span-2"><ProdutoDaAba label="&Produto" value={idproduto} onChange={escolherProduto(setIdproduto)} /></div>
                 <NumberField label="&Quantidade" value={qtdeCombo} onChange={setQtdeCombo} decimais={0} min={0} />
                 <CurrencyField label="V&r. Promoção" value={valorItem} onChange={setValorItem} />
                 <div className="sm:col-span-1"><SelectField label="Cá&lculo" options={TIPO_ITEM_OPCOES} value={tipoItemCombo} onChange={(v) => setTipoItemCombo(v || '$')} /></div>
@@ -574,7 +589,7 @@ export function PromocaoCadMaster() {
           {mec?.shape === 'levepague' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <div className="sm:col-span-3"><ProdutoDaAba label="&Produto" fixos={PRODUTO_ATIVO} parametros={NAO_COMPOSTO} value={idproduto} onChange={escolherProduto(setIdproduto)} /></div>
                 <NumberField label="Qtde. &Leve" value={qtdeLeve} onChange={setQtdeLeve} decimais={3} min={0} />
                 <NumberField label="Qtde. &Pague" value={qtdePague} onChange={setQtdePague} decimais={2} min={0} />
                 <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarLevePague} /></div>
@@ -591,7 +606,23 @@ export function PromocaoCadMaster() {
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
                 <div className="sm:col-span-2"><SelectField label="&Categoria" options={SUBTIPO_OPCOES} value={subtipoCat} onChange={(v) => { setSubtipoCat(v || 'P'); setAlvoCat(undefined); }} /></div>
-                <div className="sm:col-span-2"><SelectField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} options={alvoOptions} value={alvoCat != null ? String(alvoCat) : undefined} onChange={(v) => setAlvoCat(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                {/* BtnBuscaCategoriaClick (UCadPromocao.pas:1228-1234): a família pelo TIPO (SECAO/DEPARTAMENTO/GRUPO/SUBGRUPO na view do legado =
+                    a letra O/D/G/S da FAMILIAS_PROD), o produto sem filtro, o fornecedor com FRN='S'; a marca segue no combo (tabela pequena) */}
+                <div className="sm:col-span-2">
+                  {SUBTIPO_FAMILIA.has(subtipoCat) ? (
+                    <LookupField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao"
+                      fixos={{ tipo: subtipoCat }} value={alvoCat}
+                      onChange={(cod, l) => { const id = cod ? Number(cod) : undefined; setAlvoCat(id); if (l) guardarRotulo(subtipoCat, id, `${cod} - ${l.descricao ?? ''}`); }} />
+                  ) : subtipoCat === 'P' ? (
+                    <ProdutoDaAba label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} value={alvoCat} onChange={escolherProduto(setAlvoCat)} />
+                  ) : subtipoCat === 'F' ? (
+                    <LookupField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} recurso="lookup/parceiros" campoCodigo="codparceiro" descricao={(l) => l.razao ?? l.fantasia ?? ''}
+                      fixos={{ frn: 'S' }} value={alvoCat}
+                      onChange={(cod, l) => { const id = cod ? Number(cod) : undefined; setAlvoCat(id); if (l) guardarRotulo('F', id, `${cod} - ${l.razao ?? l.fantasia ?? ''}`); }} />
+                  ) : (
+                    <SelectField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} options={marcaOptions} value={alvoCat != null ? String(alvoCat) : undefined} onChange={(v) => setAlvoCat(v ? Number(v) : undefined)} placeholder="Selecione…" />
+                  )}
+                </div>
                 <NumberField label="&Promoção (%)" value={valorCat} onChange={setValorCat} decimais={2} min={0} max={100} />
                 <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarCategoria} /></div>
               </div>
@@ -606,7 +637,8 @@ export function PromocaoCadMaster() {
           {mec?.shape === 'atacarejo' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                <div className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                {/* UCadPromocao.pas:1247 (BtnBuscaProdutoAtacarejo) — GET_PRODUTOS sem filtro */}
+                <div className="sm:col-span-2"><ProdutoDaAba label="&Produto" value={idproduto} onChange={escolherProduto(setIdproduto)} /></div>
                 <NumberField label="A partir de (&qtde.)" value={qtdeAtac} onChange={setQtdeAtac} decimais={2} min={0} />
                 <CurrencyField label="V&r. Atacarejo" value={valorItem} onChange={setValorItem} />
                 <div className="sm:col-span-1"><SelectField label="Cá&lculo" options={TIPO_ITEM_OPCOES} value={tipoAtac} onChange={(v) => setTipoAtac(v || '$')} /></div>
@@ -623,7 +655,8 @@ export function PromocaoCadMaster() {
           {mec?.shape === 'bonificacao' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                {/* UCadPromocao.pas:1259 (BtnBuscaProdutoBonificacao) — GET_PRODUTOS sem filtro */}
+                <div className="sm:col-span-3"><ProdutoDaAba label="&Produto" value={idproduto} onChange={escolherProduto(setIdproduto)} /></div>
                 <NumberField label="&Quantidade" value={qtdeCompraB} onChange={setQtdeCompraB} decimais={2} min={0} />
                 <NumberField label="Qtde. &bonificada" value={qtdeBonifB} onChange={setQtdeBonifB} decimais={2} min={0} />
                 <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarBonificacao} /></div>
@@ -642,7 +675,7 @@ export function PromocaoCadMaster() {
               <div>
                 <div className="mb-gp-2xs text-body-sm font-semibold text-fg-default">{mec.grupoA}</div>
                 <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                  <div className="sm:col-span-3"><SelectField label="Produto (&A)" options={produtoOptions} value={idProdA != null ? String(idProdA) : undefined} onChange={(v) => setIdProdA(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                  <div className="sm:col-span-3"><ProdutoDaAba label="Produto (&A)" fixos={PRODUTO_ATIVO} parametros={NAO_COMPOSTO} value={idProdA} onChange={escolherProduto(setIdProdA)} /></div>
                   <NumberField label="&Quantidade" value={qtdeGA} onChange={setQtdeGA} decimais={0} min={0} />
                   <div className="flex items-end justify-end sm:col-span-2"><Button label="Adicionar ao Grupo &A" variant="ghost" onClick={adicionarGrupoA} /></div>
                 </div>
@@ -654,7 +687,7 @@ export function PromocaoCadMaster() {
               <div className="border-t border-border-subtle pt-form-gap">
                 <div className="mb-gp-2xs text-body-sm font-semibold text-fg-default">{mec.grupoB}</div>
                 <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
-                  <div className="sm:col-span-3"><SelectField label="Produto (&B)" options={produtoOptions} value={idProdB != null ? String(idProdB) : undefined} onChange={(v) => setIdProdB(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                  <div className="sm:col-span-3"><ProdutoDaAba label="Produto (&B)" fixos={PRODUTO_ATIVO} parametros={NAO_COMPOSTO} value={idProdB} onChange={escolherProduto(setIdProdB)} /></div>
                   <NumberField label="Q&uantidade" value={qtdeGB} onChange={setQtdeGB} decimais={0} min={0} />
                   {/* % adicional SEM teto (golden DF vai até 279%; servidor uncapped, fiel) */}
                   {mec.filhoValor && <NumberField label="&Desconto (%)" value={valorGB} onChange={setValorGB} decimais={2} min={0} />}

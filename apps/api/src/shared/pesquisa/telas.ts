@@ -166,8 +166,16 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // uMovCaixa.pas:740); sem lista na situação, todos (a mesma regra do gravar, modules/shared/situacao-restricoes.ts)
   'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' },
     extras: ['idsituacao_nf'], obrigatorios: (ctx) => permitidosPelaSituacao(ctx, 'situacao_nf_parceiros', 'codparceiro') },
+  // naoComposto: IMPRIMIRCOMP = 'N' (uCadAgendaPromocao.pas:438-439, UCadPromocao.pas:919-920 — o nulo fica de fora, como no Oracle);
+  // ativoCompra: ATIVO_COMPRA <> 'N' (uCadCotacao.pas:833, a GET_PRODUTOS_PC do pedido); semFilho: o produto que não é filho
+  // (PRODUTO_PAI IS NULL — uNF.pas:12422). A view do destino não tem as colunas: vão pela tabela (o alargamento é o corte B).
   'lookup/produtos': { view: 'get_produtos', form: 'FRMPESQUISA', titulo: 'Produtos', retorno: 'idproduto',
-    abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
+    abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' }, extras: ['naoComposto', 'ativoCompra', 'semFilho'],
+    obrigatorios: (ctx) => [
+      ...(ctx.extras.naoComposto === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where p.imprimircomp = 'N')`] : []),
+      ...(ctx.extras.ativoCompra === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where coalesce(p.ativo_compra, 'S') <> 'N')`] : []),
+      ...(ctx.extras.semFilho === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where p.idproduto_pai is null)`] : []),
+    ],
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` } },
   // a GET_PLC da produção (DESCCODPLC com mais de 5 caracteres); lancavel=S: só a conta no tamanho da máscara da empresa
   // (CHARACTER_LENGTH(CODIGO_EXTENSO) = máscara — uAPagar.pas:771-778, uCadAReceber.pas:547-553, uCadFormaPgto.pas:239-241,

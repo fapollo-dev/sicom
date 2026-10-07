@@ -1,15 +1,32 @@
 import { useState } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import {
-  situacaoNfSchema, TIPOS_OPERACAO_SITUACAO, regraTipoOperacao, type CriarSituacaoNfDto,
-} from '@apollo/shared';
+  situacaoNfSchema, TIPOS_OPERACAO_SITUACAO, regraTipoOperacao, type CriarSituacaoNfDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
-import { NumberField } from '../../shared/ui/NumberField';
 import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
+import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
+
+type Linha = Record<string, any>;
+
+/** a conta do plano (GET_PLANO_CONTAS) só analítica da empresa: '(CLASSE = ''ANALITICA'') AND (TIPO = ''EMPRESA'')' —
+ * UCadSituacaoNF.pas:276 (a grade), :323 e :330 (as contas da baixa). A view do destino guarda os códigos (A/T, E/R). */
+const FIXOS_CONTA = { classe: 'A', tipo: 'E' };
+const descConta = (l: Linha) => `${l.codiexpandido ?? l.codplanocontas} - ${l.descricao ?? ''}`;
+
+/** o campo de lookup de um detalhe de código (CFOP, centro de custo, parceiro) */
+interface LookupDetalhe {
+  label: string;
+  recurso: string;
+  campoCodigo: string; campoDigitado?: string;
+  descricao: string | ((l: Linha) => string);
+  fixos?: Record<string, string | number>;
+  parametros?: Record<string, string | number | null | undefined>;
+}
 
 const OPERACOES = Object.entries(TIPOS_OPERACAO_SITUACAO).map(([v, l]) => ({ value: v, label: `${v} - ${l}` }));
 const TIPOS = [{ value: 'E', label: 'Entrada' }, { value: 'S', label: 'Saída' }, { value: 'T', label: 'T' }];
@@ -20,7 +37,6 @@ const IMPORTACAO_S = [
   { value: 'PP', label: 'Pedido de produção' }, { value: 'PC', label: 'Pedido de compra' }, { value: 'SC', label: 'Scrap' },
   { value: 'TR', label: 'Transferência' }, { value: 'TO', label: 'Trocas' }, { value: 'VE', label: 'Vendas' },
 ];
-const rotulo = (ops: Opcao[], v: unknown) => ops.find((o) => String(o.value) === String(v))?.label ?? String(v ?? '');
 
 /**
  * SITUAÇÃO DO DOCUMENTO (`FRMCADSITUACAONF`, UCadSituacaoNF; mig 317). A tela que não existia: o Apollo tinha só a
@@ -54,18 +70,8 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
   const regra = regraTipoOperacao(operacao);
   const tipo = (form.watch('tipo') as string | undefined) ?? 'E';
 
-  const { data: contaOptions = [] } = useResourceOptions('cadastro/plano-contas',
-    (p: any) => ({ value: String(p.codplanocontas), label: `${p.codiexpandido ?? p.codplanocontas} - ${p.descricao ?? ''}` }),
-    { campo: 'classe', operador: 'igual', valor: 'A' });
   const { data: historicoOptions = [] } = useResourceOptions('cadastro/historico-contabil',
     (h: any) => ({ value: String(h.codhistorico ?? h.codigo), label: `${h.codhistorico ?? h.codigo} - ${h.descricao ?? ''}` }));
-  const { data: cfopOptions = [] } = useResourceOptions('cadastro/cfops',
-    (c: any) => ({ value: String(c.codcfop), label: `${c.codcfop} - ${c.descricao ?? ''}` }));
-  const { data: plcOptions = [] } = useResourceOptions('cadastro/plc',
-    (p: any) => ({ value: String(p.codplc ?? p.codigo), label: `${p.codplc ?? p.codigo} - ${p.descricao ?? ''}` }));
-  const { data: parceiroOptions = [] } = useResourceOptions('cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao ?? p.fantasia ?? ''}` }),
-    operacao === 'F04' ? { campo: 'frn', operador: 'igual', valor: 'S' } : undefined);
   const { data: formaOptions = [] } = useResourceOptions('cadastro/formas-pgto',
     (f: any) => ({ value: String(f.idpgto), label: `${f.idpgto} - ${f.modalidade ?? ''}` }));
   const { data: operadoraOptions = [] } = useResourceOptions('cadastro/operadoras',
@@ -80,6 +86,14 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
         onChange={(v) => field.onChange(v === '' || v == null ? undefined : /^\d+$/.test(v) && name !== 'importacao_auto_nf' ? Number(v) : v)}
         disabled={!editavel || opts?.disabled} placeholder="—"
         error={(form.formState.errors as any)[name]?.message as string | undefined} />
+    )} />
+  );
+  // as contas da baixa (Outras configurações): o campo de lookup do plano de contas
+  const conta = (name: 'codplanocontas_deb_baixa_cp' | 'codplanocontas_cred_baixa_cr', label: string, desabilitado: boolean) => (
+    <Controller control={form.control} name={name as any} render={({ field }) => (
+      <LookupField label={label} recurso="lookup/plano-contas" campoDigitado="codireduzido" campoCodigo="codplanocontas" descricao={descConta} fixos={FIXOS_CONTA}
+        value={field.value ?? undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+        disabled={!editavel || desabilitado} error={(form.formState.errors as any)[name]?.message as string | undefined} />
     )} />
   );
   const flag = (name: keyof CriarSituacaoNfDto, label: string) => (
@@ -114,7 +128,7 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
         </div>
       </section>
 
-      <ContasSection form={form} editavel={editavel} contaFixa={regra.contaFixa} contaOptions={contaOptions} historicoOptions={historicoOptions} />
+      <ContasSection form={form} editavel={editavel} contaFixa={regra.contaFixa} historicoOptions={historicoOptions} />
 
       {regra.abas.estoque && (
         <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
@@ -134,21 +148,30 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
       )}
 
       {regra.abas.cfop && (
-        <ListaDetalhe form={form} editavel={editavel} nome="cfops" campo="codcfop" titulo="CFOPs permitidos" opcoes={cfopOptions} rotuloAdicionar="Adicionar CFOP" />
+        // UCadSituacaoNF.pas:398 — GET_CFOP, TIPO = o tipo da situação
+        <ListaDetalhe form={form} editavel={editavel} nome="cfops" campo="codcfop" titulo="CFOPs permitidos" rotuloAdicionar="Adicionar CFOP"
+          lookup={{ label: 'CFOP', recurso: 'lookup/cfops', campoCodigo: 'codcfop', descricao: 'descricao', fixos: { tipo } }} />
       )}
       {regra.abas.centroCusto && (
-        <ListaDetalhe form={form} editavel={editavel} nome="centros_custo" campo="codplc" titulo="Centros de custo" opcoes={plcOptions} rotuloAdicionar="Adicionar centro de custo" />
+        // UCadSituacaoNF.pas:342-370 — GET_PLC, CHARACTER_LENGTH(CODIGO_EXTENSO) = a máscara da empresa (lancavel) e TIPO_CONTA =
+        // 'DESPESA' (1) na E02, senão 'RECEITA' (0) na saída e 'DESPESA' (1) na entrada
+        <ListaDetalhe form={form} editavel={editavel} nome="centros_custo" campo="codplc" titulo="Centros de custo" rotuloAdicionar="Adicionar centro de custo"
+          lookup={{ label: 'Centro de custo', recurso: 'lookup/plc', campoCodigo: 'codplc', campoDigitado: 'desccodplc', descricao: 'descricao',
+            fixos: { tpconta: operacao === 'E02' ? 1 : tipo === 'S' ? 0 : 1 }, parametros: { lancavel: 'S' } }} />
       )}
       {regra.abas.parceiros && (
-        <ListaDetalhe form={form} editavel={editavel} nome="parceiros" campo="codparceiro" titulo="Parceiros" opcoes={parceiroOptions} rotuloAdicionar="Adicionar parceiro" />
+        // UCadSituacaoNF.pas:288-311 — GET_PARCEIROS, FRN = 'S' na F04 e (CLI = 'S' OR FRN = 'S') na F05; nas outras, sem filtro
+        <ListaDetalhe form={form} editavel={editavel} nome="parceiros" campo="codparceiro" titulo="Parceiros" rotuloAdicionar="Adicionar parceiro"
+          lookup={{ label: 'Parceiro', recurso: 'lookup/parceiros', campoCodigo: 'codparceiro', descricao: (l) => l.razao ?? l.fantasia ?? '',
+            fixos: operacao === 'F04' ? { frn: 'S' } : operacao === 'F05' ? { 'cli|frn': 'S' } : undefined }} />
       )}
 
       {regra.abas.outras && (
         <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
           <legend className="px-pad-xs text-body-sm font-semibold">Outras configurações</legend>
           <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-            {sel('codplanocontas_deb_baixa_cp', 'Conta débito na baixa do contas a pagar', contaOptions, { disabled: !regra.debBaixaCP })}
-            {sel('codplanocontas_cred_baixa_cr', 'Conta crédito na baixa do contas a receber', contaOptions, { disabled: !regra.credBaixaCR })}
+            {conta('codplanocontas_deb_baixa_cp', 'Conta débito na baixa do contas a pagar', !regra.debBaixaCP)}
+            {conta('codplanocontas_cred_baixa_cr', 'Conta crédito na baixa do contas a receber', !regra.credBaixaCR)}
             {sel('idsituacao_nf_financeiro', 'Situação do financeiro', sitFinOptions)}
           </div>
         </fieldset>
@@ -158,8 +181,8 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
 }
 
 /** a grade "Plano de contas" da aba Principal (ITENS_INTEGRACAO_CONTABIL): nenhuma ou uma crédito e uma débito */
-function ContasSection({ form, editavel, contaFixa, contaOptions, historicoOptions }: {
-  form: UseFormReturn<CriarSituacaoNfDto>; editavel: boolean; contaFixa: boolean; contaOptions: Opcao[]; historicoOptions: Opcao[];
+function ContasSection({ form, editavel, contaFixa, historicoOptions }: {
+  form: UseFormReturn<CriarSituacaoNfDto>; editavel: boolean; contaFixa: boolean; historicoOptions: Opcao[];
 }) {
   const { fields, append, remove } = useFieldArray<CriarSituacaoNfDto, 'contas', 'fieldId'>({ control: form.control, name: 'contas', keyName: 'fieldId' });
   return (
@@ -181,8 +204,8 @@ function ContasSection({ form, editavel, contaFixa, contaOptions, historicoOptio
             </div>
             <div className="sm:col-span-4">
               <Controller control={form.control} name={`contas.${i}.codconta_contabil` as const} render={({ field }) => (
-                <SelectField label="Conta contábil" options={contaOptions} value={field.value != null ? String(field.value) : undefined}
-                  onChange={(v) => field.onChange(v ? Number(v) : undefined)} disabled={!editavel} placeholder="—" />
+                <LookupField label="Conta contábil" recurso="lookup/plano-contas" campoDigitado="codireduzido" campoCodigo="codplanocontas" descricao={descConta} fixos={FIXOS_CONTA}
+                  value={field.value ?? undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel} />
               )} />
             </div>
             <div className="sm:col-span-3">
@@ -205,28 +228,35 @@ function ContasSection({ form, editavel, contaFixa, contaOptions, historicoOptio
   );
 }
 
-/** lista simples de um detalhe de código (CFOP, centro de custo, parceiro): escolhe e adiciona, repetido é ignorado */
-function ListaDetalhe({ form, editavel, nome, campo, titulo, opcoes, rotuloAdicionar }: {
+/** lista simples de um detalhe de código (CFOP, centro de custo, parceiro): o campo de lookup (código + Pesquisa) e adiciona;
+ * repetido é ignorado. A lista mostra o nome só dos códigos dela. */
+function ListaDetalhe({ form, editavel, nome, campo, titulo, lookup, rotuloAdicionar }: {
   form: UseFormReturn<CriarSituacaoNfDto>; editavel: boolean; nome: 'cfops' | 'centros_custo' | 'parceiros'; campo: string;
-  titulo: string; opcoes: Opcao[]; rotuloAdicionar: string;
+  titulo: string; lookup: LookupDetalhe; rotuloAdicionar: string;
 }) {
   const { fields, append, remove } = useFieldArray<CriarSituacaoNfDto, typeof nome, 'fieldId'>({ control: form.control, name: nome, keyName: 'fieldId' });
   const [escolhido, setEscolhido] = useState<string | undefined>(undefined);
-  const [digitado, setDigitado] = useState<number | undefined>(undefined);
+  const nomes = useNomesDosCodigos(lookup.recurso, lookup.campoCodigo, fields.map((f) => (f as any)[campo]));
+  const rotulo = (v: unknown) => {
+    const l = nomes?.get(String(v ?? '').trim());
+    if (!l) return String(v ?? '');
+    return `${v} - ${typeof lookup.descricao === 'function' ? lookup.descricao(l) : String(l[lookup.descricao] ?? '')}`;
+  };
   const adicionar = () => {
-    const v = Number(escolhido ?? digitado);
+    const v = Number(escolhido);
     if (!v) return;
     if (!fields.some((f) => Number((f as any)[campo]) === v)) append({ [campo]: v } as any);
     setEscolhido(undefined);
-    setDigitado(undefined);
   };
   return (
     <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold">{titulo}</legend>
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="min-w-64"><SelectField label="Escolher" options={opcoes} value={escolhido} onChange={(v) => setEscolhido(v || undefined)} placeholder="Selecione…" /></div>
-          <div className="w-36"><NumberField label="ou o código" value={digitado} onChange={setDigitado} decimais={0} min={0} /></div>
+          <div className="min-w-80 flex-1">
+            <LookupField label={lookup.label} recurso={lookup.recurso} campoCodigo={lookup.campoCodigo} campoDigitado={lookup.campoDigitado} descricao={lookup.descricao} fixos={lookup.fixos}
+              parametros={lookup.parametros} value={escolhido} onChange={(cod) => setEscolhido(cod?.trim() || undefined)} disabled={!editavel} />
+          </div>
           <Button label={rotuloAdicionar} variant="soft" onClick={adicionar} />
         </div>
         {fields.length === 0 ? (
@@ -235,7 +265,7 @@ function ListaDetalhe({ form, editavel, nome, campo, titulo, opcoes, rotuloAdici
           <ul className="flex flex-col gap-gp-2xs">
             {fields.map((f, i) => (
               <li key={f.fieldId} className="flex items-center justify-between rounded-radius-base border border-border-subtle px-pad-sm py-pad-xs text-body-sm">
-                <span>{rotulo(opcoes, (f as any)[campo])}</span>
+                <span>{rotulo((f as any)[campo])}</span>
                 <Button label="Remover" variant="ghost" onClick={() => remove(i)} />
               </li>
             ))}

@@ -9,6 +9,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 import {
   listarDevolucoes, criarDevolucao, itensDisponiveis, finalizarDevolucao, reabrirDevolucao, cancelarDevolucao, removerDevolucao, gerarNfDevolucao, faturarDevolucao,
 } from './devolucaoCompraApi';
@@ -41,12 +42,6 @@ export function DevolucaoCompraCadMaster() {
   const [idpgto, setIdpgto] = useState<string | undefined>(undefined);
   const { data: formaOptions = [] } = useResourceOptions('cadastro/formas-pgto',
     (x: any) => ({ value: String(x.idpgto), label: `${x.idpgto} - ${x.modalidade ?? ''}` }));
-
-  const { data: fornecedorOptions = [] } = useResourceOptions(
-    'cadastro/parceiros',
-    (p: any) => ({ value: String(p.codparceiro ?? p.codigo), label: `${p.codparceiro ?? p.codigo} - ${p.razao ?? p.fornecedor ?? ''}` }),
-    { campo: 'frn', operador: 'igual', valor: 'S' },
-  );
 
   const recarregar = useCallback(async () => {
     setCarregando(true);
@@ -158,8 +153,10 @@ export function DevolucaoCompraCadMaster() {
       <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md" disabled={salvando}>
         <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Nova devolução</legend>
         <div className="flex flex-wrap items-end gap-gp-sm">
+          {/* uCadPedidoDevolucaoCompras.pas:415 — GET_PARCEIROS com FRN='S' */}
           <div className="w-96">
-            <SelectField label="&Fornecedor" options={fornecedorOptions} value={codparceiro != null ? String(codparceiro) : undefined} onChange={(v) => { setCodparceiro(v ? Number(v) : undefined); setDisponiveis([]); setQtds({}); }} placeholder="Selecione o fornecedor…" />
+            <LookupField label="&Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S' }} value={codparceiro}
+              onChange={(cod) => { setCodparceiro(cod ? Number(cod) : undefined); setDisponiveis([]); setQtds({}); }} />
           </div>
           <Button label="&Carregar itens" variant="soft" disabled={codparceiro == null} onClick={() => void carregarItens()} />
         </div>

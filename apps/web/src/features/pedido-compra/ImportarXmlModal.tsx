@@ -1,9 +1,8 @@
 import { useState, type ChangeEvent } from 'react';
 import { Modal } from '../../shared/ui/Modal';
 import { TextArea } from '../../shared/ui/TextArea';
-import { SelectField } from '../../shared/ui/SelectField';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
-import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { Field } from '../../shared/ui/Field';
 import { importarXmlNfe, vincularProdutos, cadastrarParceiroDoXml } from './pedidoCompraApi';
 
@@ -37,11 +36,6 @@ export function ImportarXmlModal({ codpedcomp, onFechar, onSucesso }: Props) {
   const [escolha, setEscolha] = useState<Record<number, number>>({}); // nItem → idproduto
   // o parceiro que falta (fornecedor ou transportadora), com os dados do XML — o `ImportaParceiro` do legado
   const [cadastro, setCadastro] = useState<{ tipo: 'FRN' | 'TRA'; dados: Record<string, string> } | null>(null);
-
-  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (p: any) => ({
-    value: String(p.idproduto ?? p.codigo),
-    label: `${p.codbarra ?? ''} - ${p.descricao ?? ''}`,
-  }));
 
   const lerArquivo = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -191,12 +185,16 @@ export function ImportarXmlModal({ codpedcomp, onFechar, onSucesso }: Props) {
                 <div className="mb-form-gap text-body-sm text-fg-muted">
                   cProd: {p.cProd || '—'} · EAN: {p.cEAN || '—'} · NCM: {p.ncm || '—'}
                 </div>
-                <SelectField
+                {/* uNF.pas:12422 ("Anexar a outro produto" na importação do XML) — GET_PRODUTOS com PRODUTO_PAI IS NULL: não é igualdade numa
+                    coluna da view do destino — fica no servidor */}
+                <LookupField
                   label="&Produto"
-                  options={produtoOptions}
-                  value={escolha[p.nItem] != null ? String(escolha[p.nItem]) : undefined}
-                  onChange={(v) => setEscolha((s) => ({ ...s, [p.nItem]: v ? Number(v) : (undefined as unknown as number) }))}
-                  placeholder="Selecione o produto…"
+                  recurso="lookup/produtos"
+                  parametros={{ semFilho: 'S' }}
+                  campoCodigo="idproduto"
+                  descricao={(l) => `${l.codbarra ?? ''} - ${l.descricao ?? ''}`}
+                  value={escolha[p.nItem]}
+                  onChange={(cod) => setEscolha((s) => ({ ...s, [p.nItem]: cod ? Number(cod) : (undefined as unknown as number) }))}
                 />
               </div>
             ))}

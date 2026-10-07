@@ -7,6 +7,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { LookupField } from '../../shared/ui/LookupField';
 
 /**
  * Cadastro de CFOP (UCadCFOP) — a tela inteira: as 45 colunas da tabela do legado (mig 346). As regras moram no gravar
@@ -49,9 +50,6 @@ export function CfopCadMaster() {
     'cadastro/situacoes-nf',
     (s: any) => ({ value: String(s.idsituacao_nf), label: `${s.idsituacao_nf} - ${s.descricao}` }),
   );
-  const { data: cfops = [] } = useResourceOptions('cadastro/cfops', (c: any) => ({
-    value: String(c.codcfop), label: `${c.codcfop} - ${c.descricao}`, devolucao: c.devolucao as string | null, tipoestado: c.tipoestado as string | null,
-  }));
   const { data: aliquotas = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({ value: String(a.codigo), label: `${a.codigo} - ${a.descricao}` }));
 
   const codigo = (name: Flag, label: string, form: any, options: Array<{ value: string; label: string }>, disabled = false) => (
@@ -115,8 +113,9 @@ export function CfopCadMaster() {
       campos={({ form, editavel }) => {
         const tipo = form.watch('tipo');
         const destino = form.watch('tipoestado');
-        // o picker do legado: CFOP de devolução do mesmo destino (segCFOP)
-        const devolucoes = cfops.filter((c) => c.devolucao === 'S' && (c.tipoestado ?? '') === (destino ?? ''));
+        // o CFOP de devolução: a Pesquisa do legado é GET_CFOP com TIPO = 'S' AND ESTADO = <destino> (btnCFOPDevolucaoClick,
+        // UCadCFOP.pas:208) e o código digitado só vale com DEVOLUCAO = 'S' e o mesmo TIPOESTADO (segCFOP, UCadCFOP.dfm:1670)
+        const fixosDevolucao: Record<string, string> = { tipo: 'S', devolucao: 'S', ...(destino ? { tipoestado: String(destino) } : {}) };
         return (
           <div className="flex flex-col gap-form-gap">
             {grupo('CFOP', editavel, (
@@ -131,7 +130,8 @@ export function CfopCadMaster() {
                   <SelectField label="Destino" options={DESTINOS} value={field.value ?? undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="Selecione…" />
                 )} />
                 <Controller control={form.control} name="cfop_devolucao" render={({ field }) => (
-                  <SelectField label="CFOP para devolução de compra" options={devolucoes} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Selecione…" />
+                  <LookupField label="CFOP para devolução de compra" recurso="lookup/cfops" campoCodigo="codcfop" descricao="descricao"
+                    fixos={fixosDevolucao} value={field.value || undefined} onChange={(cod) => field.onChange(cod?.trim() ?? '')} disabled={!editavel} />
                 )} />
                 <Controller control={form.control} name="aliquota" render={({ field }) => (
                   <SelectField label="&Alíquota de saída" options={aliquotas} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!pode('CMBALIQUOTA')} />

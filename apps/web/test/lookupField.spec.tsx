@@ -57,3 +57,33 @@ describe('LookupField — o código + descrição + Pesquisa do legado (no lugar
     expect(await screen.findByText('Não encontrado')).toBeTruthy();
   });
 });
+
+describe('LookupField — digita-se uma coluna, grava-se outra (a conta pelo CODIREDUZIDO, o centro de custo pelo CODIGO_EXTENSO)', () => {
+  it('mostra o reduzido da conta gravada; digitar o reduzido grava o CODPLANOCONTAS', async () => {
+    const CONTA = { codplanocontas: 15, codireduzido: '1234', descricao: 'CAIXA GERAL' };
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      const achou = (u.searchParams.get('campo') === 'codplanocontas' && u.searchParams.get('valor') === '15')
+        || (u.searchParams.get('campo') === 'codireduzido' && u.searchParams.get('valor') === '1234');
+      return { ok: true, status: 200, json: async () => ({ linhas: achou ? [CONTA] : [], total: achou ? 1 : 0 }) };
+    }) as any;
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ShortcutScope>
+        <LookupField label="&Conta" recurso="lookup/plano-contas" campoCodigo="codplanocontas" campoDigitado="codireduzido" descricao="descricao" value={15} onChange={onChange} />
+      </ShortcutScope>,
+    );
+    const campo = screen.getByLabelText('Conta') as HTMLInputElement;
+    await waitFor(() => expect(campo.value).toBe('1234'));
+    expect(screen.getByText('CAIXA GERAL')).toBeTruthy();
+    rerender(
+      <ShortcutScope>
+        <LookupField label="&Conta" recurso="lookup/plano-contas" campoCodigo="codplanocontas" campoDigitado="codireduzido" descricao="descricao" value={undefined} onChange={onChange} />
+      </ShortcutScope>,
+    );
+    fireEvent.change(campo, { target: { value: '1234' } });
+    fireEvent.blur(campo);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('15', expect.objectContaining({ codireduzido: '1234' })));
+    expect(onChange).not.toHaveBeenCalledWith('1234'); // o reduzido nunca vai como código gravado
+  });
+});
