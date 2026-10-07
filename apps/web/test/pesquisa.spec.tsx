@@ -256,3 +256,40 @@ describe('Pesquisa — exportar o resultado (Ctrl+A / Ctrl+B na grade)', () => {
     expect(texto).toContain('1,5;NESTLE;07/10/2026');
   });
 });
+
+describe('Pesquisa — as memórias da estação: F4 (SalvaConfig) e a última pesquisa (↑)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    metaAtual = meta();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => String(url).includes('/pesquisa/meta') ? metaAtual
+        : String(url).includes('/pesquisa/status') ? null
+        : { linhas: [{ codigo: 1, descricao: 'NESTLE' }], total: 1 },
+    })) as any;
+  });
+
+  it('F4 guarda o campo e a operação; a próxima abertura vem com eles', async () => {
+    const { unmount } = abrir();
+    await screen.findByLabelText('Texto');
+    // muda para o campo numérico "Codigo" com a operação padrão (Igual a)
+    await waitFor(() => expect(screen.getByText('Descricao')).toBeTruthy());
+    act(() => { fireEvent.keyDown(window, { key: 'F4', code: 'F4' }); });
+    unmount();
+    const k = Object.keys(localStorage).find((x) => x.startsWith('apollo:pesquisa:f4:'));
+    expect(JSON.parse(localStorage.getItem(k!)!)).toMatchObject({ campo: 'descricao', operacao: 'qualquer' });
+  });
+
+  it('fechar depois de uma pesquisa com resultado guarda a última; ↑ no valor a repete', async () => {
+    const r1 = abrir();
+    await pesquisarCom('nes');
+    await screen.findByText('NESTLE');
+    r1.unmount();
+    (global.fetch as any).mockClear();
+    abrir();
+    const campo = await screen.findByLabelText('Texto');
+    fireEvent.keyDown(campo, { key: 'ArrowUp' });
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    expect(new URL(pesquisas().at(-1)!).searchParams.get('valor')).toBe('NES');
+  });
+});

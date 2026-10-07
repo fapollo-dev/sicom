@@ -6,7 +6,7 @@ import { Field } from '../ui/Field';
 import { SelectField } from '../ui/SelectField';
 import { DateField } from '../ui/DateField';
 import { ShortcutScope, useShortcut } from '../keyboard';
-import { apiHeaders, handle401 } from '../auth/session';
+import { apiHeaders, getSessao, handle401 } from '../auth/session';
 import { useMensagem } from '../mensagem';
 import { hojeNaLoja } from '../tempo';
 import { exportarGradeCsv } from '../export/exportarGradeCsv';
@@ -67,6 +67,22 @@ interface Meta {
 }
 interface Detalhe { titulo: string; linhas: Array<Record<string, unknown>>; indisponivel: string | null; cabecalho: string }
 interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; n: number }
+
+/**
+ * As duas memórias LOCAIS da Pesquisa (no legado, arquivos no disco da estação — `Configuracoes_Pesquisa\<VIEW>[<operador>].XML` e
+ * `…\Consultas\…`; aqui o armazenamento do navegador, por operador × pesquisa): o F4 (`SalvaConfig`, uPesquisa.pas:2464-2525 — campo,
+ * operação, coluna do totalizador e ordenação) e a ÚLTIMA PESQUISA (gravada ao fechar com resultado — `FormClose` :1407-1429; ↑ no valor
+ * a repete — UFrameGeral.pas:129-138). Sem armazenamento (janela privada), a Pesquisa funciona igual, sem elas.
+ */
+const chaveLocal = (tipo: 'f4' | 'ultima', recurso: string) => `apollo:pesquisa:${tipo}:${getSessao()?.operador?.codoperador ?? 0}:${recurso}`;
+function lerLocal<T>(tipo: 'f4' | 'ultima', recurso: string): T | null {
+  try { const v = localStorage.getItem(chaveLocal(tipo, recurso)); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
+}
+function gravarLocal(tipo: 'f4' | 'ultima', recurso: string, valor: unknown) {
+  try { localStorage.setItem(chaveLocal(tipo, recurso), JSON.stringify(valor)); } catch { /* sem armazenamento: segue sem a memória */ }
+}
+interface ConfigF4 { campo: string; operacao: Operacao; soma: string | null }
+interface UltimaPesquisa { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string }
 
 async function pedir<T>(caminho: string): Promise<T> {
   const r = await fetch(`${BASE}${caminho}`, { headers: apiHeaders() });
@@ -155,6 +171,16 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         setValor(m.abertura.valor ?? (tipo === 'data' ? hojeNaLoja() : ''));
         setValor2(tipo === 'data' ? hojeNaLoja() : '');
         setColunaSoma(m.totalizador?.[0] ?? null);
+        // o F4 (arquivo local do legado) vem depois do SetDefault do chamador e antes do status do banco (uPesquisa.pas:1601-1648)
+        const f4 = lerLocal<ConfigF4>('f4', resourcePath);
+        if (f4 && m.colunas.some((c) => c.campo === f4.campo)) {
+          const t = m.colunas.find((c) => c.campo === f4.campo)!.tipo;
+          setCampo(f4.campo);
+          setOperacao(m.operacoes[t].includes(f4.operacao) ? f4.operacao : m.operacoes[t][0]);
+          setValor(t === 'data' ? hojeNaLoja() : '');
+          setValor2(t === 'data' ? hojeNaLoja() : '');
+          if (f4.soma && m.totalizador?.includes(f4.soma)) setColunaSoma(f4.soma);
+        }
         const padrao = m.opcoes.find((o) => o.padrao)?.id ?? m.opcoes[0]?.id ?? null;
         setOpcao(padrao);
         setOpcaoEscolhida(!m.opcoes.length);
@@ -295,6 +321,30 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     } catch (e) { mensagem.erro(e); }
   };
 
+  // a última pesquisa: gravada ao fechar a janela quando houve consulta com resultado
+  const consultaRef = useRef<Consulta | null>(null);
+  consultaRef.current = consulta;
+  const totalRef = useRef<number | null>(null);
+  totalRef.current = total;
+  useEffect(() => () => {
+    const c = consultaRef.current;
+    if (c && (totalRef.current ?? 0) > 0) gravarLocal('ultima', resourcePath, { campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, opcao: c.opcao } satisfies UltimaPesquisa);
+  }, [resourcePath]);
+  // ↑ no campo de valor: repete a última pesquisa desta tela (recompõe campo, operação e valor e pesquisa)
+  const repetirUltima = () => {
+    const u = lerLocal<UltimaPesquisa>('ultima', resourcePath);
+    if (!u || !meta?.colunas.some((c) => c.campo === u.campo)) return false;
+    setCampo(u.campo);
+    setOperacao(u.operacao);
+    setValor(u.valor);
+    setValor2(u.valor2);
+    if (u.opcao) setOpcao(u.opcao);
+    setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: u.opcao ?? opcao ?? undefined, n: (c?.n ?? 0) + 1 }));
+    focarGrade();
+  };
+  // F4 (SalvaConfig): guarda campo, operação e a coluna do totalizador desta pesquisa
+  const salvarF4 = () => { if (campo) gravarLocal('f4', resourcePath, { campo, operacao, soma: colunaSoma } satisfies ConfigF4); };
+
   const confirmar = (row?: Record<string, any> | null) => {
     if (multisselecao && onSelecionarVarios) {
       const escolhidas = marcados.size ? [...marcados.values()] : [row ?? linhaPosicionada()].filter((x): x is Record<string, any> => !!x);
@@ -332,6 +382,10 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     document.querySelector<HTMLElement>(`[data-pesquisa="${proximo}"] input, [data-pesquisa="${proximo}"] button, [data-pesquisa="${proximo}"] [role=combobox]`)?.focus();
   };
   const noValor = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp' && (e.target as HTMLElement).tagName === 'INPUT') {
+      if (repetirUltima() !== false) { e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
     if (e.key !== 'Enter') return;
     e.preventDefault();
     e.stopPropagation();
@@ -357,6 +411,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
             method: 'DELETE', headers: apiHeaders(),
           }).then((res) => { handle401(res); }).catch(() => undefined),
         } : null}
+        salvarF4={meta && opcaoEscolhida ? salvarF4 : null}
         detalhes={consulta && !detalhe ? (meta?.detalhes ?? []).map((d) => d.tecla) : []}
         abrirDetalhe={abrirDetalhe}
         focarValor={() => {
@@ -550,11 +605,14 @@ function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDo
  * ao cadastro de baixo. F3 = SetaFocoFrame (limpa o valor e põe o foco). O F5/F7 (filtros acumulados) e o F6 (modo do filtro da
  * coluna) voltam nos cortes B/E do dossiê.
  */
-function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela }: {
+function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela, salvarF4 }: {
   focarValor: () => void; detalhes: string[]; abrirDetalhe: (tecla: string) => Promise<false | void>;
   statusTela: { salvar: () => void; apagar: () => void } | null;
+  salvarF4: (() => void) | null;
 }) {
   useShortcut('f3', () => focarValor());
+  // F4 = SalvaConfig (campo, operação e totalizador desta pesquisa, na estação)
+  useShortcut('f4', () => salvarF4?.(), { when: !!salvarF4 });
   // o status da tela (CONFIG_STATUS_TELA): Ctrl+Shift+S guarda o campo, a operação e o valor; Ctrl+Shift+D apaga
   useShortcut('ctrl+shift+s', () => statusTela?.salvar(), { when: !!statusTela });
   useShortcut('ctrl+shift+d', () => statusTela?.apagar(), { when: !!statusTela });
