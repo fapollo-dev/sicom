@@ -14,8 +14,8 @@ import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa
 type Linha = Record<string, any>;
 
 /** a conta do plano (GET_PLANO_CONTAS) só analítica da empresa: '(CLASSE = ''ANALITICA'') AND (TIPO = ''EMPRESA'')' —
- * UCadSituacaoNF.pas:276 (a grade), :323 e :330 (as contas da baixa). A view do destino guarda os códigos (A/T, E/R). */
-const FIXOS_CONTA = { classe: 'A', tipo: 'E' };
+ * UCadSituacaoNF.pas:276 (a grade), :323 e :330 (as contas da baixa). O lookup lê a GET_PLANO_CONTAS do legado (o texto decodificado). */
+const FIXOS_CONTA = { classe: 'ANALITICA', tipo: 'EMPRESA' };
 const descConta = (l: Linha) => `${l.codiexpandido ?? l.codplanocontas} - ${l.descricao ?? ''}`;
 
 /** o campo de lookup de um detalhe de código (CFOP, centro de custo, parceiro) */
@@ -154,10 +154,10 @@ function Campos({ form, editavel }: { form: UseFormReturn<CriarSituacaoNfDto>; e
       )}
       {regra.abas.centroCusto && (
         // UCadSituacaoNF.pas:342-370 — GET_PLC, CHARACTER_LENGTH(CODIGO_EXTENSO) = a máscara da empresa (lancavel) e TIPO_CONTA =
-        // 'DESPESA' (1) na E02, senão 'RECEITA' (0) na saída e 'DESPESA' (1) na entrada
+        // 'DESPESA' na E02, senão 'RECEITA' na saída e 'DESPESA' na entrada (o texto da view do legado)
         <ListaDetalhe form={form} editavel={editavel} nome="centros_custo" campo="codplc" titulo="Centros de custo" rotuloAdicionar="Adicionar centro de custo"
           lookup={{ label: 'Centro de custo', recurso: 'lookup/plc', campoCodigo: 'codplc', campoDigitado: 'desccodplc', descricao: 'descricao',
-            fixos: { tpconta: operacao === 'E02' ? 1 : tipo === 'S' ? 0 : 1 }, parametros: { lancavel: 'S' } }} />
+            fixos: { tipo_conta: operacao === 'E02' ? 'DESPESA' : tipo === 'S' ? 'RECEITA' : 'DESPESA' }, parametros: { lancavel: 'S' } }} />
       )}
       {regra.abas.parceiros && (
         // UCadSituacaoNF.pas:288-311 — GET_PARCEIROS, FRN = 'S' na F04 e (CLI = 'S' OR FRN = 'S') na F05; nas outras, sem filtro

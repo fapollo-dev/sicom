@@ -103,7 +103,7 @@ export function FormasPgtoCadMaster() {
                 recurso="lookup/plano-contas" campoDigitado="codireduzido"
                 campoCodigo="codplanocontas"
                 descricao="descricao_completa"
-                fixos={{ classe: 'A', tipo: 'E' }}
+                fixos={{ classe: 'ANALITICA', tipo: 'EMPRESA' }}
                 value={field.value as number | undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}

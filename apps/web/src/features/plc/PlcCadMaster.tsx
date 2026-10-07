@@ -31,9 +31,9 @@ export function PlcCadMaster() {
       viewPk="codigo"
       log={{ form: 'FRMCADPLC', chave: 'CODPLC' }}
       colunasPesquisa={[
-        { campo: 'desccodplc', label: 'Conta', tipo: 'text', largura: 140 },
+        { campo: 'codigo_extenso', label: 'Conta', tipo: 'text', largura: 140 },
         { campo: 'descricao', label: 'Descrição', tipo: 'text' },
-        { campo: 'nivelconta', label: 'Nível', tipo: 'text', largura: 80 },
+        { campo: 'nivel_conta', label: 'Nível', tipo: 'text', largura: 80 },
       ]}
       schema={plcSchema}
       defaultValues={{ descricao: '', desccodplc: '' }}
@@ -59,10 +59,10 @@ export function PlcCadMaster() {
               <NumberField label="Limite" value={field.value != null ? Number(field.value) : undefined} onChange={field.onChange} decimais={2} disabled={!editavel} />
             )} />
             <div className="sm:col-span-3">
-              {/* uCadPLC.pas:159 — GET_PLANO_CONTAS, CLASSE='ANALITICA' (= classe 'A') */}
+              {/* uCadPLC.pas:159 — GET_PLANO_CONTAS, CLASSE='ANALITICA' (o texto da view do legado) */}
               <Controller control={form.control} name="codcontabil" render={({ field }) => (
                 <LookupField label="Lançamento contábil" recurso="lookup/plano-contas" campoDigitado="codireduzido" campoCodigo="codplanocontas" descricao="descricao_completa"
-                  fixos={{ classe: 'A' }} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+                  fixos={{ classe: 'ANALITICA' }} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                   onChange={(cod) => field.onChange(cod ? Number(cod) : '')} disabled={!editavel} />
               )} />
             </div>

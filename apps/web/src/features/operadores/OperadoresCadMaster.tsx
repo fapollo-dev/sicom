@@ -146,7 +146,7 @@ export function OperadoresCadMaster() {
                 recurso="lookup/operadores"
                 campoCodigo="codoperador"
                 descricao="nome"
-                fixos={{ tipoop: 'SUP', desabilitado: 'N' }}
+                fixos={{ tipo_sigla: 'SUP', desabilitado: 'N' }}
                 value={field.value}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}

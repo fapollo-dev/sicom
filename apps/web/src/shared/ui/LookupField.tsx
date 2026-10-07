@@ -23,7 +23,7 @@ interface Props {
   campoDigitado?: string;
   /** a coluna (ou a função) que mostra a descrição ao lado (o "retorno 2") */
   descricao: string | ((linha: Linha) => string);
-  /** o filtro obrigatório deste campo no legado (FRN='S', CLASSE='A'…); `'cli|frn': 'S'` = uma OU outra coluna */
+  /** o filtro obrigatório deste campo no legado (FRN='S', CLASSE='ANALITICA'…); `'cli|frn': 'S'` = uma OU outra coluna */
   fixos?: Record<string, string | number>;
   /** os parâmetros que o lookup declara no servidor (ex.: `lancavel: 'S'` do centro de custo, `idsituacao_nf` da situação do documento) */
   parametros?: Record<string, string | number | null | undefined>;

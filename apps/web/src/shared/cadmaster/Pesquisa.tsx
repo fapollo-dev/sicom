@@ -107,7 +107,7 @@ interface Props {
   resourcePath: string;
   /** as colunas da grade (o recorte desta tela); sem elas, as colunas da view (o lookup) */
   colunas?: ColunaPesquisa[];
-  /** o filtro obrigatório do lookup (FRN='S', CLASSE='A'…): igualdades coluna = valor, validadas no servidor */
+  /** o filtro obrigatório do lookup (FRN='S', CLASSE='ANALITICA'…): igualdades coluna = valor, validadas no servidor */
   fixos?: Record<string, string | number>;
   /** os parâmetros que a tela/lookup declara no servidor (`extras` — ex.: `lancavel`, `idsituacao_nf`) */
   parametros?: Record<string, string | number | null | undefined>;

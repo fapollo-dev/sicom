@@ -37,7 +37,7 @@ export interface ParametrosDaPesquisa {
   /** o totalizador: a soma desta coluna numérica no resultado inteiro (o `cbbCamposSoma` + `edtTotal`) */
   soma?: string;
   /**
-   * o filtro obrigatório do LOOKUP (o 7º parâmetro do `TfrmPesquisa.Create` de cada campo — `FRN = 'S'`, `CLASSE = 'A'`…), como
+   * o filtro obrigatório do LOOKUP (o 7º parâmetro do `TfrmPesquisa.Create` de cada campo — `FRN = 'S'`, `CLASSE = 'ANALITICA'`…), como
    * igualdades coluna = valor (ou `IN` com vírgula). A coluna tem de existir na view; o valor é tipado pela coluna. Nunca SQL do cliente.
    */
   fixos?: Record<string, string>;

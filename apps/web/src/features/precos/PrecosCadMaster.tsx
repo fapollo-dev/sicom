@@ -23,7 +23,7 @@ export function PrecosCadMaster() {
       resourcePath="cadastro/precos"
       pk="id_preco"
       colunasPesquisa={[
-        { campo: 'id_preco', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
         { campo: 'descricao', label: 'Descrição', tipo: 'text' },
         { campo: 'valor_reajuste', label: 'Valor (%)', tipo: 'number', largura: 160 },
       ]}

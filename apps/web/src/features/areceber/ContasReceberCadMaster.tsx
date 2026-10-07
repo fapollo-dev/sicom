@@ -296,9 +296,9 @@ function CadastroTab({
           control={form.control}
           name="codplc"
           render={({ field }) => (
-            // uCadAReceber.pas:547-553 — GET_PLC, TIPO_CONTA='RECEITA' (= TPCONTA 0 na GET_PLC da produção); o comprimento da máscara e o
+            // uCadAReceber.pas:547-553 — GET_PLC, TIPO_CONTA='RECEITA' (o texto da view do legado); o comprimento da máscara e o
             // CODIGO IN da situação não são igualdade: ficam no servidor
-            <LookupField label="Centro de custo" recurso="lookup/plc" campoDigitado="desccodplc" campoCodigo="codplc" descricao={descPlc} fixos={{ tpconta: 0 }}
+            <LookupField label="Centro de custo" recurso="lookup/plc" campoDigitado="desccodplc" campoCodigo="codplc" descricao={descPlc} fixos={{ tipo_conta: 'RECEITA' }}
               parametros={{ lancavel: 'S', idsituacao_nf: form.watch('idsituacao_nf' as any) }}
               value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codplc')} />
           )}

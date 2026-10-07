@@ -161,8 +161,8 @@ export function HistoricoContabilCadMaster() {
       pkGerada
       largura="5xl"
       colunasPesquisa={[
-        { campo: 'codhistcontabil', label: 'Código', tipo: 'text', largura: 100 },
-        { campo: 'deschist', label: 'Histórico', tipo: 'text' },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 100 },
+        { campo: 'desc_historico', label: 'Histórico', tipo: 'text' },
         { campo: 'coringas', label: 'Buracos', tipo: 'text', largura: 90 },
         { campo: 'status', label: 'Ativo', tipo: 'text', largura: 80 },
       ]}

@@ -29285,6 +29285,15 @@ async function main() {
       const [PA, PI, MX] = [992990, 992991, 992992];
       // os parceiros dos fixtures do corte B (§298.15-§298.17)
       const [FA, FI] = [998301, 998302];
+      // os fixtures do corte B5/B6 (§298.19-§298.22): centros de custo, CFOPs, tabela de preço, motivo, histórico, operação de conta,
+      // famílias, contas do plano e operadores — e a máscara da loja 1 de antes (o lancavel liga a da produção e devolve)
+      const PLCS = [992931, 992932, 992933, 992934];
+      const CFOPS = ['9929', '9983'];
+      const [PRC, MOT, HIS, OPC] = [992941, 992942, 992943, 992944];
+      const FAMS = [992951, 992952, 992953, 992954];
+      const CONTAS = [992961, 992962, 992963];
+      const OPS = [998331, 998332, 998333];
+      let mascAntes: { m: string | null } | undefined;
       const pq = async (qs: string) => {
         const r = await fetch(`${base}/cadastro/pesquisa?${qs}`, { headers: H });
         return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
@@ -29620,6 +29629,125 @@ async function main() {
           && linhasParc.map((l: any) => l._linha).join() === '0,1,2' && linhasParc.filter((l: any) => Number(l.codigo) === FA).length === 2,
           { views, putCp: putCp.status, linhaCp, stCpTodas, stAbertas, delCp: delCp.status, sobrouCp, linhas: linhasParc.map((l: any) => [l._linha, l.codigo]) });
 
+        // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
+        // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
+        // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)
+        const PRODUCAO_B5: Array<{ rec: string; rel: string; retorno: string; ultima?: string; cols: Array<[string, 'numero' | 'texto']> }> = [
+          { rec: 'cadastro/plc', rel: 'rel_get_plc', retorno: 'codigo', cols: [['descricao', 'texto'], ['codigo_extenso', 'texto'], ['codigo', 'numero'],
+            ['codigo_pai', 'numero'], ['tipo_conta', 'texto'], ['nivel_conta', 'numero'], ['perda', 'texto'], ['obriga_motivo_perda', 'texto']] },
+          { rec: 'cadastro/cfops', rel: 'rel_get_cfop', retorno: 'cfop', cols: [['cfop', 'numero'], ['descricao', 'texto'], ['tipo', 'texto'], ['estado', 'texto'],
+            ['precessa_qtde', 'texto'], ['processa_financeiro', 'texto'], ['processa_transferencia', 'texto'], ['processa_cupom', 'texto'], ['codcontabil', 'numero'],
+            ['descodcontabil', 'texto']] },
+          { rec: 'cadastro/precos', rel: 'get_preco', retorno: 'codigo', ultima: 'codigo', cols: [['codigo', 'numero'], ['descricao', 'texto'], ['valor_reajuste', 'numero'],
+            ['reajuste', 'texto'], ['ativo', 'texto']] },
+          { rec: 'cadastro/motivos-operacao', rel: 'get_motivos_operacao', retorno: 'codigo', ultima: 'perda_padrao', cols: [['codigo', 'numero'], ['tipo_operacao', 'texto'],
+            ['descricao', 'texto'], ['perda_padrao', 'texto']] },
+          { rec: 'cadastro/historico-contabil', rel: 'get_historico_contabil', retorno: 'codigo', ultima: 'desc_historico', cols: [['codigo', 'numero'],
+            ['desc_historico', 'texto'], ['status', 'texto']] },
+          { rec: 'cadastro/operacoes-conta', rel: 'get_operacoes_conta', retorno: 'codigo', ultima: 'codigo', cols: [['descricao', 'texto'], ['codigo', 'numero'], ['tipo', 'texto']] },
+        ];
+        const b5Ruim: unknown[] = [];
+        for (const v of PRODUCAO_B5) {
+          const m = await metaDe(`recurso=${v.rec}`);
+          const ordem = (await pgPq.query(`SELECT column_name c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`, [v.rel])).rows.map((r: any) => r.c as string);
+          const tipos = new Map(((m.j.colunas ?? []) as any[]).map((c: any) => [c.campo, c.tipo]));
+          const nomes = v.cols.map(([c]) => c);
+          // a rel_ nova começa pelas da produção, na ordem; na view da tela, a coluna que faltava é a ÚLTIMA (o acréscimo no fim)
+          const naOrdem = v.ultima ? ordem[ordem.length - 1] === v.ultima : nomes.every((c, i) => ordem[i] === c);
+          const certo = m.status === 200 && m.j.retorno === v.retorno && [...nomesDe(m)].sort().join() === [...nomes].sort().join()
+            && v.cols.every(([c, t]) => tipos.get(c) === t) && naOrdem;
+          if (!certo) b5Ruim.push({ rec: v.rec, meta: [m.status, m.j.retorno, nomesDe(m)], ordem });
+        }
+        check('PESQUISA §298.19 [corte B5 — as views sem versão integral, como na produção]: rel_get_plc (8 colunas) e rel_get_cfop (10) começam pelas colunas da GET_PLC e da GET_CFOP da produção, na ordem e com a categoria do tipo; GET_PRECO, GET_MOTIVOS_OPERACAO, GET_HISTORICO_CONTABIL e GET_OPERACOES_CONTA ganham no FIM da view da tela a coluna que faltava (CODIGO, PERDA_PADRAO, DESC_HISTORICO, CODIGO); a combo de cada tela tem só as colunas do legado e o retorno é o do legado (CODIGO; na de CFOP, CFOP — UCadCFOP.pas:444)',
+          b5Ruim.length === 0, { b5Ruim });
+
+        // os fixtures: a máscara da produção ('#.##.###', 8) na loja 1; centros de custo de 8, 6 e 5 caracteres e um excluído; CFOPs
+        // de devolução dentro e fora do estado
+        mascAntes = (await pgPq.query(`SELECT mascaraplc m FROM empresas WHERE idempresa = 1`)).rows[0];
+        await pgPq.query(`UPDATE empresas SET mascaraplc = '#.##.###' WHERE idempresa = 1`);
+        await pgPq.query(`INSERT INTO plc (codplc, desccodplc, descricao, tpconta, nivelconta, flg_perda, plc_obriga_motivo_perda, indr) VALUES
+          (992931, '9.92.931', 'PESQ298C RECEITA', 0, 3, 'S', 'S', NULL), (992932, '9.9293', 'PESQ298C DESPESA', 1, 2, 'N', NULL, 'I'),
+          (992933, '9.929', 'PESQ298C CURTA', 2, 1, NULL, NULL, NULL), (992934, '9.92.934', 'PESQ298C EXCLUIDA', 1, 3, NULL, NULL, 'E')`);
+        await pgPq.query(`INSERT INTO cfop (codcfop, descricao, tipo, tipoestado, devolucao, proc_qtde, proc_financeiro) VALUES
+          ('9929', 'PESQ298C DEVOLUCAO FORA', 'S', 'FORA', 'S', 'S', 'N'), ('9983', 'PESQ298C DEVOLUCAO DENTRO', 'S', 'DENTRO', 'S', 'N', 'N')`);
+        const cods = (r: any) => (r.j.linhas ?? []).map((l: any) => Number(l.codigo)).sort((a: number, b: number) => a - b).join();
+        const lkPlc = (extra: string) => pq(`recurso=lookup/plc&campo=codigo&operacao=contido&valor=${PLCS.join(',')}&porPagina=50${extra}`);
+        const [plcTodos, plcMasc, plcRec, plcDesp] = [await lkPlc(''), await lkPlc('&lancavel=S'), await lkPlc('&f_tipo_conta=RECEITA'), await lkPlc('&f_tipo_conta=DESPESA')];
+        const tipoDe = (r: any, cod: number) => (r.j.linhas ?? []).find((l: any) => Number(l.codigo) === cod)?.tipo_conta ?? null;
+        const cadPlc = await pq('recurso=cadastro/plc&campo=codigo&operacao=igual&valor=992931');
+        const p931 = cadPlc.j.linhas?.[0] ?? {};
+        const plcMeta = await metaDe('recurso=cadastro/plc');
+        await pgPq.query(`UPDATE empresas SET mascaraplc = $1 WHERE idempresa = 1`, [mascAntes?.m ?? null]);
+        const cfMeta = await metaDe('recurso=cadastro/cfops');
+        const cf = await pq('recurso=cadastro/cfops&campo=cfop&operacao=igual&valor=9929');
+        const cf0 = cf.j.linhas?.[0] ?? {};
+        const cfDev = await pq('recurso=lookup/cfops&campo=cfop&operacao=contido&valor=9929,9983&f_tipo=S&f_devolucao=S&f_estado=DENTRO');
+        const cfNav = await pq('recurso=cadastro/cfops&campo=descricao&operacao=comeca&valor=PESQ298C&soCodigos=true');
+        check('PESQUISA §298.20 [corte B5 — a GET_PLC e a GET_CFOP do legado]: o WHERE da GET_PLC está na view (o centro de 5 caracteres e o excluído não aparecem nem no lookup nem no cadastro, sem filtro no rodapé); TIPO_CONTA decodificado (0 = RECEITA, 1 = DESPESA) e filtrável pelo texto (uCadAReceber.pas:554, UCadSituacaoNF.pas:355-361); o lancavel = CHARACTER_LENGTH(CODIGO_EXTENSO) = a máscara da loja (uAPagar.pas:777 — com a da produção, 8, só o de 8 caracteres); CODIGO_EXTENSO/PERDA/OBRIGA_MOTIVO_PERDA/NIVEL_CONTA do legado e o CODPLC oculto que o campo grava. A GET_CFOP abre no 1º alfabético, CFOP / Igual a, com o CFOP numérico, o ESTADO, o PRECESSA_QTDE (sic) e o DESCODCONTABIL nulo (a CODCONTABIL da produção é vazia); o CFOP de devolução pelo ESTADO (UCadCFOP.pas:208); a navegação do cadastro devolve o CFOP',
+          plcTodos.status === 200 && cods(plcTodos) === '992931,992932' && tipoDe(plcTodos, 992931) === 'RECEITA' && tipoDe(plcTodos, 992932) === 'DESPESA'
+          && plcMasc.status === 200 && cods(plcMasc) === '992931' && cods(plcRec) === '992931' && cods(plcDesp) === '992932'
+          && cadPlc.j.total === 1 && p931.codigo_extenso === '9.92.931' && p931.perda === 'S' && p931.obriga_motivo_perda === 'S' && Number(p931.nivel_conta) === 3
+          && Number(p931.codplc) === 992931 && plcMeta.j.obrigatorio === null && plcMeta.j.abertura?.campo === 'codigo'
+          && cfMeta.status === 200 && cfMeta.j.abertura?.campo === 'cfop' && cfMeta.j.abertura?.operacao === 'igual'
+          && cf.status === 200 && cf.j.total === 1 && Number(cf0.cfop) === 9929 && cf0.estado === 'FORA' && cf0.precessa_qtde === 'S' && cf0.descodcontabil === null
+          && String(cf0.codcfop).trim() === '9929'
+          && cfDev.status === 200 && cfDev.j.total === 1 && String(cfDev.j.linhas?.[0]?.codcfop).trim() === '9983'
+          && (cfNav.j.codigos ?? []).map(Number).join() === '9929,9983',
+          { plc: [plcTodos.status, cods(plcTodos), tipoDe(plcTodos, 992931), tipoDe(plcTodos, 992932)], lanc: [plcMasc.status, cods(plcMasc), plcMasc.j.code],
+            tipoConta: [cods(plcRec), cods(plcDesp)], p931, plcMeta: [plcMeta.j.obrigatorio, plcMeta.j.abertura],
+            cfMeta: cfMeta.j.abertura, cf: [cf.status, cf.j.total, cf0], dev: [cfDev.status, cfDev.j.total, cfDev.j.code], nav: cfNav.j.codigos });
+
+        // as 4 views da tela com a coluna do legado no fim: o retorno CODIGO é a PK que o cadastro carrega; o CRUD segue lendo a mesma view
+        await pgPq.query(`INSERT INTO preco (id_preco, descricao, valor_reajuste, reajuste, ativo) VALUES (${PRC}, 'PESQ298C PRECO', 5, 'S', 'S')`);
+        await pgPq.query(`INSERT INTO motivos_operacao (codmotivoop, descricao, tipo_operacao) VALUES (${MOT}, 'PESQ298C MOTIVO', 'PERDA')`);
+        await pgPq.query(`INSERT INTO historico_contabil (codhistcontabil, deschist, status) VALUES (${HIS}, 'PESQ298C HIST * DE *', 'S')`);
+        await pgPq.query(`INSERT INTO operacoes_conta (codopconta, descricao, tipo) VALUES (${OPC}, 'PESQ298C OPERACAO', 'C')`);
+        const um = async (rec: string, cod: number) => (await pq(`recurso=${rec}&campo=codigo&operacao=igual&valor=${cod}&situacao=todos`)).j.linhas?.[0] ?? {};
+        const [rPrc, rMot, rHis, rOpc] = [await um('cadastro/precos', PRC), await um('cadastro/motivos-operacao', MOT), await um('cadastro/historico-contabil', HIS),
+          await um('cadastro/operacoes-conta', OPC)];
+        const crudOpc = await fetch(`${base}/cadastro/operacoes-conta/${OPC}`, { headers: H });
+        const crudOpcJ = (await crudOpc.json().catch(() => ({}))) as any;
+        const listaOpc = (await (await fetch(`${base}/cadastro/operacoes-conta`, { headers: H })).json().catch(() => [])) as any;
+        const naLista = (Array.isArray(listaOpc) ? listaOpc : listaOpc?.dados ?? listaOpc?.linhas ?? []).find((l: any) => Number(l.codopconta) === OPC);
+        check('PESQUISA §298.21 [corte B5 — a coluna do legado no fim da view da tela]: GET_PRECO CODIGO = ID_PRECO; GET_MOTIVOS_OPERACAO PERDA_PADRAO = COALESCE(…, \'N\') (o nulo sai N); GET_HISTORICO_CONTABIL DESC_HISTORICO = DESCHIST; GET_OPERACOES_CONTA CODIGO = CODOPCONTA (TIPO CREDITO) — a Pesquisa acha por CODIGO e devolve a PK do cadastro, e o CRUD segue: a leitura pela tabela e a lista pela view (agora com o CODIGO no fim)',
+          Number(rPrc.codigo) === PRC && Number(rPrc.id_preco) === PRC
+          && Number(rMot.codigo) === MOT && rMot.perda_padrao === 'N' && Number(rMot.codmotivoop) === MOT
+          && Number(rHis.codigo) === HIS && rHis.desc_historico === 'PESQ298C HIST * DE *' && Number(rHis.codhistcontabil) === HIS
+          && Number(rOpc.codigo) === OPC && rOpc.tipo === 'CREDITO' && Number(rOpc.codopconta) === OPC
+          && crudOpc.status === 200 && Number(crudOpcJ.codopconta) === OPC && crudOpcJ.tipo === 'C' && naLista?.tipo === 'CREDITO' && Number(naLista?.codigo) === OPC,
+          { rPrc, rMot, rHis, rOpc, crud: [crudOpc.status, crudOpcJ.codopconta, crudOpcJ.tipo], naLista });
+
+        // ── corte B6: os lookups de valor decodificado sobre a relação do legado — o chamador filtra pelo TEXTO da view (os `fixos` da web)
+        const loja2 = (await pgPq.query(`SELECT idempresa FROM empresas WHERE idempresa <> 1 ORDER BY idempresa LIMIT 1`)).rows[0]?.idempresa as number | undefined;
+        await pgPq.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo, idempresa, ativo) VALUES
+          (992951, 'PESQ298C DEPTO DA LOJA', 'D', 1, 'S'), (992952, 'PESQ298C DEPTO SEM LOJA', 'D', NULL, 'S'),
+          (992953, 'PESQ298C GRUPO DA LOJA', 'G', 1, 'S'), (992954, 'PESQ298C DEPTO INATIVO', 'D', 1, 'N')`);
+        await pgPq.query(`INSERT INTO plano_contas (codplanocontas, descricao, codireduzido, codiexpandido, classe, tipo, status) VALUES
+          (992961, 'PESQ298C ANALITICA', '992961', '9.9.92961', 'A', 'E', 'A'), (992962, 'PESQ298C SINTETICA', '992962', '9.9.92962', 'T', 'E', 'A'),
+          (992963, 'PESQ298C REFERENCIAL', '992963', '9.9.92963', 'A', 'R', 'A')`);
+        await pgPq.query(`INSERT INTO operadores (codoperador, nome, login, tipoop, desabilitado) VALUES
+          (998331, 'PESQ298C SUPERVISOR', 'PESQ298SUP', 'SUP', 'N'), (998332, 'PESQ298C SEM TIPO', 'PESQ298NUL', NULL, NULL),
+          (998333, 'PESQ298C SUP DESABILITADO', 'PESQ298SUD', 'SUP', 'S')`);
+        await pgPq.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (998331, 1)${loja2 != null ? `, (998331, ${Number(loja2)})` : ''}`);
+        const famQ = (extra: string) => pq(`recurso=lookup/familias&campo=nome&operacao=comeca&valor=PESQ298C&porPagina=50${extra}`);
+        const [famDepLoja, famDep, famCru] = [await famQ('&f_tipo=DEPARTAMENTO&f_ativo=S&daLoja=S'), await famQ('&f_tipo=DEPARTAMENTO&f_ativo=S'), await famQ('&f_tipo=D')];
+        const famMeta = await metaDe('recurso=lookup/familias');
+        const ctQ = (extra: string) => pq(`recurso=lookup/plano-contas&campo=codigo&operacao=contido&valor=${CONTAS.join(',')}&porPagina=50${extra}`);
+        const [ctAnalit, ctCru] = [await ctQ('&f_classe=ANALITICA&f_tipo=EMPRESA'), await ctQ('&f_classe=A&f_tipo=E')];
+        const opQ = (extra: string) => pq(`recurso=lookup/operadores&campo=codigo&operacao=contido&valor=${OPS.join(',')}&porPagina=50${extra}`);
+        const [opSup, opTexto, opCru] = [await opQ('&f_tipo_sigla=SUP&f_desabilitado=N'), await opQ(`&f_tipoop=${encodeURIComponent('Supervisor(a)')}&f_desabilitado=N`), await opQ('&f_tipoop=SUP')];
+        const distintos = (r: any) => [...new Set((r.j.linhas ?? []).map((l: any) => Number(l.codigo)))].sort().join();
+        check('PESQUISA §298.22 [corte B6 — os lookups pelo valor do legado]: famílias pelo TIPO decodificado (DEPARTAMENTO) + ATIVO + CODEMPRESA da loja (daLoja — UCadFamiliaProd.pas:220-259; sem ele, também a sem loja), e a letra crua (D) não acha mais; plano de contas por CLASSE = ANALITICA e TIPO = EMPRESA (uCadFormaPgto.pas:291), a letra crua não acha; o supervisor do operador por TIPO_SIGLA = SUP e DESABILITADO = N (uCadUsuarios.pas:495-501) — uma linha por loja do operador, com o CODOPERADOR oculto que o campo grava —, enquanto TIPOOP = Supervisor(a) traz também o de TIPOOP nulo, como na GET_OPERADORES da produção (444 linhas com o nulo, ELSE do CASE); e o retorno CODIGO',
+          famDepLoja.status === 200 && cods(famDepLoja) === '992951' && cods(famDep) === '992951,992952' && famCru.status === 200 && famCru.j.total === 0
+          && famMeta.j.retorno === 'codigo' && nomesDe(famMeta).length === 10 && !nomesDe(famMeta).includes('codfamilia')
+          && (famDepLoja.j.linhas ?? []).every((l: any) => Number(l.codfamilia) === 992951 && l.nome === 'PESQ298C DEPTO DA LOJA')
+          && ctAnalit.status === 200 && cods(ctAnalit) === '992961' && Number(ctAnalit.j.linhas?.[0]?.codplanocontas) === 992961 && ctCru.j.total === 0
+          && opSup.status === 200 && distintos(opSup) === '998331' && opSup.j.total === (loja2 != null ? 2 : 1)
+          && (opSup.j.linhas ?? []).every((l: any) => Number(l.codoperador) === 998331 && l.tipoop === 'Supervisor(a)')
+          && distintos(opTexto) === '998331,998332' && opCru.status === 200 && opCru.j.total === 0,
+          { fam: [famDepLoja.status, cods(famDepLoja), cods(famDep), famCru.j.total, famMeta.j.retorno, nomesDe(famMeta).length],
+            ct: [ctAnalit.status, cods(ctAnalit), ctCru.j.total], op: [opSup.status, opSup.j.total, distintos(opSup), distintos(opTexto), opCru.j.total, loja2] });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');
@@ -29630,6 +29758,17 @@ async function main() {
           && ruimNum.j.code === 'PESQUISA_NUMERO_INVALIDO' && ruimRec.j.code === 'PESQUISA_DESCONHECIDA' && ruimOpc.j.code === 'PESQUISA_OPCAO_INVALIDA',
           { c: [ruimCampo.status, ruimCampo.j.code], o: ruimOp.j.code, n: ruimNum.j.code, r: ruimRec.j.code, op: ruimOpc.j.code });
       } finally {
+        await pgPq.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = ANY($1)`, [OPS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM operadores WHERE codoperador = ANY($1)`, [OPS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM plano_contas WHERE codplanocontas = ANY($1)`, [CONTAS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1)`, [FAMS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM operacoes_conta WHERE codopconta = $1`, [OPC]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM historico_contabil WHERE codhistcontabil = $1`, [HIS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM motivos_operacao WHERE codmotivoop = $1`, [MOT]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM preco WHERE id_preco = $1`, [PRC]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM cfop WHERE codcfop = ANY($1)`, [CFOPS]).catch(() => undefined);
+        await pgPq.query(`DELETE FROM plc WHERE codplc = ANY($1)`, [PLCS]).catch(() => undefined);
+        if (mascAntes) await pgPq.query(`UPDATE empresas SET mascaraplc = $1 WHERE idempresa = 1`, [mascAntes.m]).catch(() => undefined);
         await pgPq.query(`DELETE FROM nf WHERE codnf = ANY($1)`, [[998321, 998322, 998323]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM areceber_bx WHERE codrcb = ANY($1)`, [[998317, 998318]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM areceber WHERE codrcb = ANY($1)`, [[998317, 998318]]).catch(() => undefined);

@@ -64,6 +64,8 @@ export interface GetOperacoesContaView {
   descricao: string;
   codopconta: number;
   tipo: string; // decodificado: 'CREDITO' | 'DEBITO'
+  /** o CODIGO da GET_OPERACOES_CONTA da produção (= codopconta; mig 413) */
+  codigo: number;
 }
 
 /** 3ª tela: CONTAS_BANCARIAS (FK codbco → bancos; padrão lookup). */

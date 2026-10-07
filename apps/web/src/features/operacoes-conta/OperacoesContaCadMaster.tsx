@@ -26,7 +26,7 @@ export function OperacoesContaCadMaster() {
       resourcePath="cadastro/operacoes-conta"
       pk="codopconta"
       colunasPesquisa={[
-        { campo: 'codopconta', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
         { campo: 'descricao', label: 'Descrição', tipo: 'text' },
         { campo: 'tipo', label: 'Tipo', tipo: 'text', largura: 130 },
       ]}

@@ -390,7 +390,7 @@ configuração; o produto-pai ≠ o próprio é regra da tela.
 | `ProdutoCadMaster.tsx:444/462/480`, `FamiliasCadMaster.tsx:33`, `PromocaoCadMaster.tsx:614` (lookup/familias) | `tipo: 'G'/'D'/'O'/…` | `tipo: 'GRUPO'/'DEPARTAMENTO'/'SECAO'/…` |
 | `SituacaoNfCadMaster.tsx:18`, `FormasPgtoCadMaster.tsx:106`, `ContasBancariasCadMaster.tsx:181` (lookup/plano-contas) | `classe: 'A', tipo: 'E'` | `classe: 'ANALITICA', tipo: 'EMPRESA'` |
 | `PlcCadMaster.tsx:65` (lookup/plano-contas) | `classe: 'A'` | `classe: 'ANALITICA'` |
-| `OperadoresCadMaster.tsx:149` (lookup/operadores) | `tipoop: 'SUP'` | `tipo_sigla: 'SUP'` (o legado do supervisor é o `SearchEngineApollo`, ausente do fonte — **não provado** se filtra pelo texto, que incluiria os 444 nulos) |
+| `OperadoresCadMaster.tsx:149` (lookup/operadores) | `tipoop: 'SUP'` | `tipo_sigla: 'SUP'` — **provado (B6)**: o botão do supervisor é `TfrmPesquisa.Create(…, 'GET_OPERADORES', …, 'DESABILITADO = ''N'' AND TIPO_SIGLA = ''SUP''')` (uCadUsuarios.pas:495-501; o `SegSupervisor` do .dfm:2557-2582 filtra a tabela por `TIPOOP = 'SUP'`, o mesmo conjunto). Na produção: `TIPO_SIGLA='SUP' AND DESABILITADO='N'` = 20 linhas / 6 operadores; `TIPOOP='Supervisor(a)'` = 418 / 202 (o nulo entra pelo `ELSE`) |
 | `ContasReceberCadMaster.tsx:299`, `SituacaoNfCadMaster.tsx:160` (lookup/plc) | `tpconta: 0/1` | ficam (a `rel_get_plc` mantém `tpconta` no fim) ou `tipo_conta: 'RECEITA'/'DESPESA'` |
 | `campoCodigo`/`campoDigitado`/`descricao` (`codparceiro`, `idproduto`, `codplc`/`desccodplc`, `codplanocontas`/`codireduzido`, `codoperador`, `codfamilia`/`descricao`, `codcfop`) | nomes do Apollo | continuam: as `rel_` guardam essas colunas no fim |
 

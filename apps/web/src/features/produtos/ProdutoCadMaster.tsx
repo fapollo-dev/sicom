@@ -435,13 +435,13 @@ function PrincipalSection({
             control={form.control}
             name="codgrupo"
             render={({ field }) => (
-              // UCadProduto.pas:4207 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'GRUPO' (G) AND ATIVO = 'S'
+              // UCadProduto.pas:4207 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'GRUPO' AND ATIVO = 'S' (o texto da view do legado)
               <LookupField
                 label="Grupo"
                 recurso="lookup/familias"
                 campoCodigo="codfamilia"
                 descricao="descricao"
-                fixos={{ tipo: 'G', ativo: 'S' }}
+                fixos={{ tipo: 'GRUPO', ativo: 'S' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}
@@ -453,13 +453,13 @@ function PrincipalSection({
             control={form.control}
             name="coddpto"
             render={({ field }) => (
-              // UCadProduto.pas:4201 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'DEPARTAMENTO' (D) AND ATIVO = 'S'
+              // UCadProduto.pas:4201 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'DEPARTAMENTO' AND ATIVO = 'S' (o texto da view do legado)
               <LookupField
                 label="Departamento"
                 recurso="lookup/familias"
                 campoCodigo="codfamilia"
                 descricao="descricao"
-                fixos={{ tipo: 'D', ativo: 'S' }}
+                fixos={{ tipo: 'DEPARTAMENTO', ativo: 'S' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}
@@ -471,13 +471,13 @@ function PrincipalSection({
             control={form.control}
             name="codsecao"
             render={({ field }) => (
-              // UCadProduto.pas:4283 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'SECAO' (O) AND ATIVO = 'S'
+              // UCadProduto.pas:4283 (ChamauPesquisa) — GET_FAMILIAS_PROD, TIPO = 'SECAO' AND ATIVO = 'S' (o texto da view do legado)
               <LookupField
                 label="Seção"
                 recurso="lookup/familias"
                 campoCodigo="codfamilia"
                 descricao="descricao"
-                fixos={{ tipo: 'O', ativo: 'S' }}
+                fixos={{ tipo: 'SECAO', ativo: 'S' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}

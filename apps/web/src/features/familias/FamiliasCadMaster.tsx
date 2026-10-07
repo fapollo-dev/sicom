@@ -25,8 +25,8 @@ export function FamiliasCadMaster() {
   );
   /**
    * a família de um tipo (UCadFamiliaProd.pas:220-222 departamento, 236-238 grupo, 245-247 seção, 254-260 setor): GET_FAMILIAS_PROD com
-   * TIPO = o tipo (o decode da view da produção: D/G/O/E) AND ATIVO='S'. O `CODEMPRESA = a loja` do legado não cabe: a get_familias_prod
-   * do destino não tem a coluna da empresa (vai ao servidor).
+   * TIPO = o TEXTO da view do legado ('DEPARTAMENTO', 'GRUPO', 'SECAO', 'SETOR') AND CODEMPRESA = a loja do login (o `daLoja`, que o
+   * servidor resolve) AND ATIVO = 'S'.
    */
   const familia = (form: any, name: keyof CriarFamiliaDto, label: string, tipo: string, editavel: boolean) => (
     <Controller control={form.control} name={name as never} render={({ field }: any) => (
@@ -97,10 +97,10 @@ export function FamiliasCadMaster() {
               <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
                 <legend className="px-pad-xs text-fg-muted">Subgrupo</legend>
                 <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-                  {familia(form, 'codsecao', 'Seção', 'O', editavel)}
-                  {familia(form, 'coddpto', 'Departamento', 'D', editavel)}
-                  {familia(form, 'codgrupo', 'Grupo', 'G', editavel)}
-                  {familia(form, 'codsetor', 'Setor', 'E', editavel)}
+                  {familia(form, 'codsecao', 'Seção', 'SECAO', editavel)}
+                  {familia(form, 'coddpto', 'Departamento', 'DEPARTAMENTO', editavel)}
+                  {familia(form, 'codgrupo', 'Grupo', 'GRUPO', editavel)}
+                  {familia(form, 'codsetor', 'Setor', 'SETOR', editavel)}
                   {numero(form, 'coberturamaxima', 'Cobertura máxima', editavel, 0)}
                   {flag(form, 'exibesicomanda', 'Exibe no SICOMANDA', editavel)}
                 </div>

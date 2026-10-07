@@ -168,7 +168,7 @@ export function ContasBancariasCadMaster() {
             {...form.register('fone1')}
           />
           {/* LOOKUP Plano de Contas (CODLANCCONTABIL) — UCadContasBancarias.pas:175, GET_PLANO_CONTAS (CLASSE='ANALITICA') AND
-              (TIPO='EMPRESA') = classe 'A' e tipo 'E' (o decode da view da produção); o servidor confere o mesmo no gravar */}
+              (TIPO='EMPRESA') — o texto da view do legado (classe 'A' e tipo 'E' na tabela); o servidor confere o mesmo no gravar */}
           <Controller
             control={form.control}
             name="codlanccontabil"
@@ -178,7 +178,7 @@ export function ContasBancariasCadMaster() {
                 recurso="lookup/plano-contas" campoDigitado="codireduzido"
                 campoCodigo="codplanocontas"
                 descricao="descricao"
-                fixos={{ classe: 'A', tipo: 'E' }}
+                fixos={{ classe: 'ANALITICA', tipo: 'EMPRESA' }}
                 value={field.value != null && field.value !== '' ? String(field.value) : undefined}
                 onChange={(cod) => field.onChange(cod ?? '')}
                 error={form.formState.errors.codlanccontabil?.message as string | undefined}

@@ -103,10 +103,10 @@ export function CfopCadMaster() {
       log={{ form: 'FRMCADCFOP', chave: 'CODCFOP' }}
       pkGerada={false} // chave natural: o usuário digita o CFOP (4 dígitos)
       colunasPesquisa={[
-        { campo: 'codcfop', label: 'CFOP', tipo: 'text', largura: 110 },
+        { campo: 'cfop', label: 'CFOP', tipo: 'text', largura: 110 },
         { campo: 'descricao', label: 'Descrição', tipo: 'text' },
         { campo: 'tipo', label: 'Tipo', tipo: 'text', largura: 80 },
-        { campo: 'tipoestado', label: 'Destino', tipo: 'text', largura: 110 },
+        { campo: 'estado', label: 'Destino', tipo: 'text', largura: 110 },
       ]}
       schema={cfopSchema}
       defaultValues={{ descricao: '' }}
@@ -115,7 +115,7 @@ export function CfopCadMaster() {
         const destino = form.watch('tipoestado');
         // o CFOP de devolução: a Pesquisa do legado é GET_CFOP com TIPO = 'S' AND ESTADO = <destino> (btnCFOPDevolucaoClick,
         // UCadCFOP.pas:208) e o código digitado só vale com DEVOLUCAO = 'S' e o mesmo TIPOESTADO (segCFOP, UCadCFOP.dfm:1670)
-        const fixosDevolucao: Record<string, string> = { tipo: 'S', devolucao: 'S', ...(destino ? { tipoestado: String(destino) } : {}) };
+        const fixosDevolucao: Record<string, string> = { tipo: 'S', devolucao: 'S', ...(destino ? { estado: String(destino) } : {}) };
         return (
           <div className="flex flex-col gap-form-gap">
             {grupo('CFOP', editavel, (

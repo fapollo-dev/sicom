@@ -70,6 +70,8 @@ const SUBTIPO_OPCOES = [
 ];
 const SUBTIPO_LABEL: Record<string, string> = Object.fromEntries(SUBTIPO_OPCOES.map((s) => [s.value, s.label]));
 const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
+/** o TIPO da GET_FAMILIAS_PROD do legado (o texto decodificado) de cada subtipo de família — UCadPromocao.pas:1228-1231 */
+const TIPO_DA_FAMILIA: Record<string, string> = { O: 'SECAO', D: 'DEPARTAMENTO', G: 'GRUPO', S: 'SUBGRUPO' };
 
 /**
  * UI de cada mecânica já implementada. `shape` decide o adder:
@@ -606,12 +608,12 @@ export function PromocaoCadMaster() {
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
                 <div className="sm:col-span-2"><SelectField label="&Categoria" options={SUBTIPO_OPCOES} value={subtipoCat} onChange={(v) => { setSubtipoCat(v || 'P'); setAlvoCat(undefined); }} /></div>
-                {/* BtnBuscaCategoriaClick (UCadPromocao.pas:1228-1234): a família pelo TIPO (SECAO/DEPARTAMENTO/GRUPO/SUBGRUPO na view do legado =
-                    a letra O/D/G/S da FAMILIAS_PROD), o produto sem filtro, o fornecedor com FRN='S'; a marca segue no combo (tabela pequena) */}
+                {/* BtnBuscaCategoriaClick (UCadPromocao.pas:1228-1234): a família pelo TIPO da view do legado (SECAO/DEPARTAMENTO/GRUPO/
+                    SUBGRUPO — o texto da letra O/D/G/S da FAMILIAS_PROD), o produto sem filtro, o fornecedor com FRN='S'; a marca segue no combo */}
                 <div className="sm:col-span-2">
                   {SUBTIPO_FAMILIA.has(subtipoCat) ? (
                     <LookupField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao"
-                      fixos={{ tipo: subtipoCat }} value={alvoCat}
+                      fixos={{ tipo: TIPO_DA_FAMILIA[subtipoCat] }} value={alvoCat}
                       onChange={(cod, l) => { const id = cod ? Number(cod) : undefined; setAlvoCat(id); if (l) guardarRotulo(subtipoCat, id, `${cod} - ${l.descricao ?? ''}`); }} />
                   ) : subtipoCat === 'P' ? (
                     <ProdutoDaAba label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} value={alvoCat} onChange={escolherProduto(setAlvoCat)} />
