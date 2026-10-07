@@ -30,6 +30,11 @@ export interface ParametrosDaPesquisa {
   extras?: Record<string, string>;
   /** só os códigos de retorno do resultado inteiro, na ordem — o `cdsNavegation` do cadastro (uCadMaster.pas:547, 870-883) */
   soCodigos?: boolean;
+  /**
+   * o filtro obrigatório do LOOKUP (o 7º parâmetro do `TfrmPesquisa.Create` de cada campo — `FRN = 'S'`, `CLASSE = 'A'`…), como
+   * igualdades coluna = valor (ou `IN` com vírgula). A coluna tem de existir na view; o valor é tipado pela coluna. Nunca SQL do cliente.
+   */
+  fixos?: Record<string, string>;
 }
 
 /** nada que pareça credencial sai na grade nem na lista de campos (o `empresaParaRelatorio` usa a mesma regra) */
@@ -139,6 +144,18 @@ export class PesquisaService {
         extras: p.extras ?? {},
       };
       conds.push(...(await t.obrigatorios(ctx)));
+    }
+
+    // os filtros fixos do lookup
+    for (const [coluna, valor] of Object.entries(p.fixos ?? {})) {
+      const col = porNome.get(coluna);
+      if (!col) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: coluna });
+      try {
+        const c = condicaoDoUsuario(col.campo, col.tipo, valor.includes(',') ? 'contido' : 'igual', valor);
+        if (c) conds.push(c);
+      } catch {
+        throw new BusinessRuleError('PESQUISA_NUMERO_INVALIDO', { campo: coluna, valor });
+      }
     }
 
     // o campo + operação + valor do operador

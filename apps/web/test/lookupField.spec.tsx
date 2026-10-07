@@ -1,0 +1,49 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { LookupField } from '../src/shared/ui/LookupField';
+import { ShortcutScope } from '../src/shared/keyboard';
+
+const PARCEIROS: Record<string, any> = { '22': { codparceiro: 22, razao: 'FORNECEDOR VINTE E DOIS', frn: 'S' } };
+const urls = () => (global.fetch as any).mock.calls.map((c: unknown[]) => new URL(String(c[0])));
+
+beforeEach(() => {
+  global.fetch = vi.fn().mockImplementation(async (url: string) => {
+    const u = new URL(url);
+    const l = PARCEIROS[u.searchParams.get('valor') ?? ''];
+    return { ok: true, status: 200, json: async () => ({ linhas: l ? [l] : [], total: l ? 1 : 0 }) };
+  }) as any;
+});
+
+const montar = (props: Partial<Parameters<typeof LookupField>[0]> = {}) => {
+  const onChange = vi.fn();
+  render(
+    <ShortcutScope>
+      <LookupField label="&Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S' }} onChange={onChange} {...props} />
+    </ShortcutScope>,
+  );
+  return onChange;
+};
+
+describe('LookupField — o código + descrição + Pesquisa do legado (no lugar do combo cortado em 200)', () => {
+  it('o código que veio do registro mostra a descrição, com o filtro do campo (FRN=S)', async () => {
+    montar({ value: 22 });
+    expect(await screen.findByText('FORNECEDOR VINTE E DOIS')).toBeTruthy();
+    const u = urls()[0];
+    expect(u.searchParams.get('recurso')).toBe('lookup/parceiros');
+    expect(u.searchParams.get('campo')).toBe('codparceiro');
+    expect(u.searchParams.get('operacao')).toBe('igual');
+    expect(u.searchParams.get('f_frn')).toBe('S');
+  });
+
+  it('digitar o código e sair confere no servidor: achou → onChange(código, linha); não achou → "Não encontrado" e vazio', async () => {
+    const onChange = montar();
+    const campo = screen.getByLabelText('Fornecedor');
+    fireEvent.change(campo, { target: { value: '22' } });
+    fireEvent.blur(campo);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('22', expect.objectContaining({ razao: 'FORNECEDOR VINTE E DOIS' })));
+    fireEvent.change(campo, { target: { value: '999' } });
+    fireEvent.blur(campo);
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(undefined, undefined));
+    expect(await screen.findByText('Não encontrado')).toBeTruthy();
+  });
+});

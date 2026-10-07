@@ -62,8 +62,10 @@ async function pedir<T>(caminho: string): Promise<T> {
 
 interface Props {
   resourcePath: string;
-  /** as colunas da grade (o recorte desta tela; a lista de CAMPOS vem da view inteira) */
-  colunas: ColunaPesquisa[];
+  /** as colunas da grade (o recorte desta tela); sem elas, as colunas da view (o lookup) */
+  colunas?: ColunaPesquisa[];
+  /** o filtro obrigatório do lookup (FRN='S', CLASSE='A'…): igualdades coluna = valor, validadas no servidor */
+  fixos?: Record<string, string | number>;
   /** o registro escolhido e a FONTE DA NAVEGAÇÃO do cadastro: os códigos do resultado inteiro, na ordem da grade (o `cdsNavegation`) */
   onSelecionar: (row: Record<string, any>, navegacao?: () => Promise<number[]>) => void;
   onFechar: () => void;
@@ -82,7 +84,7 @@ interface Props {
  * de 200 linhas — a grade pagina sobre o total. Abre vazia, como o legado. Enter/duplo clique/&OK devolvem o registro; o clique
  * simples só posiciona. Telas com opções antes da Pesquisa (A pagar, A receber) mostram as opções primeiro.
  */
-export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtroExtra, situacaoInicial }: Props) {
+export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, situacaoInicial }: Props) {
   const mensagem = useMensagem();
   const situacao = situacaoInicial ?? 'ativos';
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -100,7 +102,14 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
   const ordemAtual = useRef<{ field: string; direction: string } | null>(null);
   const corpoRef = useRef<HTMLDivElement>(null);
 
-  const extrasQs = useMemo(() => (filtroExtra ? `&${encodeURIComponent(filtroExtra.campo)}=${encodeURIComponent(filtroExtra.valor)}` : ''), [filtroExtra]);
+  const fixosChave = JSON.stringify(fixos ?? {});
+  const extrasQs = useMemo(() => {
+    const partes: string[] = [];
+    if (filtroExtra) partes.push(`${encodeURIComponent(filtroExtra.campo)}=${encodeURIComponent(filtroExtra.valor)}`);
+    for (const [k, v] of Object.entries(fixos ?? {})) partes.push(`f_${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    return partes.length ? `&${partes.join('&')}` : '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroExtra, fixosChave]);
 
   useEffect(() => {
     pedir<Meta>(`/cadastro/pesquisa/meta?recurso=${encodeURIComponent(resourcePath)}`)
@@ -178,6 +187,10 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtro
     if (r) onSelecionar(r, consulta ? fonteDaNavegacao(consulta) : undefined);
   };
 
+  const colunas: ColunaPesquisa[] = useMemo(
+    () => colunasDaTela ?? (meta?.colunas ?? []).map((c) => ({ campo: c.campo, label: c.titulo, tipo: c.tipo === 'numero' ? 'number' : c.tipo === 'data' ? 'date' : 'text' })),
+    [colunasDaTela, meta],
+  );
   const retorno = meta?.retorno ?? colunas[0]?.campo ?? 'id';
   const columns = useMemo(
     () =>

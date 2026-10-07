@@ -36,6 +36,7 @@ export class PesquisaController {
       empresas: q.empresas ? q.empresas.split(',').map(Number).filter(Number.isInteger) : undefined,
       extras,
       soCodigos: q.soCodigos === 'true',
+      fixos: Object.fromEntries(Object.entries(q).filter(([k]) => k.startsWith('f_') && k.length > 2).map(([k, v]) => [k.slice(2), String(v)])),
     };
     return this.pesquisa.pesquisar(q.recurso, p);
   }

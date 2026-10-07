@@ -146,6 +146,21 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'cadastro/cfops': { view: 'get_cfop', form: 'FRMCADCFOP', titulo: 'CFOP', retorno: 'codcfop', abertura: { campo: 'codigo', operacao: 'igual' } },
   // o legado mostra as contas de todas as lojas (sem recorte)
   'cadastro/contas-bancarias': { view: 'get_contas_bancarias', form: 'FRMCADCONTASBANCARIAS', titulo: 'Contas bancárias', retorno: 'codconta', campoAtivo: ATIVO },
+
+  // ── os LOOKUPS (o TfrmPesquisa.Create de um campo de outra tela): a view inteira, sem situação nem recorte próprio — o filtro de cada
+  // campo vem do chamador como `f_<coluna>` (FRN='S', CLASSE='A'…). Abertura: o 1º campo em ordem alfabética, salvo o SetDefault.
+  'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' } },
+  'lookup/produtos': { view: 'get_produtos', form: 'FRMPESQUISA', titulo: 'Produtos', retorno: 'idproduto',
+    abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
+    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` } },
+  'lookup/plc': { view: 'get_plc', form: 'FRMPESQUISA', titulo: 'Centro de custo', retorno: 'codplc' },
+  'lookup/familias': { view: 'get_familias_prod', form: 'FRMPESQUISA', titulo: 'Família de produtos', retorno: 'codfamilia' },
+  'lookup/plano-contas': { view: 'get_plano_contas', form: 'FRMPESQUISA', titulo: 'Plano de contas', retorno: 'codplanocontas' },
+  'lookup/cfops': { view: 'get_cfop', form: 'FRMPESQUISA', titulo: 'CFOP', retorno: 'codcfop' },
+  'lookup/operadores': { view: 'get_operadores', form: 'FRMPESQUISA', titulo: 'Operadores', retorno: 'codoperador' },
+  'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
+  'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
+
   // UCadProduto.pas:6294-6300: abre em DESCRICAO (em qualquer lugar), ordena por DESCRICAO; o código de barras acha também pelo
   // código auxiliar. A GET_PRODUTOS da produção é por loja (IDEMPRESA e o ATIVO da MULTI_PRECO) — a do destino ainda não: corte B.
   'cadastro/produtos': { view: 'get_produtos', form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto', campoAtivo: ATIVO,

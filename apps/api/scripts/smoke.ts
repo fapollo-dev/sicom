@@ -29360,6 +29360,15 @@ async function main() {
           && (navDesc.j.codigos ?? []).map(Number).join() === `${PI},${PA}`,
           { nav: nav.j, navDesc: navDesc.j });
 
+        const frnTotal = Number((await pgPq.query(`SELECT count(*) n FROM get_parceiros WHERE frn = 'S'`)).rows[0].n);
+        const lkFrn = await pq('recurso=lookup/parceiros&campo=razao&operacao=qualquer&valor=&f_frn=S&porPagina=1000');
+        const lkCod = await pq('recurso=lookup/produtos&campo=idproduto&operacao=igual&valor=' + PA);
+        const lkRuim = await pq('recurso=lookup/parceiros&f_nao_existe=S');
+        check('PESQUISA §298.9 [o lookup de campo — o TfrmPesquisa.Create com o filtro obrigatório do campo]: lookup/parceiros com f_frn=S traz só os fornecedores (todos, sem o teto de 200); o código digitado acha o registro (lookup/produtos); filtro em coluna fora da view = 422',
+          lkFrn.status === 200 && lkFrn.j.total === frnTotal && (lkFrn.j.linhas ?? []).every((l: any) => l.frn === 'S')
+          && lkCod.j.linhas?.[0]?.descricao === 'PESQ298 ZEBU ATIVO' && lkRuim.status === 422 && lkRuim.j.code === 'PESQUISA_CAMPO_INVALIDO',
+          { frn: [lkFrn.status, lkFrn.j.total, frnTotal], cod: lkCod.j.linhas?.[0]?.descricao, ruim: [lkRuim.status, lkRuim.j.code] });
+
         const ruimCampo = await pq('recurso=cadastro/produtos&campo=nao_existe&operacao=igual&valor=1');
         const ruimOp = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=comeca&valor=1');
         const ruimNum = await pq('recurso=cadastro/produtos&campo=idproduto&operacao=igual&valor=abc');
