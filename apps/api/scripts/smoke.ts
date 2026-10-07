@@ -29677,6 +29677,39 @@ async function main() {
           { semPerm: [semPermLista, semPermImp], relAb, relQt, rAp, rCp, todas: [impTodas.status, dadosDe(impTodas).length, todasAb.j.total, impTodas.j.code], filtro: [impFiltro.status, dadosDe(impFiltro).map((l) => l.C0), impFiltro.j.code],
             marc: [impMarc.status, dadosDe(impMarc).map((l) => l.C0)], outra: [impOutra.status, impOutra.j.code], etq: [etqProd, etqParc] });
 
+        {
+          // a BAIXA DE CARTÕES acha os recebíveis pela Pesquisa da GET_CARTAO (UbaixaCartao.pas:801-830) — antes, a tela listava 200
+          // cartões quaisquer do CRUD e filtrava no navegador (na produção a loja 1 tem 245.176 abertos)
+          const opCartao = Number((await pgPq.query(`SELECT min(codoperadoras) c FROM operadoras`)).rows[0].c);
+          const fechAntes = (await pgPq.query(`SELECT fechamento_caixa FROM empresas WHERE idempresa = 1`)).rows[0]?.fechamento_caixa ?? null;
+          let cbMeta: any, cbSem: any, cbFech: any, cbCons: any;
+          try {
+            await pgPq.query(`DELETE FROM cartao WHERE codvendcartao IN (998401, 998402, 998403)`);
+            await pgPq.query(`INSERT INTO cartao (codvendcartao, idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, consiliado, dtbaixa) VALUES
+              (998401, 1, $1, '2039-01-03', 11, 1, 'N', 'S', NULL), (998402, 1, $1, '2039-01-01', 12, 1, 'N', 'N', NULL), (998403, 1, $1, '2039-01-02', 13, 1, 'S', 'S', '2039-01-05')`, [opCartao]);
+            cbMeta = (await metaDe('recurso=financeiro/cartao-baixa')).j;
+            const qCb = 'recurso=financeiro/cartao-baixa&campo=data&operacao=entre&valor=2039-01-01&valor2=2039-01-03';
+            cbSem = await pq(qCb);
+            await pgPq.query(`UPDATE empresas SET fechamento_caixa = 'S' WHERE idempresa = 1`);
+            cbFech = await pq(qCb);
+            await pgPq.query(`UPDATE empresas SET fechamento_caixa = $1 WHERE idempresa = 1`, [fechAntes]);
+            const r = await fetch(`${base}/cadastro/cartao?orderBy=dtvenda&orderDir=desc&limite=500&campo=liberado&operador=igual&valor=S`, { headers: H });
+            cbCons = (await r.json().catch(() => [])) as any[];
+          } finally {
+            await pgPq.query(`UPDATE empresas SET fechamento_caixa = $1 WHERE idempresa = 1`, [fechAntes]).catch(() => undefined);
+            await pgPq.query(`DELETE FROM cartao WHERE codvendcartao IN (998401, 998402, 998403)`).catch(() => undefined);
+          }
+          const cods = (r: any) => (r?.j?.linhas ?? []).map((l: any) => Number(l.codigo));
+          const datasCons = (cbCons ?? []).map((c: any) => String(c.dtvenda ?? '').slice(0, 10));
+          check('PESQUISA §298.24 [a baixa de cartões pela Pesquisa da GET_CARTAO — UbaixaCartao.pas:801-830]: os ABERTOS (o baixado não vem), das lojas, ordenados por DATA (FCampoOrdenacao), retorno CODIGO = CODVENDCARTAO; com o FECHAMENTO_CAIXA da empresa = S, só os CONSILIADO; e a consulta dos baixados filtra e ordena no servidor (os mais recentes primeiro), em vez de 200 cartões quaisquer filtrados no navegador',
+            cbMeta?.view === 'GET_CARTAO' && cbMeta?.abertura?.ordenacao === 'data' && cbMeta?.retorno === 'codigo'
+            && cods(cbSem).join() === '998402,998401' && cods(cbFech).join() === '998401'
+            && Array.isArray(cbCons) && cbCons.length > 0 && cbCons.every((c: any) => c.liberado === 'S') && cbCons.some((c: any) => Number(c.codvendcartao) === 998403)
+            && datasCons.every((d: string, i: number) => i === 0 || d <= datasCons[i - 1]),
+            { meta: [cbMeta?.view, cbMeta?.abertura?.ordenacao, cbMeta?.retorno], sem: [cbSem?.status, cods(cbSem), cbSem?.j?.code], fech: cods(cbFech),
+              cons: [cbCons?.length, (cbCons ?? []).slice(0, 3).map((c: any) => [c.codvendcartao, c.liberado, c.dtvenda])] });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

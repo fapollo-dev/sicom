@@ -54,7 +54,23 @@ export function atualizarOperadora(id: number, body: Partial<OperadoraDetalhe>):
 export function excluirOperadora(id: number): Promise<void> { return req(`/cadastro/operadoras/${id}`, { method: 'DELETE' }); }
 
 // ── recebíveis (cartão)
-export function listarCartoes(): Promise<CartaoRecebivel[]> { return req('/cadastro/cartao', { method: 'GET' }); }
+/**
+ * a consulta dos recebíveis (baixados / todos): os mais recentes, filtrados e ordenados NO SERVIDOR (a lista do CRUD tem teto de 500 —
+ * antes vinham 200 quaisquer, sem ordem, filtrados no navegador). Os ABERTOS a baixar vêm da Pesquisa da GET_CARTAO (o lote da baixa)
+ */
+export function listarCartoes(situacao: 'S' | '' = ''): Promise<CartaoRecebivel[]> {
+  const qs = new URLSearchParams({ orderBy: 'dtvenda', orderDir: 'desc', limite: '500', ...(situacao ? { campo: 'liberado', operador: 'igual', valor: situacao } : {}) });
+  return req(`/cadastro/cartao?${qs.toString()}`, { method: 'GET' });
+}
+export const TETO_CONSULTA_CARTOES = 500;
+/** a linha da Pesquisa da GET_CARTAO (rel_get_cartao) no formato da grade: CODIGO = CODVENDCARTAO, DATA = a data da venda */
+export function recebivelDaPesquisa(l: Record<string, any>): CartaoRecebivel {
+  return {
+    codvendcartao: Number(l.codigo ?? l.codvendcartao), dtvenda: l.data ?? l.dtvenda ?? null, operadora: l.operadora ?? null, codoperadora: Number(l.codoperadora ?? 0),
+    valor: Number(l.valor ?? 0), valor_com_taxa: l.valor_com_taxa != null ? Number(l.valor_com_taxa) : undefined, previsao_compensacao: l.previsao_compensacao ?? null,
+    liberado: 'N', idlote: null, nrocupom: l.nrocupom ?? null, nroparcela: l.nroparcela ?? null,
+  };
+}
 export function criarCartao(body: { valor: number; codoperadora: number; dtvenda?: string; nrocupom?: string; nroparcela?: number }): Promise<CartaoRecebivel> { return req('/cadastro/cartao', { method: 'POST', body: JSON.stringify(body) }); }
 /** exclui; o cartão CONCILIADO exige a senha administrativa (btnExcluirClick, UcadCartao.pas:293) */
 export function excluirCartao(id: number, senhaAdmin?: string): Promise<void> {

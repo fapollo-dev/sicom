@@ -105,6 +105,9 @@ const OCULTAS_PRODUTO = ['idproduto', 'ncmsh'];
  * própria view da tela, com a coluna que faltava no fim — mig 413).
  */
 const OCULTAS = {
+  /** rel_get_cartao (mig 390): depois de TIPOCARTAO — as da view da tela (get_cartao) */
+  cartao: ['codvendcartao', 'idempresa', 'dtvenda', 'nroparcela', 'qtde_parcelas', 'codoperadora', 'nsu', 'txefetiva', 'valorliq', 'liberado', 'dtbaixa',
+    'txadm_efetiva'],
   /** rel_get_pedidocompra (mig 390): depois de VALOR_FRETE */
   pedidocompra: ['codpedcomp', 'codparceiro', 'fornecedor', 'codoperador', 'codconpagto', 'pc_tipo_frete', 'pc_valor_frete',
     'pc_nronf_cruzamento', 'idsituacao_nf', 'dtfaturamento', 'dtencerramento', 'indr', 'total', 'qtde_itens', 'empresas'],
@@ -299,6 +302,15 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'cadastro/operadores': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCADUSUARIOS', titulo: 'Operadores',
     retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
   // B5: a GET_PRECO da produção (CODIGO, DESCRICAO, VALOR_REAJUSTE, REAJUSTE, ATIVO) — o CODIGO (= ID_PRECO) no fim da view (mig 413)
+  // FRMBAIXACARTAO, "Iniciar Baix&a" / "&Adicionar" (btnAdicionarRegistroClick, UbaixaCartao.pas:801-830): a GET_CARTAO — os recebíveis
+  // ABERTOS (o WHERE COALESCE(LIBERADO,'N') = 'N' está na view) — das lojas escolhidas (GetMultiEmpresa); com o FECHAMENTO_CAIXA da
+  // empresa = 'S', só os CONSILIADO = 'S'; FCampoOrdenacao := 'DATA'; em multisseleção, os marcados vão aos documentos do lote (setDocumentos)
+  'financeiro/cartao-baixa': { view: 'get_cartao', viewLegado: 'GET_CARTAO', relacao: 'rel_get_cartao', ocultas: OCULTAS.cartao, form: 'FRMBAIXACARTAO',
+    titulo: 'Cartões a baixar', retorno: 'codigo', abertura: { ordenacao: 'data' },
+    obrigatorios: async (ctx) => [
+      emLista('codigo_empresa', await ctx.lojas()),
+      sql<SqlBool>`((select coalesce(e.fechamento_caixa, 'N') from empresas e where e.idempresa = ${ctx.empresa ?? -1}) <> 'S' or ${sql.ref('consiliado')} = 'S')`,
+    ] },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },

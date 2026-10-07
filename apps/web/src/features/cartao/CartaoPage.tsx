@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DataTable, type DataTableColumnDef, type GridSelectionState, PageHeader } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { NumberField } from '../../shared/ui/NumberField';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarCartoes, criarCartao, excluirCartao, listarOperadoras, contasDoOperador, baixarCartoes, estornarLoteCartao, type CartaoRecebivel, type Operadora, type ContaDoOperador, type DestinoBaixaCartao } from './cartaoApi';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import {
+  listarCartoes, criarCartao, excluirCartao, listarOperadoras, contasDoOperador, baixarCartoes, estornarLoteCartao, recebivelDaPesquisa, TETO_CONSULTA_CARTOES,
+  type CartaoRecebivel, type Operadora, type ContaDoOperador, type DestinoBaixaCartao,
+} from './cartaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const SEM_SELECAO: GridSelectionState = { type: 'include', ids: new Set() };
 const hojeIso = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
 
 /**
- * CARTÕES / RECEBÍVEIS (FRMCADCARTAO) — corte-1: consulta + cadastro manual. Lista os recebíveis com o LÍQUIDO e o
- * VENCIMENTO computados no servidor (view get_cartao). Filtro aberto/baixado por LIBERADO. A baixa (FRMBAIXACARTAO) marca os
- * recebíveis e leva a data, o destino e o histórico; a geração automática vem do PDV (OFF).
+ * CARTÕES / RECEBÍVEIS (FRMCADCARTAO) — corte-1: consulta + cadastro manual, com o LÍQUIDO e o VENCIMENTO computados no servidor.
+ * A BAIXA (FRMBAIXACARTAO) é a do legado: "Iniciar Baix&a" / "&Adicionar" abre a Pesquisa da GET_CARTAO — os ABERTOS das lojas, só os
+ * CONSILIADO com o fechamento de caixa, por DATA — em multisseleção, e os marcados entram nos DOCUMENTOS DO LOTE sem repetir o código
+ * (btnAdicionarRegistroClick + setDocumentos, UbaixaCartao.pas:801-830, :2064-2093); o lote todo é baixado com a data, o destino e o
+ * histórico. "Baixados"/"Todos" consultam os mais recentes no servidor. A geração automática vem do PDV (OFF).
  */
 export function CartaoPage() {
   const mensagem = useMensagem();
@@ -27,7 +32,9 @@ export function CartaoPage() {
   const [dataBaixa, setDataBaixa] = useState(hojeIso()); // edtDataBaixa — a data que vai a DTBAIXA, MCB e CAIXA
   const [destino, setDestino] = useState<DestinoBaixaCartao>('BANCARIA'); // rdgDestino
   const [historico, setHistorico] = useState(''); // dbmObs — vazio = "REF. BX LOTE: N"
-  const [selecao, setSelecao] = useState<GridSelectionState>(SEM_SELECAO);
+  // os documentos do lote da baixa (cdsDoctos), pelo código do recebível
+  const [lote, setLote] = useState<Map<number, CartaoRecebivel>>(new Map());
+  const [pesquisando, setPesquisando] = useState(false);
   const [outrasDesp, setOutrasDesp] = useState<number | undefined>(undefined); // edtOutrasDesp (UbaixaCartao.pas:1151)
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState<'N' | 'S' | ''>('N'); // aberto / baixado / todos
@@ -38,11 +45,13 @@ export function CartaoPage() {
   const [busy, setBusy] = useState(false);
 
   const carregar = useCallback(async () => {
+    // os abertos a baixar vêm da Pesquisa (o lote); a consulta é dos baixados ou de todos
+    if (filtro === 'N') { setLista([]); setCarregando(false); return; }
     setCarregando(true);
     try {
-      setLista(await listarCartoes());
+      setLista(await listarCartoes(filtro));
     } catch (e) { mensagem.erro(e); } finally { setCarregando(false); }
-  }, [mensagem]);
+  }, [mensagem, filtro]);
   useEffect(() => {
     void carregar();
     void listarOperadoras().then(setOperadoras).catch(() => setOperadoras([]));
@@ -79,18 +88,28 @@ export function CartaoPage() {
     }
   };
 
-  const baixarSelecionados = async () => {
+  // os marcados na Pesquisa entram nos documentos do lote — o que já está não repete (o Locate('CODIGO') do setDocumentos)
+  const adicionarAoLote = (rows: Record<string, any>[]) => {
+    setPesquisando(false);
+    setLote((antes) => {
+      const n = new Map(antes);
+      for (const r of rows) { const c = recebivelDaPesquisa(r); if (Number.isFinite(c.codvendcartao) && !n.has(c.codvendcartao)) n.set(c.codvendcartao, c); }
+      return n;
+    });
+  };
+  const removerDoLote = (id: number) => setLote((antes) => { const n = new Map(antes); n.delete(id); return n; });
+
+  const baixarLote = async () => {
     if (busy) return;
     if (!contaBaixa) { window.alert('É necessário informar a conta corrente!'); return; }
     if (!dataBaixa) { window.alert('Informe a data da baixa.'); return; }
-    const marcado = (id: number) => (selecao.type === 'include' ? selecao.ids.has(id) : !selecao.ids.has(id));
-    const ids = linhas.filter((r) => String(r.liberado ?? 'N') !== 'S' && marcado(Number(r.codvendcartao))).map((r) => Number(r.codvendcartao));
-    if (!ids.length) { window.alert('Marque os recebíveis abertos a baixar.'); return; }
+    const ids = [...lote.keys()];
+    if (!ids.length) { window.alert('Adicione os recebíveis a baixar (Iniciar baixa).'); return; }
     if (!window.confirm(`Baixar ${ids.length} recebível(is) em ${dia(dataBaixa)}? O líquido entra na conta de destino e sai da conta da forma de pagamento.`)) return;
     setBusy(true);
     try {
       const r = await baixarCartoes({ codconta: Number(contaBaixa), codvendcartaos: ids, dataBaixa, destino, historico: historico.trim() || undefined, outrasDespesas: outrasDesp });
-      setOutrasDesp(undefined); setHistorico(''); setSelecao(SEM_SELECAO);
+      setOutrasDesp(undefined); setHistorico(''); setLote(new Map());
       mensagem.sucesso(`Documentos baixados com sucesso — lote ${r.idlote}, ${r.itens} recebível(is); líquido ${brl(r.total_liquido)} creditado (taxa ${brl(r.total_taxa)}${r.outras_despesas ? `, outras despesas ${brl(r.outras_despesas)}` : ''})${r.contabilizado ? '; integrado na contabilidade' : ''}.`);
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
@@ -100,7 +119,7 @@ export function CartaoPage() {
     try { const r = await estornarLoteCartao(idlote); mensagem.sucesso(`Reversão realizada com sucesso — ${r.itens} recebível(is) reaberto(s), ${r.contraMovimentos} movimentação(ões) contrária(s).`); await carregar(); } catch (e) { mensagem.erro(e); }
   };
 
-  const linhas = lista.filter((r) => (filtro ? String(r.liberado ?? 'N') === filtro : true));
+  const linhas = filtro === 'N' ? [...lote.values()] : lista;
   const totalBruto = linhas.reduce((s, r) => s + Number(r.valor ?? 0), 0);
   const totalLiq = linhas.reduce((s, r) => s + Number(r.valor_com_taxa ?? 0), 0);
 
@@ -112,7 +131,12 @@ export function CartaoPage() {
     { field: 'valor_com_taxa', headerName: 'Líquido', type: 'number', width: 120, valueFormatter: brl },
     { field: 'previsao_compensacao', headerName: 'Vencimento', type: 'text', width: 120, valueFormatter: dia },
     { field: 'liberado', headerName: 'Situação', type: 'text', width: 110, valueFormatter: (v: unknown) => (v === 'S' ? 'Baixado' : 'Aberto') },
-    { field: 'acoes', headerName: '', type: 'actions', width: 130, getActions: ({ row }: { row: CartaoRecebivel }) => (row.liberado === 'S' ? (row.idlote ? [{ id: 'est', label: `Reverter lote ${row.idlote}`, onClick: (r: CartaoRecebivel) => void estornarLote(Number(r.idlote)) }] : []) : [{ id: 'del', label: 'Excluir', onClick: (r: CartaoRecebivel) => void excluir(Number(r.codvendcartao)) }]) },
+    { field: 'acoes', headerName: '', type: 'actions', width: 150, getActions: ({ row }: { row: CartaoRecebivel }) => (row.liberado === 'S'
+      ? (row.idlote ? [{ id: 'est', label: `Reverter lote ${row.idlote}`, onClick: (r: CartaoRecebivel) => void estornarLote(Number(r.idlote)) }] : [])
+      : [
+        ...(filtro === 'N' ? [{ id: 'rem', label: 'Tirar do lote', onClick: (r: CartaoRecebivel) => removerDoLote(Number(r.codvendcartao)) }] : []),
+        { id: 'del', label: 'Excluir', onClick: (r: CartaoRecebivel) => void excluir(Number(r.codvendcartao)) },
+      ]) },
   ];
 
   return (
@@ -136,12 +160,20 @@ export function CartaoPage() {
             <div className="w-40"><DateField label="Data da baixa" value={dataBaixa} onChange={(v) => setDataBaixa(v ?? '')} /></div>
             <div className="w-40"><NumberField label="Outras despesas" value={outrasDesp} onChange={setOutrasDesp} decimais={2} min={0} /></div>
             <div className="w-64"><Field label="&Histórico" value={historico} onChange={(e) => setHistorico(e.target.value)} placeholder="ex.: AMEX — vira «AMEX REF. BX LOTE: nº»" /></div>
-            <Button label="&Baixar marcados" variant="soft" disabled={busy || !linhas.length} onClick={() => void baixarSelecionados()} />
+            <Button label={lote.size ? '&Adicionar cartões' : 'Iniciar baix&a'} variant="soft" disabled={busy} onClick={() => setPesquisando(true)} />
+            <Button label="&Baixar o lote" variant="soft" disabled={busy || !lote.size} onClick={() => void baixarLote()} />
           </>
         )}
-        <div className="flex-1 text-right text-body-sm text-fg-muted">Bruto <b className="text-fg">{brl(totalBruto)}</b> · Líquido <b className="text-fg">{brl(totalLiq)}</b> · {linhas.length} recebível(is)</div>
+        <div className="flex-1 text-right text-body-sm text-fg-muted">
+          Bruto <b className="text-fg">{brl(totalBruto)}</b> · Líquido <b className="text-fg">{brl(totalLiq)}</b> · {linhas.length} recebível(is)
+          {filtro === 'N' ? ' no lote' : linhas.length >= TETO_CONSULTA_CARTOES ? ` (os ${TETO_CONSULTA_CARTOES} mais recentes)` : ''}
+        </div>
       </div>
-      <DataTable columns={colunas} rows={linhas} loading={carregando} getRowId={(r) => Number(r.codvendcartao)} selectionConfig={{ enabled: filtro === 'N' }} selectionModel={selecao} onSelectionModelChange={setSelecao} />
+      <DataTable columns={colunas} rows={linhas} loading={carregando} getRowId={(r) => Number(r.codvendcartao)} />
+      {pesquisando && (
+        <Pesquisa resourcePath="financeiro/cartao-baixa" multisselecao onSelecionarVarios={adicionarAoLote}
+          onSelecionar={(r) => adicionarAoLote([r])} onFechar={() => setPesquisando(false)} />
+      )}
     </div>
   );
 }

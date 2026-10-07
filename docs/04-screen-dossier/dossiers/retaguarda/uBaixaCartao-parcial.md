@@ -89,3 +89,18 @@ crédito, com a data do dia. O que uma baixa grava na produção (lote 91347, 15
     abr/2026 — ~99% das baixas do 1º quadrimestre levam a `REFERENCIA` do arquivo —, mas a `CONS_REG10` para em
     **04/05/2026** e **nenhuma das 106 mil baixas de mai a set/2026 tem REFERENCIA**. As baixas seguem em lote pela tela
     (60 cartões por lote), sem o arquivo. As duas tabelas estão no destino (mig 311) e a reversão já as limpa.
+
+## 6. Achar os recebíveis a baixar: a Pesquisa da GET_CARTAO (07/10/2026)
+
+Defeito achado no mapa da multisseleção (`uPesquisa-multisselecao.md`, corte 0). A tela listava os recebíveis pelo CRUD genérico, sem
+parâmetro: 200 cartões quaisquer, sem ordem, abertos e baixados misturados, filtrados no navegador. Na produção a loja 1 tem
+**245.176 abertos** e a 2 tem 77.331, então quase todos ficavam inalcançáveis.
+
+Agora é o fluxo do legado (`btnAdicionarRegistroClick`, `UbaixaCartao.pas:801-830`):
+- "Iniciar baix&a" / "&Adicionar cartões" abre a Pesquisa `financeiro/cartao-baixa` sobre a GET_CARTAO (`rel_get_cartao`, mig 390).
+  Ela traz os abertos (o WHERE está na view) das lojas escolhidas; com `EMPRESAS.FECHAMENTO_CAIXA = 'S'`, só os `CONSILIADO = 'S'`.
+  Ordena por DATA, em multisseleção.
+- Os marcados entram nos documentos do lote sem repetir o código (`setDocumentos`, `:2064-2093`), e o lote todo é baixado.
+- "Baixados"/"Todos" pedem ao servidor os 500 mais recentes, filtrados e ordenados lá.
+
+Smoke §298.24; jsdom `cartaoBaixaLote.spec.tsx`.
