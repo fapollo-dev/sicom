@@ -29291,6 +29291,9 @@ async function main() {
         await pgPq.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
           (${PA},'7899000992990','PESQ298 ZEBU ATIVO','UN',2,'T01','S'), (${PI},'7899000992991','PESQ298 ZEBU INATIVO','UN',2,'T01','N')
           ON CONFLICT (idproduto) DO UPDATE SET ativo = EXCLUDED.ativo, descricao = EXCLUDED.descricao`);
+        // a GET_PRODUTOS (rel_get_produtos) é por loja: o produto aparece na loja que tem a MULTI_PRECO dele, com o ATIVO dela
+        await pgPq.query(`INSERT INTO multi_preco (idproduto, idempresa, ativo, vrvenda) VALUES (${PA}, 1, 'S', 1), (${PI}, 1, 'N', 1)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET ativo = EXCLUDED.ativo`);
         await pgPq.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (${PA},'7899000992990','AUX298',1,3) ON CONFLICT DO NOTHING`);
         await pgPq.query(`INSERT INTO marcas (idmarca, descricao, indr) VALUES (${MX}, 'PESQ298 EXCLUIDA', 'E') ON CONFLICT (idmarca) DO UPDATE SET indr = 'E'`);
 
@@ -29302,7 +29305,7 @@ async function main() {
           && nomes.join(',') === [...nomes].sort().join(',') && !nomes.includes('indr') && meta.operacoes?.texto?.includes('termina') && meta.operacoes?.numero?.includes('entre') && meta.situacao === true,
           { abertura: meta.abertura, nomes });
 
-        const total = Number((await pgPq.query(`SELECT count(*) n FROM get_produtos WHERE ativo = 'S'`)).rows[0].n);
+        const total = Number((await pgPq.query(`SELECT count(*) n FROM rel_get_produtos WHERE ativo = 'S' AND idempresa = 1`)).rows[0].n);
         const tudo = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=&porPagina=1');
         const zebu = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=zebu');
         const zebuInat = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=ZEBU&situacao=inativos');
@@ -29353,6 +29356,30 @@ async function main() {
           && apgAb.status === 200 && apgAb.j.total === apgEsp,
           { rcb: [rcbAb.status, rcbAb.j.total, rcbEsp, rcbTd.j.total], apg: [apgAb.status, apgAb.j.total, apgEsp] });
 
+        // B1: a GET_PRODUTOS por loja — o inativo NA LOJA não aparece em "Sim" mesmo com produtos.ativo = 'S' (o ATIVO da MULTI_PRECO)
+        await pgPq.query(`UPDATE produtos SET ativo = 'S' WHERE idproduto = ${PI}`);
+        // a produção tem ATIVO_PELA_MULTIPRECO = 'S' (CONFIGURACOES_ESPECIFICAS id 30): o teste liga a configuração e devolve como estava
+        const cfgId = (await pgPq.query(`SELECT id FROM configuracoes WHERE codigo = 'ATIVO_PELA_MULTIPRECO'`)).rows[0]?.id;
+        // (a view junta a CONFIGURACOES_ESPECIFICAS só pelo id: uma 2ª linha duplicaria os produtos — troca a que existe ou põe uma)
+        const cfgAntes = cfgId == null ? undefined : (await pgPq.query(`SELECT tipo, chave, valor FROM configuracoes_especificas WHERE id = $1 LIMIT 1`, [cfgId])).rows[0];
+        if (cfgId != null) {
+          if (cfgAntes) await pgPq.query(`UPDATE configuracoes_especificas SET valor = 'S' WHERE id = $1 AND tipo = $2 AND chave = $3`, [cfgId, cfgAntes.tipo, cfgAntes.chave]);
+          else await pgPq.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES ($1, 'Empresa', '1', 'S')`, [cfgId]);
+        }
+        const inativoNaLoja = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298+ZEBU+INATIVO');
+        const cfgAtivoMp = (await pgPq.query(`SELECT coalesce(ce.valor, c.valor) v FROM configuracoes c LEFT JOIN configuracoes_especificas ce ON ce.id = c.id WHERE c.codigo = 'ATIVO_PELA_MULTIPRECO'`)).rows[0]?.v;
+        if (cfgId != null) {
+          if (cfgAntes) await pgPq.query(`UPDATE configuracoes_especificas SET valor = $4 WHERE id = $1 AND tipo = $2 AND chave = $3`, [cfgId, cfgAntes.tipo, cfgAntes.chave, cfgAntes.valor]);
+          else await pgPq.query(`DELETE FROM configuracoes_especificas WHERE id = $1 AND tipo = 'Empresa' AND chave = '1'`, [cfgId]);
+        }
+        await pgPq.query(`UPDATE produtos SET ativo = 'N' WHERE idproduto = ${PI}`);
+        const noH2 = await fetch(`${base}/cadastro/pesquisa?recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos`, { headers: { ...H, 'x-empresa-id': '2' } });
+        const noH2J = (await noH2.json().catch(() => ({}))) as any;
+        check('PESQUISA §298.14 [corte B1 — a GET_PRODUTOS do legado, por loja]: a Pesquisa lê a rel_get_produtos com IDEMPRESA = loja do login (SetaEmpresaObrigatoria): na loja 2, sem MULTI_PRECO dos produtos de teste, eles não aparecem; o ATIVO é o da loja quando ATIVO_PELA_MULTIPRECO = S (senão o do produto)',
+          noH2.status === 200 && noH2J.total === 0
+          && cfgId != null && cfgAtivoMp === 'S' && inativoNaLoja.j.total === 0,
+          { loja2: [noH2.status, noH2J.total, noH2J.code], inativoNaLoja: inativoNaLoja.j.total, cfgId, cfgAtivoMp });
+
         const nav = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true');
         const navDesc = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos&soCodigos=true&ordenacao=descricao&ordemDesc=true');
         check('PESQUISA §298.8 [o cdsNavegation do cadastro]: só os códigos do resultado inteiro, na ordem da grade (DESCRICAO, a abertura de produtos) e invertidos quando a grade está em ordem decrescente',
@@ -29393,17 +29420,17 @@ async function main() {
           && cliFrn.status === 200 && cliFrn.j.total === cliFrnEsp && opLoja.status === 200 && opLoja.j.total === opEsp,
           { plc: [plcLanc.status, plcLanc.j.total, plcEsp, masc], sit: [sitLivre, umPlc, plcSit.j.total], cliFrn: [cliFrn.status, cliFrn.j.total, cliFrnEsp], op: [opLoja.status, opLoja.j.total, opEsp] });
 
-        const prodEsp = async (cond: string) => Number((await pgPq.query(`SELECT count(*) n FROM get_produtos g WHERE g.idproduto IN (SELECT p.idproduto FROM produtos p WHERE ${cond})`)).rows[0].n);
-        const [eNc, eAc, eSf] = [await prodEsp(`p.imprimircomp = 'N'`), await prodEsp(`coalesce(p.ativo_compra, 'S') <> 'N'`), await prodEsp(`p.idproduto_pai IS NULL`)];
+        const prodEsp = async (cond: string) => Number((await pgPq.query(`SELECT count(*) n FROM rel_get_produtos g WHERE g.idempresa = 1 AND ${cond}`)).rows[0].n);
+        const [eNc, eAc, eSf] = [await prodEsp(`g.imprimircomp = 'N'`), await prodEsp(`g.ativo_compra <> 'N'`), await prodEsp(`g.produto_pai IS NULL`)];
         const [lNc, lAc, lSf] = [await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&naoComposto=S&porPagina=1'),
           await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&ativoCompra=S&porPagina=1'),
           await pq('recurso=lookup/produtos&campo=descricao&operacao=qualquer&valor=&semFilho=S&porPagina=1')];
-        check('PESQUISA §298.11 [o filtro do produto que a view do destino não tem]: IMPRIMIRCOMP=N da agenda/promoção (o nulo fica de fora, como no Oracle), ATIVO_COMPRA<>N da cotação/pedido e o que não é filho (importar XML)',
+        check('PESQUISA §298.11 [o filtro do produto, pela GET_PRODUTOS do legado (rel_get_produtos, por loja)]: IMPRIMIRCOMP=N da agenda/promoção (o nulo entra: a GET_PRODUTOS da produção dá COALESCE), ATIVO_COMPRA<>N da cotação/pedido e o que não é filho (importar XML)',
           lNc.j.total === eNc && lAc.j.total === eAc && lSf.j.total === eSf,
           { nc: [lNc.status, lNc.j.total, eNc], ac: [lAc.j.total, eAc], sf: [lSf.j.total, eSf] });
 
         // corte D: as cores (a 1ª regra que casa), a legenda, os atalhos de detalhe e o totalizador
-        await pgPq.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES (${PA}, 1, 12.34) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 12.34`);
+        await pgPq.query(`UPDATE multi_preco SET vrvenda = 12.34 WHERE idproduto = ${PA} AND idempresa = 1`);
         const corZebu = await pq('recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos');
         const corDe = (id: number) => (corZebu.j.linhas ?? []).find((l: any) => Number(l.idproduto) === id)?._cor ?? null;
         const metaProd = (await (await fetch(`${base}/cadastro/pesquisa/meta?recurso=cadastro/produtos`, { headers: H })).json()) as any;
@@ -29418,7 +29445,6 @@ async function main() {
           && f12.status === 200 && typeof f12.j.indisponivel === 'string' && fx.status === 422 && fx.j.code === 'PESQUISA_DETALHE_DESCONHECIDO'
           && rcbSoma.status === 200 && Math.abs(Number(rcbSoma.j.soma) - somaEsp) < 0.005,
           { cores: [corDe(PA), corDe(PI)], legenda: metaProd.legenda, f8: f8.j, f12: f12.j.indisponivel, fx: [fx.status, fx.j.code], soma: [rcbSoma.status, rcbSoma.j.soma, somaEsp] });
-        await pgPq.query(`DELETE FROM multi_preco WHERE idproduto = ${PA} AND idempresa = 1`);
 
         // corte E: o status da tela — a linha no formato do legado (como veio da produção) volta; gravar troca a MESMA linha; apagar só a chave
         const jsonLegado = JSON.stringify({ listHelper: [3], items: [
@@ -29457,6 +29483,7 @@ async function main() {
           { c: [ruimCampo.status, ruimCampo.j.code], o: ruimOp.j.code, n: ruimNum.j.code, r: ruimRec.j.code, op: ruimOpc.j.code });
       } finally {
         await pgPq.query(`DELETE FROM codauxiliar WHERE codauxiliar = 'AUX298'`).catch(() => undefined);
+        await pgPq.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[PA, PI]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[PA, PI]]).catch(() => undefined);
         await pgPq.query(`DELETE FROM marcas WHERE idmarca = $1`, [MX]).catch(() => undefined);
         await pgPq.end();

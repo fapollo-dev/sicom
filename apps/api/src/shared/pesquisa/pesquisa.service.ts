@@ -68,6 +68,15 @@ export class PesquisaService {
 
   constructor(private readonly dbp: DatabaseProvider) {}
 
+  /** a relação que se lê (a versão integral do legado, quando há) e as colunas que aparecem (sem INDR nem as ocultas do Apollo) */
+  private relacaoDe(t: PesquisaTela): string {
+    return t.relacao ?? t.view;
+  }
+  private async colunasVisiveis(t: PesquisaTela): Promise<ColunaDaView[]> {
+    const ocultas = new Set(['indr', ...(t.ocultas ?? [])]);
+    return (await this.colunas(this.relacaoDe(t))).filter((c) => !ocultas.has(c.campo));
+  }
+
   tela(recurso: string): PesquisaTela {
     const t = TELAS_DA_PESQUISA[recurso];
     if (!t) throw new BusinessRuleError('PESQUISA_DESCONHECIDA', { recurso });
@@ -96,7 +105,7 @@ export class PesquisaService {
   /** o que a tela precisa para abrir: os campos em ordem alfabética, as operações por tipo, a abertura e as opções */
   async meta(recurso: string) {
     const t = this.tela(recurso);
-    const cols = (await this.colunas(t.view)).filter((c) => c.campo !== 'indr');
+    const cols = await this.colunasVisiveis(t);
     const campo = t.abertura?.campo && cols.some((c) => c.campo === t.abertura!.campo) ? t.abertura.campo : cols[0].campo;
     const tipo = cols.find((c) => c.campo === campo)!.tipo;
     return {
@@ -128,7 +137,7 @@ export class PesquisaService {
 
   async pesquisar(recurso: string, p: ParametrosDaPesquisa) {
     const t = this.tela(recurso);
-    const cols = await this.colunas(t.view);
+    const cols = await this.colunas(this.relacaoDe(t));
     const porNome = new Map(cols.map((c) => [c.campo, c]));
     const db = this.dbp.forTenantRead() as AnyDB;
     const conds: RawBuilder<SqlBool>[] = [];
@@ -191,7 +200,7 @@ export class PesquisaService {
     }
 
     const visiveis = cols.filter((c) => c.campo !== 'indr').map((c) => c.campo);
-    let q = db.selectFrom(t.view).select(visiveis.map((c) => sql.ref(c).as(c)));
+    let q = db.selectFrom(this.relacaoDe(t)).select(visiveis.map((c) => sql.ref(c).as(c)));
     for (const c of conds) q = q.where(c);
 
     const somar = !!p.soma && porNome.get(p.soma)?.tipo === 'numero';
@@ -258,13 +267,13 @@ export class PesquisaService {
     const r = (await db.selectFrom('config_status_tela').select('configuracao').where(this.filtroDoStatus(k))
       .orderBy('dtultimalteracao', 'desc').limit(1).executeTakeFirst()) as { configuracao: string | null } | undefined;
     if (!r?.configuracao) return null;
-    return lerStatus(r.configuracao, (await this.colunas(k.t.view)).filter((c) => c.campo !== 'indr'));
+    return lerStatus(r.configuracao, await this.colunasVisiveis(k.t));
   }
 
   /** Ctrl+Shift+S (GravaConfigNoBd): grava ou troca o status desta chave */
   async salvarStatus(recurso: string, s: StatusDaPesquisa): Promise<void> {
     const k = this.chaveDoStatus(recurso);
-    const cols = (await this.colunas(k.t.view)).filter((c) => c.campo !== 'indr');
+    const cols = await this.colunasVisiveis(k.t);
     if (!cols.some((c) => c.campo === s.campo)) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: s.campo });
     const json = escreverStatus(s, cols);
     const db = this.dbp.forTenant() as AnyDB;

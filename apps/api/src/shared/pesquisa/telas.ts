@@ -23,6 +23,14 @@ export interface PesquisaTela {
   view: string;
   /** o nome da view no legado quando não é o da do destino em maiúsculas (a chave do status da tela — VIEW_PESQ) */
   viewLegado?: string;
+  /**
+   * a relação que a Pesquisa LÊ quando não é a `view`: a versão integral do legado que o construtor de relatórios já tem
+   * (`rel_get_*`, `get_rcb`, `get_cp`… — as mesmas colunas, nomes e multiplicidade da produção; dossiê uPesquisa-corteB-views.md)
+   */
+  relacao?: string;
+  /** as colunas do Apollo no fim da relação (a PK, o código cru…): valem para retorno, filtros e lookups, mas não aparecem na combo de
+   *  campos nem na grade */
+  ocultas?: string[];
   /** o FRM do legado (procedência) */
   form: string;
   /** "Pesquisa <comentário da view>" */
@@ -69,6 +77,8 @@ export const emLista = (coluna: string, valores: number[]): RawBuilder<SqlBool> 
 /** a loja do login (`dmPrincipal.EmpresaCODEMPRESA`) */
 const daLoja = (ctx: ContextoDosObrigatorios, coluna: string): RawBuilder<SqlBool> => sql<SqlBool>`${sql.ref(coluna)} = ${ctx.empresa ?? -1}`;
 const ATIVO = { coluna: 'ativo', sim: 'S', nao: 'N' };
+/** as do Apollo no fim da rel_get_produtos (mig 390) */
+const OCULTAS_PRODUTO = ['idproduto', 'ncmsh'];
 /** UCadProduto.pas:6302-6318 (e os ~15 lookups de produto) */
 /** UCadProduto.pas:6332-6393 — os atalhos da pesquisa de produto (e dos lookups de produto do pedido, da NF, da cotação…) */
 const ESTOQUE_E_PRECO = (tabela: 'estoque' | 'estoque_dep') => (codigo: number) => sql<Record<string, unknown>>`
@@ -246,15 +256,19 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // uMovCaixa.pas:740); sem lista na situação, todos (a mesma regra do gravar, modules/shared/situacao-restricoes.ts)
   'lookup/parceiros': { view: 'get_parceiros', form: 'FRMPESQUISA', titulo: 'Parceiros', retorno: 'codparceiro', abertura: { campo: 'razao', operacao: 'qualquer' },
     extras: ['idsituacao_nf'], obrigatorios: (ctx) => permitidosPelaSituacao(ctx, 'situacao_nf_parceiros', 'codparceiro') },
-  // naoComposto: IMPRIMIRCOMP = 'N' (uCadAgendaPromocao.pas:438-439, UCadPromocao.pas:919-920 — o nulo fica de fora, como no Oracle);
+  // naoComposto: IMPRIMIRCOMP = 'N' (uCadAgendaPromocao.pas:438-439, UCadPromocao.pas:919-920 — a GET_PRODUTOS da produção dá
+  // COALESCE(IMPRIMIRCOMP,'N'): o nulo entra, 804 produtos na produção);
   // ativoCompra: ATIVO_COMPRA <> 'N' (uCadCotacao.pas:833, a GET_PRODUTOS_PC do pedido); semFilho: o produto que não é filho
   // (PRODUTO_PAI IS NULL — uNF.pas:12422). A view do destino não tem as colunas: vão pela tabela (o alargamento é o corte B).
-  'lookup/produtos': { view: 'get_produtos', form: 'FRMPESQUISA', titulo: 'Produtos', retorno: 'idproduto',
+  'lookup/produtos': { view: 'get_produtos', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMPESQUISA', titulo: 'Produtos', retorno: 'idproduto',
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' }, extras: ['naoComposto', 'ativoCompra', 'semFilho'],
+    // a GET_PRODUTOS é por loja (SetaEmpresaObrigatoria, uPesquisa.pas:2555-2564 — toda Pesquisa sobre ela) e já traz o IMPRIMIRCOMP com
+    // COALESCE(…,'N'), o ATIVO_COMPRA da loja e o PRODUTO_PAI
     obrigatorios: (ctx) => [
-      ...(ctx.extras.naoComposto === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where p.imprimircomp = 'N')`] : []),
-      ...(ctx.extras.ativoCompra === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where coalesce(p.ativo_compra, 'S') <> 'N')`] : []),
-      ...(ctx.extras.semFilho === 'S' ? [sql<SqlBool>`${sql.ref('idproduto')} in (select p.idproduto from produtos p where p.idproduto_pai is null)`] : []),
+      daLoja(ctx, 'idempresa'),
+      ...(ctx.extras.naoComposto === 'S' ? [sql<SqlBool>`${sql.ref('imprimircomp')} = 'N'`] : []),
+      ...(ctx.extras.ativoCompra === 'S' ? [sql<SqlBool>`${sql.ref('ativo_compra')} <> 'N'`] : []),
+      ...(ctx.extras.semFilho === 'S' ? [sql<SqlBool>`${sql.ref('produto_pai')} is null`] : []),
     ],
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
     cores: CORES_PRODUTO, detalhes: DETALHES_PRODUTO, rotuloDetalhes: ROTULO_DETALHES_PRODUTO },
@@ -285,7 +299,8 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
 
   // UCadProduto.pas:6294-6300: abre em DESCRICAO (em qualquer lugar), ordena por DESCRICAO; o código de barras acha também pelo
   // código auxiliar. A GET_PRODUTOS da produção é por loja (IDEMPRESA e o ATIVO da MULTI_PRECO) — a do destino ainda não: corte B.
-  'cadastro/produtos': { view: 'get_produtos', form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto', campoAtivo: ATIVO,
+  'cadastro/produtos': { view: 'get_produtos', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'idproduto',
+    campoAtivo: ATIVO, obrigatorios: (ctx) => [daLoja(ctx, 'idempresa')],
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
     cores: CORES_PRODUTO, detalhes: DETALHES_PRODUTO, rotuloDetalhes: ROTULO_DETALHES_PRODUTO },
