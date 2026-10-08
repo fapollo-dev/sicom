@@ -296,7 +296,7 @@ empate: um gap sobre tabela morta vai para o fim.
 
 ## 3. Notas e achados laterais
 
-- **Vereditos da FILA que não se sustentam** (registrados aqui; a FILA não foi alterada):
+- **Vereditos da FILA que não se sustentam** (corrigidos na FILA em 08/10/2026; a curva ABC de compras foi convertida — mig 417):
   - **FILA:155**, `FRMRELCURVAABCFORNECEDOR` "🟢 coberto". O legado soma o `TOTALNF` das notas de **entrada** (`N.TIPO='E'`,
     `N.CFOP IN (1102,2102,1403,2403 + escolhidos)`) por fornecedor (`uRelCurvaABCFornecedor.pas:62`, `:384-416`). A curva ABC do
     Apollo é de vendas. É uma curva de compras, que não existe.

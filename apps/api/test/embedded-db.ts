@@ -461,6 +461,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('414_config_controle_permissoes.sql'));
   await pool.query(sql('415_relacao_operador_perfil_compra.sql'));
   await pool.query(sql('416_get_pc_tipocreditoisento.sql'));
+  await pool.query(sql('417_rel_curva_abc_fornecedor.sql'));
   await pool.end();
   return pg;
 }

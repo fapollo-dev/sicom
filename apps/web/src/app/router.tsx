@@ -98,6 +98,7 @@ import { HistProcNfPage } from '../features/hist-processamento-nf/HistProcNfPage
 import { NfEsteiraPage } from '../features/nf-esteira/NfEsteiraPage';
 import { MotivosPage } from '../features/motivos/MotivosPage';
 import { RelEntradasFinanPage } from '../features/rel-entradas-finan/RelEntradasFinanPage';
+import { RelCurvaAbcFornecedorPage } from '../features/rel-curva-abc-fornecedor/RelCurvaAbcFornecedorPage';
 import { ExtratoFuncionarioPage } from '../features/extrato-funcionario/ExtratoFuncionarioPage';
 import { CaixaDmePage } from '../features/caixa-dme/CaixaDmePage';
 import { RelBalancoPage } from '../features/rel-balanco/RelBalancoPage';
@@ -290,6 +291,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/simulador-venda', element: <SimuladorVendaPage /> }, // FRMSIMULADORVENDA
       { path: '/fiscal/apuracao-piscofins', element: <ApuracaoPisCofinsPage /> }, // FRMAPURACAOPISCOFINS
       { path: '/relatorios/extrato-fornecedores', element: <ExtratoFornecedoresPage /> }, // FRMEXTRATOFORNECEDORES
+      { path: '/relatorios/curva-abc-fornecedor', element: <RelCurvaAbcFornecedorPage /> }, // FRMRELCURVAABCFORNECEDOR
       { path: '/relatorios/analise-casa-carne', element: <AnaliseCasaCarnePage /> }, // FRMANALISECOMPRAVENDACASACARNE
       { path: '/relatorios/vendas-dinamico', element: <RelVendasDinamicoPage /> }, // FRMRELATORIOVENDASDINAMICO
       { path: '/relatorios/precos-alterados', element: <RelPrecosAlteradosPage /> }, // FRMRELPRECOSALTERADOS

@@ -72,6 +72,7 @@ export * from './schema/clube-desconto.schema';
 export * from './schema/historico-processamento-nf.schema';
 export * from './schema/motivo.schema';
 export * from './schema/rel-entradas-finan.schema';
+export * from './schema/rel-curva-abc-fornecedor.schema';
 export * from './schema/extrato-funcionario.schema';
 export * from './schema/caixa-dme.schema';
 export * from './schema/rel-balanco.schema';

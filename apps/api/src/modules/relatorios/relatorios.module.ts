@@ -55,6 +55,8 @@ import { PosicaoProdutoController } from './posicao-produto.controller';
 import { PosicaoProdutoService } from './posicao-produto.service';
 import { RelEntradasFinanController } from './rel-entradas-finan.controller';
 import { RelEntradasFinanService } from './rel-entradas-finan.service';
+import { RelCurvaAbcFornecedorController } from './rel-curva-abc-fornecedor.controller';
+import { RelCurvaAbcFornecedorService } from './rel-curva-abc-fornecedor.service';
 import { DevolucaoVendasController } from './devolucao-vendas.controller';
 import { DevolucaoVendasService } from './devolucao-vendas.service';
 import { MovimentacoesDiaController } from './movimentacoes-dia.controller';
@@ -130,6 +132,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     PosicaoProdutoController,
     DevolucaoVendasController, // FRMDEVOLUCAOVENDAS — a devolução de venda no varejo (3.958 acessos, 36 operadores)
     RelEntradasFinanController, // FRMRELENTRADAS_FINAN — NF de entrada × títulos a pagar (11 acessos)
+    RelCurvaAbcFornecedorController, // FRMRELCURVAABCFORNECEDOR — a curva ABC das compras por fornecedor (11 acessos)
     AnaliseComportamentoPeriodoController,
     AnaliseComportamentoController,
     // FRMRELFATURAMENTO — faturamento por mês, com a perna NFC-e que falta no legado (80 acessos).
@@ -138,7 +141,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     RelEntSaiController,
     // FRMANALISEENTRADAXSAIDA — por fornecedor, saída de venda ou pedido (68 acessos).
     AnaliseEntradaSaidaController],
-  providers: [AgendaPromocaoRelService, AgendaPromocaoFr3Service, RelVendasFr3Service, RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelTrocaMercadoriaService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
+  providers: [RelCurvaAbcFornecedorService, AgendaPromocaoRelService, AgendaPromocaoFr3Service, RelVendasFr3Service, RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelTrocaMercadoriaService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
   // a Pesquisa (CadastroModule) imprime os relatórios salvos da view com o filtro dela (o &Imprimir do frmPesquisa)
   exports: [RelatorioConstrutorService],
 })

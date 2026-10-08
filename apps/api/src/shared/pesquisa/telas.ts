@@ -539,6 +539,11 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/plano-contas': { view: 'get_plano_contas', relacao: 'rel_get_plano_contas', ocultas: OCULTAS.planoContas, form: 'FRMPESQUISA',
     titulo: 'Plano de contas', retorno: 'codigo' },
   // B5/B6: a GET_CFOP da produção (rel_get_cfop, mig 413) — o retorno dos campos do legado é CFOP (UCadSituacaoNF.pas:398, UCadCFOP.pas:208)
+  // a CURVA ABC POR FORNECEDOR (btnBuscaCFOPClick, uRelCurvaABCFornecedor.pas:76-127): a GET_CFOP sem os 4 da compra para comercialização,
+  // que a tela sempre leva — DESCRICAO / Em qualquer lugar, em multisseleção; o escolhido entra depois dos 4
+  'lookup/cfops-curva-abc-fornecedor': { view: 'get_cfop', relacao: 'rel_get_cfop', ocultas: OCULTAS.cfop, form: 'FRMRELCURVAABCFORNECEDOR', titulo: 'CFOP',
+    retorno: 'cfop', statusRetorno: '', abertura: { campo: 'descricao', operacao: 'qualquer' },
+    obrigatorios: () => [sql<SqlBool>`${sql.ref('cfop')} NOT IN (1102, 2102, 1403, 2403)`], descricaoObrigatorios: 'CFOP NOT IN (1102,2102,1403,2403)' },
   'lookup/cfops': { view: 'get_cfop', relacao: 'rel_get_cfop', ocultas: OCULTAS.cfop, form: 'FRMPESQUISA', titulo: 'CFOP', retorno: 'cfop' },
   // B6: a GET_OPERADORES da produção (rel_get_operadores, mig 393) — uma linha por operador × loja, sem o SICOM e sem os excluídos (WHERE
   // da view), o TIPOOP decodificado e a TIPO_SIGLA (o supervisor do cadastro de operadores: DESABILITADO = 'N' AND TIPO_SIGLA = 'SUP',

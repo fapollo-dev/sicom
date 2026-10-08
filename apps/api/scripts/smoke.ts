@@ -18911,6 +18911,77 @@ async function main() {
       }
     }
 
+    // ══ CURVA ABC POR FORNECEDOR (FRMRELCURVAABCFORNECEDOR) — a curva das COMPRAS ═══════════════════════════════════════
+    {
+      const CA = `${base}/relatorios/curva-abc-fornecedor`;
+      const pgCa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const faixasAntes = (await pgCa.query(`SELECT pc_curva_abc_a a, pc_curva_abc_b b, pc_curva_abc_c c FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const nfs: number[] = [];
+      try {
+        await pgCa.query(`UPDATE empresas SET pc_curva_abc_a = 60, pc_curva_abc_b = 20, pc_curva_abc_c = 10 WHERE idempresa = 1`);
+        await pgCa.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, frn) VALUES (994801,'ALFA CURVA COMPRAS','ALFA','S'), (994802,'ZEBU CURVA COMPRAS','ZEBU','S')
+          ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgCa.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994801,'7899000994801','PROD CURVA ALFA','UN',994801,'T01','S'), (994802,'7899000994802','PROD CURVA ZEBU','UN',994802,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        const nf = async (forn: number, cfop: number, dtcontabil: string, dtemissao: string, totalnf: number, itens: Array<[number, number, number | null]>, extra: { proc?: string; cancelada?: string } = {}) => {
+          const cod = Number((await pgCa.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+            VALUES (1,'E',55,$1,'1',$2,$3,$4,$5,$6,$7,$8) RETURNING codnf`, [String(994800 + nfs.length), dtemissao, dtcontabil, forn, extra.proc ?? 'S', extra.cancelada ?? 'N', totalnf, cfop])).rows[0].codnf);
+          nfs.push(cod);
+          for (const [prod, qtde, fator] of itens) await pgCa.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal) VALUES ($1,$2,$3,$4)`, [cod, prod, qtde, fator]);
+          return cod;
+        };
+        await nf(994801, 1102, '2050-05-10', '2050-05-01', 600, [[994801, 2, 6]]);           // ALFA: 600, 12 unidades (2 cx de 6)
+        await nf(994801, 1949, '2050-05-11', '2050-05-11', 999, [[994801, 1, 1]]);           // CFOP fora da lista padrão
+        await nf(994802, 2102, '2050-05-15', '2050-04-28', 300, [[994802, 5, null]]);        // ZEBU: 300, emitida em abril
+        await nf(994802, 1102, '2050-05-16', '2050-05-16', 50, [[994802, 1, 1]], { cancelada: 'S' });
+        await nf(994802, 1102, '2050-05-17', '2050-05-17', 70, [[994802, 1, 1]], { proc: 'N' });
+        await nf(994802, 1102, '2050-05-18', '2050-05-18', 80, []);                          // sem item: o JOIN com NF_PROD tira
+        await pgCa.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, desc_acre_medio, desc_promocao, desc_departamento) VALUES
+          (1,'2050-05-12 10:00','994','994801',1,994801,3,10,'A','N',2,1,0), (1,'2050-05-12 10:00','994','994801',2,994801,9,10,'A','S',0,0,0)`);
+        const pede = async (corpo: Record<string, unknown>, rota = '') => {
+          const r = await fetch(`${CA}${rota}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2050-05-01', dataFim: '2050-05-31', ...corpo }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const padrao = await pede({});
+        const lin = (r: any) => (r.j.linhas ?? []).map((l: any) => `${l.codparceiro}:${Number(l.totalnf)}:${Number(l.qtde)}:${l.abc}`).join('|');
+        const emissao = await pede({ tipoData: 'emissao' });
+        const comCfop = await pede({ cfops: [1102, 2102, 1949] });
+        const igual = await pede({ fornecedor: 'ZEBU CURVA COMPRAS', modoFornecedor: 'igual' });
+        const contem = await pede({ fornecedor: 'CURVA COMPRAS', modoFornecedor: 'contem' });
+        const comeca = await pede({ fornecedor: 'ZEBU', modoFornecedor: 'comeca' });
+        const saidas = await pede({ mostrarSaidas: true });
+        const alfaSaida = (saidas.j.linhas ?? []).find((l: any) => l.codparceiro === 994801);
+        const zebuSaida = (saidas.j.linhas ?? []).find((l: any) => l.codparceiro === 994802);
+        check('CURVA ABC FORNECEDOR §300.1 [o GeraConsulta]: por fornecedor × loja, a soma do TOTALNF das notas de entrada processadas e não canceladas com CFOP na lista padrão (1102/2102/1403/2403) e a QUANTIDADE × FATOREMBAL dos itens, em ordem de compra decrescente (ALFA 600/12, ZEBU 300/5); a nota sem item, a cancelada e a não processada ficam fora; o A/B/C do script (66,7% → A; 100% passa de A+B+C = 90 e repete a letra anterior)',
+          padrao.status === 200 && lin(padrao) === '994801:600:12:A|994802:300:5:A' && Math.abs(Number(padrao.j.linhas?.[0]?.perc) - 66.6667) < 0.001,
+          { padrao: [padrao.status, lin(padrao), padrao.j.code] });
+        check('CURVA ABC FORNECEDOR §300.2 [os filtros do legado]: pela data de emissão a nota de ZEBU (emitida em abril) sai; o CFOP escolhido (1949) entra junto com os padrão (ALFA 1.599); o fornecedor pela razão: igual e começa com acham só ZEBU, contém acha os dois',
+          lin(emissao) === '994801:600:12:A' && lin(comCfop).startsWith('994801:1599:13:A')
+          && lin(igual) === '994802:300:5:A' && lin(comeca) === '994802:300:5:A' && (contem.j.linhas ?? []).length === 2,
+          { emissao: lin(emissao), comCfop: lin(comCfop), igual: lin(igual), comeca: lin(comeca), contem: (contem.j.linhas ?? []).length });
+        check('CURVA ABC FORNECEDOR §300.3 ["Mostrar vendas"]: as vendas não canceladas dos produtos do fornecedor na loja e no período — ALFA 3 unidades e 30 + 2 de acréscimo − 1 de promoção = 31; o item cancelado fica fora; ZEBU sem venda vem vazio',
+          saidas.status === 200 && Number(alfaSaida?.qtde_ven) === 3 && Number(alfaSaida?.total_venda) === 31 && zebuSaida?.qtde_ven == null && zebuSaida?.total_venda == null,
+          { alfa: alfaSaida && [alfaSaida.qtde_ven, alfaSaida.total_venda], zebu: zebuSaida && [zebuSaida.qtde_ven, zebuSaida.total_venda] });
+        await pgCa.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (994801, 1, 'Curva ABC por Fornecedor.fr3', 'x', 'PERSONALIZADO', $1)
+          ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`,
+          [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"><TfrxMemoView Name="Memo1" Text="RELATÓRIO CURVA ABC POR FORNECEDOR"/></TfrxReportPage></TfrxReport>').toString('base64')]);
+        const imp = await pede({}, '/impressao');
+        const vazio = await pede({ dataIni: '2049-01-01', dataFim: '2049-01-31' }, '/impressao');
+        const semGrant = await fetch(CA, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dataIni: '2050-05-01', dataFim: '2050-05-31' }) });
+        const reg = imp.j.datasets?.dbdConsulta ?? [];
+        check('CURVA ABC FORNECEDOR §300.4 [o Imprimir]: "Curva ABC por Fornecedor.fr3" da RELATORIOS com o cdsConsulta no dbdConsulta (CODPARCEIRO, RAZAO, IDEMPRESA, as faixas, QTDE, TOTALNF) e DtInicial/DtFinal/Empresa entre aspas; sem movimento, 422 com "Não há movimento no filtro informado. Verifique!"; sem grant, 403',
+          imp.status === 200 && String(imp.j.modelo ?? '').includes('CURVA ABC POR FORNECEDOR') && reg.length === 2 && Number(reg[0].TOTALNF) === 600 && reg[0].RAZAO === 'ALFA CURVA COMPRAS'
+          && Number(reg[0].PC_CURVA_ABC_A) === 60 && imp.j.variaveis?.DtInicial === "'01/05/2050'" && imp.j.variaveis?.Empresa === "'1'"
+          && vazio.status === 422 && /Não há movimento/.test(String(vazio.j.message ?? '')) && semGrant.status === 403,
+          { imp: [imp.status, reg.length, reg[0], imp.j.variaveis, imp.j.code], vazio: [vazio.status, vazio.j.message], semGrant: semGrant.status });
+      } finally {
+        await pgCa.query(`DELETE FROM relatorios WHERE codrelatorio = 994801`).catch(() => undefined);
+        await pgCa.query(`DELETE FROM vendas WHERE nrocupom = '994801'`).catch(() => undefined);
+        if (nfs.length) await pgCa.query(`DELETE FROM nf WHERE codnf = ANY($1::integer[])`, [nfs]).catch(() => undefined);
+        await pgCa.query(`UPDATE empresas SET pc_curva_abc_a = $1, pc_curva_abc_b = $2, pc_curva_abc_c = $3 WHERE idempresa = 1`, [faixasAntes?.a ?? null, faixasAntes?.b ?? null, faixasAntes?.c ?? null]).catch(() => undefined);
+        await pgCa.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

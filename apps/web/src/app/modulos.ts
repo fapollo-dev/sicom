@@ -178,6 +178,7 @@ export const ROTA_MODULO: Record<string, Destino> = {
   '/cadastro/bairros': { modulo: 'parceiros' }, // sem tela no menu do legado · Parceiros
   '/cadastro/cidades': { modulo: 'parceiros' }, // sem tela no menu do legado · Parceiros
   '/relatorios/extrato-fornecedores': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMEXTRATOFORNECEDORES · 38 acessos · Fornecedores
+  '/relatorios/curva-abc-fornecedor': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMRELCURVAABCFORNECEDOR · 11 acessos · Fornecedores
 
   /* ── fiscal (20) ─────────────────────────────── */
   '/compras/conferencia-nota': { modulo: 'fiscal' }, // FRMCONFERENCIANOTA · 5549 acessos · Fiscal

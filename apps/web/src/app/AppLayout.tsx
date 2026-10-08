@@ -207,6 +207,8 @@ const TELAS = [
   { href: '/fiscal/apuracao-piscofins', name: 'Apuração PIS/COFINS', icon: FileSearch },
   // FRMEXTRATOFORNECEDORES — o que se deve, e quanto se devia numa data passada (38 acessos).
   { href: '/relatorios/extrato-fornecedores', name: 'Extrato de fornecedores', icon: ShoppingCart },
+  // FRMRELCURVAABCFORNECEDOR — a curva ABC das COMPRAS por fornecedor (11 acessos).
+  { href: '/relatorios/curva-abc-fornecedor', name: 'Curva abc por fornecedor', icon: ShoppingCart },
   // FRMANALISECOMPRAVENDACASACARNE — compra a peça, vende o corte (37 acessos, 6 operadores).
   { href: '/relatorios/analise-casa-carne', name: 'Compra × venda (casa de carne)', icon: ArrowLeftRight },
   // FRMRELATORIOVENDASDINAMICO — giro do período + última compra e custo (37 acessos, 8 operadores).
