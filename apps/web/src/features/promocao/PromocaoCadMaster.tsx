@@ -11,6 +11,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
@@ -336,6 +337,35 @@ export function PromocaoCadMaster() {
 
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
+  // O "Adicionar" do legado (AdicionarProduto, UCadPromocao.pas:901-947): a Pesquisa da GET_PRODUTOS (ATIVO='S' AND IMPRIMIRCOMP='N') em
+  // MULTISSELEÇÃO; o `CarregarItens` (:1638-1673) põe cada marcado uma vez na grade com VALOR 0, QUANTIDADE 1 e QUANTIDADE_PAGA 0, e o
+  // operador preenche na grade. 'A' = a grade da aba (ou o Grupo A), 'B' = o Grupo B das de 2 grids.
+  const [lote, setLote] = useState<'A' | 'B' | null>(null);
+  const adicionarVarios = (linhas: Array<Record<string, unknown>>) => {
+    const grupo = lote;
+    setLote(null);
+    if (!grupo) return;
+    const origem = grupo === 'B' ? `${tipo}F` : tipo;
+    setItens((xs) => {
+      const ja = new Set(xs.filter((it) => it.origem === origem).map((it) => Number(it.idorigempromocao)));
+      const novos: PromocaoItemDto[] = [];
+      for (const l of linhas) {
+        const id = Number(l.codigo ?? l.idproduto);
+        if (!Number.isInteger(id) || id <= 0 || ja.has(id)) continue;
+        ja.add(id);
+        guardarRotulo('P', id, `${id} - ${String(l.descricao ?? '')}`);
+        novos.push({ origem, idorigempromocao: id, valor: 0, quantidade: 1, quantidade_paga: 0, ativo: 'S' } as PromocaoItemDto);
+      }
+      return novos.length ? [...xs, ...novos] : xs;
+    });
+  };
+  // a célula editada na grade (o VALOR, a QUANTIDADE, a QUANTIDADE_PAGA) — a linha é o índice do item
+  const editarItem = ({ id, field, value }: { id: unknown; field: string; value: unknown }) => {
+    const v = value === '' || value == null ? 0 : Number(String(value).replace(',', '.'));
+    if (!Number.isFinite(v) || v < 0) return;
+    setItens((xs) => xs.map((it, i) => (String(i) === String(id) ? { ...it, [field]: v } : it)));
+  };
+
   // trocar a mecânica (aba) LIMPA os itens — senão itens de uma aba ficariam pendurados e seriam gravados
   // numa promoção de outro TIPO (header/detalhe divergentes). Fiel ao PageControl do legado (cada aba, seus dados).
   const trocarTipo = (v: string) => {
@@ -349,6 +379,24 @@ export function PromocaoCadMaster() {
     if (!descricao.trim()) return mensagem.erro('Informe a descrição da promoção.');
     if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item.');
     if (mec?.shape === 'combo' && !(n(valorComboHdr) > 0)) return mensagem.erro('Informe o valor do combo (> 0).');
+    // o PadraoValidada do Gravar (UCadPromocao.pas:2999-3036) nas grades que o lote enche com zero: a primeira linha incompleta para
+    const padrao = (origem: string, campos: Array<'valor' | 'quantidade' | 'quantidade_paga'>, titulo = '') => {
+      const it = itens.find((x) => x.origem === origem && campos.some((c) => !(n(x[c]) > 0)));
+      if (!it) return true;
+      const msg = [
+        campos.includes('valor') && !(n(it.valor) > 0) ? 'O valor do desconto Deve ser Informada.' : '',
+        campos.includes('quantidade') && !(n(it.quantidade) > 0) ? 'A quantidade Deve ser Informada.' : '',
+        campos.includes('quantidade_paga') && !(n(it.quantidade_paga) > 0) ? 'A quantidade a pagar Deve ser Informada.' : '',
+      ].filter(Boolean).join('\n');
+      mensagem.erro(titulo ? `${titulo}\n${msg}` : msg);
+      return false;
+    };
+    if (mec?.shape === 'produto' && !padrao(tipo, ['valor', 'quantidade'])) return;
+    if (mec?.shape === 'levepague' && !padrao(tipo, ['quantidade', 'quantidade_paga'])) return;
+    if (mec?.shape === 'doisgrids') {
+      if (!padrao(tipo, ['quantidade'], 'Produtos do Grupo A:')) return;
+      if (!padrao(`${tipo}F`, mec.filhoValor ? ['quantidade', 'valor'] : ['quantidade'], 'Produtos do Grupo B:')) return;
+    }
     setSalvando(true);
     try {
       // datetime-local é wall-clock sem fuso → ISO com o offset do navegador (fold de timezone da Agenda).
@@ -400,7 +448,7 @@ export function PromocaoCadMaster() {
   const fmtValorProd = mec?.unidade === 'percent' ? fmtPct : fmtMoeda;
   const itensColsProduto = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'valor', headerName: valorHeaderProd, type: 'text', width: 150, valueGetter: (r) => fmtValorProd(r.valor) },
+    { field: 'valor', headerName: valorHeaderProd, type: 'number', width: 150, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => fmtValorProd(value) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
@@ -432,8 +480,8 @@ export function PromocaoCadMaster() {
   ], [rotuloProduto]);
   const itensColsLevePague = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Qtde. Leve', type: 'number', width: 110, valueGetter: (r) => n(r.quantidade) },
-    { field: 'quantidade_paga', headerName: 'Qtde. Pague', type: 'number', width: 110, valueGetter: (r) => n(r.quantidade_paga) },
+    { field: 'quantidade', headerName: 'Qtde. Leve', type: 'number', width: 110, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
+    { field: 'quantidade_paga', headerName: 'Qtde. Pague', type: 'number', width: 110, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
@@ -482,13 +530,13 @@ export function PromocaoCadMaster() {
   };
   const itensColsGrupoA = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, valueGetter: (r) => n(r.quantidade) },
+    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
     remCol,
   ], [rotuloProduto]);
   const itensColsGrupoB = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, valueGetter: (r) => n(r.quantidade) },
-    ...(mec?.filhoValor ? [{ field: 'valor', headerName: 'Desconto (%)', type: 'text' as const, width: 120, valueGetter: (r: any) => fmtPct(r.valor) }] : []),
+    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
+    ...(mec?.filhoValor ? [{ field: 'valor', headerName: 'Desconto (%)', type: 'number' as const, width: 120, editable: true, editType: 'number' as const, render: ({ value }: { value: unknown }) => fmtPct(value) }] : []),
     remCol,
   ], [rotuloProduto, mec?.filhoValor]);
 
@@ -539,9 +587,10 @@ export function PromocaoCadMaster() {
                 </div>
                 <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={adicionarProduto} /></div>
               </div>
+              <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos…" variant="ghost" onClick={() => setLote('A')} /></div>
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensDaAba} columns={itensColsProduto} getRowId={(r) => String(r._i)} />
+                  <DataTable rows={itensDaAba} columns={itensColsProduto} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
                 </div>
               )}
             </>
@@ -596,9 +645,10 @@ export function PromocaoCadMaster() {
                 <NumberField label="Qtde. &Pague" value={qtdePague} onChange={setQtdePague} decimais={2} min={0} />
                 <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarLevePague} /></div>
               </div>
+              <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos…" variant="ghost" onClick={() => setLote('A')} /></div>
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensDaAba} columns={itensColsLevePague} getRowId={(r) => String(r._i)} />
+                  <DataTable rows={itensDaAba} columns={itensColsLevePague} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
                 </div>
               )}
             </>
@@ -681,8 +731,9 @@ export function PromocaoCadMaster() {
                   <NumberField label="&Quantidade" value={qtdeGA} onChange={setQtdeGA} decimais={0} min={0} />
                   <div className="flex items-end justify-end sm:col-span-2"><Button label="Adicionar ao Grupo &A" variant="ghost" onClick={adicionarGrupoA} /></div>
                 </div>
+                <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos no Grupo A…" variant="ghost" onClick={() => setLote('A')} /></div>
                 {itensDaAba.length > 0 && (
-                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensDaAba} columns={itensColsGrupoA} getRowId={(r) => String(r._i)} /></div>
+                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensDaAba} columns={itensColsGrupoA} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
                 )}
               </div>
               {/* Grupo B — ganhe (origem = TIPO+'F') */}
@@ -695,8 +746,9 @@ export function PromocaoCadMaster() {
                   {mec.filhoValor && <NumberField label="&Desconto (%)" value={valorGB} onChange={setValorGB} decimais={2} min={0} />}
                   <div className={`flex items-end justify-end ${mec.filhoValor ? 'sm:col-span-1' : 'sm:col-span-2'}`}><Button label="Adicionar ao Grupo &B" variant="ghost" onClick={adicionarGrupoB} /></div>
                 </div>
+                <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos no Grupo B…" variant="ghost" onClick={() => setLote('B')} /></div>
                 {itensGrupoB.length > 0 && (
-                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensGrupoB} columns={itensColsGrupoB} getRowId={(r) => String(r._i)} /></div>
+                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensGrupoB} columns={itensColsGrupoB} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
                 )}
               </div>
             </div>
@@ -716,6 +768,10 @@ export function PromocaoCadMaster() {
       </section>
 
       {/* Lista de promoções */}
+      {lote && (
+        <Pesquisa resourcePath="lookup/produtos" fixos={PRODUTO_ATIVO} parametros={NAO_COMPOSTO} multisselecao
+          onSelecionarVarios={adicionarVarios} onSelecionar={(l) => adicionarVarios([l])} onFechar={() => setLote(null)} />
+      )}
       <DataTable rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.idpromocao)} />
     </div>
   );

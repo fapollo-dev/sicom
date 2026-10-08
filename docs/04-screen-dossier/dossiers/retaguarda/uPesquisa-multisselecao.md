@@ -453,4 +453,11 @@ empate: um gap sobre tabela morta vai para o fim.
 - **Corte 4 — Cotação: "Importar estoque mínimo" (#40)** ✅: o botão abre a Pesquisa `lookup/produtos-estoque-minimo` (a GET_PRODUTOS_ESTOQUE
   da loja com QTDE <= MINIMO, DESCRICAO / Começado com) em multisseleção; os marcados entram como os do "Vários produtos". A
   COTACAO_VERIFICA_PEDIDO_ABERTO (a pergunta dos pedidos em aberto) é 'N' na produção. Uso: 1 cotação em 2026, 3 em 2025. Smoke §298.37.
+- **Corte 4 — Gestão de promoções: o Adicionar em lote e a grade editável (#70)** ✅ (só web):
+  - Nas abas em que o legado usa o `AdicionarProduto` (Preço Fixo, Desconto Fixo/Variável, Leve Pague, Produto Grátis e Desconto Adicional,
+    nos dois grupos), "Vários produtos…" abre a Pesquisa da GET_PRODUTOS (ativo, não composto) em multisseleção; cada marcado entra uma vez
+    com VALOR 0, QUANTIDADE 1 e QUANTIDADE_PAGA 0, como o `CarregarItens`.
+  - A grade passa a ser editável no que o operador preenche (o valor, as quantidades), e o Gravar barra com o `PadraoValidada` do legado
+    ("O valor do desconto Deve ser Informada.", "A quantidade…", com "Produtos do Grupo A/B:"). O servidor já recusava o zero.
+  - jsdom `promocaoLote.spec.tsx`.
 
