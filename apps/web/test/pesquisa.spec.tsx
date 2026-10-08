@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Pesquisa } from '../src/shared/cadmaster/Pesquisa';
 import { ShortcutScope } from '../src/shared/keyboard';
@@ -348,6 +348,37 @@ describe('Pesquisa — &Imprimir (os relatórios salvos da view) e &Etiquetas (o
     fireEvent.click(screen.getAllByRole('button').find((b) => b.textContent === 'Etiquetas')!);
     expect(await screen.findByText('TELA DE ETIQUETAS')).toBeTruthy();
     expect(JSON.parse(sessionStorage.getItem('apollo.etiquetas.itens')!)).toEqual({ fonte: 'cadastro', itens: [{ idproduto: 1 }, { idproduto: 2 }], marcar: false });
+  });
+});
+
+describe('Pesquisa — F7, os vários filtros (cdsFiltros, uPesquisa.pas:1509-1517, :2160-2235)', () => {
+  const filtrosDa = (u: string) => { const f = new URL(u).searchParams.get('filtros'); return f ? JSON.parse(f) : []; };
+
+  it('F7 liga: cada pesquisa leva os filtros anteriores; Alt+Del tira um; F5 esvazia; F7 de novo desliga e limpa', async () => {
+    abrir();
+    await screen.findByLabelText('Texto');
+    act(() => { fireEvent.keyDown(window, { key: 'F7', code: 'F7' }); });
+    expect(await screen.findByText(/Vários filtros ativado/)).toBeTruthy();
+    await pesquisarCom('ne');
+    await waitFor(() => expect(pesquisas().length).toBeGreaterThan(0));
+    expect(filtrosDa(pesquisas().at(-1)!)).toEqual([]);
+    await pesquisarCom('uni');
+    await waitFor(() => expect(filtrosDa(pesquisas().at(-1)!)).toEqual([{ campo: 'descricao', operacao: 'qualquer', valor: 'NE', valor2: '' }]));
+    const itens = within(screen.getByRole('region', { name: 'Vários filtros' })).getAllByRole('listitem');
+    expect(itens).toHaveLength(2);
+    // Alt+Del no 1º: a próxima pesquisa já não o leva
+    fireEvent.keyDown(itens[0], { key: 'Delete', altKey: true });
+    await pesquisarCom('coca');
+    await waitFor(() => expect(filtrosDa(pesquisas().at(-1)!)).toEqual([{ campo: 'descricao', operacao: 'qualquer', valor: 'UNI', valor2: '' }]));
+    // F5 esvazia
+    act(() => { fireEvent.keyDown(window, { key: 'F5', code: 'F5' }); });
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Vários filtros' })).queryAllByRole('listitem')).toHaveLength(0));
+    // F7 desliga: o painel some e a pesquisa vai sozinha
+    act(() => { fireEvent.keyDown(window, { key: 'F7', code: 'F7' }); });
+    await waitFor(() => expect(screen.queryByText(/Vários filtros ativado/)).toBeNull());
+    await pesquisarCom('x');
+    await waitFor(() => expect(new URL(pesquisas().at(-1)!).searchParams.get('valor')).toBe('X'));
+    expect(filtrosDa(pesquisas().at(-1)!)).toEqual([]);
   });
 });
 

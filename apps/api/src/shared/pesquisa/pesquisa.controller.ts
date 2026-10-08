@@ -6,6 +6,19 @@ import { PesquisaService, type Escolha, type ParametrosDaPesquisa } from './pesq
 
 const escolhaDe = (opcao?: string, complemento?: string): Escolha => ({ opcao: opcao || undefined, complemento: complemento || undefined });
 
+/** os filtros acumulados do F7 na query (`filtros=<JSON>`): até 20, só texto — o serviço confere o campo e a operação de cada um */
+function filtrosDe(bruto: unknown): ParametrosDaPesquisa['filtros'] {
+  if (typeof bruto !== 'string' || !bruto.trim()) return undefined;
+  let lista: unknown;
+  try { lista = JSON.parse(bruto); } catch { throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { filtros: 'json' }); }
+  if (!Array.isArray(lista)) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { filtros: 'lista' });
+  return lista.slice(0, 20).map((f) => {
+    const o = (f ?? {}) as Record<string, unknown>;
+    const txt = (v: unknown) => (v == null ? undefined : String(v));
+    return { campo: String(o.campo ?? ''), operacao: txt(o.operacao), valor: txt(o.valor), valor2: txt(o.valor2) };
+  });
+}
+
 /**
  * A Pesquisa (frmPesquisa) de qualquer cadastro: `GET /cadastro/pesquisa/meta?recurso=cadastro/produtos` (os campos, as operações e a
  * abertura) e `GET /cadastro/pesquisa?recurso=…&campo=…&operacao=…&valor=…&pagina=…` (as linhas e o total). Leitura, como a listagem
@@ -100,6 +113,7 @@ export class PesquisaController {
       soCodigos: q.soCodigos === 'true',
       soma: q.soma || undefined,
       fixos: Object.fromEntries(Object.entries(q).filter(([k]) => k.startsWith('f_') && k.length > 2).map(([k, v]) => [k.slice(2), String(v)])),
+      filtros: filtrosDe(q.filtros),
     };
   }
 }

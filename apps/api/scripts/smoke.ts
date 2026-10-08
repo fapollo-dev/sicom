@@ -29905,6 +29905,23 @@ async function main() {
               campoNulo: [campoNulo?.status, campoNulo?.j?.message], campoOk, put: [put?.status, put?.j?.receitafator, put?.j?.receitaqtde, put?.j?.code] });
         }
 
+        // F7 — os vários filtros (cdsFiltros, uPesquisa.pas:2160-2235): os filtros anteriores vão na query e juntam-se ao atual com AND
+        {
+          const enc = (f: unknown) => encodeURIComponent(JSON.stringify(f));
+          const base298 = 'recurso=cadastro/produtos&campo=descricao&operacao=qualquer&valor=PESQ298&situacao=todos';
+          const [sem, com, ruimCampo, ruimJson] = [
+            await pq(base298),
+            await pq(`${base298}&filtros=${enc([{ campo: 'idproduto', operacao: 'igual', valor: String(PI) }])}`),
+            await pq(`${base298}&filtros=${enc([{ campo: 'nao_existe', operacao: 'igual', valor: '1' }])}`),
+            await pq(`${base298}&filtros=%7Bnao-json`),
+          ];
+          const ids = (r: any) => ((r?.j?.linhas ?? []) as any[]).map((l) => Number(l.idproduto)).sort((a, b) => a - b);
+          check('PESQUISA §298.31 [F7 — os vários filtros]: sem filtros acumulados a pesquisa traz os dois produtos de teste; com o filtro anterior (IDPRODUTO = o inativo) junto com AND, só ele; filtro acumulado com campo fora da view ou JSON quebrado = 422',
+            ids(sem).join() === [PA, PI].sort((a, b) => a - b).join() && ids(com).join() === String(PI)
+            && ruimCampo.status === 422 && ruimCampo.j.code === 'PESQUISA_CAMPO_INVALIDO' && ruimJson.status === 422,
+            { sem: ids(sem), com: ids(com), ruimCampo: [ruimCampo.status, ruimCampo.j.code], ruimJson: ruimJson.status });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

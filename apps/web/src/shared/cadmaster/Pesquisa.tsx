@@ -80,7 +80,10 @@ const TETO_ETIQUETAS = 5000;
 /** acima disto o legado desmarca tudo e imprime o resultado inteiro (uPesquisa.pas:599-606) */
 const TETO_MARCADOS_IMPRESSAO = 2000;
 interface Detalhe { titulo: string; linhas: Array<Record<string, unknown>>; indisponivel: string | null; cabecalho: string }
-interface Consulta { campo: string; operacao: Operacao; valor: string; valor2: string; opcao?: string; complemento?: string; n: number }
+/** um filtro da Pesquisa (campo + operação + valor) — a linha do `cdsFiltros` do F7 */
+interface FiltroCampo { campo: string; operacao: Operacao; valor: string; valor2: string }
+interface Consulta extends FiltroCampo { opcao?: string; complemento?: string; n: number; /** os filtros acumulados anteriores (F7) */ filtros?: FiltroCampo[] }
+const mesmoFiltro = (a: FiltroCampo, b: FiltroCampo) => a.campo === b.campo && a.operacao === b.operacao && a.valor === b.valor && a.valor2 === b.valor2;
 
 /**
  * As duas memórias LOCAIS da Pesquisa (no legado, arquivos no disco da estação — `Configuracoes_Pesquisa\<VIEW>[<operador>].XML` e
@@ -97,7 +100,7 @@ function gravarLocal(tipo: 'f4' | 'ultima', view: string, valor: unknown) {
   try { localStorage.setItem(chaveLocal(tipo, view), JSON.stringify(valor)); } catch { /* sem armazenamento: segue sem a memória */ }
 }
 interface ConfigF4 { campo: string; operacao: Operacao; soma: string | null }
-interface UltimaPesquisa { campo: string; operacao: Operacao; valor: string; valor2: string }
+interface UltimaPesquisa { campo: string; operacao: Operacao; valor: string; valor2: string; /** os filtros acumulados (F7) dela */ filtros?: FiltroCampo[] }
 /** a escolha da janela de opções na query (`&opcao=…&complemento=…`) */
 const escolhaQs = (opcao?: string | null, complemento?: string | null) =>
   `${opcao ? `&opcao=${encodeURIComponent(opcao)}` : ''}${complemento ? `&complemento=${encodeURIComponent(complemento)}` : ''}`;
@@ -257,16 +260,35 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   const focarGrade = () => {
     setTimeout(() => corpoRef.current?.querySelector<HTMLElement>('[role="row"][tabindex], tbody tr[tabindex]')?.focus(), 60);
   };
+  // F7 — "VÁRIOS FILTROS" (FSubSelect + cdsFiltros, uPesquisa.pas:1509-1517, :2160-2235, :2527-2553): ligado, cada pesquisa junta o
+  // filtro atual aos ANTERIORES (and) e entra na lista se não for repetido; desligar esvazia a lista; F5 esvazia; Alt+Del na lista tira
+  // o filtro (vale na próxima pesquisa). O texto vazio não é filtro e não entra
+  const [acumulando, setAcumulando] = useState(false);
+  const [filtros, setFiltros] = useState<FiltroCampo[]>([]);
   const pesquisar = () => {
     if (!meta || !campo) return;
     atual.current = null;
-    setConsulta((c) => ({ campo, operacao, valor, valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, n: (c?.n ?? 0) + 1 }));
+    const filtroAtual: FiltroCampo = { campo, operacao, valor, valor2 };
+    const anteriores = acumulando ? filtros.filter((f) => !mesmoFiltro(f, filtroAtual)) : [];
+    setConsulta((c) => ({ ...filtroAtual, opcao: opcao ?? undefined, complemento: complemento ?? undefined, filtros: anteriores, n: (c?.n ?? 0) + 1 }));
+    const vazio = tipo === 'texto' && operacao !== 'contido' && !valor.trim();
+    if (acumulando && !vazio && !filtros.some((f) => mesmoFiltro(f, filtroAtual))) setFiltros([...filtros, filtroAtual]);
     focarGrade();
+  };
+  const alternarAcumulando = () => {
+    if (acumulando) setFiltros([]);
+    setAcumulando(!acumulando);
+  };
+  const rotuloFiltro = (f: FiltroCampo) => {
+    const t = meta?.colunas.find((c) => c.campo === f.campo);
+    const v = f.operacao === 'entre' ? `${f.valor} e ${f.valor2}` : f.valor;
+    return `${t?.titulo ?? f.campo} ${ROTULO_OP[f.operacao].toLowerCase()}${v ? ` ${v}` : ''}`;
   };
 
   // a URL da consulta: o campo, a operação, o valor, a situação, a escolha da janela e os filtros da tela + o que o chamador pede
   const urlDa = (c: Consulta, extra: Record<string, string>) => {
     const qs = new URLSearchParams({ recurso: resourcePath, campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, situacao, ...extra });
+    if (c.filtros?.length) qs.set('filtros', JSON.stringify(c.filtros));
     return `/cadastro/pesquisa?${qs.toString()}${escolhaQs(c.opcao, c.complemento)}${extrasQs}`;
   };
   const ordem = (o: { field: string; direction: string } | null | undefined): Record<string, string> =>
@@ -387,7 +409,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   viewRef.current = meta?.view ?? resourcePath;
   useEffect(() => () => {
     const c = consultaRef.current;
-    if (c && (totalRef.current ?? 0) > 0) gravarLocal('ultima', viewRef.current, { campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2 } satisfies UltimaPesquisa);
+    if (c && (totalRef.current ?? 0) > 0) gravarLocal('ultima', viewRef.current, { campo: c.campo, operacao: c.operacao, valor: c.valor, valor2: c.valor2, filtros: c.filtros } satisfies UltimaPesquisa);
   }, [resourcePath]);
   // ↑ no campo de valor: repete a última pesquisa desta view (recompõe campo, operação e valor e pesquisa — na escolha já feita)
   const repetirUltima = () => {
@@ -397,7 +419,10 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     setOperacao(u.operacao);
     setValor(u.valor);
     setValor2(u.valor2);
-    setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, n: (c?.n ?? 0) + 1 }));
+    // com vários filtros, o legado liga o F7 (o SendKeys('{F7}') de :2039-2083) e repete a pesquisa com todos
+    const anteriores = (u.filtros ?? []).filter((f) => meta.colunas.some((c) => c.campo === f.campo));
+    if (anteriores.length) { setAcumulando(true); setFiltros([...anteriores, { campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2 }]); }
+    setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, filtros: anteriores, n: (c?.n ?? 0) + 1 }));
     focarGrade();
   };
   // F4 (SalvaConfig): guarda campo, operação e a coluna do totalizador desta pesquisa
@@ -472,6 +497,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
           }).then((res) => { handle401(res); }).catch(() => undefined),
         } : null}
         salvarF4={meta && opcaoEscolhida ? salvarF4 : null}
+        variosFiltros={meta && opcaoEscolhida ? { alternar: alternarAcumulando, limpar: () => setFiltros([]) } : null}
         detalhes={consulta && !detalhe ? (meta?.detalhes ?? []).map((d) => d.tecla) : []}
         abrirDetalhe={abrirDetalhe}
         focarValor={() => {
@@ -634,6 +660,20 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
                 {meta.rotuloDetalhes && <small className="pb-2 text-fg-muted">{meta.rotuloDetalhes}</small>}
               </div>
             ) : null}
+            {acumulando && (
+              <div role="region" aria-label="Vários filtros" className="rounded-radius-base border border-border-subtle p-pad-sm">
+                <small className="text-fg-muted"> Vários filtros ativado. (&lt;F5&gt; Limpar; &lt;Alt&gt; + &lt;Del&gt; Remover) </small>
+                <ul className="mt-gp-xs flex flex-col gap-gp-2xs">
+                  {filtros.map((f, i) => (
+                    <li key={`${f.campo}-${f.operacao}-${f.valor}-${f.valor2}`} tabIndex={0} className="flex items-center justify-between rounded-radius-base px-pad-xs text-body-sm focus:bg-bg-subtle"
+                      onKeyDown={(e) => { if (e.altKey && e.key === 'Delete') { e.preventDefault(); setFiltros(filtros.filter((_, j) => j !== i)); } }}>
+                      <span>{rotuloFiltro(f)}</span>
+                      <button type="button" aria-label={`Remover o filtro ${rotuloFiltro(f)}`} className="text-fg-muted" onClick={() => setFiltros(filtros.filter((_, j) => j !== i))}>✕</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {!!meta.legenda?.length && (
               <div role="list" aria-label="Legenda" className="flex flex-wrap gap-x-gp-md gap-y-gp-xs text-body-xs">
                 {meta.legenda.map((l, i) => (
@@ -718,12 +758,16 @@ function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDo
  * ao cadastro de baixo. F3 = SetaFocoFrame (limpa o valor e põe o foco). O F5/F7 (filtros acumulados) e o F6 (modo do filtro da
  * coluna) voltam nos cortes B/E do dossiê.
  */
-function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela, salvarF4 }: {
+function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela, salvarF4, variosFiltros }: {
   focarValor: () => void; detalhes: string[]; abrirDetalhe: (tecla: string) => Promise<false | void>;
   statusTela: { salvar: () => void; apagar: () => void } | null;
   salvarF4: (() => void) | null;
+  variosFiltros: { alternar: () => void; limpar: () => void } | null;
 }) {
   useShortcut('f3', () => focarValor());
+  // F7 liga/desliga os "Vários filtros"; F5 esvazia a lista (uPesquisa.pas:1503-1517)
+  useShortcut('f7', () => variosFiltros?.alternar(), { when: !!variosFiltros });
+  useShortcut('f5', () => variosFiltros?.limpar(), { when: !!variosFiltros });
   // F4 = SalvaConfig (campo, operação e totalizador desta pesquisa, na estação)
   useShortcut('f4', () => salvarF4?.(), { when: !!salvarF4 });
   // o status da tela (CONFIG_STATUS_TELA): Ctrl+Shift+S guarda o campo, a operação e o valor; Ctrl+Shift+D apaga

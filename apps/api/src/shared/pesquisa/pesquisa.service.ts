@@ -40,6 +40,11 @@ export interface ParametrosDaPesquisa {
   /** o totalizador: a soma desta coluna numérica no resultado inteiro (o `cbbCamposSoma` + `edtTotal`) */
   soma?: string;
   /**
+   * os FILTROS ACUMULADOS (F7 — `cdsFiltros`, uPesquisa.pas:2160-2235): as pesquisas anteriores com o "Vários filtros" ligado, cada uma
+   * campo + operação + valor, juntadas com `and` ao filtro atual
+   */
+  filtros?: Array<{ campo: string; operacao?: string; valor?: string; valor2?: string }>;
+  /**
    * o filtro obrigatório do LOOKUP (o 7º parâmetro do `TfrmPesquisa.Create` de cada campo — `FRN = 'S'`, `CLASSE = 'ANALITICA'`…), como
    * igualdades coluna = valor (ou `IN` com vírgula). A coluna tem de existir na view; o valor é tipado pela coluna. Nunca SQL do cliente.
    */
@@ -216,23 +221,29 @@ export class PesquisaService {
       if (alternativas.length) conds.push(alternativas.length === 1 ? alternativas[0] : sql<SqlBool>`(${sql.join(alternativas, sql` or `)})`);
     }
 
-    // o campo + operação + valor do operador
-    if (p.campo) {
-      const col = porNome.get(p.campo);
-      if (!col) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo: p.campo });
-      const op = (p.operacao ?? operacaoDeAbertura(col.tipo)) as Operacao;
-      let c: RawBuilder<SqlBool> | null;
-      try {
-        c = condicaoDoUsuario(col.campo, col.tipo, op, p.valor, p.valor2);
-      } catch (e) {
-        const m = (e as Error).message;
-        throw new BusinessRuleError(m === 'OPERACAO_INVALIDA' ? 'PESQUISA_OPERACAO_INVALIDA' : m === 'DATA_INVALIDA' ? 'PESQUISA_DATA_INVALIDA' : 'PESQUISA_NUMERO_INVALIDO', { campo: p.campo, valor: p.valor });
-      }
-      // o código de barras acha também pelo código auxiliar (a consulta auxiliar do legado, só com valor)
-      if (c && t.alternativa?.campo === col.campo && p.valor?.trim()) c = sql<SqlBool>`(${c} or ${t.alternativa.condicao(p.valor)})`;
+    // o campo + operação + valor do operador, e os filtros acumulados do F7 (cada um com a mesma regra)
+    for (const f of [...(p.campo ? [{ campo: p.campo, operacao: p.operacao, valor: p.valor, valor2: p.valor2 }] : []), ...(p.filtros ?? [])]) {
+      const c = this.condicaoDoCampo(t, porNome, f.campo, f.operacao, f.valor, f.valor2);
       if (c) conds.push(c);
     }
     return conds;
+  }
+
+  /** o filtro de um campo da Pesquisa (campo + operação + valor — `GetParametroWhere`, uComunPesquisaRel.pas:228-299) */
+  private condicaoDoCampo(t: PesquisaTela, porNome: Map<string, ColunaDaView>, campo: string, operacao: string | undefined, valor?: string, valor2?: string): RawBuilder<SqlBool> | null {
+    const col = porNome.get(campo);
+    if (!col) throw new BusinessRuleError('PESQUISA_CAMPO_INVALIDO', { campo });
+    const op = (operacao ?? operacaoDeAbertura(col.tipo)) as Operacao;
+    let c: RawBuilder<SqlBool> | null;
+    try {
+      c = condicaoDoUsuario(col.campo, col.tipo, op, valor, valor2);
+    } catch (e) {
+      const m = (e as Error).message;
+      throw new BusinessRuleError(m === 'OPERACAO_INVALIDA' ? 'PESQUISA_OPERACAO_INVALIDA' : m === 'DATA_INVALIDA' ? 'PESQUISA_DATA_INVALIDA' : 'PESQUISA_NUMERO_INVALIDO', { campo, valor });
+    }
+    // o código de barras acha também pelo código auxiliar (a consulta auxiliar do legado, só com valor)
+    if (c && t.alternativa?.campo === col.campo && valor?.trim()) c = sql<SqlBool>`(${c} or ${t.alternativa.condicao(valor)})`;
+    return c;
   }
 
   async pesquisar(recurso: string, p: ParametrosDaPesquisa) {

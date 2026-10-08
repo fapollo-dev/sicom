@@ -99,8 +99,17 @@ Divergências:
 - As etiquetas recebem até 5.000 produtos, o teto do `de-itens`.
 - As etiquetas de endereço de parceiro e associado (`FlagEtiqueta` 1) não têm tela no Apollo.
 
-**Falta:** F7 (filtros acumulados); Ins/F2; o status do lookup de campo; aplicar a multisseleção nas telas
-(`uPesquisa-multisselecao.md`).
+**F7 — vários filtros entregue (08/10/2026):**
+- O F7 liga e desliga o painel "Vários filtros ativado. (<F5> Limpar; <Alt> + <Del> Remover)".
+- Ligado, cada pesquisa junta o filtro atual aos anteriores (AND, no servidor: `filtros` na query, cada um com a regra do campo) e
+  entra na lista, se não for repetido. O texto vazio não entra.
+- F5 esvazia; Alt+Del (ou o ✕) tira um, valendo na próxima pesquisa; desligar esvazia.
+- O ↑ guarda e repete a lista e liga o F7, como o SendKeys do legado.
+- Smoke §298.31; jsdom.
+
+A multisseleção foi aplicada nas telas dos cortes 0 a 3 do mapa (`uPesquisa-multisselecao.md` §4).
+
+**Falta:** Ins/F2; o status do lookup de campo; os cortes 4 a 6 do mapa da multisseleção.
 
 ## 1. Resumo para quem tem pressa
 
