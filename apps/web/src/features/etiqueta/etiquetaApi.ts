@@ -83,11 +83,6 @@ export function importarCodigos(codigos: string[]): Promise<{ etiquetas: Etiquet
   return req('/cadastro/etiqueta/importar', { method: 'POST', body: JSON.stringify({ codigos }) });
 }
 
-/** a pesquisa por ETQ_IMPRESSA (o rádio do legado): 'N' = preço alterado com etiqueta não impressa, 'S' = já impressa, 'T' = todos */
-export function pesquisarPorSituacao(situacao: 'N' | 'S' | 'T', busca?: string, ativos = true): Promise<Array<Etiqueta & { etq_impressa: string | null; dtultprecoalterado: string | null }>> {
-  const q = new URLSearchParams({ situacao, ...(busca ? { busca } : {}), ...(ativos ? {} : { ativos: 'N' }) });
-  return req(`/cadastro/etiqueta/pesquisa?${q.toString()}`, { method: 'GET' });
-}
 
 /** as etiquetas da agenda de promoção (o botão Etiquetas da agenda) */
 export function etiquetasDaAgenda(codagenda: number, preco: string): Promise<Etiqueta[]> {

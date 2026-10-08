@@ -31,7 +31,8 @@ export const etiquetaOrigemSchema = z.discriminatedUnion('tipo', [
 
 /** as telas que abrem as etiquetas com a lista pronta (cadastro de produto, Precificação NF, preços alterados, NF) */
 export const etiquetaDeItensSchema = z.object({
-  fonte: z.enum(['cadastro', 'precificacao', 'precos-alterados', 'nf']),
+  // 'pesquisa': os marcados na Pesquisa das etiquetas (btnAdicionarRegistroClick, Uetiqueta.pas:700-880)
+  fonte: z.enum(['cadastro', 'precificacao', 'precos-alterados', 'nf', 'pesquisa']),
   codnf: z.coerce.number().int().positive().optional(),
   itens: z.array(z.object({ idproduto: z.coerce.number().int().positive(), valor: z.coerce.number().min(0).max(99999999).optional() })).max(5000).optional(),
 });

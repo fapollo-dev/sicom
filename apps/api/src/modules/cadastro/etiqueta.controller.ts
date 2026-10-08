@@ -33,14 +33,6 @@ export class EtiquetaController {
   }
 
   /** resolve/preview um produto por codbarra (ou id) — p/ o add manual/scan. */
-  /** a pesquisa por ETQ_IMPRESSA — 'N' (padrão) = preço alterado com etiqueta velha, 'S' = já impressa, 'T' = todos */
-  @Get('pesquisa')
-  @RequerAcesso('FRMETIQUETA', 'BTNADICIONARREGISTRO')
-  pesquisar(@Query('situacao') situacao?: string, @Query('busca') busca?: string, @Query('limite') limite?: string, @Query('ativos') ativos?: string) {
-    const sit = situacao === 'S' || situacao === 'T' ? situacao : 'N';
-    return this.svc.pesquisar({ situacao: sit, busca, limite: limite ? Number(limite) : undefined, ativos: ativos !== 'N' });
-  }
-
   /** as etiquetas dos lotes marcados no Ajuste de Preços (o botão "Etiquetas"), expandidas pelo grupo de preço */
   @Post('dos-lotes')
   @HttpCode(200)

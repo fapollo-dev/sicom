@@ -6,10 +6,11 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import {
-  listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, etiquetasDaAgenda, listarModelos,
+  listarFila, buscarProduto, remover, imprimir, etiquetasDosLotes, etiquetasDaAgenda, listarModelos,
   importarCodigos, codigosDoArquivo, precoNaEtiqueta, etiquetasDeItens, lerPedidoDeItens, type Etiqueta,
 } from './etiquetaApi';
 import { documentoDeImpressao } from '../../shared/fr3/render';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const BACKUP = 'apollo.etiquetas.backup';
@@ -36,6 +37,7 @@ export function EtiquetaPage() {
   const [descricaoPor, setDescricaoPor] = useState<'produto' | 'grupo'>('produto'); // ETIQUETA COM GRUPO DE PRECO (ConfigDB.xml) = NÃO
   const [ativos, setAtivos] = useState(true); // "Buscar somente produtos ativos nas pesquisas": Sim
   const [situacao, setSituacao] = useState<'N' | 'S' | 'T'>('N');
+  const [pesquisando, setPesquisando] = useState(false);
   const [unicaUsada, setUnicaUsada] = useState(false);
   const [coletor, setColetor] = useState(false); // FObbetqcoletor: a lista recebeu a fila do coletor
   const arquivoRef = useRef<HTMLInputElement>(null);
@@ -120,14 +122,16 @@ export function EtiquetaPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  // a pesquisa por ETQ_IMPRESSA: a gôndola com preço alterado e etiqueta velha (Uetiqueta.pas:700-735)
-  const carregarPorSituacao = async () => {
-    if (busy) return;
+  // a PESQUISA das etiquetas (btnAdicionarRegistroClick, Uetiqueta.pas:700-880): a Pesquisa da GET_PRODUTOS em multisseleção, com o
+  // filtro da situação da etiqueta e do "somente ativos"; os marcados entram MARCADOS para imprimir, com a QTDE_ETIQUETAS do produto e
+  // sem repetir o código de barras (o Locate('CODBARRA'))
+  const adicionarDaPesquisa = async (rows: Record<string, unknown>[]) => {
+    setPesquisando(false);
+    const itens = rows.map((r) => ({ idproduto: Number(r.codigo ?? r.idproduto) })).filter((i) => Number.isInteger(i.idproduto) && i.idproduto > 0);
+    if (!itens.length) return;
     setBusy(true);
     try {
-      const r = await pesquisarPorSituacao(situacao, codbarra.trim() || undefined, ativos);
-      acrescentar(r, true);
-      mensagem.sucesso(r.length ? `${r.length} produto(s) encontrados na pesquisa.` : 'Nenhum produto nessa situação.');
+      acrescentar(await etiquetasDeItens({ fonte: 'pesquisa', itens }), true);
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
@@ -210,7 +214,7 @@ export function EtiquetaPage() {
           </div>
           <div className="flex items-end gap-gp-xs">
             <div className="flex-1"><SelectField label="&Situação da etiqueta" value={situacao} onChange={(v) => setSituacao((v || 'N') as 'N' | 'S' | 'T')} options={[{ value: 'S', label: 'Já impressas' }, { value: 'N', label: 'Não impressas (preço alterado)' }, { value: 'T', label: 'Todas' }]} /></div>
-            <Button label="&Pesquisar" variant="ghost" disabled={busy} onClick={() => void carregarPorSituacao()} />
+            <Button label="&Pesquisar" variant="ghost" disabled={busy} onClick={() => setPesquisando(true)} />
           </div>
           <div className="flex flex-wrap gap-gp-xs">
             <Button label="Consulta &preço (coletor)" variant="ghost" disabled={busy || carregando} onClick={() => void carregarColetor()} />
@@ -283,6 +287,10 @@ export function EtiquetaPage() {
           </tbody>
         </table>
       </div>
+      {pesquisando && (
+        <Pesquisa resourcePath="estoque/etiquetas-produtos" parametros={{ situacaoEtq: situacao, ativos: ativos ? 'S' : 'N' }} multisselecao
+          onSelecionarVarios={(rows) => void adicionarDaPesquisa(rows)} onSelecionar={(r) => void adicionarDaPesquisa([r])} onFechar={() => setPesquisando(false)} />
+      )}
     </div>
   );
 }

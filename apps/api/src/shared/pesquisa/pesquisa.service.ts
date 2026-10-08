@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../database/database.provider';
 import { BusinessRuleError } from '../errors/app-error';
 import { currentTenant } from '../tenant/tenant-context';
 import { empresasDoOperador } from '../acesso/empresas-do-operador';
+import { opcaoConcedida } from '../acesso/acesso.service';
+import { ForbiddenActionError } from '../errors/app-error';
 import { condicaoDoUsuario, operacaoDeAbertura, OPERACOES, tipoDoCampo, type Operacao, type TipoCampo } from './pesquisa-sql';
 import { TELAS_DA_PESQUISA, type PesquisaTela } from './telas';
 import { corDaLinha } from './cores';
@@ -100,6 +102,14 @@ export class PesquisaService {
     return t;
   }
 
+  /** a permissão do botão que abre a pesquisa (`requer`), como o gate de rota (`SEM_PERMISSAO`) */
+  private async exigir(t: PesquisaTela): Promise<void> {
+    if (!t.requer) return;
+    if (!(await opcaoConcedida(this.dbp.forTenantRead() as AnyDB, t.requer.form, t.requer.opcao))) {
+      throw new ForbiddenActionError('SEM_PERMISSAO', { form: t.requer.form, opcao: t.requer.opcao, operador: currentTenant().operadorId });
+    }
+  }
+
   async colunas(view: string): Promise<ColunaDaView[]> {
     const c = this.cache.get(view);
     if (c) return c;
@@ -125,6 +135,7 @@ export class PesquisaService {
    */
   async meta(recurso: string, escolha?: Escolha) {
     const t = this.tela(recurso);
+    await this.exigir(t);
     const cols = await this.colunasVisiveis(t, escolha);
     const { viewLegado } = this.leitura(t, escolha);
     const campo = t.abertura?.campo && cols.some((c) => c.campo === t.abertura!.campo) ? t.abertura.campo : cols[0].campo;
@@ -226,6 +237,7 @@ export class PesquisaService {
 
   async pesquisar(recurso: string, p: ParametrosDaPesquisa) {
     const t = this.tela(recurso);
+    await this.exigir(t);
     const { relacao, opcao } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
     const cols = await this.colunas(relacao);
     const porNome = new Map(cols.map((c) => [c.campo, c]));
@@ -288,6 +300,7 @@ export class PesquisaService {
    */
   async imprimir(recurso: string, p: ParametrosDaPesquisa & { codrelatoriodef: number; marcados?: Array<string | number> }) {
     const t = this.tela(recurso);
+    await this.exigir(t);
     const { relacao, opcao, viewLegado } = this.leitura(t, { opcao: p.opcao, complemento: p.complemento });
     const rel = await this.construtor.obter(p.codrelatoriodef);
     if (rel.fonte.toLowerCase() !== viewLegado.toLowerCase()) {

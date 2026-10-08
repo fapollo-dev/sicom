@@ -326,3 +326,18 @@ empate: um gap sobre tabela morta vai para o fim.
   "data". Por isso o fonte Delphi foi lido com `grep -a` / `iconv -f latin1`, e o lado do Apollo foi conferido com
   `/usr/bin/grep -a`. Os comentários `{ }` e `(* *)` foram detectados por um analisador que respeita strings, não por grep de linha.
   Foi isso que achou os 4 pontos comentados.
+
+---
+
+## 4. Andamento
+
+- **Corte 0 — baixa de cartões** ✅ (`d24e384`): Pesquisa `financeiro/cartao-baixa` em multisseleção → documentos do lote.
+- **Corte 1 — Etiquetas** ✅: o "&Pesquisar" é a Pesquisa `estoque/etiquetas-produtos`, com as regras do legado:
+  - a GET_PRODUTOS da loja, com o rádio da situação (`etq_impressa`) e o "somente ativos";
+  - cores azul e preto, abertura em DESCRICAO / Em qualquer lugar, código auxiliar e multisseleção;
+  - os marcados entram pelo `de-itens` (fonte `pesquisa`), marcados para imprimir, com a QTDE_ETIQUETAS e sem repetir o código de
+    barras;
+  - a exigência da opção `FRMETIQUETA · BTNADICIONARREGISTRO` passou para o recurso (`requer` em `telas.ts`).
+
+  Saiu a rota `GET /cadastro/etiqueta/pesquisa`, que cortava em 500 em silêncio e ordenava pela data do preço. Smoke §298.25 e o check
+  "ETIQUETA [pesquisa por situação]" migrado; jsdom `etiquetaPesquisa.spec.tsx`.

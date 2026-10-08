@@ -5275,16 +5275,19 @@ async function main() {
         await pgEt.query(`DELETE FROM nf WHERE codnf = $1`, [nfEt]);
         await pgEt.query(`DELETE FROM parceiros_end WHERE codend = $1`, [endEt]);
 
-        // a PESQUISA POR ETQ_IMPRESSA (o rádio do legado): o produto com preço alterado (etq_impressa N) aparece em 'N' e some depois de impresso
+        // a PESQUISA POR ETQ_IMPRESSA (o rádio do legado), pela Pesquisa da GET_PRODUTOS (estoque/etiquetas-produtos): o produto com preço
+        // alterado (etq_impressa N) aparece em 'N' e some depois de impresso; o marcado entra pelo de-itens (fonte pesquisa)
         await pgEt.query(`UPDATE multi_preco SET etq_impressa='N' WHERE idproduto=990201 AND idempresa=1`);
-        const pesqN = (await (await fetch(`${base}/${ET}/pesquisa?situacao=N`, { headers: H })).json().catch(() => [])) as any[];
-        const pesqS = (await (await fetch(`${base}/${ET}/pesquisa?situacao=S`, { headers: H })).json().catch(() => [])) as any[];
-        const pesqCx = (await (await fetch(`${base}/${ET}/pesquisa?situacao=T&busca=CX12`, { headers: H })).json().catch(() => [])) as any[];
-        check('ETIQUETA [pesquisa por situação]: "não impressa" traz o produto de preço alterado (990201) e não o recém-impresso (990200), que aparece em "já impressa"; a busca acha pelo código auxiliar',
-          Array.isArray(pesqN) && pesqN.some((e) => Number(e.idproduto) === 990201) && !pesqN.some((e) => Number(e.idproduto) === 990200)
-          && pesqS.some((e) => Number(e.idproduto) === 990200) && pesqCx.some((e) => Number(e.idproduto) === 990201)
-          && pesqN.find((e) => Number(e.idproduto) === 990201)?.registro?.DESCRICAO === 'SAL REFINADO 1KG UN',
-          { n: pesqN?.length, s: pesqS?.length, cx: pesqCx?.length });
+        const pesqEt = async (qs: string) => (((await (await fetch(`${base}/cadastro/pesquisa?recurso=estoque/etiquetas-produtos&${qs}`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? [])
+          .map((l: any) => Number(l.codigo)) as number[];
+        const pesqN = await pesqEt('campo=codigo&operacao=contido&valor=990200,990201&situacaoEtq=N&ativos=S');
+        const pesqS = await pesqEt('campo=codigo&operacao=contido&valor=990200,990201&situacaoEtq=S&ativos=S');
+        const pesqCx = await pesqEt('campo=codbarra&operacao=igual&valor=CX12&situacaoEtq=T&ativos=S');
+        const deItensEt = (await (await fetch(`${base}/${ET}/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'pesquisa', itens: [{ idproduto: 990201 }] }) })).json().catch(() => [])) as any[];
+        check('ETIQUETA [pesquisa por situação]: "não impressa" traz o produto de preço alterado (990201) e não o recém-impresso (990200), que aparece em "já impressa"; a busca acha pelo código auxiliar; o marcado entra pelo de-itens com a descrição do produto + unidade',
+          pesqN.includes(990201) && !pesqN.includes(990200) && pesqS.includes(990200) && pesqCx.includes(990201)
+          && Array.isArray(deItensEt) && deItensEt[0]?.registro?.DESCRICAO === 'SAL REFINADO 1KG UN',
+          { n: pesqN, s: pesqS, cx: pesqCx, de: Array.isArray(deItensEt) ? deItensEt[0]?.registro?.DESCRICAO : deItensEt });
 
         // 47g.5) o item impresso saiu da fila (IMPRESSA='S' → fora da fila).
         const fila2 = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];
@@ -29708,6 +29711,37 @@ async function main() {
             && datasCons.every((d: string, i: number) => i === 0 || d <= datasCons[i - 1]),
             { meta: [cbMeta?.view, cbMeta?.abertura?.ordenacao, cbMeta?.retorno], sem: [cbSem?.status, cods(cbSem), cbSem?.j?.code], fech: cods(cbFech),
               cons: [cbCons?.length, (cbCons ?? []).slice(0, 3).map((c: any) => [c.codvendcartao, c.liberado, c.dtvenda])] });
+        }
+
+        // ETIQUETAS: o "Pesquisar" é a Pesquisa da GET_PRODUTOS em multisseleção (Uetiqueta.pas:700-880) — antes, uma lista de até 500
+        // produtos, todos marcados, ordenada pela data do preço; os marcados entram pelo de-itens com a QTDE_ETIQUETAS do produto
+        {
+          const permEtq = `form = 'FRMETIQUETA' AND opcao = 'BTNADICIONARREGISTRO' AND codoperador = 7 AND codempresa = 1`;
+          const tinhaEtq = Number((await pgPq.query(`SELECT count(*) n FROM permissoes WHERE ${permEtq}`)).rows[0].n) > 0;
+          let semPerm = 0; let metaEtq: any; let todos: any; let soN: any; let soAtivos: any; let deItens: any = [];
+          try {
+            await pgPq.query(`UPDATE multi_preco SET etq_impressa = CASE WHEN idproduto = ${PA} THEN 'S' ELSE 'N' END WHERE idproduto IN (${PA}, ${PI}) AND idempresa = 1`);
+            await pgPq.query(`UPDATE produtos SET prod_qtde_etiquetas = 3 WHERE idproduto = ${PA}`);
+            await pgPq.query(`DELETE FROM permissoes WHERE ${permEtq}`);
+            semPerm = (await fetch(`${base}/cadastro/pesquisa/meta?recurso=estoque/etiquetas-produtos`, { headers: H })).status;
+            await pgPq.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMETIQUETA', 'BTNADICIONARREGISTRO', 7, 1) ON CONFLICT DO NOTHING`);
+            metaEtq = (await metaDe('recurso=estoque/etiquetas-produtos')).j;
+            const q = (extra: string) => pq(`recurso=estoque/etiquetas-produtos&campo=descricao&operacao=qualquer&valor=PESQ298${extra}`);
+            [todos, soN, soAtivos] = [await q('&situacaoEtq=T&ativos=N'), await q('&situacaoEtq=N&ativos=N'), await q('&situacaoEtq=T&ativos=S')];
+            const r = await fetch(`${base}/cadastro/etiqueta/de-itens`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'pesquisa', itens: [{ idproduto: PA }] }) });
+            deItens = (await r.json().catch(() => [])) as any[];
+          } finally {
+            if (!tinhaEtq) await pgPq.query(`DELETE FROM permissoes WHERE ${permEtq}`).catch(() => undefined);
+          }
+          const codsEtq = (r: any) => (r?.j?.linhas ?? []).map((l: any) => Number(l.codigo)).sort((a: number, b: number) => a - b).join();
+          const corEtq = (id: number) => (todos?.j?.linhas ?? []).find((l: any) => Number(l.codigo) === id)?._cor ?? null;
+          check('PESQUISA §298.25 [ETIQUETAS — o "Pesquisar" é a Pesquisa da GET_PRODUTOS, Uetiqueta.pas:700-880]: sem a opção BTNADICIONARREGISTRO do FRMETIQUETA (o botão), 403; o rádio da situação filtra ETQ_IMPRESSA = N e o "somente ativos" o ATIVO da loja; ETQ_IMPRESSA = S azul e = N preto (a legenda do legado); abre em DESCRICAO / Em qualquer lugar; os marcados entram pelo de-itens (fonte pesquisa) com a QTDE_ETIQUETAS do produto',
+            semPerm === 403 && metaEtq?.abertura?.campo === 'descricao' && metaEtq?.abertura?.operacao === 'qualquer' && (metaEtq?.legenda ?? []).length === 2
+            && codsEtq(todos) === [PA, PI].sort((a, b) => a - b).join() && codsEtq(soN) === String(PI) && codsEtq(soAtivos) === String(PA)
+            && corEtq(PA) === 'AZUL' && corEtq(PI) === 'PRETO'
+            && Array.isArray(deItens) && deItens.length === 1 && Number(deItens[0]?.idproduto) === PA && Number(deItens[0]?.qtde) === 3,
+            { semPerm, abertura: metaEtq?.abertura, legenda: metaEtq?.legenda, todos: codsEtq(todos), soN: codsEtq(soN), soAtivos: codsEtq(soAtivos),
+              cores: [corEtq(PA), corEtq(PI)], deItens: (deItens ?? []).map?.((e: any) => [e.idproduto, e.qtde]) ?? deItens });
         }
 
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no

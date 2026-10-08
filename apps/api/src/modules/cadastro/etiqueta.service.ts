@@ -319,33 +319,6 @@ export class EtiquetaService {
   }
 
   /**
-   * A PESQUISA POR ETQ_IMPRESSA (`btnAdicionarRegistroClick`, Uetiqueta.pas:700-735, o rádio "Já impressas / Não impressas /
-   * Todas"): os produtos da loja pelo flag do preço — 'N' é a gôndola com PREÇO ALTERADO e etiqueta velha (o trigger do
-   * MULTI_PRECO zera o flag a cada troca de preço). "Somente ativos" segue o GET_PRODUTOS.ATIVO (ATIVO_PELA_MULTIPRECO).
-   */
-  async pesquisar(f: { situacao?: 'N' | 'S' | 'T'; busca?: string; limite?: number; ativos?: boolean }): Promise<Array<Etiqueta & { etq_impressa: string | null; dtultprecoalterado: unknown }>> {
-    const emp = this.emp();
-    const db = this.dbp.forTenantRead() as AnyDB;
-    const situacao = f.situacao ?? 'N';
-    const busca = (f.busca ?? '').trim().toUpperCase();
-    const somenteAtivos = f.ativos !== false;
-    const ativoMp = somenteAtivos ? await this.ativoPelaMultiPreco(emp) : false;
-    const rows = (await sql<{ idproduto: number; etq_impressa: string | null; dtultprecoalterado: unknown }>`
-      SELECT p.idproduto, mp.etq_impressa, mp.dtultprecoalterado
-        FROM produtos p
-        JOIN multi_preco mp ON mp.idproduto = p.idproduto AND mp.idempresa = ${emp}
-       WHERE TRUE
-         ${somenteAtivos ? (ativoMp ? sql`AND coalesce(mp.ativo, 'S') = 'S'` : sql`AND coalesce(p.ativo, 'S') = 'S'`) : sql``}
-         ${situacao !== 'T' ? sql`AND coalesce(mp.etq_impressa, 'N') = ${situacao}` : sql``}
-         ${busca ? sql`AND (upper(p.descricao) LIKE ${`%${busca}%`} OR p.codbarra = ${busca} OR EXISTS (SELECT 1 FROM codauxiliar a WHERE a.idproduto = p.idproduto AND a.codauxiliar = ${busca}))` : sql``}
-       ORDER BY mp.dtultprecoalterado DESC NULLS LAST, p.descricao
-       LIMIT ${Math.min(f.limite ?? 500, 2000)}`.execute(db)).rows;
-    const ets = EtiquetaService.existentes(await this.etiquetasDeProdutos(db, emp, rows.map((r) => ({ idproduto: Number(r.idproduto), origem: { tipo: 'produto' as const, caminho: 'pesquisa' as const } }))));
-    const extra = new Map(rows.map((r) => [Number(r.idproduto), r]));
-    return ets.map((e) => ({ ...e, etq_impressa: extra.get(e.idproduto)?.etq_impressa ?? null, dtultprecoalterado: extra.get(e.idproduto)?.dtultprecoalterado ?? null }));
-  }
-
-  /**
    * AS ETIQUETAS DOS LOTES DO AJUSTE DE PREÇOS (`btnEtiquetasClick`, uAjustePrecos.pas:109-330): os produtos dos lotes
    * marcados, EXPANDIDOS pelo grupo de preço (os irmãos saem juntos), com o PREÇO DO LOTE (LOTEPRECO.VRVENDA × fator do
    * produto — o lote ainda nem precisa estar processado) e sem promoção; um código de barras uma vez só, com o preço do
@@ -607,7 +580,7 @@ export class EtiquetaService {
    * entra marcada; itens repetidos (o mesmo produto em duas linhas da NF, duas alterações do mesmo preço) entram repetidos,
    * como no cdsImpressao do legado.
    */
-  async deItens(dto: { fonte: 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf'; codnf?: number; itens?: Array<{ idproduto: number; valor?: number }> }): Promise<Etiqueta[]> {
+  async deItens(dto: { fonte: 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf' | 'pesquisa'; codnf?: number; itens?: Array<{ idproduto: number; valor?: number }> }): Promise<Etiqueta[]> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     if (dto.fonte === 'nf') {
@@ -616,8 +589,10 @@ export class EtiquetaService {
         .map((r) => this.paraEtiqueta(this.registroDaNf(r), { tipo: 'nf', codnfprod: Number(r.codnfprod) }, 1));
     }
     const itens = (dto.itens ?? []).filter((i) => Number.isInteger(Number(i.idproduto)) && Number(i.idproduto) > 0).slice(0, 5000);
-    if (dto.fonte === 'cadastro') {
-      return EtiquetaService.existentes(await this.etiquetasDeProdutos(db, emp, itens.map((i) => ({ idproduto: Number(i.idproduto), origem: { tipo: 'produto' as const, caminho: 'cadastro' as const } }))));
+    // o cadastro de produto e a Pesquisa das etiquetas: o preço da loja, QTDE = PROD_QTDE_ETIQUETAS (ou 1), a promoção acumulativa
+    if (dto.fonte === 'cadastro' || dto.fonte === 'pesquisa') {
+      const caminho = dto.fonte;
+      return EtiquetaService.existentes(await this.etiquetasDeProdutos(db, emp, itens.map((i) => ({ idproduto: Number(i.idproduto), origem: { tipo: 'produto' as const, caminho } }))));
     }
     const linhas = await this.linhasDeProdutos(db, emp, itens.map((i) => Number(i.idproduto)));
     const out: Etiqueta[] = [];

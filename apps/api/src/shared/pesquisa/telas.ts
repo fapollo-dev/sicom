@@ -59,6 +59,11 @@ export interface PesquisaTela {
    * no Apollo
    */
   etiqueta?: 'produto';
+  /**
+   * a permissão do BOTÃO que abre esta pesquisa no legado (o controle com Tag 1 — uMaster.SetStateOfControlsMaster), exigida além do
+   * login: sem ela, o meta, a pesquisa e a impressão respondem 403 (a rota genérica da Pesquisa não tem gate de tela)
+   */
+  requer?: { form: string; opcao: string };
   /** o complemento da janela de opções (o `OpcoesCompl` do TfrmOpcoes — o "Com/Sem centro de custo" do A pagar) */
   complemento?: Array<{ id: string; rotulo: string; padrao?: boolean }>;
   /** os parâmetros que a tela aceita do cliente (o resto é ignorado) — ex.: o tipo da NF */
@@ -310,6 +315,24 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
     obrigatorios: async (ctx) => [
       emLista('codigo_empresa', await ctx.lojas()),
       sql<SqlBool>`((select coalesce(e.fechamento_caixa, 'N') from empresas e where e.idempresa = ${ctx.empresa ?? -1}) <> 'S' or ${sql.ref('consiliado')} = 'S')`,
+    ] },
+  // ETIQUETAS (FRMETIQUETA), o botão da pesquisa (btnAdicionarRegistroClick, Uetiqueta.pas:700-760): a GET_PRODUTOS da loja (o
+  // SetaEmpresaObrigatoria) com o filtro do rádio "Já impressas / Não impressas / Todas" (`etq_impressa = 'S'/'N'` — a view já dá
+  // COALESCE(…,'N')) e o "Buscar somente produtos ativos" (`ATIVO = 'S'`, o da loja com ATIVO_PELA_MULTIPRECO); SetDefault DESCRICAO / Em
+  // qualquer lugar, ordenada por DESCRICAO, o código auxiliar; em multisseleção, com as cores ETQ_IMPRESSA = S azul e = N preto. A
+  // PESQUISA_PRODUTO_MOSTRA_CAMPOS (configuração 139) está vazia na produção: a grade mostra todas as colunas
+  'estoque/etiquetas-produtos': { view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMETIQUETA',
+    titulo: 'Produtos para etiquetas', retorno: 'codigo', extras: ['situacaoEtq', 'ativos'], requer: { form: 'FRMETIQUETA', opcao: 'BTNADICIONARREGISTRO' },
+    abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
+    alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
+    obrigatorios: (ctx) => [
+      daLoja(ctx, 'idempresa'),
+      ...(ctx.extras.ativos !== 'N' ? [sql<SqlBool>`${sql.ref('ativo')} = 'S'`] : []),
+      ...(ctx.extras.situacaoEtq === 'S' || ctx.extras.situacaoEtq === 'N' ? [sql<SqlBool>`${sql.ref('etq_impressa')} = ${ctx.extras.situacaoEtq}`] : []),
+    ],
+    cores: [
+      { coluna: 'etq_impressa', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Etiqueta Impressa Produto' },
+      { coluna: 'etq_impressa', op: '=', valor: 'N', cor: 'PRETO', legenda: 'Etiqueta Não Impressa' },
     ] },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',

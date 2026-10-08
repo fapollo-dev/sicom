@@ -3,7 +3,7 @@
  * produtos e navega para as etiquetas, que pedem ao servidor as linhas de cada um (`/cadastro/etiqueta/de-itens`). Vive em `shared`
  * porque a Pesquisa (frmPesquisa, o &Etiquetas) também entrega a lista.
  */
-export type FonteEtiquetas = 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf';
+export type FonteEtiquetas = 'cadastro' | 'precificacao' | 'precos-alterados' | 'nf' | 'pesquisa';
 export interface PedidoDeItens {
   fonte: FonteEtiquetas;
   codnf?: number;
