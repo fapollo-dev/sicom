@@ -628,6 +628,13 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // já tira o SICOM e os excluídos; o `campoCodigo` da web (codoperador) fica oculto no fim
   'lookup/operadores-da-loja': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCTRLPERMISSOES',
     titulo: 'Operadores', retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
+  // o CADASTRO DE PERFIL (TfrmCadPerfilOperador): a GET_PERFIL do TIPO escolhido ao abrir a tela (`ObrigatoriosPesquisa := ' TIPO = ' + …`,
+  // SetTipoPerfil, uCadPerfilOperador.pas:490), com o ATIVO = 'N' em vermelho, "Perfil Inativo" (SetaLegendaCamposGridPesquisa :227); o
+  // rdgAtivo abre em Todos (FormShow :358) — sem campoAtivo a situação não filtra
+  'cadastro/perfil': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADPERFILOPERADOR',
+    titulo: 'Perfil', retorno: 'codigo', extras: ['tipo'],
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('tipo')} = ${['ACESSO', 'PARCEIRO', 'COMPRA'].includes(ctx.extras.tipo) ? ctx.extras.tipo : 'ACESSO'}`],
+    cores: [{ coluna: 'ativo', op: '=', valor: 'N', cor: 'VERMELHO', legenda: 'Perfil Inativo' }] },
   // GET_PERFIL — as abas de perfil do cadastro de usuários (ExistePerfilSelecionado, uCadUsuarios.pas:802-817: ATIVO = 'S' AND TIPO = a aba,
   // que a tela manda em `fixos`; o legado cria a Pesquisa sem controle de retorno). A rel_get_perfil (mig 393) tem as colunas da produção
   // (CODPERFIL como CODIGO, PERFIL, ATIVO, TIPO) e já tira os excluídos

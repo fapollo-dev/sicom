@@ -4,10 +4,24 @@ import { z } from 'zod';
  * PERFIL (UCadPerfilOperador) — perfis de RBAC. Um perfil agrupa grants (PERMISSOES por CODPERFIL) e é
  * atribuído a operadores (RELACAO_OPERADOR_PERFIL). Mensagens PT (ADR-015). GLOBAL (sem empresa, fiel ao golden).
  */
+/**
+ * os tipos de perfil (o TTipoPerfil do BO.Perfil — a unit não veio no fonte): os valores são os da PERFIL.TIPO da produção (9 ACESSO,
+ * 5 PARCEIRO, 1 COMPRA) e os rótulos os da janela "Selecione o tipo de perfil." da tela de perfis (uCadPerfilOperador.pas:319-346).
+ */
+export const TIPOS_PERFIL = [
+  { id: 'ACESSO', rotulo: 'Acessos', titulo: 'Perfil de acessos' },
+  { id: 'PARCEIRO', rotulo: 'Parceiros', titulo: 'Perfil de parceiros' },
+  { id: 'COMPRA', rotulo: 'Compras', titulo: 'Perfil de compras' },
+] as const;
+export type TipoPerfil = (typeof TIPOS_PERFIL)[number]['id'];
+
 export const perfilSchema = z.object({
   perfil: z.string({ message: 'Informe o nome do perfil.' }).trim().min(1, 'Informe o nome do perfil.').max(100),
   ativo: z.enum(['S', 'N']).optional(),
-  tipo: z.string().trim().max(20).optional(),
+  /** o tipo da tela que o criou (cdsPerfilOperadorNewRecord: TIPO := o da janela de abertura); não muda depois */
+  tipo: z.enum(['ACESSO', 'PARCEIRO', 'COMPRA'], { message: 'Tipo de perfil inválido.' }).optional(),
+  /** os operadores vinculados (a grade "Operadores vinculados" — o perfil de parceiro não tem), gravados com o perfil */
+  operadores: z.array(z.object({ codoperador: z.coerce.number().int().positive() }).passthrough()).optional(),
 });
 export type CriarPerfilDto = z.infer<typeof perfilSchema>;
 export const atualizarPerfilSchema = perfilSchema.partial();

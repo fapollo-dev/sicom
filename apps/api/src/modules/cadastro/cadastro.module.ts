@@ -95,7 +95,7 @@ import { TrocaService } from './troca.service';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
-import { PerfilCrudController } from './perfil.crud';
+import { PerfilAggregateController } from './perfil.aggregate';
 import { PerfilRelacaoController } from './perfil-relacao.controller';
 import { PerfilRelacaoService } from './perfil-relacao.service';
 import { PermissoesController } from './permissoes.controller';
@@ -267,7 +267,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM
-    PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
+    PerfilAggregateController, // PERFIS (TfrmCadPerfilOperador): o tipo da tela + os operadores vinculados no Gravar
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
     RegistrosLogController, // o "Registros de Log" do legado (uRegistrosLog, mig 313)
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)

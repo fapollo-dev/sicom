@@ -45,6 +45,8 @@ export function useCadMaster<T extends Record<string, any>>(
   pk: string,
   /** coluna de código na view de navegação (default: pk); o valor casa com a PK */
   colunaCodigo: string = pk,
+  /** o registro que a tela não aceita (o edtCodigoExit que fecha o cdsPrincipal com uma mensagem): devolve o texto, ou null */
+  recusar?: (registro: T) => string | null,
 ): CadMaster<T> {
   const [modo, setModo] = useState<ModoCadMaster>('browse');
   // o FormCloseQuery do uCadMaster: registro em inclusão ou edição, sair pergunta "Deseja sair sem salvar as alterações?"
@@ -65,13 +67,15 @@ export function useCadMaster<T extends Record<string, any>>(
       setCarregando(true);
       try {
         const r = await api.ler(id);
-        setRegistro(r ?? null);
+        const recusa = r && recusar ? recusar(r) : null;
+        setRegistro(recusa ? null : (r ?? null));
         setModo('browse');
+        if (recusa) throw new Error(recusa);
       } finally {
         setCarregando(false);
       }
     },
-    [api],
+    [api, recusar],
   );
 
   const novo = useCallback(() => {

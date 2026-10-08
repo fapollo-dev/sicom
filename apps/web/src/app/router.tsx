@@ -262,8 +262,8 @@ export const router = createBrowserRouter([
       { path: '/compras/cotacao', element: <CotacaoPage /> }, // cotação de compra (RFQ): preços → apuração → gerar pedidos
       { path: '/cadastro/promocoes', element: <AgendaPromocaoCadMaster /> }, // agenda de promoção (corte-1, sem efeito)
       { path: '/cadastro/gestao-promocoes', element: <PromocaoCadMaster /> }, // Gestão de Promoções (UCadPromocao): corte-1 Preço Fixo
-      { path: '/cadastro/perfis', element: <PerfilCadMaster /> }, // perfis & permissões (RBAC editor)
-      { path: '/cadastro/permissoes', element: <CtrlPermissoesPage /> }, // FRMCTRLPERMISSOES — por OPERADOR (o modo do cliente)
+      { path: '/cadastro/perfis', element: <PerfilCadMaster /> }, // FRMCADPERFILOPERADOR — o cadastro de perfil por tipo (menu "Perfil")
+      { path: '/cadastro/permissoes', element: <CtrlPermissoesPage /> }, // FRMCTRLPERMISSOES — por usuário e por perfil (menu "Controle de acesso")
       { path: '/cadastro/fechamento-diario', element: <FechamentoDiarioPage /> }, // FRMFECHAMENTODIARIO
       { path: '/contabil/integracao', element: <IntegracaoContabilPage /> }, // FRMTRON — integração contábil
       { path: '/relatorios/construtor', element: <RelatoriosPage /> }, // FRMRELATORIO — relatórios do cliente

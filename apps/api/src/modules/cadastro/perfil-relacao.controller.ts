@@ -31,6 +31,20 @@ export class PerfilRelacaoController {
     return this.svc.gravarOperadoresDoPerfil(codperfil, dto.operadores);
   }
 
+  /** "Relação perfil x operador" (menu Imprimir da tela de perfis, sem Tag) */
+  @Get('perfil/:codperfil/relatorio/operadores')
+  @RequerAcesso('FRMCADPERFILOPERADOR', 'FRMCADPERFILOPERADOR')
+  relatorioOperadores(@Param('codperfil', ParseIntPipe) codperfil: number) {
+    return this.svc.relatorioOperadores(codperfil);
+  }
+
+  /** "Relação perfil x permissões de acesso" (menu Imprimir da tela de perfis, sem Tag) */
+  @Get('perfil/:codperfil/relatorio/permissoes')
+  @RequerAcesso('FRMCADPERFILOPERADOR', 'FRMCADPERFILOPERADOR')
+  relatorioPermissoes(@Param('codperfil', ParseIntPipe) codperfil: number) {
+    return this.svc.relatorioPermissoes(codperfil);
+  }
+
   @Get(':codoperador')
   @RequerAcesso('FRMCADPERFILOPERADOR', 'FRMCADPERFILOPERADOR')
   listar(@Param('codoperador', ParseIntPipe) codoperador: number) {

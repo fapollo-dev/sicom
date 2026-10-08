@@ -32,10 +32,11 @@ const chave = (form: string, opcao: string) => `${form} ${opcao}`;
 
 type Acao = { form: string; opcao: string; caption?: string | null; form_caption?: string | null };
 
-export function CtrlPermissoesPage() {
+export function CtrlPermissoesPage({ perfil }: { perfil?: number } = {}) {
   const mensagem = useMensagem();
   const [params] = useSearchParams();
-  const perfilInicial = Number(params.get('perfil') ?? 0) || undefined;
+  // o F4 da tela de perfis abre por cima com o perfil (prop); pela URL, `?perfil=`. Sem código, abre como sempre (SetCodigoAbrirTela :282)
+  const perfilInicial = perfil || Number(params.get('perfil') ?? 0) || undefined;
   // a aba (TbsUsuarioEnter): trocar limpa o código e a empresa da outra
   const [tipo, setTipo] = useState<'USUARIO' | 'PERFIL'>(perfilInicial ? 'PERFIL' : 'USUARIO');
   const [catalogo, setCatalogo] = useState<Acao[]>([]);

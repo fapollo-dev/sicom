@@ -10252,6 +10252,58 @@ async function main() {
       check('PERFIL §77.4: relação c/ perfil inexistente → 422 PERFIL_NAO_ENCONTRADO; criar sem grant → 403',
         relBad.status === 422 && ((await relBad.json().catch(() => ({}))) as any).code === 'PERFIL_NAO_ENCONTRADO' && pfSem.status === 403, { bad: relBad.status, sem: pfSem.status });
 
+      // 77.4b) o CADASTRO DE PERFIL do legado (TfrmCadPerfilOperador): o TIPO vem da janela de abertura — obrigatório na inclusão e fixo
+      // depois; os operadores vinculados vão no Gravar, na tabela do tipo (o de compra na RELACAO_OPERADOR_PERFIL_COMPRA; o de parceiro não
+      // tem), com o histórico 'I'/'E'; a Pesquisa da tela é a GET_PERFIL do tipo, com o inativo em vermelho; e os dois relatórios do Imprimir
+      {
+        const PF = `${base}/cadastro/perfil`;
+        const semTipo = await fetch(PF, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'SMOKE SEM TIPO', ativo: 'S' }) });
+        const semTipoJ = (await semTipo.json().catch(() => ({}))) as any;
+        const compra = await fetch(PF, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'SMOKE COMPRAS', ativo: 'S', tipo: 'COMPRA', operadores: [{ codoperador: 8 }] }) });
+        const compraJ = (await compra.json().catch(() => ({}))) as any;
+        const cCompra = Number(compraJ.codperfil);
+        const vinc = (await pgPf.query(`SELECT coalesce(indr,'I') AS indr FROM relacao_operador_perfil_compra WHERE codperfil = $1 AND codoperador = 8`, [cCompra])).rows as any[];
+        const naAcesso = Number((await pgPf.query(`SELECT count(*)::int n FROM relacao_operador_perfil WHERE codperfil = $1`, [cCompra])).rows[0].n);
+        const lido = (await (await fetch(`${PF}/${cCompra}`, { headers: H })).json().catch(() => ({}))) as any;
+        const trocaTipo = await fetch(`${PF}/${cCompra}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'ACESSO' }) });
+        const trocaTipoJ = (await trocaTipo.json().catch(() => ({}))) as any;
+        // os relatórios: o modelo do cliente está na RELATORIOS (aqui um esboço com o nome)
+        const stubPf = (n: string) => Buffer.from(`<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="${n}"/></TfrxReport>`).toString('base64');
+        for (const [k, n] of ['OperadoresVinculadosPerfil.fr3', 'PermissaoVinculadaPerfil.fr3'].entries()) {
+          await pgPf.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES ($1, 1, $2, 'x', 'DEFAULT', $3) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [993010 + k, n, stubPf(n)]);
+        }
+        const relOps = (await (await fetch(`${base}/cadastro/perfil-operador/perfil/${cCompra}/relatorio/operadores`, { headers: H })).json().catch(() => ({}))) as any;
+        const relPermVazio = await fetch(`${base}/cadastro/perfil-operador/perfil/${cCompra}/relatorio/permissoes`, { headers: H });
+        const relPermVazioJ = (await relPermVazio.json().catch(() => ({}))) as any;
+        const tira = await fetch(`${PF}/${cCompra}`, { method: 'PUT', headers: H, body: JSON.stringify({ perfil: 'SMOKE COMPRAS', operadores: [] }) });
+        const vincDepois = (await pgPf.query(`SELECT coalesce(indr,'I') AS indr, indr_usuario FROM relacao_operador_perfil_compra WHERE codperfil = $1 AND codoperador = 8`, [cCompra])).rows as any[];
+        const relOpsVazio = await fetch(`${base}/cadastro/perfil-operador/perfil/${cCompra}/relatorio/operadores`, { headers: H });
+        const parceiro = await fetch(PF, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'SMOKE PARCEIRO', ativo: 'S', tipo: 'PARCEIRO', operadores: [{ codoperador: 8 }] }) });
+        const parceiroJ = (await parceiro.json().catch(() => ({}))) as any;
+        const inativo = await fetch(PF, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'SMOKE COMPRAS INATIVO', ativo: 'N', tipo: 'COMPRA' }) });
+        const cInativo = Number(((await inativo.json().catch(() => ({}))) as any).codperfil);
+        const pesq = (((await (await fetch(`${base}/cadastro/pesquisa?recurso=cadastro/perfil&tipo=COMPRA&campo=perfil&operacao=qualquer&valor=SMOKE&porPagina=50`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? []) as any[];
+        const pesqAcesso = (((await (await fetch(`${base}/cadastro/pesquisa?recurso=cadastro/perfil&tipo=ACESSO&campo=perfil&operacao=qualquer&valor=SMOKE&porPagina=50`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? []) as any[];
+        await pgPf.query(`DELETE FROM relatorios WHERE codrelatorio IN (993010, 993011)`);
+        for (const c of [cCompra, cInativo]) if (c > 0) await fetch(`${PF}/${c}`, { method: 'DELETE', headers: H });
+        check('PERFIL §77.4b [o cadastro de perfil do legado]: sem o tipo, 422 "Selecione o tipo de perfil."; o de COMPRAS grava o operador na RELACAO_OPERADOR_PERFIL_COMPRA (não na de acesso) e a leitura o traz; o tipo não muda (422); o relatório de operadores sai com a linha (modelo OperadoresVinculadosPerfil.fr3, o operador nos dois datasets) e o de permissões, sem permissão, é "Registros não encontrados para esse perfil."; tirar o operador marca o vínculo E (com o usuário) e o relatório fica vazio; o de PARCEIROS não tem operadores (422); a Pesquisa da tela traz só o tipo pedido, com o inativo em vermelho ("Perfil Inativo")',
+          semTipo.status === 422 && semTipoJ.code === 'PERFIL_TIPO_OBRIGATORIO'
+          && compra.status === 201 && cCompra > 0 && vinc.length === 1 && vinc[0].indr === 'I' && naAcesso === 0
+          && (lido.operadores ?? []).map((o: any) => Number(o.codoperador)).join() === '8'
+          && trocaTipo.status === 422 && trocaTipoJ.code === 'PERFIL_TIPO_IMUTAVEL'
+          && String(relOps.modelo ?? '').includes('OperadoresVinculadosPerfil') && relOps.datasets?.FrxDBMasterDet?.length === 1
+          && Number(relOps.datasets.FrxDBMasterDet[0].CODOPERADOR) === 8 && relOps.datasets.FrxDBMaster?.[0]?.PERFIL === 'SMOKE COMPRAS'
+          && relPermVazio.status === 422 && relPermVazioJ.code === 'PERFIL_RELATORIO_VAZIO'
+          && tira.status === 200 && vincDepois.length === 1 && vincDepois[0].indr === 'E' && Number(vincDepois[0].indr_usuario) === 7
+          && relOpsVazio.status === 422
+          && parceiro.status === 422 && parceiroJ.code === 'PERFIL_SEM_OPERADORES'
+          && pesq.length >= 2 && pesq.every((l: any) => l.tipo === 'COMPRA') && pesq.some((l: any) => Number(l.codigo) === cInativo && l._cor === 'VERMELHO')
+          && pesq.some((l: any) => Number(l.codigo) === cCompra && !l._cor) && !pesqAcesso.some((l: any) => Number(l.codigo) === cCompra),
+          { semTipo: [semTipo.status, semTipoJ.code], compra: [compra.status, compraJ.code], vinc, naAcesso, lido: lido.operadores, trocaTipo: [trocaTipo.status, trocaTipoJ.code],
+            relOps: { modelo: String(relOps.modelo ?? '').slice(0, 120), ds: relOps.datasets }, relPerm: [relPermVazio.status, relPermVazioJ.code], tira: tira.status, vincDepois,
+            relOpsVazio: relOpsVazio.status, parceiro: [parceiro.status, parceiroJ.code], pesq, pesqAcesso: pesqAcesso.length });
+      }
+
       // ===== corte-2: MATRIZ de grants (UCtrlPermissoes) + acesso perfil-aware =====
       // 77.5) catálogo (distinct form×opcao) não-vazio; conceder FRMLIBERACOES/BTNCONSULTAR ao perfil → grant gravado.
       const cat = (await (await fetch(`${base}/cadastro/permissoes/catalogo`, { headers: H })).json().catch(() => [])) as any[];

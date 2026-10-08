@@ -178,10 +178,10 @@ const TELAS = [
   { href: '/relatorios/analise-entrada-saida', name: 'Análise entrada × saída', icon: ArrowLeftRight },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
-  { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },
+  { href: '/cadastro/permissoes', name: 'Controle de acesso', icon: ShieldCheck },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
-  { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },
+  { href: '/cadastro/perfis', name: 'Perfil', icon: ShieldCheck },
   { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
   // FRMCADCONFIGCONCILIADOR — o layout com que se lê a planilha de cada operadora (82 acessos, 6 operadores).
   { href: '/cadastro/config-conciliador', name: 'Layouts de conciliação', icon: CreditCard },

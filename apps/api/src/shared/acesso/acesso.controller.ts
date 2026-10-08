@@ -13,6 +13,12 @@ import { AcessoGuard } from './acesso.guard';
 export class AcessoController {
   constructor(private readonly svc: AcessoService) {}
 
+  /** o modo de permissão (usuario / perfil / ambos): o F4 da tela de perfis só abre o controle de permissões fora do modo usuário */
+  @Get('modo')
+  async modo() {
+    return { modo: await this.svc.modo() };
+  }
+
   @Get('opcoes/:form')
   async opcoes(@Param('form') form: string) {
     const f = String(form ?? '').trim().toUpperCase();

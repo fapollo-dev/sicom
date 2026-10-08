@@ -14,6 +14,8 @@ import { Button } from '../ui/Button';
 interface CamposCtx<T extends FieldValues> {
   form: UseFormReturn<T>;
   editavel: boolean;
+  /** recarrega um registro na tela (o mesmo caminho do código + Enter) — o do `<CadMaster>` */
+  carregar?: (id: number) => Promise<void>;
 }
 interface ItemCtx<T extends FieldValues> extends CamposCtx<T> {
   index: number;

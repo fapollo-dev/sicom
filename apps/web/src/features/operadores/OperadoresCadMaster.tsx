@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Controller, type UseFormReturn } from 'react-hook-form';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { CadMasterDet } from '../../shared/cadmaster/CadMasterDet';
@@ -10,17 +10,26 @@ import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Tabs } from '../../shared/ui/Tabs';
 import { ListaPesquisada } from '../../shared/pesquisa/ListaPesquisada';
+import { Modal } from '../../shared/ui/Modal';
+import { useShortcut } from '../../shared/keyboard';
+import { useMensagem } from '../../shared/mensagem';
 import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@apollo/shared';
 
 type Item = Record<string, unknown>;
+// o cadastro de perfil abre por cima pelo F2 (e o de perfil abre este pelo F2 dele): carregado sob demanda, sem ciclo de import
+const PerfilCadMaster = lazy(async () => ({ default: (await import('../perfil/PerfilCadMaster')).PerfilCadMaster }));
 
 /**
  * as abas do cadastro de usuários que o Apollo não tinha (uCadUsuarios.dfm:751-1040, :2213-2340): "Perfil operador" (perfis de ACESSO —
  * contam no acesso, a produção está em CONTROLE_PERMISSOES = Ambos), "Perfil de compras" e, só no SUPERVISOR, "Operadores supervisionados".
  * Tudo vai no Gravar do operador (o servidor confere o tipo do perfil e do supervisionado).
  */
-function AbasDoOperador({ form, editavel }: { form: UseFormReturn<CriarOperadorDto>; editavel: boolean }) {
+function AbasDoOperador({ form, editavel, carregar, aoFechar }: {
+  form: UseFormReturn<CriarOperadorDto>; editavel: boolean; carregar?: (id: number) => Promise<void>; aoFechar?: () => void;
+}) {
+  const mensagem = useMensagem();
   const [aba, setAba] = useState('perfil');
+  const [perfilAberto, setPerfilAberto] = useState(false);
   const tipo = form.watch('tipoop');
   const nome = form.watch('nome');
   const lista = (campo: 'perfis' | 'perfis_compra' | 'supervisionados') => ((form.watch(campo) as Item[] | undefined) ?? []);
@@ -35,6 +44,14 @@ function AbasDoOperador({ form, editavel }: { form: UseFormReturn<CriarOperadorD
     ...(tipo === 'SUP' ? [{ id: 'sup', label: 'Operadores supervisionados' }] : []),
   ];
   const ativa = abas.some((a) => a.id === aba) ? aba : 'perfil';
+  // F2 (FormKeyDown, uCadUsuarios.pas:687-726): o cadastro de perfil por cima, no tipo da aba (Perfil de compras → COMPRA; senão ACESSO);
+  // ao voltar, recarrega o operador (edtCodigoExit). Aberto pelo F2 do cadastro de perfil, fecha
+  useShortcut('f2', () => { if (aoFechar) aoFechar(); else setPerfilAberto(true); }, { when: !perfilAberto });
+  const voltar = () => {
+    setPerfilAberto(false);
+    const cod = Number(form.getValues('codoperador' as never));
+    if (cod && carregar) void carregar(cod).catch((e) => mensagem.erro(e));
+  };
   const perfil = (l: Item) => ({ codperfil: Number(l.codigo ?? l.codperfil), perfil: l.perfil ?? null });
   const colsPerfil = [{ campo: 'codperfil', rotulo: 'Código', largura: 110 }, { campo: 'perfil', rotulo: 'Perfil' }];
   return (
@@ -55,6 +72,13 @@ function AbasDoOperador({ form, editavel }: { form: UseFormReturn<CriarOperadorD
           recurso="lookup/operadores" fixos={{ tipo_sigla: 'OPE' }}
           deLinha={(l) => ({ codoperador: Number(l.codigo ?? l.codoperador), nome: l.nome ?? null })} editavel={editavel} />
       )}
+      {perfilAberto && (
+        <Modal open onClose={voltar} size="lg" title="Cadastro de perfil de operador" className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-y-auto">
+          <Suspense fallback={<p className="p-pad-md text-body-sm text-fg-muted">Abrindo o cadastro…</p>}>
+            <PerfilCadMaster tipoInicial={ativa === 'compra' ? 'COMPRA' : 'ACESSO'} aoFechar={voltar} />
+          </Suspense>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -65,9 +89,9 @@ function AbasDoOperador({ form, editavel }: { form: UseFormReturn<CriarOperadorD
  * servidor), parceiro/funcionário (lookup FUN='S', uCadUsuarios.pas:491), supervisor (lookup operadores,
  * uCadUsuarios.pas), flags. Detalhe: EMPRESAS-PERMITIDAS (ponte 1:N; ≥1 obrigatória — uCadUsuarios.pas:444).
  * A senha do cadastro vai ao hash do servidor (troca no 1º acesso). As abas de perfis e supervisionados: `AbasDoOperador`.
- * Fora: a biometria (leitor NBioBSP) e o F2 que abre o cadastro de perfil por cima.
+ * F2 abre o cadastro de perfil por cima (no tipo da aba). Fora: a biometria (leitor NBioBSP).
  */
-export function OperadoresCadMaster() {
+export function OperadoresCadMaster({ aoFechar }: { aoFechar?: () => void } = {}) {
   // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
   const { tem: pode } = useOpcoesDoForm('FRMCADUSUARIOS');
   const { data: empresaOptions = [] } = useResourceOptions(
@@ -125,7 +149,7 @@ export function OperadoresCadMaster() {
           />
         ),
       }}
-      campos={({ form, editavel }) => (
+      campos={({ form, editavel, carregar }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <Field
             label="Nome"
@@ -282,7 +306,7 @@ export function OperadoresCadMaster() {
               )}
             />
           </div>
-          <AbasDoOperador form={form} editavel={editavel} />
+          <AbasDoOperador form={form} editavel={editavel} carregar={carregar} aoFechar={aoFechar} />
         </div>
       )}
     />

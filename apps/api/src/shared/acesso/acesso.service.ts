@@ -103,6 +103,11 @@ export class AcessoService {
   }
 
   /** as opções do FORM concedidas ao operador corrente (a tela desabilita/oculta o controle que não está aqui) */
+  /** o modo do CONTROLE_PERMISSOES (`dmPrincipal.GetConfigControlePermissao`) — a tela de perfis o confere antes do F4 */
+  async modo(): Promise<ModoPermissao> {
+    return modoPermissao(this.dbp.forTenantRead());
+  }
+
   async opcoesDoForm(form: string): Promise<string[]> {
     return [...(await opcoesConcedidas(this.dbp.forTenantRead(), form))].sort();
   }

@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 
 type AnyDB = any;
 
@@ -37,3 +38,23 @@ export async function sincronizarVinculos(
       .where(fixo.coluna, '=', fixo.valor).where(outra, 'in', saem).where(sql`coalesce(indr,'I')`, '<>', 'E').execute();
   }
 }
+
+/**
+ * os operadores que entram num perfil: o "Adicionar operador vinculado" é a Pesquisa da GET_OPERADORES (`ExisteOperadorSelecionado`,
+ * uCadPerfilOperador.pas:197-207 — a view tira o SICOM e os excluídos)
+ */
+export async function validarOperadoresDoPerfil(trx: AnyDB, novos: number[]): Promise<void> {
+  const validos = new Set(((await trx.selectFrom('operadores').select('codoperador').where('codoperador', 'in', novos)
+    .where(sql`coalesce(indr,'I')`, '<>', 'E').where(sql`upper(coalesce(login,''))`, '<>', 'SICOM').execute()) as Array<{ codoperador: number }>)
+    .map((r) => Number(r.codoperador)));
+  const invalido = novos.find((c) => !validos.has(c));
+  if (invalido != null) throw new BusinessRuleError('OPERADOR_NAO_ENCONTRADO', { codoperador: invalido });
+}
+
+/** os operadores vinculados (ativos) ao perfil, na ordem em que entraram — a grade do cadastro de perfil */
+export async function operadoresVinculados(db: AnyDB, tabela: string, codperfil: number): Promise<Array<{ codoperador: number; nome: string | null }>> {
+  return (await db.selectFrom(`${tabela} as r`).leftJoin('operadores as o', 'o.codoperador', 'r.codoperador')
+    .select(['r.codoperador', 'o.nome']).where('r.codperfil', '=', codperfil).where(sql`coalesce(r.indr,'I')`, '<>', 'E')
+    .orderBy('r.dtcadastro').orderBy('r.codoperador').execute()) as Array<{ codoperador: number; nome: string | null }>;
+}
+

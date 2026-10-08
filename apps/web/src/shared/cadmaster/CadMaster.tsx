@@ -61,6 +61,11 @@ interface Props<T extends FieldValues> {
    * Transmitir) passam `true` e cada seção de CAMPO se autodesabilita via o `editavel` recebido.
    */
   gerenciaEdicaoInterna?: boolean;
+  /**
+   * o registro carregado que a tela não aceita — o edtCodigoExit que fecha o cdsPrincipal com uma mensagem (ex.: o perfil de outro tipo,
+   * "O perfil não é do tipo …"): devolve o texto (a tela fica vazia e mostra a mensagem) ou null
+   */
+  recusarRegistro?: (registro: Record<string, unknown>) => string | null;
   /** render-prop dos campos da tela (recebe o form e se está editável) */
   campos: (ctx: CamposCtx<T>) => ReactNode;
 }
@@ -99,11 +104,12 @@ export function CadMaster<T extends FieldValues>({
   log,
   largura = '3xl',
   gerenciaEdicaoInterna = false,
+  recusarRegistro,
   campos,
 }: Props<T>) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
   const colunaCodigo = viewPk ?? pk;
-  const cad = useCadMaster(api, pk, colunaCodigo);
+  const cad = useCadMaster(api, pk, colunaCodigo, recusarRegistro as ((r: unknown) => string | null) | undefined);
   // aberto pela Pesquisa (Ins/F2): em inclusão ou no registro; ao gravar avisa; o Sair fecha
   const embutido = useContext(CadMasterEmbutido);
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues });
@@ -125,7 +131,7 @@ export function CadMaster<T extends FieldValues>({
   const carregar = async () => {
     if (!codigo) return;
     try {
-      await cad.carregarPorCodigo(Number(codigo));
+      await carregarAceito(Number(codigo));
     } catch (e) {
       mensagem.erro(e);
     }
@@ -142,6 +148,16 @@ export function CadMaster<T extends FieldValues>({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cad.registro]);
+  // o registro recusado (`recusarRegistro`) fecha a tela: o cdsPrincipal.Close + SetaFocoCodigo do legado
+  const carregarAceito = async (id: number) => {
+    try {
+      await cad.carregarPorCodigo(id);
+    } catch (e) {
+      // a recusa é um Error simples (sem o envelope da API)
+      if (recusarRegistro && !(e as { envelope?: unknown }).envelope) { form.reset(defaultValues ?? ({} as T)); setCodigo(''); }
+      throw e;
+    }
+  };
 
   // aberta por outra tela com o registro na URL (`?codigo=`): o "Detalhar" do kardex abre a NF, o atalho da precificação abre a nota —
   // o `edtCodigo.Text := …` + `ExecutarOnExitEdtCodigo` do legado. Lido do location (não do router) para servir a qualquer montagem.
@@ -152,7 +168,7 @@ export function CadMaster<T extends FieldValues>({
       return;
     }
     const cod = Number(new URLSearchParams(window.location.search).get('codigo'));
-    if (Number.isInteger(cod) && cod > 0) cad.carregarPorCodigo(cod).catch((e) => mensagem.erro(e));
+    if (Number.isInteger(cod) && cod > 0) carregarAceito(cod).catch((e) => mensagem.erro(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

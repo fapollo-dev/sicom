@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | **corte-1 + corte-2 ENTREGUES e verdes** (2026-07-16). c1: PERFIL CRUD + relação operador↔perfil. c2: matriz de grants FORM×OPCAO por perfil + **acesso.service perfil-aware** (modos usuario/perfil/ambos). Front /cadastro/perfis. Auditoria adversarial (segurança-RBAC + correctness) em andamento. |
+| **Status** | **a tela do legado CONVERTIDA (2026-10-08, §5)** — antes: corte-1 + corte-2 (2026-07-16). c1: PERFIL CRUD + relação operador↔perfil. c2: matriz de grants FORM×OPCAO por perfil + **acesso.service perfil-aware** (modos usuario/perfil/ambos). Front /cadastro/perfis. Auditoria adversarial (segurança-RBAC + correctness) em andamento. |
 | **Autor** | Claude (agente de migração) |
 | **Fontes legadas** | `uCadPerfilOperador.pas`, `uCtrlPermissoes.pas`, `udmPrincipal.pas` (`PossuiAcessoForm`). |
 | **Golden** | Oracle PINHEIRAO (READ-ONLY 2026-07-16): `PERFIL` (20), `PERMISSOES` (31.878; 29.089 por CODOPERADOR, 2.785 por CODPERFIL, 327 forms distintos), `RELACAO_OPERADOR_PERFIL` (62). |
@@ -35,3 +35,36 @@ shared build · api tsc 0 · api test 145 · **smoke 548/0** (§77.1-6: criar/at
 - Herança de perfil (`PERFILREL`), janela de horário (`OPERADORES_RESTRICAO_ACESSO`), permissões mobile (`APP_PERMISSOES`), trilha de auditoria (`AUDIT_PERMISSOES`).
 - Catálogo de forms COMPLETO (hoje = DISTINCT das permissões existentes; o legado tem o catálogo no app — um registro estático de forms/opções seria o ideal, mas não há fonte migrável).
 - Grant por-OPERADOR direto pela matriz (a matriz atual é por-PERFIL; o grant direto por-operador é o modo 'usuario' já existente, semeado/gerido fora desta tela).
+
+## 5. A tela do legado (08/10/2026) — o cadastro por TIPO, F2/F4 e o Imprimir
+
+A `/cadastro/perfis` era uma tela do Apollo: a lista dos 15 perfis da produção misturando os tipos, "Criar perfil" sem tipo e uma
+matriz de permissões que o legado não tem nesta tela. O `TfrmCadPerfilOperador` é um TfrmCadMasterDet (48 acessos na produção):
+
+- **A janela de abertura** "Selecione o tipo de perfil." — Acessos / Parceiros / Compras; o Cancelar fica em Acessos (`GetOpcao`,
+  :319-346). O tipo vale para a sessão: título ("Perfil de acessos/parceiros/compras"), Pesquisa (`ObrigatoriosPesquisa := ' TIPO = '`,
+  :490), o perfil novo (`cdsPerfilOperadorNewRecord`: TIPO, ATIVO 'S', INDR 'I') e a recusa do código de outro tipo
+  (`edtCodigoExit` :147: "O perfil não é do tipo "%s"." e fecha o registro). Os valores são os da PERFIL.TIPO (ACESSO 9, PARCEIRO 5,
+  COMPRA 1); o rótulo do tipo na mensagem é o da janela — a unit BO.Perfil (TipoPerfilToStrExtenso) não veio no fonte.
+- **Campos**: Descrição (PERFIL) e Ativo. A Pesquisa (recurso `cadastro/perfil`, rel_get_perfil do tipo) pinta o ATIVO = 'N' de
+  vermelho, "Perfil Inativo" (:221-232), e abre em Todos (FormShow :358).
+- **Operadores vinculados** (só Acessos e Compras — `PgcOperadoresVinculados.Visible`): Adicionar = a Pesquisa da GET_OPERADORES em
+  multisseleção ("O operador X já possui vinculo com o perfil Y ."); Excluir com "Deseja excluir o registro selecionado?" (e o Del da
+  grade). Vai no **Gravar** do perfil, na tabela do tipo (COMPRA → RELACAO_OPERADOR_PERFIL_COMPRA), com o histórico 'I'/'E'. A API virou
+  agregado (`perfil.aggregate.ts`): tipo obrigatório na inclusão e fixo depois (422), o de parceiro não aceita operador (422).
+- **F2** abre o cadastro de usuários por cima e, ao voltar, recarrega o perfil; aberto pelo F2 de lá, fecha (`FormKeyDown` :219-240).
+  O cadastro de usuários ganhou o F2 simétrico (uCadUsuarios.pas:687-726: o tipo da aba — Perfil de compras → Compras, senão Acessos).
+  **Divergência consciente**: o legado abre a outra tela sem conferir o acesso a ela; no Apollo cada tela embutida segue com os
+  portões dela no servidor (gravar operador exige o FRMCADUSUARIOS) — a tela de permissões não vira atalho de privilégio.
+- **F4** abre o **Controle de permissões na aba Perfil** com o perfil (:242-283) — "Habilite a configuração de controle de permissão para
+  perfil e tente novamente!" no modo Usuário e "Operador não possui acesso ao formulário solicitado. Verifique!" sem o FRMCTRLPERMISSOES.
+  A matriz que esta tela tinha no Apollo saiu: as permissões do perfil se editam lá (`uCtrlPermissoes.md`, "A aba Perfil").
+- **Imprimir** (menu Outros): "Relação perfil x operador" (`TRelPerfilOperador`, OperadoresVinculadosPerfil.fr3 — PERSONALIZADO 854) e
+  "Relação perfil x permissões de acesso" (`TRelPerfilPermissao`, PermissaoVinculadaPerfil.fr3 — PERSONALIZADO 874, as permissões na
+  empresa do login, GROUP BY tela × opção), com as mensagens do legado ("Informe o perfil e tente novamente!", "Informe os operadores
+  vinculados ao perfil e tente novamente!", "Registros não encontrados para esse perfil."). Duas diferenças, registradas: o SQL de
+  operadores do legado lê sempre a RELACAO_OPERADOR_PERFIL — no perfil de compras sairia vazio; aqui é a tabela do tipo —; e o
+  `ValidaCampoCaptionTabelaPermissao` (completa o rótulo que falta abrindo cada tela Delphi) não tem como existir — o Apollo grava o
+  rótulo ao conceder. O layout de operadores lê a lista no FrxDBMasterDet: os dois datasets levam as linhas.
+- Smoke §77.4b; jsdom `perfilCadMaster.spec.tsx`; render `perfilRelatorios.spec.ts` (os .fr3 854/874 da produção).
+

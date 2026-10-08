@@ -3,7 +3,9 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { sincronizarVinculos, TABELA_DO_TIPO } from './perfil-vinculos';
+import { sincronizarVinculos, TABELA_DO_TIPO, validarOperadoresDoPerfil, operadoresVinculados } from './perfil-vinculos';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = any;
 
@@ -44,9 +46,7 @@ export class PerfilRelacaoService {
   async operadoresDoPerfil(codperfil: number): Promise<{ codperfil: number; tipo: string; operadores: Array<{ codoperador: number; nome: string | null }> }> {
     const db = this.dbp.forTenantRead() as AnyDB;
     const { tipo, tabela } = await this.perfilComTabela(db, codperfil);
-    const operadores = !tabela ? [] : ((await db.selectFrom(`${tabela} as r`).leftJoin('operadores as o', 'o.codoperador', 'r.codoperador')
-      .select(['r.codoperador', 'o.nome']).where('r.codperfil', '=', codperfil).where(sql`coalesce(r.indr,'I')`, '<>', 'E')
-      .orderBy('r.dtcadastro').orderBy('r.codoperador').execute()) as Array<{ codoperador: number; nome: string | null }>);
+    const operadores = !tabela ? [] : await operadoresVinculados(db, tabela, codperfil);
     return { codperfil, tipo, operadores };
   }
 
@@ -59,18 +59,67 @@ export class PerfilRelacaoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { tipo, tabela } = await this.perfilComTabela(trx, codperfil);
       if (!tabela) throw new BusinessRuleError('PERFIL_SEM_OPERADORES', { codperfil, tipo });
-      await sincronizarVinculos(trx, tabela, { coluna: 'codperfil', valor: codperfil }, codoperadores, async (novos) => {
-        const validos = new Set(((await trx.selectFrom('operadores').select('codoperador').where('codoperador', 'in', novos)
-          .where(sql`coalesce(indr,'I')`, '<>', 'E').where(sql`upper(coalesce(login,''))`, '<>', 'SICOM').execute()) as Array<{ codoperador: number }>)
-          .map((r) => Number(r.codoperador)));
-        const invalido = novos.find((c) => !validos.has(c));
-        if (invalido != null) throw new BusinessRuleError('OPERADOR_NAO_ENCONTRADO', { codoperador: invalido });
-      });
+      await sincronizarVinculos(trx, tabela, { coluna: 'codperfil', valor: codperfil }, codoperadores, (novos) => validarOperadoresDoPerfil(trx, novos));
       return { codperfil, operadores: new Set(codoperadores).size };
     });
   }
 
   /** atribui (S) ou remove (soft-delete) o vínculo operador↔perfil. */
+  /**
+   * "Relação perfil x operador" (MnItemRelacaoPerfilxOperadorClick → TRelPerfilOperador, uCadPerfilOperador.pas:385-410, :524-549): os
+   * vínculos ativos com o nome do operador, no OperadoresVinculadosPerfil.fr3 (RELATORIOS — a produção tem o PERSONALIZADO 854). O SQL do
+   * legado lê sempre a RELACAO_OPERADOR_PERFIL — no perfil de COMPRA o relatório sairia vazio; aqui é a tabela do tipo. O layout lê a
+   * lista no FrxDBMasterDet, que o legado só liga quando a consulta de detalhe não está vazia: os dois datasets levam as linhas.
+   */
+  async relatorioOperadores(codperfil: number) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const p = (await db.selectFrom('perfil').select(['perfil', 'tipo']).where('codperfil', '=', codperfil).where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .executeTakeFirst()) as { perfil: string | null; tipo: string | null } | undefined;
+    if (!p) throw new BusinessRuleError('PERFIL_NAO_ENCONTRADO', { codperfil });
+    const tabela = TABELA_DO_TIPO[String(p.tipo ?? '').toUpperCase()];
+    const ops = tabela ? await operadoresVinculados(db, tabela, codperfil) : [];
+    // "Registros não encontrados para esse perfil." (TRelatoriosPO.Texto)
+    if (!ops.length) throw new BusinessRuleError('PERFIL_RELATORIO_VAZIO', { codperfil });
+    const nums = new Set(['codoperador', 'codperfil']);
+    const linhas = ops.map((o) => registroFr3({ codoperador: o.codoperador, codperfil, perfil: p.perfil, operador: o.nome }, nums));
+    const empresa = await empresaParaRelatorio(db, this.emp());
+    return {
+      titulo: 'Relação operadores vinculados ao perfil',
+      modelo: await modeloFr3(db, 'OperadoresVinculadosPerfil.fr3'),
+      datasets: { FrxDBMaster: linhas, FrxDBMasterDet: linhas, FrxDBEmpresa: [empresa], dbdEmpresa: [empresa] },
+    };
+  }
+
+  /**
+   * "Relação perfil x permissões de acesso" (MnItemPermissoesPerfilClick → TRelPerfilPermissao, :362-383, :494-512): as permissões do
+   * perfil NA EMPRESA DO LOGIN, uma linha por tela × opção (GROUP BY PERFIL, FORM_CAPTION, CAPTION, na ordem deles), no
+   * PermissaoVinculadaPerfil.fr3 (PERSONALIZADO 874). O legado antes completa os rótulos que faltam na PERMISSOES abrindo cada tela
+   * (`ValidaCampoCaptionTabelaPermissao`) — não há tela Delphi para abrir; o Apollo grava o rótulo ao conceder.
+   */
+  async relatorioPermissoes(codperfil: number) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = this.emp();
+    const linhas = (await sql<Record<string, unknown>>`
+      SELECT pf.perfil, p.form_caption, p.caption
+        FROM permissoes p JOIN perfil pf ON pf.codperfil = p.codperfil
+       WHERE p.codperfil = ${codperfil} AND p.codempresa = ${emp}
+       GROUP BY pf.perfil, p.form_caption, p.caption
+       ORDER BY p.form_caption, p.caption`.execute(db)).rows;
+    if (!linhas.length) throw new BusinessRuleError('PERFIL_RELATORIO_VAZIO', { codperfil });
+    const empresa = await empresaParaRelatorio(db, emp);
+    return {
+      titulo: 'Relatório de permissões do perfil',
+      modelo: await modeloFr3(db, 'PermissaoVinculadaPerfil.fr3'),
+      datasets: { FrxDBMaster: linhas.map((l) => registroFr3(l)), FrxDBEmpresa: [empresa], dbdEmpresa: [empresa] },
+    };
+  }
+
+  private emp(): number {
+    const e = currentTenant().empresaId ?? null;
+    if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    return e;
+  }
+
   async set(codoperador: number, codperfil: number, atribuido: boolean): Promise<{ codoperador: number; codperfil: number; atribuido: boolean }> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {

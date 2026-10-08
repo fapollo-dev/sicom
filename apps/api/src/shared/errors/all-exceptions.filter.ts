@@ -927,6 +927,9 @@ const CODE_PT: Record<string, string> = {
   // Perfis & Permissões (FRMCADPERFILOPERADOR)
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
   PERFIL_INVALIDO: 'Informe um perfil válido.',
+  PERFIL_TIPO_OBRIGATORIO: 'Selecione o tipo de perfil.',
+  PERFIL_TIPO_IMUTAVEL: 'O tipo do perfil não pode ser alterado.',
+  PERFIL_RELATORIO_VAZIO: 'Registros não encontrados para esse perfil.',
   PERFIL_SEM_OPERADORES: 'Perfil de parceiro não tem operadores vinculados.',
   // De-para de fornecedor (CODREFERENCIA_FOR)
   DEPARA_NAO_ENCONTRADO: 'Referência de fornecedor não encontrada.',
