@@ -135,6 +135,9 @@ export const analiseNfSchema = z
     codparceiro: z.coerce.number().int().positive().nullish(),
     razao: z.string().max(80).nullish(),
     cfop: z.coerce.number().int().positive().nullish(),
+    // "Múltiplos CFOPs" (chkMultiplosCFOPs, UNFAnalise.pas:188-215, :1128-1136): a Pesquisa da GET_CFOP em multisseleção; só o modelo
+    // "Por CST" o usa, e pelo CFOP do ITEM (NP.CFOP IN …)
+    cfops: z.array(z.coerce.number().int().positive()).max(500).nullish(),
     processadas: z.enum(['S', 'N', 'T']).optional(),
     incluirDevolucao: z.boolean().optional(),
     somenteDiferencas: z.boolean().optional(),

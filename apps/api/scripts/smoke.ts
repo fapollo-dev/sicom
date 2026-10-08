@@ -29964,6 +29964,23 @@ async function main() {
             { r22: [r22.status, (j22.linhas ?? []).length, j22.code], r46: [r46.status, (j46.linhas ?? []).length, j46.code], demais });
         }
 
+        // ANÁLISE DE NOTAS, "Múltiplos CFOPs" (UNFAnalise.pas:188-215, :1128-1136): só no "Por CST", pelo CFOP do ITEM (NP.CFOP IN …)
+        {
+          const an = async (extra: Record<string, unknown>) => {
+            const r = await fetch(`${base}/fiscal/nf-analise`, { method: 'POST', headers: H,
+              body: JSON.stringify({ modelo: 'POR_CST', dataIni: '2000-01-01', dataFim: '2039-12-31', tipo: 'T', ...extra }) });
+            return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+          };
+          const tudo = await an({});
+          const linhasDe = (r: any) => (r?.j?.linhas ?? r?.j ?? []) as any[];
+          const cfopsVistos = [...new Set(linhasDe(tudo).map((l) => Number(l.cfop)).filter((n) => Number.isInteger(n) && n > 0))];
+          const comTodos = cfopsVistos.length ? await an({ cfops: cfopsVistos }) : tudo;
+          const nenhum = await an({ cfops: [9999] });
+          check('PESQUISA §298.34 [análise de notas, Múltiplos CFOPs no "Por CST"]: a lista de CFOPs filtra pelo CFOP do item — com todos os CFOPs vistos voltam as mesmas linhas (menos as de CFOP do item vazio, que o NP.CFOP IN do legado também não casa), com um que não existe, nenhuma',
+            tudo.status === 200 && comTodos.status === 200 && linhasDe(comTodos).length === linhasDe(tudo).filter((l) => cfopsVistos.includes(Number(l.cfop))).length && nenhum.status === 200 && linhasDe(nenhum).length === 0,
+            { tudo: [tudo.status, linhasDe(tudo).length, tudo.j?.code], cfopsVistos: cfopsVistos.slice(0, 8), comTodos: linhasDe(comTodos).length, nenhum: [nenhum.status, linhasDe(nenhum).length, nenhum.j?.code] });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

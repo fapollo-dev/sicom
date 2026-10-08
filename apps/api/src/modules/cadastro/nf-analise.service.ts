@@ -24,6 +24,8 @@ export interface FiltroAnalise {
   codparceiro?: number | null;
   razao?: string | null;
   cfop?: number | string | null;
+  /** "Múltiplos CFOPs" — só no "Por CST", pelo CFOP do item */
+  cfops?: Array<number | string> | null;
   /** 'S' processadas · 'N' não processadas · 'T' todas (o radio "Notas Processadas"). */
   processadas?: 'S' | 'N' | 'T';
   /** o "Incluir notas de devolução" — desmarcado, exclui os CFOPs marcados como devolução. */
@@ -464,6 +466,9 @@ export class NfAnaliseService {
     if (f.razao) onde.push(sql`p.razao ILIKE ${`%${f.razao}%`}`);
     else if (f.codparceiro) onde.push(sql`n.codparceiro = ${f.codparceiro}`);
     if (f.cfop) onde.push(sql`${cfopCol}::text = ${String(f.cfop)}`);
+    // "Múltiplos CFOPs": o NP.CFOP IN (…) do "Por CST" (UNFAnalise.pas:1130-1131 — nos outros modelos o legado montava N.CFOP = VARIOS,
+    // um SQL quebrado; aqui a lista só vale no "Por CST", e a tela só a oferece nele)
+    if (modelo === 'POR_CST' && f.cfops?.length) onde.push(sql`np.cfop::text = ANY(${f.cfops.map(String)}::text[])`);
     if (modelo === 'POR_CST') {
       if (f.coddpto) onde.push(sql`pr.coddpto = ${f.coddpto}`);
       if (f.codbarra) onde.push(sql`pr.codbarra = ${f.codbarra}`);

@@ -10,6 +10,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useShortcut } from '../../shared/keyboard';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -56,7 +57,7 @@ export function NfAnalisePage() {
   const preco = modelo === 'PRECIFICACAO' || modelo === 'PRECO_FORNECEDOR' || modelo === 'PRECO_FORNECEDOR_ITENS';
   const [f, setF] = useState({
     dataIni: inicioMes(), dataFim: hoje(), tipo: 'T' as 'T' | 'E' | 'S',
-    nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T',
+    nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T', multiplosCfops: false, cfops: '',
     incluirDevolucao: false, somenteDiferencas: false, movimentaEstoque: false, empresas: '',
     coddpto: '', codbarra: '', codgrupo: '', codsubgrupo: '', cfopPrecificacao: false, desconsiderarTransfEntrada: true, agrupar: false,
     modalidade: '', cfopEstado: '' as '' | 'D' | 'F',
@@ -71,7 +72,12 @@ export function NfAnalisePage() {
 
   const corpo = (): AnaliseNfDto => ({
     modelo, dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo,
-    nronf: f.nronf || null, razao: f.razao || null, cfop: f.cfop ? Number(f.cfop) : null,
+    nronf: f.nronf || null, razao: f.razao || null,
+    // "Múltiplos CFOPs" (só no "Por CST"): a lista no lugar do CFOP único
+    cfop: f.multiplosCfops && modelo === 'POR_CST' ? null : f.cfop ? Number(f.cfop) : null,
+    cfops: f.multiplosCfops && modelo === 'POR_CST'
+      ? [...new Set(f.cfops.split(/[,\s]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+      : null,
     processadas: f.processadas, incluirDevolucao: f.incluirDevolucao, somenteDiferencas: f.somenteDiferencas,
     movimentaEstoque: f.movimentaEstoque,
     empresas: f.empresas.split(',').map((e) => Number(e.trim())).filter((e) => Number.isInteger(e) && e > 0),
@@ -178,7 +184,18 @@ export function NfAnalisePage() {
             value={f.tipo} onChange={(v) => setF({ ...f, tipo: (v ?? 'T') as 'T' })} /></div>
           <div className="w-36"><Field label="&Nº NF" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
           <div className="w-56"><Field label="Cliente / fornecedor" value={f.razao} onChange={(e) => setF({ ...f, razao: e.target.value })} placeholder="parte da razão social" /></div>
-          <div className="w-28"><Field label="CFOP" value={f.cfop} onChange={(e) => setF({ ...f, cfop: e.target.value.replace(/\D/g, '') })} /></div>
+          {modelo === 'POR_CST' && f.multiplosCfops ? (
+            // UNFAnalise.pas:188-215 — a GET_CFOP em multisseleção; o legado mostra "VARIOS" e a lista na descrição
+            <CodigosComPesquisa label="CFOPs (vários)" value={f.cfops} onChange={(v) => setF({ ...f, cfops: v })} recurso="lookup/cfops" campo="cfop" />
+          ) : (
+            <div className="w-28"><Field label="CFOP" value={f.cfop} onChange={(e) => setF({ ...f, cfop: e.target.value.replace(/\D/g, '') })} /></div>
+          )}
+          {modelo === 'POR_CST' && (
+            <label className="flex items-center gap-gp-sm text-body-sm">
+              <input type="checkbox" checked={f.multiplosCfops} onChange={(e) => setF({ ...f, multiplosCfops: e.target.checked })} />
+              Múltiplos CFOPs
+            </label>
+          )}
           <div className="w-44"><SelectField label="&Processadas" options={[{ value: 'T', label: 'Todas' }, { value: 'S', label: 'Só processadas' }, { value: 'N', label: 'Só não processadas' }]}
             value={f.processadas} onChange={(v) => setF({ ...f, processadas: (v ?? 'T') as 'T' })} /></div>
         </div>
