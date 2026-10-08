@@ -26,7 +26,10 @@ function extrairEnvelope(e: unknown): ErroResposta {
   if (isErroResposta(env)) return env;
   // 2) o próprio throwable já é o envelope
   if (isErroResposta(e)) return e;
-  // 3) fallback genérico em PT
+  // 3) o aviso da tela: `new Error('Selecione ao menos um título.')` — um Error COMUM criado com o texto (o padrão de ~20 telas). Antes ele
+  //    caía no genérico e o operador não via a mensagem. Falha de rede e de código (TypeError, RangeError…) continuam no genérico
+  if (e instanceof Error && e.name === 'Error' && e.message.trim() !== '') return { statusCode: 0, code: 'AVISO', message: e.message };
+  // 4) fallback genérico em PT
   return { statusCode: 0, code: 'ERRO', message: ERRO_GENERICO };
 }
 

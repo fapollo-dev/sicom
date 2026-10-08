@@ -51,4 +51,30 @@ describe('MensagemProvider — exibição padronizada de erros (ADR-015)', () =>
     // clicar também não quebra (cai no no-op com console.warn)
     expect(() => fireEvent.click(screen.getByText('disparar'))).not.toThrow();
   });
+
+  it('o aviso da tela (new Error com o texto) mostra o texto; falha de rede ou de código (TypeError) fica no genérico', () => {
+    function Avisos() {
+      const { erro } = useMensagem();
+      return (
+        <>
+          <button onClick={() => erro(new Error('Selecione ao menos um título.'))}>aviso</button>
+          <button onClick={() => erro(new TypeError('Failed to fetch'))}>rede</button>
+        </>
+      );
+    }
+    render(<MensagemProvider><Avisos /></MensagemProvider>);
+    fireEvent.click(screen.getByText('aviso'));
+    expect(screen.getByText('Selecione ao menos um título.')).toBeTruthy();
+  });
+
+  it('TypeError (falha de rede/código) não vaza o texto técnico: mostra o genérico', () => {
+    function Rede() {
+      const { erro } = useMensagem();
+      return <button onClick={() => erro(new TypeError('Failed to fetch'))}>rede</button>;
+    }
+    render(<MensagemProvider><Rede /></MensagemProvider>);
+    fireEvent.click(screen.getByText('rede'));
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    expect(screen.getByText(/Ocorreu um erro inesperado/)).toBeTruthy();
+  });
 });
