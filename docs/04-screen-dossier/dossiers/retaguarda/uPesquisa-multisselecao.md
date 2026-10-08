@@ -502,6 +502,9 @@ empate: um gap sobre tabela morta vai para o fim.
     grade de trabalho já marcados (`cadastro/{lado}?paraAgrupar=S&codigos=…`); o agrupar e o incluir aceitam títulos das lojas do
     operador (o consolidado nasce na loja do login); reverter, remover, membros e a impressão pegam o grupo inteiro. O maior agrupamento
     desde 2025 teve 974 títulos — cabe na marcação da Pesquisa (1.000). Smoke §298.40.
-  - A seguir: a liberação do controle de contas (a conta 1 tem 17.844 movimentos não liberados contra o corte em 5.000). O CNAB (1.000)
-    não morde: a loja 50, a única que remete, tem 827 títulos abertos.
+  - **Liberação do controle de contas (#15)** ✅: a grade cortava em 5.000 pelos MAIS ANTIGOS (a conta 1 tem 17.844 não liberados — os
+    recentes nunca apareciam). Agora "Liberar movimentações" abre a Pesquisa `financeiro/liberar-movimentos` (a GET_MOV_CONTAS_BANCARIAS da
+    conta com LIBERADO <> 'SIM', só com a conta do operador e a liberação permitida) em multisseleção e pede a data depois, como o
+    legado. Smoke §298.41.
+  - O CNAB (1.000) não morde: a loja 50, a única que remete, tem 827 títulos abertos.
 

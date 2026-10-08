@@ -30349,6 +30349,27 @@ async function main() {
             { pesqAr, pesqAp, grade, agr: [agr.status, agrJ.code, agrJ.consolidado], membroB, consLoja, membros, rev: rev.status, voltouB, agrAp: [agrAp.status, agrApJ.code], membroApB, semLoja: [semLoja.status, semLojaJ.code] });
         }
 
+        // CONTROLE DE CONTAS — "Liberar Movimentações" pela Pesquisa (a grade cortava em 5.000 pelos mais antigos; a conta 1 da produção tem
+        // 17.844 não liberados): a GET_MOV_CONTAS_BANCARIAS da conta, LIBERADO <> 'SIM', só com a conta do operador e a liberação permitida
+        {
+          const conta = Number((await pgPq.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, ativo) VALUES (0, 1, 'LIBERAR PESQ', 'S') RETURNING codconta`)).rows[0].codconta);
+          await pgPq.query(`INSERT INTO contas_bancarias_op (codconta, codoperador, habiltiar_libe_moviment) VALUES ($1, 7, 'S') ON CONFLICT DO NOTHING`, [conta]);
+          const mov = async (liberado: string | null) => Number((await pgPq.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, liberado, dtemissao)
+            VALUES ($1, 1, 10, 'C', 'MANUAL', $2, now()) RETURNING codmovconta`, [conta, liberado])).rows[0].codmovconta);
+          const [mN, mS, mNulo] = [await mov('N'), await mov('S'), await mov(null)];
+          const lib = async (qs: string) => ((await pq(`recurso=financeiro/liberar-movimentos&campo=historico&operacao=qualquer&valor=&porPagina=50${qs}`)).j.linhas ?? []).map((l: any) => Number(l.codigo)).sort((a: number, b: number) => a - b);
+          const daConta = await lib(`&codconta=${conta}`);
+          const semConta = await lib('');
+          await pgPq.query(`UPDATE contas_bancarias_op SET habiltiar_libe_moviment = 'N' WHERE codconta = $1 AND codoperador = 7`, [conta]);
+          const semPermissao = await lib(`&codconta=${conta}`);
+          await pgPq.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1`, [conta]);
+          await pgPq.query(`DELETE FROM contas_bancarias_op WHERE codconta = $1`, [conta]);
+          await pgPq.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [conta]);
+          check('PESQUISA §298.41 [a liberação pela Pesquisa]: a GET_MOV_CONTAS_BANCARIAS da conta traz os não liberados (N e nulo), não o liberado; sem a conta, nada; com a liberação negada ao operador naquela conta, nada',
+            JSON.stringify(daConta) === JSON.stringify([mN, mNulo].sort((a, b) => a - b)) && !daConta.includes(mS) && semConta.length === 0 && semPermissao.length === 0,
+            { daConta, esperado: [mN, mNulo], semConta: semConta.length, semPermissao: semPermissao.length });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

@@ -495,6 +495,21 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
     retorno: 'codigo', statusRetorno: '', totalizador: true, requer: { form: 'FRMAGRUPACONTASAPAGAR', opcao: 'FRMAGRUPACONTASAPAGAR' },
     obrigatorios: async (ctx) => [emLista('codigo_empresa', await ctx.todasAsLojas()), sql<SqlBool>`coalesce(${sql.ref('agrupado')}, 'N') = 'N'`],
     descricaoObrigatorios: "COALESCE(AGRUPADO, 'N') = 'N'" },
+  // CONTROLE DE CONTAS — "Liberar Movimentações" (uControleContasBancarias.pas:197-215): a GET_MOV_CONTAS_BANCARIAS da conta com
+  // LIBERADO <> 'SIM', em multisseleção; os marcados pedem a data e são liberados. A conta vem da tela (`codconta`) e tem de ser do operador com
+  // a liberação permitida (CONTAS_BANCARIAS_OP.HABILTIAR_LIBE_MOVIMENT, como o resto da tela). A grade de antes cortava em 5.000 pelos MAIS
+  // ANTIGOS — a conta 1 da produção tem 17.844 movimentos não liberados
+  'financeiro/liberar-movimentos': { view: 'get_mov_contas_bancarias', viewLegado: 'GET_MOV_CONTAS_BANCARIAS', form: 'FRMCONTROLECONTASBANCARIAS',
+    titulo: 'Movimentações a liberar', retorno: 'codigo', statusRetorno: '', extras: ['codconta'],
+    requer: { form: 'FRMCONTROLECONTASBANCARIAS', opcao: 'BTNLIBERAR' },
+    obrigatorios: (ctx) => {
+      const conta = Number(ctx.extras.codconta);
+      if (!Number.isInteger(conta) || conta <= 0) return [sql<SqlBool>`false`];
+      return [sql<SqlBool>`${sql.ref('liberado')} <> 'SIM'`, sql<SqlBool>`${sql.ref('codigo_conta')} = ${conta}`,
+        sql<SqlBool>`exists (select 1 from contas_bancarias_op o where o.codconta = ${conta} and o.codoperador = ${ctx.operador ?? -1}
+                              and coalesce(o.habiltiar_libe_moviment, 'S') = 'S')`];
+    },
+    descricaoObrigatorios: "(LIBERADO <> 'SIM') AND (CODIGO_CONTA = conta)" },
   // BAIXA A PAGAR (FRMBAIXAAPAGAR, btnAdicionarRegistroClick, UBaixaApagar.pas:292-327): a GET_APAGAR (os abertos — o WHERE está na view)
   // das lojas do GetMultiEmpresa, com as cores do legado (BLOQUEIO = S vermelho "Compromisso bloqueado"; FORNECEDOR_POSSUI_DEBITO = S
   // azul "Fornecedor possui débito"); em multisseleção — os marcados viram os documentos do lote (GET_APAGAR WHERE CODIGO IN …)

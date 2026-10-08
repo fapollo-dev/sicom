@@ -8,10 +8,11 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { useShortcut, focarMnemonico } from '../../shared/keyboard';
 import {
-  listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento, chavearConta,
-  type ContaCC, type PainelSaldo, type MovALiberar, type Detalhamento, type DetMov, type FiltroDet,
+  listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento, chavearConta,
+  type ContaCC, type PainelSaldo, type Detalhamento, type DetMov, type FiltroDet,
 } from './controleContasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -37,7 +38,9 @@ export function ControleContasPage() {
   // o Detalhamento (UconsMovBancaria): período padrão hoje, data de emissão/vencimento/liberação, liberados, documento
   const [filtroDet, setFiltroDet] = useState<FiltroDet>({ dtini: hoje(), dtfim: hoje(), dataDe: 'emissao', liberado: 'TODOS', documento: '' });
   const [det, setDet] = useState<Detalhamento | null>(null);
-  const [aLiberar, setALiberar] = useState<{ itens: MovALiberar[]; marcados: Set<number>; data: string } | null>(null);
+  // a liberação: os marcados na Pesquisa (a GET_MOV_CONTAS_BANCARIAS da conta) e a data que o legado pede depois (TfrmRetornaInfo)
+  const [aLiberar, setALiberar] = useState<{ codigos: number[]; data: string } | null>(null);
+  const [pesquisandoLib, setPesquisandoLib] = useState(false);
   const [busy, setBusy] = useState(false);
   // form do lançamento de saldo (UlancamentoSaldo): valor com sinal, modalidade, histórico, data, senha administrativa
   const [ls, setLs] = useState({ valor: '', idpgto: '', historico: 'SALDO INICIAL', data: hoje(), senha: '' });
@@ -117,10 +120,12 @@ export function ControleContasPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  // "Liberar Movimentações" (uControleContasBancarias.pas:197-278): a pesquisa dos a prazo em multisseleção e uma data
-  const abrirLiberacao = async () => {
-    if (!sel) return;
-    try { setALiberar({ itens: await listarALiberar(sel.codconta), marcados: new Set(), data: hoje() }); } catch (e) { mensagem.erro(e); }
+  // "Liberar Movimentações" (uControleContasBancarias.pas:197-278): a Pesquisa dos não liberados da conta em multisseleção e uma data
+  const abrirLiberacao = () => { if (sel) setPesquisandoLib(true); };
+  const marcadosParaLiberar = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisandoLib(false);
+    const codigos = [...new Set(linhas.map((l) => Number(l.codigo)).filter((c) => Number.isInteger(c) && c > 0))];
+    if (codigos.length) setALiberar({ codigos, data: hoje() });
   };
   const liberar = async (ids: number[], data: string) => {
     if (!sel || !ids.length) return;
@@ -213,34 +218,19 @@ export function ControleContasPage() {
           <div className="flex flex-wrap items-center gap-gp-sm">
             <div className="text-body-sm font-semibold text-fg-muted">Movimentos a prazo</div>
             <div className="flex-1" />
-            {!aLiberar && <Button label="&Liberar movimentações" variant="soft" disabled={busy || !pode('habiltiar_libe_moviment')} onClick={() => void abrirLiberacao()} />}
+            {!aLiberar && <Button label="&Liberar movimentações" variant="soft" disabled={busy || !pode('habiltiar_libe_moviment')} onClick={abrirLiberacao} />}
           </div>
+          {pesquisandoLib && sel && (
+            <Pesquisa resourcePath="financeiro/liberar-movimentos" multisselecao parametros={{ codconta: sel.codconta }}
+              onSelecionarVarios={marcadosParaLiberar} onSelecionar={(l) => marcadosParaLiberar([l])} onFechar={() => setPesquisandoLib(false)} />
+          )}
           {aLiberar && (
-            <>
-              {aLiberar.itens.length === 0 ? <small className="text-fg-muted">Nenhum movimento a prazo nesta conta.</small> : (
-                <div className="max-h-72 overflow-auto rounded-md border border-border">
-                  <table className="w-full text-body-sm">
-                    <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs" /><th className="p-pad-xs">Emissão</th><th className="p-pad-xs">Vencimento</th><th className="p-pad-xs">Documento</th><th className="p-pad-xs">Histórico</th><th className="p-pad-xs">Modalidade</th><th className="p-pad-xs text-right">Valor</th></tr></thead>
-                    <tbody>
-                      {aLiberar.itens.map((m) => (
-                        <tr key={m.codmovconta} className="border-t border-border">
-                          <td className="p-pad-xs"><CheckboxField label="Liberar" value={aLiberar.marcados.has(m.codmovconta) ? 'S' : 'N'}
-                            onChange={() => { const x = new Set(aLiberar.marcados); if (x.has(m.codmovconta)) x.delete(m.codmovconta); else x.add(m.codmovconta); setALiberar({ ...aLiberar, marcados: x }); }} /></td>
-                          <td className="p-pad-xs tabular-nums">{dia(m.dtemissao)}</td><td className="p-pad-xs tabular-nums">{dia(m.dtvenc)}</td><td className="p-pad-xs">{m.nrodocumento ?? ''}</td>
-                          <td className="p-pad-xs">{m.historico ?? ''}</td><td className="p-pad-xs">{m.modalidade ?? ''}</td>
-                          <td className={`p-pad-xs text-right tabular-nums ${m.valor < 0 ? 'text-danger' : ''}`}>{brl(m.valor)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div className="flex flex-wrap items-end gap-gp-sm">
-                <div className="w-44"><DateField label="Data da liberação" value={aLiberar.data} onChange={(v) => setALiberar({ ...aLiberar, data: v ?? hoje() })} /></div>
-                <Button label="Cancelar" variant="ghost" onClick={() => setALiberar(null)} />
-                <Button label="Liberar" disabled={busy || aLiberar.marcados.size === 0} onClick={() => void liberar([...aLiberar.marcados], aLiberar.data)} />
-              </div>
-            </>
+            <div className="flex flex-wrap items-end gap-gp-sm">
+              <small className="text-fg-muted">{aLiberar.codigos.length} movimento(s) marcado(s) para liberar.</small>
+              <div className="w-44"><DateField label="Data da liberação" value={aLiberar.data} onChange={(v) => setALiberar({ ...aLiberar, data: v ?? hoje() })} /></div>
+              <Button label="Cancelar" variant="ghost" onClick={() => setALiberar(null)} />
+              <Button label="Liberar" disabled={busy} onClick={() => void liberar(aLiberar.codigos, aLiberar.data)} />
+            </div>
           )}
         </div>
       )}
