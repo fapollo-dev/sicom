@@ -558,7 +558,8 @@ normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é a
   homologação).
 - **Não provado, fica de fora:** a exclusão de movimento pelo grid da conciliação (92 LOGs "DELETADO VIA TELA CONCILIAÇÃO BANCÁRIA GRID
   MOVIMENTAÇÃO SISTEMA. IDLOTE = x E CODMOVCONTA = y") — o texto está no dado, as guardas (lote baixado? contabilizado?) não.
-- **Tela não convertida achada:** "Processamento rápido de nota fiscal" (`uProcessaNotaFiscal`; altera VL_CUSTO/USOCONSUMO da nota).
+- **Tela não convertida achada:** "Processamento rápido de nota fiscal" (`uProcessaNotaFiscal`; altera VL_CUSTO/USOCONSUMO da nota) —
+  ✅ **convertida em 08/10/2026** (`uProcessaNotaFiscal.md`): é a janela da entrada de transferência; as 157 notas da LOG são 1152.
 - **Fora de escopo:** `CONFERENCIA NF` (16.432, coletor), `Cadastro de Relatórios` (upload .fr3 do suporte). O título da LOG do parceiro
   por papel ("- Fornecedor"/"- Transportadora", 620 linhas) depende do menu de entrada — divergência de texto, não de regra.
 

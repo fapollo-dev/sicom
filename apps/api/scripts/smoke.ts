@@ -27630,6 +27630,78 @@ async function main() {
           && semEmpresa.status === 422 && semEmpresa.code === 'NF_TRANSF_DESTINO_NAO_EMPRESA' && semEmpresa.message === 'A empresa de destino não está cadastrada como parceiro. Verifique.'
           && semNro.status === 422 && semNro.code === 'NF_TRANSF_SEM_NUMERO' && daOutraLoja.status === 422 && daOutraLoja.code === 'NF_NAO_ENCONTRADA',
           { c1: [c1.status, c1.code, c1.message], clone, semEmpresa: [semEmpresa.status, semEmpresa.code, semEmpresa.message], semNro: [semNro.status, semNro.code], daOutraLoja: [daOutraLoja.status, daOutraLoja.code] });
+
+        // §267.3 o PROCESSAMENTO RÁPIDO (TFrmProcessaNotaFiscal): o "Deseja processar esta nota fiscal?" abre a janela sobre a ENTRADA na loja 2,
+        // da sessão da loja 1 — na produção todas as entradas de transferência (157 desde 2024) passam por ela. A nota tem de ser de uma loja do
+        // operador; as pendências; F4 a situação de transferência (nota e itens, LOG da janela); F6 os lançamentos pelo centro de custo da
+        // situação; o Processar barra sem situação e sem lançamentos (integração ligada) e processa NA LOJA 2, com a LOG no título da janela
+        {
+          const codT = Number(t1.j.codnf);
+          const PR = `${base}/fiscal/nf/${codT}/processamento-rapido`;
+          const tinhaRel2 = Number((await pgTf.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+          const cfop1152 = (await pgTf.query(`SELECT proc_transf, proc_financeiro, proc_qtde FROM cfop WHERE codcfop = '1152'`)).rows[0] as any;
+          const est0 = (await pgTf.query(`SELECT idproduto, qtde FROM estoque WHERE idempresa = 2 AND idproduto IN (1, 2)`)).rows as any[];
+          try {
+            await pgTf.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+            const semLoja = await fetch(PR, { headers: H });
+            const semLojaJ = (await semLoja.json().catch(() => ({}))) as any;
+            await pgTf.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+            // a 1152 da produção: PROC_TRANSF 'S', PROC_FINANCEIRO 'N' (a transferência não gera título) e PROC_QTDE 'S' (move o estoque)
+            if (cfop1152) await pgTf.query(`UPDATE cfop SET proc_transf = 'S', proc_financeiro = 'N', proc_qtde = 'S' WHERE codcfop = '1152'`);
+            else await pgTf.query(`INSERT INTO cfop (codcfop, descricao, proc_transf, proc_financeiro, proc_qtde) VALUES ('1152', 'TRANSFERENCIA', 'S', 'N', 'S')`);
+            await pgTf.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (992675, 'TRANSFERENCIAS - ENTRADAS SMOKE', 'E', 'E01') ON CONFLICT DO NOTHING`);
+            await pgTf.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) SELECT 992675, 1152 WHERE NOT EXISTS (SELECT 1 FROM isituacao_nf WHERE idsituacao_nf = 992675 AND codcfop = 1152)`);
+            await pgTf.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) SELECT 992675, (SELECT min(codplc) FROM plc) WHERE NOT EXISTS (SELECT 1 FROM situacao_nf_plc WHERE idsituacao_nf = 992675)`);
+            await pgTf.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+              SELECT 100, 'UTILIZA_INTEGRACAO_CONTABIL', 'N', 'String', 'Utiliza integração contábil', 'Modulo;Empresa'
+               WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL')`);
+            await pgTf.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Modulo', 'Retaguarda', 'S' FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL'
+              ON CONFLICT (id, tipo, chave) DO UPDATE SET valor='S'`);
+
+            const l0 = (await (await fetch(PR, { headers: H })).json().catch(() => ({}))) as any;
+            const pend0 = Object.fromEntries((l0.pendencias ?? []).map((p: any) => [p.atalho, p.realizado]));
+            const p0 = await fetch(`${PR}/processar`, { method: 'POST', headers: H, body: '{}' });
+            const p0J = (await p0.json().catch(() => ({}))) as any;
+            const sits = (await (await fetch(`${PR}/situacoes`, { headers: H })).json().catch(() => [])) as any[];
+            const sitRuim = await fetch(`${PR}/situacao`, { method: 'PUT', headers: H, body: JSON.stringify({ idsituacao_nf: 7930 }) });
+            const sitOk = await fetch(`${PR}/situacao`, { method: 'PUT', headers: H, body: JSON.stringify({ idsituacao_nf: 992675 }) });
+            const sitNf = (await pgTf.query(`SELECT n.idsituacao_nf, (SELECT count(*)::int FROM nf_prod i WHERE i.codnf = n.codnf AND i.idsituacao_nf = 992675) AS itens FROM nf n WHERE n.codnf = $1`, [codT])).rows[0] as any;
+            const p1 = await fetch(`${PR}/processar`, { method: 'POST', headers: H, body: '{}' });
+            const p1J = (await p1.json().catch(() => ({}))) as any;
+            const lanc = (await (await fetch(`${PR}/lancamentos`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+            const l1 = (await (await fetch(PR, { headers: H })).json().catch(() => ({}))) as any;
+            const pend1 = Object.fromEntries((l1.pendencias ?? []).map((p: any) => [p.atalho, p.realizado]));
+            const p2 = await fetch(`${PR}/processar`, { method: 'POST', headers: H, body: JSON.stringify({ precos: { modo: 'nenhum' } }) });
+            const p2J = (await p2.json().catch(() => ({}))) as any;
+            const depois = (await pgTf.query(`SELECT proc, idempresa FROM nf WHERE codnf = $1`, [codT])).rows[0] as any;
+            const est1 = (await pgTf.query(`SELECT idproduto, qtde::float AS qtde FROM estoque WHERE idempresa = 2 AND idproduto = 1`)).rows[0] as any;
+            const est0p1 = Number(est0.find((e: any) => Number(e.idproduto) === 1)?.qtde ?? 0);
+            const logs = (await pgTf.query(`SELECT formulario, tabela, historico FROM log WHERE valor = $1::numeric AND tabela IN ('NF', 'NF_PROD') AND acao = 'Alterou' ORDER BY idlog`, [codT])).rows as any[];
+            const logRapido = logs.filter((l) => l.formulario === 'Processamento rápido de nota fiscal');
+            check('NF §267.3 [o processamento rápido da transferência]: sem a loja 2 o operador não acha a nota (422); as pendências abrem com a situação e os lançamentos P e o resto R; processar sem situação → "Necessário definir a situação de documento!"; F4 oferece só a situação de transferência (a de compra é recusada) e a grava na nota e nos itens; sem lançamento (integração ligada) → "Necessário efetuar os lançamentos contábeis"; F6 preenche pelo centro de custo da situação (uma linha com o total 30) e as duas pendências viram R; o Processar processa NA LOJA 2 (estoque do produto 1 lá +2) e a LOG sai no título da janela',
+              semLoja.status === 422 && semLojaJ.code === 'NF_NAO_ENCONTRADA'
+              && pend0.F4 === 'P' && pend0.F6 === 'P' && pend0.F5 === 'R' && pend0.F9 === 'R' && pend0.F10 === 'R' && Number(l0.nota?.idempresa) === 2
+              && p0.status === 422 && p0J.code === 'NF_RAPIDO_SEM_SITUACAO'
+              && sits.some((x: any) => Number(x.idsituacao_nf) === 992675 && String(x.cfops).includes('1152')) && !sits.some((x: any) => Number(x.idsituacao_nf) === 7930)
+              && sitRuim.status === 422 && sitOk.status === 200 && Number(sitNf?.idsituacao_nf) === 992675 && Number(sitNf?.itens) === 2
+              && p1.status === 422 && p1J.code === 'NF_RAPIDO_SEM_LANCAMENTOS'
+              && (lanc.linhas ?? []).length === 1 && lanc.total === 30 && lanc.totalnf === 30
+              && pend1.F4 === 'R' && pend1.F6 === 'R' && pend1.F7 === 'R' && pend1.F8 === 'R'
+              && p2.status === 200 && depois?.proc === 'S' && Number(depois?.idempresa) === 2 && Number(est1?.qtde) === est0p1 + 2
+              && logRapido.some((l) => l.tabela === 'NF' && /IDSITUACAO_NF/.test(String(l.historico))) && logRapido.some((l) => l.tabela === 'NF' && /CAMPO: PROC /.test(String(l.historico))),
+              { semLoja: [semLoja.status, semLojaJ.code], pend0, nota: l0.nota, p0: [p0.status, p0J.code], sits, sitRuim: sitRuim.status, sitOk: sitOk.status, sitNf,
+                p1: [p1.status, p1J.code], lanc, pend1, p2: [p2.status, p2J.code, p2J.message], depois, est0p1, est1, logs: logs.map((l) => [l.formulario, l.tabela, String(l.historico).slice(0, 60)]) });
+          } finally {
+            // a nota sai no finally do §267; aqui volta o estoque da loja 2, a configuração, a CFOP e a relação com a loja
+            await pgTf.query(`DELETE FROM nf_contabil WHERE codnf = $1`, [codT]);
+            for (const e of est0) await pgTf.query(`UPDATE estoque SET qtde = $3 WHERE idempresa = 2 AND idproduto = $1 AND $2::int = 2`, [e.idproduto, 2, e.qtde]);
+            if (!est0.some((e: any) => Number(e.idproduto) === 1)) await pgTf.query(`DELETE FROM estoque WHERE idempresa = 2 AND idproduto = 1`);
+            if (!est0.some((e: any) => Number(e.idproduto) === 2)) await pgTf.query(`DELETE FROM estoque WHERE idempresa = 2 AND idproduto = 2`);
+            await pgTf.query(`DELETE FROM configuracoes_especificas WHERE id=(SELECT id FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL') AND tipo='Modulo'`);
+            if (cfop1152) await pgTf.query(`UPDATE cfop SET proc_transf = $1, proc_financeiro = $2, proc_qtde = $3 WHERE codcfop = '1152'`, [cfop1152.proc_transf, cfop1152.proc_financeiro, cfop1152.proc_qtde]);
+            if (!tinhaRel2) await pgTf.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+          }
+        }
       } finally {
         if (criadas.length) {
           await pgTf.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [criadas]);

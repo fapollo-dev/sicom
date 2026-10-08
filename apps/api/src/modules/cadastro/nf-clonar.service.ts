@@ -40,8 +40,7 @@ const soDigitos = (s: unknown) => String(s ?? '').replace(/\D/g, '');
  *
  * TRANSFERÊNCIA (a saída 5152 de uma loja vira a ENTRADA na loja destinatária): a loja de destino é a EMPRESA com o CNPJ do
  * destinatário da nota; o fornecedor é o parceiro com o CNPJ da loja de origem; tipo 'E', emissão de terceiros (1), STATUSNFE e
- * NF_IMPORTACAO_NFE 'T', VALIDATOTALNF = TOTALNF, CFOP (da nota e dos itens) 1xxx na mesma UF e 2xxx fora, situação vazia (o
- * operador escolhe na loja de destino). Travas: destino que não é empresa, origem sem cadastro de parceiro, transferência já gerada
+ * NF_IMPORTACAO_NFE 'T', VALIDATOTALNF = TOTALNF, CFOP (da nota e dos itens) 1xxx na mesma UF e 2xxx fora, situação vazia (escolhida no processamento rápido que vem em seguida, F4). Travas: destino que não é empresa, origem sem cadastro de parceiro, transferência já gerada
  * (mesma chave, mesmo fornecedor, na loja de destino), destinatário com o CNPJ da própria loja, nota sem número. Produção: 53, 82 e
  * 38 transferências em 2024, 2025 e 2026 — as 38 de 2026 batem nas 5 regras de cabeçalho com a saída (número, total, emissão, CFOP
  * 1152, emissão de terceiros) e os itens têm venda = custo da origem.
@@ -71,7 +70,7 @@ export class NfClonarService {
     return r.rows.map((x) => x.c).filter((c) => !fora.has(c));
   }
 
-  async gerar(codnf: number, operacao: OperacaoClone): Promise<{ codnf: number; idempresa: number; nronf: string; tipo: string }> {
+  async gerar(codnf: number, operacao: OperacaoClone): Promise<{ codnf: number; idempresa: number; nronf: string; tipo: string; empresa: string | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const transf = operacao === 'TRANSFERENCIA';
@@ -152,7 +151,10 @@ export class NfClonarService {
 
       await this.engine.registrarInclusao(trx, nfAggregateConfig, id);
       const r = (await sql<{ nronf: string; tipo: string }>`SELECT nronf, tipo FROM nf WHERE codnf = ${id}`.execute(trx)).rows[0];
-      return { codnf: id, idempresa: destino, nronf: String(r.nronf ?? ''), tipo: String(r.tipo ?? '') };
+      // o nome da loja de destino — o "Nota de transferência gerada para a empresa: …" (EmpresaDeTransferencia = o TITULAR_RAZAO da saída, o
+      // destinatário, que é a loja de destino: uNF.pas:7366)
+      const nomeDestino = ((await sql<{ razao_social: string | null }>`SELECT razao_social FROM empresas WHERE idempresa = ${destino}`.execute(trx)).rows[0])?.razao_social ?? null;
+      return { codnf: id, idempresa: destino, nronf: String(r.nronf ?? ''), tipo: String(r.tipo ?? ''), empresa: transf ? nomeDestino : null };
     });
   }
 }

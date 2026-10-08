@@ -31,8 +31,9 @@ export type ModoPrecoProcessar = 'online' | 'lote' | 'nenhum';
 export interface EscolhasDoProcessar { precos?: { modo?: ModoPrecoProcessar; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[]; liberacaoEstoqueNegativo?: { login: string; senha: string } }
 
 /** Processa a NF: move o estoque (entrada soma / saída baixa), atualiza os produtos e o preço (na entrada) e trava a nota (proc='S'). */
-export function processarNf(codnf: number, escolhas?: EscolhasDoProcessar): Promise<ProcessamentoResultado> {
-  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/processar`, escolhas);
+export function processarNf(codnf: number, escolhas?: EscolhasDoProcessar, rapido = false): Promise<ProcessamentoResultado> {
+  // `rapido`: a janela do processamento rápido (a entrada de transferência, na loja dela)
+  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/${rapido ? 'processamento-rapido/processar' : 'processar'}`, escolhas);
 }
 
 export interface ItemDoProcessar {
@@ -42,8 +43,8 @@ export interface ItemDoProcessar {
 export interface OpcoesDoProcessar { codnf: number; entrada: boolean; modo: ModoPrecoProcessar; sincronizar: boolean; onlineBloqueado: boolean; itens: ItemDoProcessar[] }
 
 /** os padrões da tela de processar (TfrmEstoqueNF.FormShow) */
-export async function opcoesDoProcessarNf(codnf: number): Promise<OpcoesDoProcessar> {
-  const res = await fetch(`${BASE}/fiscal/nf/${codnf}/processar/opcoes`, { headers: apiHeaders() });
+export async function opcoesDoProcessarNf(codnf: number, rapido = false): Promise<OpcoesDoProcessar> {
+  const res = await fetch(`${BASE}/fiscal/nf/${codnf}/${rapido ? 'processamento-rapido/opcoes' : 'processar/opcoes'}`, { headers: apiHeaders() });
   handle401(res);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -114,7 +115,33 @@ export function decomporItemNf(codnf: number, escolhas: { codnfprod: number; gru
 }
 
 /** CLONAR a nota / gerar a NOTA DE TRANSFERÊNCIA entre lojas (ClonaNF): a nota nova, não processada — a transferência nasce na loja de destino */
-export function clonarNf(codnf: number, operacao: 'CLONAR' | 'TRANSFERENCIA'): Promise<{ codnf: number; idempresa: number; nronf: string; tipo: string }> {
+export function clonarNf(codnf: number, operacao: 'CLONAR' | 'TRANSFERENCIA'): Promise<{ codnf: number; idempresa: number; nronf: string; tipo: string; empresa?: string | null }> {
   return req(`/fiscal/nf/${codnf}/clonar`, { operacao });
 }
+
+/** PROCESSAMENTO RÁPIDO (TFrmProcessaNotaFiscal): a nota de transferência na loja de destino — os dados, as pendências e as ações dela */
+export interface NotaDoProcessamentoRapido {
+  nota: { codnf: number; nronf: string | null; serie: string | null; dtemissao: string | null; chavenfe: string | null; razao: string | null; cnpj_cpf: string | null;
+    totalnf: number; idsituacao_nf: number | null; desc_situacao: string | null; cfop: number | null; proc: string; tipo: string; idempresa: number; fantasia: string | null };
+  pendencias: Array<{ ordem: number; atalho: string; descricao: string; realizado: 'R' | 'P' }>;
+}
+async function pedir<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { ...init, headers: apiHeaders() });
+  handle401(res);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const envelope: ErroResposta = isErroResposta(body) ? body : { statusCode: res.status, code: 'ERRO', message: body?.message ?? res.statusText };
+    throw Object.assign(new Error(envelope.code ?? res.statusText), { envelope, status: res.status, body });
+  }
+  return body as T;
+}
+export const lerProcessamentoRapido = (codnf: number) => pedir<NotaDoProcessamentoRapido>(`/fiscal/nf/${codnf}/processamento-rapido`);
+export const situacoesDoProcessamentoRapido = (codnf: number) =>
+  pedir<Array<{ idsituacao_nf: number; descricao: string | null; cfops: string }>>(`/fiscal/nf/${codnf}/processamento-rapido/situacoes`);
+export const vincularSituacaoRapido = (codnf: number, idsituacao_nf: number) =>
+  pedir(`/fiscal/nf/${codnf}/processamento-rapido/situacao`, { method: 'PUT', body: JSON.stringify({ idsituacao_nf }) });
+export interface LancamentosDoProcessamentoRapido { linhas: Array<{ codcontabilnf: number; idsituacao_nf: number; situacao: string | null; codcc: number; centro_custo: string | null; codigo_extenso: string | null; valor: number }>; total: number; totalnf: number }
+export const lancamentosDoProcessamentoRapido = (codnf: number) => pedir<LancamentosDoProcessamentoRapido>(`/fiscal/nf/${codnf}/processamento-rapido/lancamentos`);
+export const preencherLancamentosRapido = (codnf: number) =>
+  pedir<LancamentosDoProcessamentoRapido>(`/fiscal/nf/${codnf}/processamento-rapido/lancamentos`, { method: 'POST' });
 

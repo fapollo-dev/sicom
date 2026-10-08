@@ -147,6 +147,7 @@ import { ConfiguracoesAdminService } from './configuracoes-admin.service';
 import { RazaoController } from './razao.controller';
 import { RazaoService } from './razao.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
+import { NfProcessamentoRapidoController } from './nf-processamento-rapido.controller';
 import { NfClonarController } from './nf-clonar.controller';
 import { NfImpressaoController } from './nf-impressao.controller';
 import { NfImpressaoService } from './nf-impressao.service';
@@ -158,6 +159,7 @@ import { NfVendasService } from './nf-vendas.service';
 import { NfDevolucaoVendasController } from './nf-devolucao-vendas.controller';
 import { NfDevolucaoVendasService } from './nf-devolucao-vendas.service';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfProcessamentoRapidoService } from './nf-processamento-rapido.service';
 import { NfDecomposicaoService } from './nf-decomposicao.service';
 import { FechamentoDiarioController } from './fechamento-diario.controller';
 import { FechamentoDiarioService } from './fechamento-diario.service';
@@ -217,6 +219,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
+    NfProcessamentoRapidoController, // a janela da transferência (TFrmProcessaNotaFiscal)
     NfClonarController, // ClonaNF — clonar / nota de transferência entre lojas
     NfImpressaoController, // o menu de impressões da NF (conferências, lista de conferência)
     NfScrapController, // importar SCRAP na NF de saída (uNF.pas:1880)
@@ -296,6 +299,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     ConfiguracoesAdminService,
     NfFiscalService,
     NfProcessamentoService,
+    NfProcessamentoRapidoService,
     NfClonarService,
     NfImpressaoService,
     NfDecomposicaoService,

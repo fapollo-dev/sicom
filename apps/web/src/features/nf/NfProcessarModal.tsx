@@ -21,11 +21,13 @@ interface Props {
   codnf: number;
   onFechar: () => void;
   onProcessado: () => void;
+  /** aberta pela janela do processamento rápido (a entrada de transferência, processada na loja dela) */
+  rapido?: boolean;
 }
 
 const fmt = (v: unknown) => (v == null || v === '' ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
-export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
+export function NfProcessarModal({ codnf, onFechar, onProcessado, rapido = false }: Props) {
   const mensagem = useMensagem();
   const [opcoes, setOpcoes] = useState<OpcoesDoProcessar | null>(null);
   const [modo, setModo] = useState<ModoPrecoProcessar>('lote');
@@ -36,7 +38,7 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
 
   useEffect(() => {
     let vivo = true;
-    opcoesDoProcessarNf(codnf).then((o) => {
+    opcoesDoProcessarNf(codnf, rapido).then((o) => {
       if (!vivo) return;
       setOpcoes(o);
       setModo(o.modo);
@@ -57,7 +59,7 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
         precos: { modo, sincronizar, itens: opcoes.itens.filter((i) => preco[i.codnfprod]).map((i) => i.codnfprod) },
         semAlterarCusto: opcoes.itens.filter((i) => !custo[i.codnfprod]).map((i) => i.codnfprod),
         ...(cred ? { liberacaoEstoqueNegativo: cred } : {}),
-      });
+      }, rapido);
       mensagem.sucesso('Nota processada: estoque movimentado e produtos atualizados.');
       setNegativos(null);
       onProcessado();

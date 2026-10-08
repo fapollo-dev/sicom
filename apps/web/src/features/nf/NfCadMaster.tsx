@@ -32,6 +32,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { NfSincronizarModal } from './NfSincronizarModal';
 import { NfProcessarModal } from './NfProcessarModal';
+import { NfProcessamentoRapidoModal } from './NfProcessamentoRapidoModal';
 import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal';
 import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
@@ -730,13 +731,16 @@ const TOTAIS_DA_ANALISE = ['totalicm', 'totalbaseicm', 'totalicm_st', 'totalbase
 
 /**
  * GERAR NOTA a partir desta (`ClonaNF`, uNF.pas:6987): "Clonar nota" (a cópia não processada, aberta na tela) e, na SAÍDA, a
- * "Nota de transferência entre lojas" — a entrada nasce na loja destinatária (a empresa com o CNPJ do destinatário), que a
- * confere e processa. As confirmações são as do legado.
+ * "Nota de transferência entre lojas" — a entrada nasce na loja destinatária (a empresa com o CNPJ do destinatário) e o legado pergunta se
+ * processa: o Sim abre o processamento rápido dela (TFrmProcessaNotaFiscal), daqui mesmo. As confirmações são as do legado.
  */
 function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>; carregar?: (id: number) => Promise<void> }) {
   const mensagem = useMensagem();
   const [executando, setExecutando] = useState(false);
   const [pergunta, setPergunta] = useState<'CLONAR' | 'TRANSFERENCIA' | null>(null);
+  // a transferência gerada: a pergunta de processar e a janela do processamento rápido (TFrmProcessaNotaFiscal)
+  const [transferida, setTransferida] = useState<{ codnf: number; empresa: string } | null>(null);
+  const [rapido, setRapido] = useState<number | null>(null);
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   const tipoNota = form.watch('tipo');
   const navigate = useNavigate();
@@ -754,7 +758,8 @@ function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>;
         await carregar?.(r.codnf);
         mensagem.sucesso(`Nota clonada: código ${r.codnf} (não processada). Confira e grave.`);
       } else {
-        mensagem.sucesso(`Nota de entrada de transferência gerada na empresa ${r.idempresa}: código ${r.codnf}, NF ${r.nronf}. Confira e processe nessa loja.`);
+        // "Nota de transferência gerada para a empresa: "X", Código: N. Deseja processar esta nota fiscal?" (uNF.pas:7591-7600)
+        setTransferida({ codnf: r.codnf, empresa: r.empresa ?? `${r.idempresa}` });
       }
     } catch (e) {
       mensagem.erro(e);
@@ -781,6 +786,16 @@ function GerarNotaSection({ form, carregar }: { form: UseFormReturn<CriarNfDto>;
           </div>
         </ShortcutScope>
       )}
+      {transferida && (
+        <ShortcutScope>
+          <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">
+            <span className="whitespace-pre-line text-body-sm">{`Nota de transferência gerada para a empresa: "${transferida.empresa}", Código: ${transferida.codnf}.\nDeseja processar esta nota fiscal?`}</span>
+            <Button label="&Sim" variant="soft" onClick={() => { setRapido(transferida.codnf); setTransferida(null); }} />
+            <Button label="&Não" variant="ghost" onClick={() => setTransferida(null)} />
+          </div>
+        </ShortcutScope>
+      )}
+      {rapido != null && <NfProcessamentoRapidoModal codnf={rapido} onFechar={() => setRapido(null)} />}
     </div>
   );
 }

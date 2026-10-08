@@ -927,6 +927,11 @@ const CODE_PT: Record<string, string> = {
   // Perfis & Permissões (FRMCADPERFILOPERADOR)
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
   PERFIL_INVALIDO: 'Informe um perfil válido.',
+  NF_RAPIDO_SITUACAO_INVALIDA: 'Situação de documento não definida!',
+  NF_RAPIDO_SEM_SITUACAO: 'Necessário definir a situação de documento! Selecione a situação de documento antes de prosseguir!',
+  NF_RAPIDO_SEM_LANCAMENTOS: 'A integração está configurada para ser utilizada obrigatoriamente.\nNecessário efetuar os lançamentos contábeis.',
+  NF_RAPIDO_LANCAMENTO_ZERADO: 'Existem lançamentos contábeis com valores zerados. Verifique.',
+  NF_RAPIDO_LANCAMENTOS_DIFEREM: 'Valor total informado nos lançamentos contábeis difere do valor total da NF. Verifique.',
   PERFIL_TIPO_OBRIGATORIO: 'Selecione o tipo de perfil.',
   PERFIL_TIPO_IMUTAVEL: 'O tipo do perfil não pode ser alterado.',
   PERFIL_RELATORIO_VAZIO: 'Registros não encontrados para esse perfil.',

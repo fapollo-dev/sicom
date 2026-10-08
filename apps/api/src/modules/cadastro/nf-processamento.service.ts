@@ -305,7 +305,7 @@ export class NfProcessamentoService {
       if (modo === 'processar') await this.faturamento.aposProcessar(trx, codnf, emp, op);
       else await reverterCaixaDaNf(trx, codnf, emp);
       // a LOG do processamento/reversão: o que mudou no cabeçalho e nos itens ("Alterou NF — PROC N→S", …)
-      await logDaDiferencaNf(trx, codnf, fotoLog);
+      await logDaDiferencaNf(trx, codnf, fotoLog, opcoes.formularioLog);
       // a ESTEIRA da nota de entrada: processar marca stProcessarFaturar (udmNF.pas:7752), reverter a desmarca (uNF.pas:9164)
       const chave = await chaveDeEntrada(trx, codnf);
       if (chave) {

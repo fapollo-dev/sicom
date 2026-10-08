@@ -19,10 +19,11 @@ export async function fotoDaNf(trx: AnyDB, codnf: number): Promise<FotoNf> {
  * como o form-base do legado registra o processamento (ex.: "PROC N → S", "DTPROCESSAMENTO", e no item o operador que liberou o
  * estoque negativo). O item novo vira "Inseriu"; o removido não é registrado (o legado não registra).
  */
-export async function logDaDiferencaNf(trx: AnyDB, codnf: number, antes: FotoNf): Promise<void> {
+export async function logDaDiferencaNf(trx: AnyDB, codnf: number, antes: FotoNf, formularioLog?: string): Promise<void> {
   const depois = await fotoDaNf(trx, codnf);
   if (!depois.nf) return;
-  const formulario = formularioDaNf(depois.nf);
+  // o TLog grava o título da tela que fez: a da NF, ou a janela que a chamou (o "Processamento rápido de nota fiscal")
+  const formulario = formularioLog ?? formularioDaNf(depois.nf);
   await gravarLogDaLinha(trx, { acao: 'Alterou', formulario, tabela: 'NF', chave: 'CODNF', valor: codnf, campos: NF_CAMPOS_LOG, antes: antes.nf, depois: depois.nf });
   for (const [cod, linha] of depois.itens) {
     const velho = antes.itens.get(cod);
