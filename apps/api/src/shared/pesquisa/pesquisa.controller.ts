@@ -4,7 +4,8 @@ import { RequerAcesso } from '../acesso/requer-acesso.decorator';
 import { BusinessRuleError } from '../errors/app-error';
 import { PesquisaService, type Escolha, type ParametrosDaPesquisa } from './pesquisa.service';
 
-const escolhaDe = (opcao?: string, complemento?: string): Escolha => ({ opcao: opcao || undefined, complemento: complemento || undefined });
+const escolhaDe = (opcao?: string, complemento?: string, pai?: string, retorno?: string): Escolha =>
+  ({ opcao: opcao || undefined, complemento: complemento || undefined, pai: pai || undefined, retorno: retorno || undefined });
 
 /** os filtros acumulados do F7 na query (`filtros=<JSON>`): até 20, só texto — o serviço confere o campo e a operação de cada um */
 function filtrosDe(bruto: unknown): ParametrosDaPesquisa['filtros'] {
@@ -34,23 +35,25 @@ export class PesquisaController {
    * view aberta — no A pagar, a da opção e do complemento (`opcao`/`complemento`)
    */
   @Get('status')
-  lerStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
-    return this.pesquisa.lerStatus(recurso, escolhaDe(opcao, complemento));
+  lerStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string,
+    @Query('pai') pai?: string, @Query('retorno') retorno?: string) {
+    return this.pesquisa.lerStatus(recurso, escolhaDe(opcao, complemento, pai, retorno));
   }
 
   @Put('status')
   @HttpCode(204)
   salvarStatus(@Query('recurso') recurso: string, @Body() b: { campo?: string; operacao?: string; valor?: string; valor2?: string; soma?: string | null },
-    @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
+    @Query('opcao') opcao?: string, @Query('complemento') complemento?: string, @Query('pai') pai?: string, @Query('retorno') retorno?: string) {
     return this.pesquisa.salvarStatus(recurso, {
       campo: String(b?.campo ?? ''), operacao: (b?.operacao ?? 'igual') as never, valor: String(b?.valor ?? ''), valor2: String(b?.valor2 ?? ''), soma: b?.soma ?? null,
-    }, escolhaDe(opcao, complemento));
+    }, escolhaDe(opcao, complemento, pai, retorno));
   }
 
   @Delete('status')
   @HttpCode(204)
-  apagarStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string) {
-    return this.pesquisa.apagarStatus(recurso, escolhaDe(opcao, complemento));
+  apagarStatus(@Query('recurso') recurso: string, @Query('opcao') opcao?: string, @Query('complemento') complemento?: string,
+    @Query('pai') pai?: string, @Query('retorno') retorno?: string) {
+    return this.pesquisa.apagarStatus(recurso, escolhaDe(opcao, complemento, pai, retorno));
   }
 
   @Get('detalhe')

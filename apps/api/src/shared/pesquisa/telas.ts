@@ -39,8 +39,13 @@ export interface PesquisaTela {
   /** as colunas que completam a ordem quando a relação do legado repete o código (pedido × loja, título × baixa, título × centro,
    *  parceiro × endereço): a página não troca linha de lugar entre uma consulta e outra */
   desempate?: string[];
-  /** o FRM do legado (procedência) */
+  /** o FRM do legado (procedência) — e o FORMULARIO_PAI do status da tela */
   form: string;
+  /**
+   * o RETORNO1_PESQ do status da tela (o controle que recebe o código): `edtCodigo` na pesquisa do cadastro (o padrão); vazio onde o
+   * legado cria a Pesquisa sem controle de retorno (a baixa de cartões, as etiquetas, o baixar pedidos…)
+   */
+  statusRetorno?: string;
   /** "Pesquisa <comentário da view>" */
   titulo?: string;
   /** o campo de retorno (FCampoRetornoPesquisa; padrão CODIGO) — a coluna da view que volta ao cadastro */
@@ -251,7 +256,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // o "Baixar" em lote do pedido (BtnBaixarClick, uPedidoCompra.pas:6540-6570): a GET_PEDIDOCOMPRA com FECHADO <> 'S' na LOJA LOGADA
   // (o FECHADO da linha é o da loja), em multisseleção; sem SetDefault nem cores (abre no 1º alfabético). A opção do botão (BTNBAIXAR,
   // 93 concessões na produção) é exigida
-  'compras/pedidos-baixa': { view: 'get_pedidocompra', viewLegado: 'GET_PEDIDOCOMPRA', relacao: 'rel_get_pedidocompra', ocultas: OCULTAS.pedidocompra,
+  'compras/pedidos-baixa': { statusRetorno: '', view: 'get_pedidocompra', viewLegado: 'GET_PEDIDOCOMPRA', relacao: 'rel_get_pedidocompra', ocultas: OCULTAS.pedidocompra,
     form: 'FRMPEDIDOCOMPRA', titulo: 'Pedidos a baixar', retorno: 'codigo', desempate: ['idempresa'], requer: { form: 'FRMPEDIDOCOMPRA', opcao: 'BTNBAIXAR' },
     obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('fechado')} <> 'S'`, sql<SqlBool>`${sql.ref('idempresa')} = ${ctx.empresa ?? -1}`] },
   // uNF.pas:6202-6300: TIPO da tela e a loja do login (:6291); abre em PARCEIRO / Em qualquer lugar ordenando por CODIGO (:6302);
@@ -328,7 +333,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // FRMBAIXACARTAO, "Iniciar Baix&a" / "&Adicionar" (btnAdicionarRegistroClick, UbaixaCartao.pas:801-830): a GET_CARTAO — os recebíveis
   // ABERTOS (o WHERE COALESCE(LIBERADO,'N') = 'N' está na view) — das lojas escolhidas (GetMultiEmpresa); com o FECHAMENTO_CAIXA da
   // empresa = 'S', só os CONSILIADO = 'S'; FCampoOrdenacao := 'DATA'; em multisseleção, os marcados vão aos documentos do lote (setDocumentos)
-  'financeiro/cartao-baixa': { view: 'get_cartao', viewLegado: 'GET_CARTAO', relacao: 'rel_get_cartao', ocultas: OCULTAS.cartao, form: 'FRMBAIXACARTAO',
+  'financeiro/cartao-baixa': { statusRetorno: '', view: 'get_cartao', viewLegado: 'GET_CARTAO', relacao: 'rel_get_cartao', ocultas: OCULTAS.cartao, form: 'FRMBAIXACARTAO',
     titulo: 'Cartões a baixar', retorno: 'codigo', abertura: { ordenacao: 'data' },
     obrigatorios: async (ctx) => [
       emLista('codigo_empresa', await ctx.lojas()),
@@ -339,7 +344,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // COALESCE(…,'N')) e o "Buscar somente produtos ativos" (`ATIVO = 'S'`, o da loja com ATIVO_PELA_MULTIPRECO); SetDefault DESCRICAO / Em
   // qualquer lugar, ordenada por DESCRICAO, o código auxiliar; em multisseleção, com as cores ETQ_IMPRESSA = S azul e = N preto. A
   // PESQUISA_PRODUTO_MOSTRA_CAMPOS (configuração 139) está vazia na produção: a grade mostra todas as colunas
-  'estoque/etiquetas-produtos': { view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMETIQUETA',
+  'estoque/etiquetas-produtos': { statusRetorno: '', view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMETIQUETA',
     titulo: 'Produtos para etiquetas', retorno: 'codigo', extras: ['situacaoEtq', 'ativos'], requer: { form: 'FRMETIQUETA', opcao: 'BTNADICIONARREGISTRO' },
     abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
@@ -374,7 +379,7 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // RELATÓRIO DE VENDAS, o filtro de produtos (MultiProdutos, URelVendas.pas:3419-3447): a GET_PRODUTOS com IDEMPRESA nas lojas do
   // relatório, em multisseleção (no máximo 1.000 vão ao filtro). O SetDefault('RAZAO', …) aponta para uma coluna que a GET_PRODUTOS da
   // produção não tem (é FORNECEDOR): a Pesquisa abre no padrão
-  'relatorios/vendas-produtos': { view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMRELVENDAS',
+  'relatorios/vendas-produtos': { statusRetorno: '', view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMRELVENDAS',
     titulo: 'Produtos', retorno: 'codigo', desempate: ['idempresa'], rotuloDetalhes: 'Limitação de no máximo 1000 registros selecionados.',
     obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas())] },
   // PRODUTO — o Adicionar da receita, da decomposição (btnAddItemReceitaClick / btnAddDescompClick, UCadProduto.pas:1795, :1942) e da

@@ -2151,6 +2151,7 @@ function ContabilModal({
           recurso="lookup/plc"
           campoCodigo="codplc"
           descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
+          statusTela={{ pai: 'FrmLancamentoContabilNF', retorno: 'edtCodPLC' }}
           parametros={{ lancavel: 'S', idsituacao_nf: item.idsituacao_nf }}
           value={item.codcc ?? undefined}
           onChange={(cod) => set('codcc', cod ? Number(cod) : undefined)}

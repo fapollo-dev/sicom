@@ -171,6 +171,7 @@ function CadastroTab({ form, editavel, opts, bloqueados }: { form: UseFormReturn
             campoCodigo="codparceiro"
             descricao="razao"
             fixos={{ frn: 'S', ativado: 'S' }}
+            statusTela={{ pai: 'frmAPagar', retorno: 'edtCODPARCEIRO' }}
             parametros={{ idsituacao_nf: form.watch('idsituacao_nf' as any) }}
             value={field.value as number | undefined}
             onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
@@ -228,7 +229,7 @@ function CadastroTab({ form, editavel, opts, bloqueados }: { form: UseFormReturn
             não é igualdade: fica no servidor */}
         <Controller control={form.control} name="codplc" render={({ field }) => (
           // uAPagar.pas:771-778 — a conta no tamanho da máscara da empresa e os centros da situação do documento
-          <LookupField label="Ce&ntro de custo" recurso="lookup/plc" campoDigitado="desccodplc" campoCodigo="codplc" descricao={descPlc} value={field.value as number | undefined}
+          <LookupField label="Ce&ntro de custo" recurso="lookup/plc" statusTela={{ pai: 'frmAPagar', retorno: 'edtCodPLC' }} campoDigitado="desccodplc" campoCodigo="codplc" descricao={descPlc} value={field.value as number | undefined}
             parametros={{ lancavel: 'S', idsituacao_nf: form.watch('idsituacao_nf' as any) }}
             onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel || trava('codplc')} />
         )} />

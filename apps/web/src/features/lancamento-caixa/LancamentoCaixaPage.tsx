@@ -122,7 +122,7 @@ export function LancamentoCaixaPage() {
             <NumberField label="Valor" value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} decimais={2} min={0} />
             <SelectField label="Situação do documento" options={situacoes} value={form.idsituacao_nf} onChange={(v) => setForm({ ...form, idsituacao_nf: v || undefined })} placeholder="Selecione…" />
             {/* uMovCaixa.pas:712-716 — GET_PLC; o filtro do legado (comprimento da máscara, CODIGO IN da situação) não é igualdade: fica no servidor */}
-            <LookupField label="Centro de custo" recurso="lookup/plc" campoDigitado="desccodplc" parametros={{ lancavel: 'S', idsituacao_nf: form.idsituacao_nf }} campoCodigo="codplc" descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
+            <LookupField label="Centro de custo" recurso="lookup/plc" statusTela={{ pai: 'frmMovCaixa', retorno: 'edtCodPLC' }} campoDigitado="desccodplc" parametros={{ lancavel: 'S', idsituacao_nf: form.idsituacao_nf }} campoCodigo="codplc" descricao={(l) => `${l.desccodplc ?? l.codplc} - ${l.descricao ?? ''}`}
               value={form.codplc} onChange={(cod) => setForm((f) => (f ? { ...f, codplc: cod } : f))} />
             {/* uMovCaixa.pas:740-747 — GET_PARCEIROS, ATIVADO='S' (o CODIGO IN dos parceiros da situação é cobrado no gravar) */}
             <LookupField label="Parceiro" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ ativado: 'S' }} parametros={{ idsituacao_nf: form.idsituacao_nf }}

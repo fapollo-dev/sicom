@@ -124,6 +124,7 @@ export function ProdutoCadMaster() {
       codgrupo: undefined,
       coddpto: undefined,
       codsecao: undefined,
+      codsubgrupo: undefined,
       ncmsh: '',
       cest: '',
       cest_obrigatorio: 'N',
@@ -448,10 +449,31 @@ function PrincipalSection({
                 campoCodigo="codfamilia"
                 descricao="descricao"
                 fixos={{ tipo: 'GRUPO', ativo: 'S' }}
+                statusTela={{ pai: 'frmCadProduto', retorno: 'edtCODGRUPO' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}
                 error={form.formState.errors.codgrupo?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="codsubgrupo"
+            render={({ field }) => (
+              // UCadProduto.pas:4214-4216 (ChamauPesquisa 03) — GET_FAMILIAS_PROD, TIPO = 'SUBGRUPO' AND ATIVO = 'S' (o edtCODSUBGRUPO do legado;
+              // a produção tem 520 subgrupos e o campo faltava na tela — a API já gravava o CODSUBGRUPO)
+              <LookupField
+                label="Subgrupo"
+                recurso="lookup/familias"
+                campoCodigo="codfamilia"
+                descricao="descricao"
+                fixos={{ tipo: 'SUBGRUPO', ativo: 'S' }}
+                statusTela={{ pai: 'frmCadProduto', retorno: 'edtCODSUBGRUPO' }}
+                value={field.value ?? undefined}
+                onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+                disabled={!editavel}
+                error={form.formState.errors.codsubgrupo?.message as string | undefined}
               />
             )}
           />
@@ -466,6 +488,7 @@ function PrincipalSection({
                 campoCodigo="codfamilia"
                 descricao="descricao"
                 fixos={{ tipo: 'DEPARTAMENTO', ativo: 'S' }}
+                statusTela={{ pai: 'frmCadProduto', retorno: 'edtCODDPTO' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}
@@ -484,6 +507,7 @@ function PrincipalSection({
                 campoCodigo="codfamilia"
                 descricao="descricao"
                 fixos={{ tipo: 'SECAO', ativo: 'S' }}
+                statusTela={{ pai: 'frmCadProduto', retorno: 'edtCODSECAO' }}
                 value={field.value ?? undefined}
                 onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
                 disabled={!editavel}

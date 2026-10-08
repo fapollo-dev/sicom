@@ -29922,6 +29922,36 @@ async function main() {
             { sem: ids(sem), com: ids(com), ruimCampo: [ruimCampo.status, ruimCampo.j.code], ruimJson: ruimJson.status });
         }
 
+        // o STATUS DO LOOKUP de campo (CONFIG_STATUS_TELA): a chave é a tela que o abriu + o controle de retorno (na produção,
+        // frmAPagar|GET_PLC|edtCodPLC); a pesquisa de tela sem controle de retorno grava RETORNO1_PESQ nulo (frmBaixaCartao|GET_CARTAO)
+        {
+          const jsonPlc = JSON.stringify({ listHelper: [3], items: [
+            { valor: '0', controle: 'cbbCamposSoma', classe: 'TComboBox', classePai: 'TComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: '' },
+            { valor: '4', controle: 'cbbOperacao', classe: 'TJvComboBox', classePai: 'TJvComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: 'Em Qualquer Lugar' },
+            { valor: '0', controle: 'cbbCampos', classe: 'TJvComboBox', classePai: 'TJvComboBox', visivel: true, habilitado: true, leitura: false, frame: '', valorAuxiliar: 'Descricao' },
+            { valor: 'IMPOSTO', controle: 'edtTexto', classe: 'TEdit', classePai: 'TEdit', visivel: true, habilitado: true, leitura: false, frame: 'frmPesquisaFrame', valorAuxiliar: '' }] });
+          let lido: any; let semChave = 0; let gravouLookup: any[] = []; let gravouCartao: any[] = [];
+          try {
+            await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`);
+            await pgPq.query(`INSERT INTO config_status_tela (codconfigtela, idoperador, formulario, formulario_pai, view_pesq, retorno1_pesq, configuracao, dtultimalteracao)
+              VALUES (992990, 7, 'frmPesquisa', 'frmAPagar', 'GET_PLC', 'edtCodPLC', $1, now())`, [jsonPlc]);
+            const url = (q: string) => `${base}/cadastro/pesquisa/status?${q}`;
+            lido = (await (await fetch(url('recurso=lookup/plc&pai=frmAPagar&retorno=edtCodPLC'), { headers: H })).json().catch(() => null)) as any;
+            semChave = (await fetch(url('recurso=lookup/plc'), { headers: H })).status;
+            await fetch(url('recurso=lookup/parceiros&pai=frmAPagar&retorno=edtCODPARCEIRO'), { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'razao', operacao: 'comeca', valor: 'SMOKE' }) });
+            gravouLookup = (await pgPq.query(`SELECT formulario_pai, view_pesq, retorno1_pesq FROM config_status_tela WHERE idoperador = 7 AND upper(view_pesq) = 'GET_PARCEIROS'`)).rows;
+            await fetch(url('recurso=financeiro/cartao-baixa'), { method: 'PUT', headers: H, body: JSON.stringify({ campo: 'operadora', operacao: 'qualquer', valor: 'VISA' }) });
+            gravouCartao = (await pgPq.query(`SELECT formulario_pai, view_pesq, retorno1_pesq FROM config_status_tela WHERE idoperador = 7 AND upper(view_pesq) = 'GET_CARTAO'`)).rows;
+          } finally {
+            await pgPq.query(`DELETE FROM config_status_tela WHERE idoperador = 7`).catch(() => undefined);
+          }
+          check('PESQUISA §298.32 [o status do lookup de campo — CONFIG_STATUS_TELA]: a linha da produção frmAPagar|GET_PLC|edtCodPLC reabre o lookup do centro de custo do A pagar (Descricao / Em Qualquer Lugar / IMPOSTO); sem a chave de quem o abriu, 422; gravar pelo lookup escreve a tela e o controle; a baixa de cartões grava FRMBAIXACARTAO|GET_CARTAO com RETORNO1_PESQ nulo, como a produção',
+            lido?.campo === 'descricao' && lido?.operacao === 'qualquer' && lido?.valor === 'IMPOSTO' && semChave === 422
+            && gravouLookup.length === 1 && gravouLookup[0].formulario_pai === 'frmAPagar' && gravouLookup[0].retorno1_pesq === 'edtCODPARCEIRO'
+            && gravouCartao.length === 1 && String(gravouCartao[0].formulario_pai).toUpperCase() === 'FRMBAIXACARTAO' && gravouCartao[0].retorno1_pesq === null,
+            { lido, semChave, gravouLookup, gravouCartao });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

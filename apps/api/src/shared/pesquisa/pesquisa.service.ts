@@ -52,7 +52,13 @@ export interface ParametrosDaPesquisa {
 }
 
 /** a escolha da janela de opções (a opção e o complemento) — no A pagar ela decide a relação */
-export interface Escolha { opcao?: string; complemento?: string }
+export interface Escolha {
+  opcao?: string;
+  complemento?: string;
+  /** o status do LOOKUP de campo: a tela que o abriu (FORMULARIO_PAI) e o controle de retorno (RETORNO1_PESQ), como `frmAPagar` + `edtCodPLC` */
+  pai?: string;
+  retorno?: string;
+}
 
 /** nada que pareça credencial sai na grade nem na lista de campos (o `empresaParaRelatorio` usa a mesma regra) */
 const SEGREDO = /senha|token|certificado|csc|hash|auth|segredo|secret/i;
@@ -368,10 +374,23 @@ export class PesquisaService {
    */
   private chaveDoStatus(recurso: string, escolha?: Escolha) {
     const t = this.tela(recurso);
-    if (recurso.startsWith('lookup/')) throw new BusinessRuleError('PESQUISA_STATUS_SEM_CHAVE', { recurso });
     const op = currentTenant().operadorId ?? null;
     if (op == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    return { t, op, pai: t.form, view: this.leitura(t, escolha).viewLegado, retorno: 'edtCodigo' };
+    const view = this.leitura(t, escolha).viewLegado;
+    if (recurso.startsWith('lookup/')) {
+      // o lookup de campo: a chave é a tela que o abriu + o controle de retorno (na produção, `frmAPagar|GET_PLC|edtCodPLC`,
+      // `frmCadProduto|GET_FAMILIAS_PROD|edtCODSUBGRUPO`…); o lookup de uma tela só (o F7 do pedido) usa o form dela, sem controle
+      const pai = (escolha?.pai ?? '').trim();
+      const retorno = (escolha?.retorno ?? '').trim();
+      const nome = /^[A-Za-z][A-Za-z0-9_]{0,59}$/;
+      if (pai) {
+        if (!nome.test(pai) || (retorno && !nome.test(retorno))) throw new BusinessRuleError('PESQUISA_STATUS_SEM_CHAVE', { recurso, pai, retorno });
+        return { t, op, pai, view, retorno };
+      }
+      if (t.form.toUpperCase() !== 'FRMPESQUISA') return { t, op, pai: t.form, view, retorno: t.statusRetorno ?? '' };
+      throw new BusinessRuleError('PESQUISA_STATUS_SEM_CHAVE', { recurso });
+    }
+    return { t, op, pai: t.form, view, retorno: t.statusRetorno ?? 'edtCodigo' };
   }
 
   private filtroDoStatus(k: { op: number; pai: string; view: string; retorno: string }) {
@@ -405,7 +424,7 @@ export class PesquisaService {
       } else {
         await trx.insertInto('config_status_tela').values({
           codconfigtela: sql`nextval('id_codconfigtela')`, idoperador: k.op, formulario: 'frmPesquisa', formulario_pai: k.pai, view_pesq: k.view,
-          retorno1_pesq: k.retorno, configuracao: json, usultalteracao: k.op, dtultimalteracao: sql`now()`,
+          retorno1_pesq: k.retorno || null, configuracao: json, usultalteracao: k.op, dtultimalteracao: sql`now()`,
         }).execute();
       }
     });

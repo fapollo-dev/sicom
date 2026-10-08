@@ -32,6 +32,8 @@ interface Props {
   onChange: (codigo: string | undefined, linha?: Linha) => void;
   disabled?: boolean;
   error?: string;
+  /** o status da tela deste campo (Ctrl+Shift+S na Pesquisa): a tela e o controle do legado, ex. `{ pai: 'frmAPagar', retorno: 'edtCodPLC' }` */
+  statusTela?: { pai: string; retorno: string };
 }
 
 async function buscarPorCodigo(recurso: string, campo: string, codigo: string, fixos?: Record<string, string | number>, parametros?: Props['parametros']): Promise<Linha | null> {
@@ -55,7 +57,7 @@ async function buscarPorCodigo(recurso: string, campo: string, codigo: string, f
  * Apollo cortava em 200: a maior parte dos parceiros, produtos, cidades e contas contábeis não aparecia). Digitar o código e sair
  * (Enter/Tab) confere no servidor e mostra a descrição; código que não existe (no filtro do campo) fica marcado.
  */
-export function LookupField({ label, recurso, campoCodigo, campoDigitado, descricao, fixos, parametros, value, onChange, disabled, error }: Props) {
+export function LookupField({ label, recurso, campoCodigo, campoDigitado, descricao, fixos, parametros, value, onChange, disabled, error, statusTela }: Props) {
   const digitado = campoDigitado ?? campoCodigo;
   const [texto, setTexto] = useState(value == null || digitado !== campoCodigo ? '' : String(value));
   const [desc, setDesc] = useState('');
@@ -127,6 +129,7 @@ export function LookupField({ label, recurso, campoCodigo, campoDigitado, descri
           resourcePath={recurso}
           fixos={fixos}
           parametros={parametros}
+          statusChave={statusTela}
           onFechar={() => setPesquisando(false)}
           onSelecionar={(l) => {
             setPesquisando(false);
