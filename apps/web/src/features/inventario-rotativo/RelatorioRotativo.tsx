@@ -6,6 +6,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body?: unknown): Promise<T> {
@@ -153,7 +154,8 @@ export function RelatorioRotativo() {
         <div className="w-24"><Field label="Grupo" value={filtros.codgrupo} inputMode="numeric" onChange={(e) => setFiltros({ ...filtros, codgrupo: e.target.value.replace(/\D/g, '') })} /></div>
         <div className="w-24"><Field label="Subgrupo" value={filtros.codsubgrupo} inputMode="numeric" onChange={(e) => setFiltros({ ...filtros, codsubgrupo: e.target.value.replace(/\D/g, '') })} /></div>
         <div className="w-24"><Field label="Seção" value={filtros.codsecao} inputMode="numeric" onChange={(e) => setFiltros({ ...filtros, codsecao: e.target.value.replace(/\D/g, '') })} /></div>
-        <div className="w-56"><Field label="Filtrar Produtos (códigos)" value={filtros.produtos} onChange={(e) => setFiltros({ ...filtros, produtos: e.target.value })} /></div>
+        {/* uRelatorioInventarioRotativo.pas:1179: a GET_PRODUTOS em multisseleção (o I.IDPRODUTO IN do relatório) */}
+        <CodigosComPesquisa label="Filtrar Produtos (códigos)" value={filtros.produtos} onChange={(v) => setFiltros({ ...filtros, produtos: v })} recurso="lookup/produtos" />
         <Button label="&Grid" variant="soft" disabled={busy} onClick={() => void grid()} />
         <Button label="&Imprimir" variant="soft" disabled={busy} onClick={() => void imprimir()} />
       </div>

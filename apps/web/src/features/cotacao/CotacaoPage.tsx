@@ -5,6 +5,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { LookupField } from '../../shared/ui/LookupField';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { useMensagem } from '../../shared/mensagem';
 import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 import {
@@ -90,6 +91,28 @@ export function CotacaoPage() {
     setNovosFornecedores((l) => [...l, { codparceiro, nome }]);
     setFornSel('');
     setFornRotulo('');
+  };
+  // a Pesquisa em multisseleção (uCadCotacao.pas:317 participantes, :873 produtos): os marcados entram todos, sem repetir; o produto com
+  // a quantidade do campo (ou 1)
+  const [pesquisa, setPesquisa] = useState<'produtos' | 'fornecedores' | null>(null);
+  const addVarios = (linhas: Array<Record<string, unknown>>) => {
+    const qual = pesquisa;
+    setPesquisa(null);
+    if (qual === 'produtos') {
+      setNovosProdutos((atual) => {
+        const ja = new Set(atual.map((p) => p.idproduto));
+        const novos = linhas.map((l) => ({ idproduto: Number(l.codigo ?? l.idproduto), descricao: `${l.codbarra ?? ''} - ${l.descricao ?? ''}`, quantidade: Number(prodQtd) > 0 ? Number(prodQtd) : 1 }))
+          .filter((p) => Number.isInteger(p.idproduto) && p.idproduto > 0 && !ja.has(p.idproduto) && ja.add(p.idproduto));
+        return [...atual, ...novos];
+      });
+    } else if (qual === 'fornecedores') {
+      setNovosFornecedores((atual) => {
+        const ja = new Set(atual.map((f) => f.codparceiro));
+        const novos = linhas.map((l) => ({ codparceiro: Number(l.codigo ?? l.codparceiro), nome: `${l.codigo ?? l.codparceiro} - ${l.razao ?? ''}` }))
+          .filter((f) => Number.isInteger(f.codparceiro) && f.codparceiro > 0 && !ja.has(f.codparceiro) && ja.add(f.codparceiro));
+        return [...atual, ...novos];
+      });
+    }
   };
   const criar = async () => {
     if (busy) return;
@@ -318,11 +341,21 @@ export function CotacaoPage() {
             value={prodSel} onChange={(cod, l) => { setProdSel(cod ?? ''); setProdRotulo(cod && l ? `${l.codbarra ?? ''} - ${l.descricao ?? ''}` : ''); }} /></div>
           <div className="w-28"><NumberField label="&Qtde" value={prodQtd} decimais={2} min={0} onChange={setProdQtd} /></div>
           <Button label="&Adicionar produto" variant="ghost" onClick={addProduto} />
+          <Button label="Vários produtos…" variant="ghost" onClick={() => setPesquisa('produtos')} />
           {/* uCadCotacao.pas:314 — o legado filtra ATIVADO <> 'N' (sem FRN); o FRN='S' fica porque o servidor recusa o não-fornecedor
               (COTACAO_FORNECEDOR_INVALIDO) */}
           <div className="w-96"><LookupField label="&Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S' }}
             value={fornSel} onChange={(cod, l) => { setFornSel(cod ?? ''); setFornRotulo(cod && l ? `${cod} - ${l.razao ?? ''}` : ''); }} /></div>
           <Button label="Con&vidar fornecedor" variant="ghost" onClick={addFornecedor} />
+          <Button label="Vários fornecedores…" variant="ghost" onClick={() => setPesquisa('fornecedores')} />
+          {pesquisa === 'produtos' && (
+            <Pesquisa resourcePath="lookup/produtos" parametros={{ ativoCompra: 'S' }} multisselecao onSelecionarVarios={addVarios}
+              onSelecionar={(l) => addVarios([l])} onFechar={() => setPesquisa(null)} />
+          )}
+          {pesquisa === 'fornecedores' && (
+            <Pesquisa resourcePath="lookup/parceiros" fixos={{ frn: 'S' }} multisselecao onSelecionarVarios={addVarios}
+              onSelecionar={(l) => addVarios([l])} onFechar={() => setPesquisa(null)} />
+          )}
         </div>
         {(novosProdutos.length > 0 || novosFornecedores.length > 0) && (
           <div className="flex flex-wrap gap-gp-lg">

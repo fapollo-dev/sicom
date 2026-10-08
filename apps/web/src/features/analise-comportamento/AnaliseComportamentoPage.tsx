@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 /**
  * ANÁLISE DE COMPORTAMENTO DA LOJA (`FRMANALISECOMPORTAMENTO`).
@@ -77,10 +78,12 @@ export function AnaliseComportamentoPage() {
   const carregarImpostos = async () => {
     try { setImpostos(await pedir<Imposto[]>(`${BASE}/relatorios/analise-comportamento/impostos`)); } catch (e) { mensagem.erro(e); }
   };
+  // os centros de custo de impostos (uAnaliseComportamento.pas:86-110): a GET_PLC em multisseleção (ou os códigos digitados) — todos de uma vez
   const adicionarImposto = async () => {
-    if (!novoCodplc.trim()) return;
+    const codplcs = [...new Set(novoCodplc.split(/[,\s]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+    if (!codplcs.length) return;
     try {
-      await pedir(`${BASE}/relatorios/analise-comportamento/impostos`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ codplcs: [Number(novoCodplc)] }) });
+      await pedir(`${BASE}/relatorios/analise-comportamento/impostos`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ codplcs }) });
       setNovoCodplc(''); await carregarImpostos();
     } catch (e) { mensagem.erro(e); }
   };
@@ -123,7 +126,8 @@ export function AnaliseComportamentoPage() {
         <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <h3 className="mb-form-gap text-body-sm font-semibold">Contas somadas como "Previsão de Impostos"</h3>
           <div className="mb-form-gap flex flex-wrap items-end gap-gp-sm">
-            <div className="w-40"><Field label="Conta do plano (código)" value={novoCodplc} onChange={(e) => setNovoCodplc(e.target.value)} /></div>
+            {/* é CENTRO DE CUSTO (a GET_PLC), não conta do plano */}
+            <CodigosComPesquisa label="Centros de custo" value={novoCodplc} onChange={setNovoCodplc} recurso="lookup/plc" />
             <Button label="&Adicionar" onClick={() => void adicionarImposto()} />
           </div>
           {impostos.length === 0 ? (

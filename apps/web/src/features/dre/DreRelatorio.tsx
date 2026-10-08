@@ -8,6 +8,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const anoInicio = () => `${new Date().getFullYear()}-01-01`;
@@ -102,7 +103,8 @@ export function DreRelatorio() {
         <div className="w-44"><DateField label="Data &final" value={dataFim} onChange={setDataFim} /></div>
         <Button label="&Gerar DRE" variant="soft" onClick={() => void gerar()} />
         <div className="w-36"><Field label="&Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
-        <div className="w-56"><Field label="Filtro de &plano de contas" value={planos} onChange={(e) => setPlanos(e.target.value)} placeholder="códigos, ex. 124,211" /></div>
+        {/* UFrmRelDREContabil.pas:494-502: a GET_PLANO_CONTAS em multisseleção; os marcados substituem a lista */}
+        <CodigosComPesquisa label="Filtro de &plano de contas" value={planos} onChange={setPlanos} recurso="lookup/plano-contas" placeholder="F3 pesquisa · ex. 124,211" />
         <div className="w-36"><SelectField label="Níveis e&xpandidos" options={[{ value: '0', label: '' }, { value: '1', label: '1 nível' }, { value: '2', label: '2 níveis' }, { value: '3', label: '3 níveis' }]} value={niveis} onChange={(v) => setNiveis(v ?? '0')} /></div>
         <label className="flex items-center gap-gp-xs text-body-sm"><input type="checkbox" checked={naoZerados} onChange={(e) => setNaoZerados(e.target.checked)} /> Não exibir zerados</label>
         <Button label="Im&primir" onClick={imprimir} />

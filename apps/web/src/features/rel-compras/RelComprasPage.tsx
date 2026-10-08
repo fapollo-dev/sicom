@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -163,7 +164,9 @@ export function RelComprasPage() {
           <div className="w-32"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
           <div className="w-32"><Field label="Produto" value={f.idproduto} onChange={(e) => setF({ ...f, idproduto: e.target.value })} /></div>
           <div className="w-32"><Field label="Fornecedor" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
-          <div className="w-44"><Field label="C&FOPs (vírgula)" value={f.cfops} onChange={(e) => setF({ ...f, cfops: e.target.value })} /></div>
+          {/* PesquisaCFOP (URelCompras.pas:108-130): a GET_CFOP de entrada em multisseleção; os marcados substituem a lista */}
+          <CodigosComPesquisa label="C&FOPs (vírgula)" largura="w-44" value={f.cfops} onChange={(v) => setF({ ...f, cfops: v })}
+            recurso="lookup/cfops" fixos={{ tipo: 'E' }} campo="cfop" />
         </div>
       </section>
 

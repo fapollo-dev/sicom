@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 /**
  * AGENDA DE LIMITAÇÃO DE VENDA (`FRMCADAGENDALIMITACAOVENDA`).
@@ -162,7 +163,9 @@ export function AgendaLimitacaoPage() {
 
           {!fechada && (
             <div className="flex flex-wrap items-end gap-gp-sm">
-              <div className="w-96"><Field label="&Produtos (códigos separados por espaço)" value={novos.ids} onChange={(e) => setNovos({ ...novos, ids: e.target.value })} /></div>
+              {/* uCadAgendaLimitacaoVenda.pas:107: a GET_PRODUTOS (ATIVO = S, IMPRIMIRCOMP = N) em multisseleção; o já incluído não repete */}
+              <CodigosComPesquisa label="&Produtos (códigos)" largura="w-96" value={novos.ids} onChange={(v) => setNovos({ ...novos, ids: v })}
+                recurso="lookup/produtos" fixos={{ ativo: 'S' }} parametros={{ naoComposto: 'S' }} />
               <div className="w-40"><Field label="Quantidade padrão" type="number" value={novos.quantidade} onChange={(e) => setNovos({ ...novos, quantidade: e.target.value })} /></div>
               <Button label="&Adicionar" disabled={ocupado || !novos.ids} onClick={() => void adicionar()} />
             </div>

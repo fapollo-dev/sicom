@@ -11,6 +11,7 @@ import {
   listarLotesRotativo, criarLoteRotativo, alterarLoteRotativo, fecharLoteRotativo, zerarEstoqueRotativo,
   type LoteRotativoResumo,
 } from './inventarioRotativoApi';
+import { CodigosComPesquisa } from '../../shared/pesquisa/CodigosComPesquisa';
 
 /**
  * INVENTÁRIO ROTATIVO (FRMRELINVENTARIOROTATIVO) — cortes 1 e 2. O estado do lote é DERIVADO: no legado fechar
@@ -30,6 +31,9 @@ export function InventarioRotativoPage() {
   const [tipo, setTipo] = useState('R');
   const [codgrupo, setCodgrupo] = useState<number | undefined>();
   const [codsecao, setCodsecao] = useState<number | undefined>();
+  // os departamentos do lote (btnAdicionarClick, UFrmLoteInventarioRotativo.pas:80-100): a GET_FAMILIAS_PROD com TIPO = DEPARTAMENTO em
+  // multisseleção, sem repetir (INVENTARIO_ROTATIVO_DPTO)
+  const [departamentos, setDepartamentos] = useState('');
   const [exige, setExige] = useState(false);
   // zerar estoque
   const [prods, setProds] = useState('');
@@ -58,10 +62,11 @@ export function InventarioRotativoPage() {
     try {
       const r = await criarLoteRotativo({
         nomelote, tipo, codgrupo, codsecao,
+        departamentos: [...new Set(departamentos.split(/[,\s]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0))],
         exigeconfirmacao: exige ? 'S' : undefined,
       });
       mensagem.sucesso(`Lote ${r.lote} aberto.`);
-      setNomelote('');
+      setNomelote(''); setDepartamentos('');
       await carregar();
     } catch (e) {
       mensagem.erro(e);
@@ -151,6 +156,7 @@ export function InventarioRotativoPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <Field label="&Nome do lote" value={nomelote} onChange={(e) => setNomelote(e.target.value)} />
         <SelectField label="&Tipo" value={tipo} onChange={(v) => setTipo(v || 'R')} options={[{ value: 'R', label: 'Rotativo' }, { value: 'G', label: 'Geral' }]} />
+        <CodigosComPesquisa label="Departamentos" value={departamentos} onChange={setDepartamentos} recurso="lookup/familias" fixos={{ tipo: 'DEPARTAMENTO' }} />
         <NumberField label="Grupo" value={codgrupo} onChange={setCodgrupo} />
         <NumberField label="Seção" value={codsecao} onChange={setCodsecao} />
         <CheckboxField label="&Exige confirmação" value={exige ? 'S' : 'N'} onChange={(v) => setExige(v === 'S')} />

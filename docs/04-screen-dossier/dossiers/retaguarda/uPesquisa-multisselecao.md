@@ -413,3 +413,14 @@ empate: um gap sobre tabela morta vai para o fim.
   - Fica fora: o recálculo da venda do produto pela composição (Σ qtde × valor), que o legado faz ao carregar os itens. É regra de
     preço, não de multisseleção.
   - Smoke §298.30; jsdom `produtoReceitaLote.spec.tsx`.
+- **Corte 3 — "códigos com vírgula" → Pesquisa** ✅ (só web; `shared/pesquisa/CodigosComPesquisa`):
+  - O campo digitável continua; F3 ou "…" abre a Pesquisa em multisseleção, e os marcados substituem a lista, como o `fLista.Clear` do
+    legado.
+  - Telas:
+    - relatório de compras: CFOPs de entrada (#98);
+    - DRE: plano de contas (#100);
+    - análise de comportamento: os **centros de custo** de impostos (#103; o rótulo dizia "conta do plano"), agora todos de uma vez;
+    - inventário rotativo: produtos do relatório (#55) e **departamentos do lote** (#56; a tela não tinha o campo, a API já aceitava);
+    - limite de venda: produtos (#73);
+    - cotação: produtos e fornecedores (#38/#39; "Vários…" ao lado do avulso).
+  - jsdom `codigosComPesquisa.spec.tsx`.
