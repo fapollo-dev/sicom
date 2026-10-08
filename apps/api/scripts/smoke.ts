@@ -30307,6 +30307,48 @@ async function main() {
             { vistosAr, esperadoAr: [r1, r2], vistosAp, esperadoAp: [p1, p2], cor: corAp?.linhas?.[0]?._cor, loteAr: loteAr.map((t) => t.codrcb), loteAp: loteAp.map((t) => t.codapg), semGrant: semGrant.status });
         }
 
+        // AGRUPAMENTO ENTRE LOJAS — a Pesquisa do legado não filtra loja (desde 2025, 8.085 dos 21.863 títulos a receber agrupados eram de outra
+        // loja que não a do consolidado); o Apollo agrupa os das lojas do operador, e reverter/membros pegam o grupo inteiro
+        {
+          const tinha2 = Number((await pgPq.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+          if (!tinha2) await pgPq.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+          const ar = async (emp: number) => Number((await pgPq.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, agrupado, consiliado)
+            VALUES ($1, 20, 'AGRLOJA', '2026-02-01', '2026-03-01', 10, 'N', 'N', 'S') RETURNING codrcb`, [emp])).rows[0].codrcb);
+          const ap = async (emp: number) => Number((await pgPq.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtcompra, dtvenc, valor, quitada, agrupado, tipodoc)
+            VALUES ($1, 2, 'AGRLOJA', '2026-02-01', '2026-03-01', 15, 'N', 'N', 'DP') RETURNING codapg`, [emp])).rows[0].codapg);
+          const [tA, tB, pA, pB] = [await ar(1), await ar(2), await ap(1), await ap(2)];
+          const acha = async (rec: string, c: number) => ((await pq(`recurso=${rec}&campo=codigo&operacao=igual&valor=${c}&porPagina=10`)).j.linhas ?? []).length > 0;
+          const pesqAr = [await acha('financeiro/agrupar-receber', tA), await acha('financeiro/agrupar-receber', tB)];
+          const pesqAp = [await acha('financeiro/agrupar-pagar', pA), await acha('financeiro/agrupar-pagar', pB)];
+          const grade = ((await (await fetch(`${base}/cadastro/areceber?paraAgrupar=S&codigos=${tA},${tB}`, { headers: H })).json().catch(() => [])) as any[]).map((t) => Number(t.codrcb)).sort((a, b) => a - b);
+          const agr = await fetch(`${base}/cadastro/areceber/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [tA, tB], idpgto: 4 }) });
+          const agrJ = (await agr.json().catch(() => ({}))) as any;
+          const membroB = (await pgPq.query(`SELECT agrupado FROM areceber WHERE codrcb = $1`, [tB])).rows[0]?.agrupado;
+          const consLoja = (await pgPq.query(`SELECT codempresa FROM areceber WHERE codrcb = $1`, [Number(agrJ.consolidado)])).rows[0]?.codempresa;
+          const membros = ((await (await fetch(`${base}/cadastro/areceber/${agrJ.consolidado}/membros-agrupamento`, { headers: H })).json().catch(() => [])) as any[]).length;
+          const rev = await fetch(`${base}/cadastro/areceber/${agrJ.consolidado}/reverter-agrupamento`, { method: 'POST', headers: H });
+          const voltouB = (await pgPq.query(`SELECT agrupado FROM areceber WHERE codrcb = $1`, [tB])).rows[0]?.agrupado;
+          const agrAp = await fetch(`${base}/cadastro/apagar/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codapgs: [pA, pB], dtvenc: '2026-03-10' }) });
+          const agrApJ = (await agrAp.json().catch(() => ({}))) as any;
+          const membroApB = (await pgPq.query(`SELECT agrupado FROM apagar WHERE codapg = $1`, [pB])).rows[0]?.agrupado;
+          await pgPq.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+          const tC = await ar(2);
+          const semLoja = await fetch(`${base}/cadastro/areceber/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [tA, tC], idpgto: 4 }) });
+          const semLojaJ = (await semLoja.json().catch(() => ({}))) as any;
+          if (tinha2) await pgPq.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+          // limpeza: o agrupamento a pagar revertido e os títulos do teste apagados
+          if (agrApJ.consolidado) await fetch(`${base}/cadastro/apagar/${agrApJ.consolidado}/reverter-agrupamento`, { method: 'POST', headers: H });
+          await pgPq.query(`DELETE FROM historico WHERE tabela IN ('ARECEBER', 'APAGAR') AND coddoc = ANY($1::text[])`, [[tA, tB, tC, pA, pB, agrJ.consolidado, agrApJ.consolidado].filter(Boolean).map(String)]).catch(() => undefined);
+          await pgPq.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [[tA, tB, tC]]).catch(() => undefined);
+          await pgPq.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [[pA, pB]]).catch(() => undefined);
+          check('PESQUISA §298.40 [o agrupamento entre lojas]: as Pesquisas do agrupar (GET_RCB e GET_APAGAR_AGRUPAR) trazem o título de outra loja do operador; a grade recebe os marcados das duas lojas; o agrupar a receber junta as duas (o consolidado na loja do login), os membros e o reverter pegam o grupo inteiro; o a pagar também agrupa entre lojas; sem a loja na relação do operador, o título dela é recusado (422)',
+            pesqAr.every(Boolean) && pesqAp.every(Boolean) && JSON.stringify(grade) === JSON.stringify([tA, tB].sort((a, b) => a - b))
+            && agr.status === 200 && membroB === 'S' && Number(consLoja) === 1 && membros === 2 && rev.status === 200 && voltouB === 'N'
+            && agrAp.status === 200 && membroApB === 'S'
+            && semLoja.status === 422 && semLojaJ.code === 'TITULO_NAO_ENCONTRADO',
+            { pesqAr, pesqAp, grade, agr: [agr.status, agrJ.code, agrJ.consolidado], membroB, consLoja, membros, rev: rev.status, voltouB, agrAp: [agrAp.status, agrApJ.code], membroApB, semLoja: [semLoja.status, semLojaJ.code] });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

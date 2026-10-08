@@ -5,6 +5,7 @@ import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { assertRestricoesSituacao } from '../shared/situacao-restricoes';
 import { configNaTrx } from '../compras/pedido-heranca';
@@ -43,7 +44,13 @@ export class ApagarService {
 
   async list(query: Record<string, string | undefined>): Promise<Record<string, unknown>[]> {
     const emp = this.emp();
-    let q = (this.dbp.forTenantRead() as AnyDB).selectFrom('get_apagar').selectAll().where('codempresa', '=', emp);
+    // os títulos marcados na Pesquisa do AGRUPAMENTO (paraAgrupar + codigos): de qualquer loja do operador — a Pesquisa do legado não
+    // filtra loja e o agrupamento atravessa as lojas; fora isso, a loja do login
+    const codigos = query.paraAgrupar === 'S' ? (query.codigos ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 2000) : [];
+    const db0 = this.dbp.forTenantRead() as AnyDB;
+    let q = codigos.length
+      ? db0.selectFrom('get_apagar').selectAll().where('codempresa', 'in', await todasAsEmpresasDoOperador(db0)).where('codapg', 'in', codigos)
+      : db0.selectFrom('get_apagar').selectAll().where('codempresa', '=', emp);
     switch (query.situacao) {
       case 'liquidados': q = q.where('quitada', '=', 'S'); break;
       case 'agrupados': q = q.where('agrupado', '=', 'S'); break;
@@ -70,7 +77,7 @@ export class ApagarService {
     } else {
       q = q.orderBy('dtvenc', 'asc');
     }
-    return q.limit(Math.min(Number(query.limite) || 200, 500)).execute();
+    return q.limit(codigos.length ? codigos.length : Math.min(Number(query.limite) || 200, 500)).execute();
   }
 
   async read(id: number): Promise<Record<string, unknown> | undefined> {

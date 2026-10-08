@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { novoGrupo } from './apagar-caixa';
@@ -91,11 +92,14 @@ export class AreceberAgrupamentoService {
     if (!ids.length) throw new BusinessRuleError('AGRUPAMENTO_SEM_DOCUMENTOS');
 
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await sql`SELECT codrcb FROM areceber WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ${emp} FOR UPDATE`.execute(trx);
+      // os títulos de QUALQUER loja do operador: a Pesquisa do legado (GET_RCB) não filtra loja, e o agrupamento atravessa as lojas —
+      // desde 2025, 8.085 dos 21.863 títulos agrupados eram de outra loja que não a do consolidado (sempre de uma loja do operador)
+      const lojas = await todasAsEmpresasDoOperador(trx);
+      await sql`SELECT codrcb FROM areceber WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ANY(${lojas}::int[]) FOR UPDATE`.execute(trx);
       const lidos = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.codparceiro, r.valor, r.quitada, r.agrupado, r.consiliado, r.idpgto, r.codbco,
              r.codcobrador, r.codvendedor, coalesce(v.juro, 0) AS juro
           FROM areceber r LEFT JOIN get_areceber v ON v.codrcb = r.codrcb
-         WHERE r.codrcb = ANY(${ids}::int[]) AND r.codempresa = ${emp}`.execute(trx)).rows;
+         WHERE r.codrcb = ANY(${ids}::int[]) AND r.codempresa = ANY(${lojas}::int[])`.execute(trx)).rows;
       if (lidos.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
       const membros = ids.map((id) => lidos.find((m) => num(m.codrcb) === id) as Record<string, unknown>);
       const empresa = (await sql<Record<string, unknown>>`SELECT txjuropadrao, txadm, fechamento_caixa FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0] ?? {};
@@ -124,7 +128,7 @@ export class AreceberAgrupamentoService {
       const tz = await this.tz(trx, emp);
       const hoje = (await sql<{ d: string }>`SELECT to_char(now() AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d;
       if (await this.mesmoCnpj(trx, emp, codparceiro)) {
-        return this.agruparConvenio(trx, { emp, op, tz, hoje, ids, membros, codparceiro, total, idpgtoPadrao: num(ultimo.idpgto), convenio: dto.convenio });
+        return this.agruparConvenio(trx, { emp, lojas, op, tz, hoje, ids, membros, codparceiro, total, idpgtoPadrao: num(ultimo.idpgto), convenio: dto.convenio });
       }
       const dtvenda = dto.dtvenda ?? hoje;
       const dtvenc = dto.dtvenc ?? hoje;
@@ -142,7 +146,7 @@ export class AreceberAgrupamentoService {
                 ${dto.obs ?? null}, ${op}, ${op}, now(), now())
         RETURNING codrcb`.execute(trx)).rows[0];
       await sql`UPDATE areceber SET agrupado = 'S', codgrupo_agrupamento_rcb = ${codgrupo}, data_agrupamento = now(), usultalteracao = ${op}, dtultimalteracao = now()
-          WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ${emp}`.execute(trx);
+          WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ANY(${lojas}::int[])`.execute(trx);
       return { codgrupo, consolidado: num(ins.codrcb), membros: ids.length, total };
     });
   }
@@ -171,7 +175,7 @@ export class AreceberAgrupamentoService {
    * no banco: aqui vale só o CNPJ. Sem os dados do convênio, responde 422 com a sugestão, para a tela perguntar.
    */
   private async agruparConvenio(trx: AnyDB, a: {
-    emp: number; op: number | null; tz: string; hoje: string; ids: number[]; membros: Array<Record<string, unknown>>; codparceiro: number; total: number;
+    emp: number; lojas: number[]; op: number | null; tz: string; hoje: string; ids: number[]; membros: Array<Record<string, unknown>>; codparceiro: number; total: number;
     idpgtoPadrao: number; convenio?: AgruparAreceberInput['convenio'];
   }) {
     const empresa = (await sql<{ codplc: unknown; integracao: string | null }>`SELECT codplcfechamentoconvenio AS codplc, integracao FROM empresas WHERE idempresa = ${a.emp}`.execute(trx)).rows[0];
@@ -215,7 +219,7 @@ export class AreceberAgrupamentoService {
     await sql`UPDATE apagar SET duplicata = ${String(codapg)} WHERE codapg = ${codapg}`.execute(trx);
     await sql`UPDATE areceber SET agrupado = 'S', codgrupo_agrupamento_apg = ${codgrupo}, data_agrupamento = now(), quitada = 'S',
                                   usultalteracao = ${a.op}, dtultimalteracao = now()
-        WHERE codrcb = ANY(${a.ids}::int[]) AND codempresa = ${a.emp}`.execute(trx);
+        WHERE codrcb = ANY(${a.ids}::int[]) AND codempresa = ANY(${a.lojas}::int[])`.execute(trx);
     let contabil: { lancamentos: number } | { erro: string } | null = null;
     if (String(empresa?.integracao ?? '').toUpperCase() === 'AUTOMATICA') {
       const r = await emSavepoint(trx, 'contabil_convenio', () => this.contabil.integrarConvenioNaTrx(trx, codgrupo));
@@ -237,11 +241,12 @@ export class AreceberAgrupamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const c = await this.consolidado(trx, emp, codConsolidado);
       if (c.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb: codConsolidado });
-      await sql`SELECT codrcb FROM areceber WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ${emp} FOR UPDATE`.execute(trx);
+      const lojas = await todasAsEmpresasDoOperador(trx); // o título de outra loja do operador também entra (como no agrupar)
+      await sql`SELECT codrcb FROM areceber WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ANY(${lojas}::int[]) FOR UPDATE`.execute(trx);
       const titulos = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.codparceiro, r.agrupamento, r.agrupado, r.quitada, p.razao,
              coalesce(v.total, r.valor) AS total
           FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro LEFT JOIN get_areceber v ON v.codrcb = r.codrcb
-         WHERE r.codrcb = ANY(${ids}::int[]) AND r.codempresa = ${emp} ORDER BY r.codrcb`.execute(trx)).rows;
+         WHERE r.codrcb = ANY(${ids}::int[]) AND r.codempresa = ANY(${lojas}::int[]) ORDER BY r.codrcb`.execute(trx)).rows;
       if (titulos.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
       for (const t of titulos) {
         if (t.agrupamento === 'S' || t.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO', { codrcb: t.codrcb });
@@ -282,8 +287,9 @@ export class AreceberAgrupamentoService {
       if ((await sql`SELECT 1 FROM itens_lotecob WHERE codrcb = ANY(${codigos}::int[]) LIMIT 1`.execute(trx)).rows.length) {
         throw new BusinessRuleError('TITULO_EM_LOTE', { codrcb: codConsolidado });
       }
+      // os membros são do GRUPO, de qualquer loja (o agrupamento atravessa as lojas); o consolidado já foi conferido na loja do login
       const r = await sql`UPDATE areceber SET agrupado = 'N', codgrupo_agrupamento_rcb = NULL, usultalteracao = ${op}, dtultimalteracao = now()
-          WHERE codgrupo_agrupamento_rcb = ${g} AND codempresa = ${emp}`.execute(trx);
+          WHERE codgrupo_agrupamento_rcb = ${g}`.execute(trx);
       await sql`DELETE FROM caixa WHERE codrcb = ANY(${codigos}::int[])`.execute(trx);
       await sql`DELETE FROM areceber WHERE codgrupo = ${g} AND codempresa = ${emp}`.execute(trx);
       await this.historico(trx, emp, codConsolidado,
@@ -303,13 +309,13 @@ export class AreceberAgrupamentoService {
       const c = await this.consolidado(trx, emp, codConsolidado);
       if (c.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb: codConsolidado });
       const m = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.valor, r.codparceiro, r.codgrupo_agrupamento_rcb, p.razao FROM areceber r
-          LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro WHERE r.codrcb = ${codMembro} AND r.codempresa = ${emp} FOR UPDATE OF r`.execute(trx)).rows[0];
+          LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro WHERE r.codrcb = ${codMembro} FOR UPDATE OF r`.execute(trx)).rows[0];
       if (!m || num(m.codgrupo_agrupamento_rcb) !== num(c.codgrupo)) throw new BusinessRuleError('TITULO_NAO_PERTENCE_AGRUPAMENTO', { codrcb: codMembro });
       await sql`UPDATE areceber SET agrupado = 'N', codgrupo_agrupamento_rcb = NULL, usultalteracao = ${op}, dtultimalteracao = now() WHERE codrcb = ${codMembro}`.execute(trx);
       const novoValor = r2(num(c.valor) - num(m.valor));
       await sql`UPDATE areceber SET valor = ${novoValor}, total = ${novoValor}, usultalteracao = ${op}, dtultimalteracao = now() WHERE codrcb = ${codConsolidado}`.execute(trx);
       await this.historico(trx, emp, codMembro, ` REMOÇÃO DE TÍTULO n° ${codMembro} - cliente : ${num(m.codparceiro)} - ${m.razao ?? ''} do agrupamento nº ${codConsolidado}`);
-      const restantes = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM areceber WHERE codgrupo_agrupamento_rcb = ${num(c.codgrupo)} AND codempresa = ${emp}`.execute(trx)).rows[0].n);
+      const restantes = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM areceber WHERE codgrupo_agrupamento_rcb = ${num(c.codgrupo)}`.execute(trx)).rows[0].n);
       return { consolidado: codConsolidado, removido: codMembro, novoValor, membrosRestantes: restantes };
     });
   }
@@ -334,7 +340,7 @@ export class AreceberAgrupamentoService {
     const membros = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.nrocupom, to_char(r.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenda,
         to_char(r.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, r.valor, r.codpdv, o.nome AS operador, r.codempresa, r.codparceiro, p.razao AS cliente
         FROM areceber r LEFT JOIN operadores o ON o.codoperador = r.codoperador LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
-       WHERE r.codgrupo_agrupamento_rcb = ${g} AND r.codempresa = ${emp} ORDER BY r.codrcb`.execute(db)).rows;
+       WHERE r.codgrupo_agrupamento_rcb = ${g} ORDER BY r.codrcb`.execute(db)).rows;
     const extrato = (await sql<Record<string, unknown>>`
       SELECT a.codparceiro, op.codoperador, coalesce(p.fantasia, p.razao) AS nome, pl.desccodplc,
              CASE WHEN position('Originado do lancamento do adiantamento de parceiro' in coalesce(pl.descricao, a.obs, 'CONVENIOS DE FUNCIONARIOS')) > 0
@@ -396,7 +402,7 @@ export class AreceberAgrupamentoService {
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
     return (await sql<Record<string, unknown>>`SELECT m.codrcb, m.codparceiro, m.valor, m.dtvenc, m.duplicata, m.quitada
-        FROM areceber c JOIN areceber m ON m.codgrupo_agrupamento_rcb = c.codgrupo AND m.codempresa = c.codempresa
+        FROM areceber c JOIN areceber m ON m.codgrupo_agrupamento_rcb = c.codgrupo
        WHERE c.codrcb = ${codConsolidado} AND c.codempresa = ${emp} AND c.agrupamento = 'S'
        ORDER BY m.codrcb`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
   }

@@ -3,7 +3,7 @@ import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { DatabaseProvider } from '../database/database.provider';
 import { BusinessRuleError } from '../errors/app-error';
 import { currentTenant } from '../tenant/tenant-context';
-import { empresasDoOperador } from '../acesso/empresas-do-operador';
+import { empresasDoOperador, todasAsEmpresasDoOperador } from '../acesso/empresas-do-operador';
 import { opcaoConcedida } from '../acesso/acesso.service';
 import { ForbiddenActionError } from '../errors/app-error';
 import { condicaoDoUsuario, operacaoDeAbertura, OPERACOES, tipoDoCampo, type Operacao, type TipoCampo } from './pesquisa-sql';
@@ -205,6 +205,7 @@ export class PesquisaService {
         empresa: tenant.empresaId ?? null,
         operador: tenant.operadorId ?? null,
         lojas: () => empresasDoOperador(db, p.empresas),
+        todasAsLojas: () => todasAsEmpresasDoOperador(db),
         opcao,
         extras: p.extras ?? {},
       };

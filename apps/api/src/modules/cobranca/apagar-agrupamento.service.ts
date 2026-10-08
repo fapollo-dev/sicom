@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
@@ -66,9 +67,12 @@ export class ApagarAgrupamentoService {
     if (!ids.length) throw new BusinessRuleError('AGRUPAMENTO_SEM_DOCUMENTOS');
 
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // os títulos de QUALQUER loja do operador: a GET_APAGAR_AGRUPAR do legado não filtra loja (desde 2025, 51 dos 864 títulos
+      // agrupados eram de outra loja que não a do consolidado)
+      const lojas = await todasAsEmpresasDoOperador(trx);
       const lidos = (await sql<Record<string, unknown>>`SELECT a.codapg, a.codparceiro, a.valor, a.quitada, a.agrupado, n.nronf
           FROM apagar a LEFT JOIN nf n ON n.codnf = a.idnf
-         WHERE a.codapg = ANY(${ids}::int[]) AND a.codempresa = ${emp} FOR UPDATE OF a`.execute(trx)).rows;
+         WHERE a.codapg = ANY(${ids}::int[]) AND a.codempresa = ANY(${lojas}::int[]) FOR UPDATE OF a`.execute(trx)).rows;
       if (lidos.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
       const membros = ids.map((id) => lidos.find((m) => num(m.codapg) === id) as Record<string, unknown>);
       for (const m of membros) {
@@ -112,7 +116,7 @@ export class ApagarAgrupamentoService {
         gerados.push(num(t.codapg));
       }
       await sql`UPDATE apagar SET agrupado = 'S', codgrupo_agrupamento_apg = ${codgrupo}, data_agrupamento = now(), usultalteracao = ${op}, dtultimalteracao = now()
-          WHERE codapg = ANY(${ids}::int[]) AND codempresa = ${emp}`.execute(trx);
+          WHERE codapg = ANY(${ids}::int[]) AND codempresa = ANY(${lojas}::int[])`.execute(trx);
       // com centro de custo, o rateio do documento e a CAIXA do grupo (o Gravar da tela de contas a pagar)
       if (num(dto.codplc) > 0) {
         await rateioUnico(trx, { codapg: gerados[0], codgrupo, codcc: num(dto.codplc), valor: r2(parcelas.reduce((s, p) => s + num(p.valor), 0)) });
@@ -143,8 +147,9 @@ export class ApagarAgrupamentoService {
       if ((await sql`SELECT 1 FROM apagar_bx WHERE codapg = ANY(${codigos}::int[]) AND coalesce(indr, 'I') = 'I' LIMIT 1`.execute(trx)).rows.length) {
         throw new BusinessRuleError('AGRUPAMENTO_BAIXADO', { codapg: codConsolidado });
       }
+      // os membros são do GRUPO, de qualquer loja; o consolidado já foi conferido na loja do login
       const r = await sql`UPDATE apagar SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, usultalteracao = ${op}, dtultimalteracao = now()
-          WHERE codgrupo_agrupamento_apg = ${g} AND codempresa = ${emp}`.execute(trx);
+          WHERE codgrupo_agrupamento_apg = ${g}`.execute(trx);
       await apagarRateioDoGrupo(trx, g);
       await sql`DELETE FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp}`.execute(trx);
       await sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
@@ -170,7 +175,7 @@ export class ApagarAgrupamentoService {
     const r = await sql`UPDATE areceber a SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, data_agrupamento = NULL,
                             quitada = CASE WHEN EXISTS (SELECT 1 FROM areceber_bx b WHERE b.codrcb = a.codrcb AND coalesce(b.indr, 'I') = 'I') THEN a.quitada ELSE 'N' END,
                             usultalteracao = ${op}, dtultimalteracao = now()
-        WHERE a.codgrupo_agrupamento_apg = ${g} AND a.codempresa = ${emp}`.execute(trx);
+        WHERE a.codgrupo_agrupamento_apg = ${g}`.execute(trx); // os títulos a receber do convênio, de qualquer loja (como no agrupar)
     if (!Number(r.numAffectedRows ?? 0)) throw new BusinessRuleError('AGRUPAMENTO_CONVENIO_SEM_TITULOS');
     await sql`DELETE FROM caixa WHERE codcx = ${codcx}`.execute(trx);
     await sql`DELETE FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp}`.execute(trx);
@@ -184,12 +189,12 @@ export class ApagarAgrupamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const c = await this.consolidado(trx, emp, codConsolidado);
       if (c.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg: codConsolidado });
-      const m = (await sql<Record<string, unknown>>`SELECT codapg, valor, codgrupo_agrupamento_apg FROM apagar WHERE codapg = ${codMembro} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows[0];
+      const m = (await sql<Record<string, unknown>>`SELECT codapg, valor, codgrupo_agrupamento_apg FROM apagar WHERE codapg = ${codMembro} FOR UPDATE`.execute(trx)).rows[0];
       if (!m || num(m.codgrupo_agrupamento_apg) !== num(c.codgrupo)) throw new BusinessRuleError('TITULO_NAO_PERTENCE_AGRUPAMENTO', { codapg: codMembro });
       await sql`UPDATE apagar SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, usultalteracao = ${op}, dtultimalteracao = now() WHERE codapg = ${codMembro}`.execute(trx);
       const novoValor = r2(num(c.valor) - num(m.valor));
       await sql`UPDATE apagar SET valor = ${novoValor}, usultalteracao = ${op}, dtultimalteracao = now() WHERE codapg = ${codConsolidado}`.execute(trx);
-      const restantes = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM apagar WHERE codgrupo_agrupamento_apg = ${num(c.codgrupo)} AND codempresa = ${emp}`.execute(trx)).rows[0].n);
+      const restantes = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM apagar WHERE codgrupo_agrupamento_apg = ${num(c.codgrupo)}`.execute(trx)).rows[0].n);
       return { consolidado: codConsolidado, removido: codMembro, novoValor, membrosRestantes: restantes };
     });
   }
@@ -213,10 +218,10 @@ export class ApagarAgrupamentoService {
     const docs = convenio
       ? (await sql<Record<string, unknown>>`SELECT r.codrcb AS codigo, r.duplicata, r.codparceiro, p.razao, to_char(r.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS emissao,
             to_char(r.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, r.valor
-            FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro WHERE r.codgrupo_agrupamento_apg = ${g} AND r.codempresa = ${emp} ORDER BY p.razao, r.codrcb`.execute(db)).rows
+            FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro WHERE r.codgrupo_agrupamento_apg = ${g} ORDER BY p.razao, r.codrcb`.execute(db)).rows
       : (await sql<Record<string, unknown>>`SELECT m.codapg AS codigo, m.duplicata, m.codparceiro, p.razao, to_char(m.dtcompra AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS emissao,
             to_char(m.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, m.valor
-            FROM apagar m LEFT JOIN parceiros p ON p.codparceiro = m.codparceiro WHERE m.codgrupo_agrupamento_apg = ${g} AND m.codempresa = ${emp} ORDER BY p.razao, m.codapg`.execute(db)).rows;
+            FROM apagar m LEFT JOIN parceiros p ON p.codparceiro = m.codparceiro WHERE m.codgrupo_agrupamento_apg = ${g} ORDER BY p.razao, m.codapg`.execute(db)).rows;
     const empresa = (await sql<Record<string, unknown>>`SELECT razao_social FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
     return {
       convenio, empresa: { razao: empresa.razao_social ?? null },
@@ -266,7 +271,7 @@ export class ApagarAgrupamentoService {
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
     return (await sql<Record<string, unknown>>`SELECT m.codapg, m.codparceiro, m.valor, m.dtvenc, m.duplicata, m.quitada
-        FROM apagar c JOIN apagar m ON m.codgrupo_agrupamento_apg = c.codgrupo AND m.codempresa = c.codempresa
+        FROM apagar c JOIN apagar m ON m.codgrupo_agrupamento_apg = c.codgrupo
        WHERE c.codapg = ${codConsolidado} AND c.codempresa = ${emp} AND c.agrupamento = 'S'
        ORDER BY m.codapg`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
   }

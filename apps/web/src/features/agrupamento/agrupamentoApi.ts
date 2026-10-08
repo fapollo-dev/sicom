@@ -20,12 +20,14 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type Lado = 'areceber' | 'apagar';
 export interface TituloAgrupar { [k: string]: unknown; valor: number; codparceiro: number; razao?: string | null; dtvenc?: string | null; dtvenda?: string | null; duplicata?: string | null; juro?: number | null; idpgto?: number | null }
-export interface FiltroAgrupar { codparceiro?: string; vencDe?: string; vencAte?: string; vendaDe?: string; vendaAte?: string }
-
-export const buscarParaAgrupar = (lado: Lado, f: FiltroAgrupar) => {
-  const qs = new URLSearchParams({ paraAgrupar: 'S', limite: '500', orderBy: 'dtvenc' });
-  for (const [k, v] of Object.entries(f)) if (v) qs.set(k, v);
-  return req<TituloAgrupar[]>(`/cadastro/${lado}?${qs}`);
+/** os títulos marcados na Pesquisa do agrupamento (de qualquer loja do operador), em lotes de 300 códigos na URL */
+export const titulosParaAgrupar = async (lado: Lado, codigos: number[]): Promise<TituloAgrupar[]> => {
+  const out: TituloAgrupar[] = [];
+  for (let i = 0; i < codigos.length; i += 300) {
+    const qs = new URLSearchParams({ paraAgrupar: 'S', orderBy: 'dtvenc', codigos: codigos.slice(i, i + 300).join(',') });
+    out.push(...(await req<TituloAgrupar[]>(`/cadastro/${lado}?${qs}`)));
+  }
+  return out;
 };
 export interface ConvenioSugestao { codplc: number | null; idpgto: number | null; data: string; obs: string }
 export const agruparReceber = (body: {

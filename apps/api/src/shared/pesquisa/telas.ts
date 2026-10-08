@@ -8,6 +8,8 @@ export interface ContextoDosObrigatorios {
   operador: number | null;
   /** `dmPrincipal.GetMultiEmpresa`: as lojas marcadas, recortadas às do operador (vazio = a do login) */
   lojas: () => Promise<number[]>;
+  /** onde o legado NÃO filtra loja (o agrupamento): todas as lojas que o operador alcança — o Apollo não passa delas */
+  todasAsLojas: () => Promise<number[]>;
   /** a escolha da janela de opções antes da Pesquisa */
   opcao?: string;
   /** os parâmetros que a tela declara em `extras` (o resto é ignorado) */
@@ -476,6 +478,23 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'ROXO', legenda: 'Boletos Bancários emitidos' },
       { coluna: 'data_vencimento', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'Vencida' },
     ] },
+  // AGRUPAMENTO A RECEBER (btnBuscaTitulosClick, uAgrupaContasAReceber.pas:403-428): a GET_RCB aberta e não agrupada (conciliada quando a loja
+  // do login fecha caixa) SEM filtro de loja — o agrupamento atravessa as lojas (desde 2025, 8.085 dos 21.863 títulos agrupados eram de outra
+  // loja); o Apollo recorta às lojas do operador. Cor: REGISTRO_ARQ_REMESSA = S roxo "Boletos Bancários emitidos"; em multisseleção
+  'financeiro/agrupar-receber': { view: 'get_areceber', viewLegado: 'GET_RCB', relacao: 'get_rcb', ocultas: OCULTAS.rcb, form: 'FRMAGRUPACONTASARECEBER',
+    titulo: 'Títulos a agrupar', retorno: 'codigo', statusRetorno: '', totalizador: true, desempate: ['data_pagamento'],
+    requer: { form: 'FRMAGRUPACONTASARECEBER', opcao: 'FRMAGRUPACONTASARECEBER' },
+    obrigatorios: async (ctx) => [emLista('idempresa', await ctx.todasAsLojas()),
+      sql<SqlBool>`trim(${sql.ref('quitada')}) = 'N'`, sql<SqlBool>`coalesce(trim(${sql.ref('agrupado')}), 'N') = 'N'`,
+      sql<SqlBool>`(coalesce((select e.fechamento_caixa from empresas e where e.idempresa = ${ctx.empresa ?? -1}), 'N') <> 'S' or ${sql.ref('consiliado')} = 'S')`],
+    descricaoObrigatorios: "COALESCE(AGRUPADO, 'N') = 'N' AND QUITADA = 'N' [AND CONSILIADO = 'S']",
+    cores: [{ coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'ROXO', legenda: 'Boletos Bancários emitidos' }] },
+  // AGRUPAMENTO A PAGAR (btnBuscaTitulosClick, uAgrupaContasAPagar.pas:245-260): a GET_APAGAR_AGRUPAR (a view já traz só o aberto e não
+  // agrupado; mig 397) com COALESCE(AGRUPADO, 'N') = 'N', SEM filtro de loja no legado — o Apollo recorta às lojas do operador
+  'financeiro/agrupar-pagar': { view: 'get_apagar_agrupar', viewLegado: 'GET_APAGAR_AGRUPAR', form: 'FRMAGRUPACONTASAPAGAR', titulo: 'Títulos a agrupar',
+    retorno: 'codigo', statusRetorno: '', totalizador: true, requer: { form: 'FRMAGRUPACONTASAPAGAR', opcao: 'FRMAGRUPACONTASAPAGAR' },
+    obrigatorios: async (ctx) => [emLista('codigo_empresa', await ctx.todasAsLojas()), sql<SqlBool>`coalesce(${sql.ref('agrupado')}, 'N') = 'N'`],
+    descricaoObrigatorios: "COALESCE(AGRUPADO, 'N') = 'N'" },
   // BAIXA A PAGAR (FRMBAIXAAPAGAR, btnAdicionarRegistroClick, UBaixaApagar.pas:292-327): a GET_APAGAR (os abertos — o WHERE está na view)
   // das lojas do GetMultiEmpresa, com as cores do legado (BLOQUEIO = S vermelho "Compromisso bloqueado"; FORNECEDOR_POSSUI_DEBITO = S
   // azul "Fornecedor possui débito"); em multisseleção — os marcados viram os documentos do lote (GET_APAGAR WHERE CODIGO IN …)

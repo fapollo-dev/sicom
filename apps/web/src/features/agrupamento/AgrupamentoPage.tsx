@@ -7,11 +7,12 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  adicionarAoAgrupamento, agruparPagar, agruparReceber, buscarParaAgrupar, membrosAgrupamento,
+  adicionarAoAgrupamento, agruparPagar, agruparReceber, membrosAgrupamento, titulosParaAgrupar,
   removerDoAgrupamento, reverterAgrupamento,
-  type ConvenioSugestao, type FiltroAgrupar, type Lado, type TituloAgrupar,
+  type ConvenioSugestao, type Lado, type TituloAgrupar,
 } from './agrupamentoApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 type ModoAR = 'analitico' | 'totalizado' | 'funcionario';
 
@@ -33,7 +34,8 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   const ar = lado === 'areceber';
   const chave = ar ? 'codrcb' : 'codapg';
   const mensagem = useMensagem();
-  const [filtro, setFiltro] = useState<FiltroAgrupar>({});
+  // o btnBuscaTitulos do legado: a Pesquisa (GET_RCB / GET_APAGAR_AGRUPAR) SEM filtro de loja — o agrupamento atravessa as lojas
+  const [pesquisando, setPesquisando] = useState(false);
   const [titulos, setTitulos] = useState<TituloAgrupar[] | null>(null);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [juros, setJuros] = useState<Set<number>>(new Set());
@@ -47,12 +49,18 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
     try { await fn(); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
   const cod = (t: TituloAgrupar) => Number(t[chave]);
-  const pesquisar = () => executar(async () => {
-    setTitulos(await buscarParaAgrupar(lado, filtro));
-    setSel(new Set());
-    setJuros(new Set());
+  // os marcados na Pesquisa entram na grade de trabalho já marcados (o que já está não repete); a grade deixa desmarcar e escolher o juro
+  const trazerDaPesquisa = (linhas: Array<Record<string, unknown>>) => executar(async () => {
+    setPesquisando(false);
+    const ja = new Set((titulos ?? []).map(cod));
+    const codigos = [...new Set(linhas.map((l) => Number(l.codigo)).filter((c) => Number.isInteger(c) && c > 0 && !ja.has(c)))];
+    if (!codigos.length) return;
+    const novos = await titulosParaAgrupar(lado, codigos);
+    setTitulos((atual) => [...(atual ?? []), ...novos]);
+    setSel((s) => new Set([...s, ...novos.map(cod)]));
     setConvenio(null);
   });
+  const limparGrade = () => { setTitulos(null); setSel(new Set()); setJuros(new Set()); setConvenio(null); };
   const alternar = (id: number) => setSel((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
   const alternarJuro = (id: number) => setJuros((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
   // a tecla T do legado: marca todos se nem todos estão marcados, senão desmarca
@@ -108,9 +116,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
       });
       mensagem.sucesso(`Agrupamento realizado: título ${r.consolidado} de ${moeda(r.total)} (${r.membros} documento(s)).`);
     }
-    setTitulos(await buscarParaAgrupar(lado, filtro));
-    setSel(new Set());
-    setJuros(new Set());
+    limparGrade();
   });
 
   // IMPRIMIR (o relatório do agrupamento do legado) no layout .fr3 do cliente
@@ -145,8 +151,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
     if (!id || !marcados.length) { mensagem.erro(new Error('Marque na busca os títulos a incluir e informe o agrupamento.')); return; }
     await adicionarAoAgrupamento(id, marcados.map(cod));
     setConsulta({ cod: consulta.cod, membros: await membrosAgrupamento(lado, id) });
-    setTitulos(await buscarParaAgrupar(lado, filtro));
-    setSel(new Set());
+    limparGrade();
     mensagem.sucesso('Título(s) incluído com sucesso!');
   });
 
@@ -159,16 +164,17 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
 
       <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-40"><Field label={ar ? 'Cliente (código)' : 'Fornecedor (código)'} inputMode="numeric" value={filtro.codparceiro ?? ''} onChange={(e) => setFiltro({ ...filtro, codparceiro: e.target.value })} /></div>
-          <div className="w-40"><DateField label="Vencimento de" value={filtro.vencDe ?? ''} onChange={(v) => setFiltro({ ...filtro, vencDe: v ?? '' })} /></div>
-          <div className="w-40"><DateField label="até" value={filtro.vencAte ?? ''} onChange={(v) => setFiltro({ ...filtro, vencAte: v ?? '' })} /></div>
-          {ar && <div className="w-40"><DateField label="Venda de" value={filtro.vendaDe ?? ''} onChange={(v) => setFiltro({ ...filtro, vendaDe: v ?? '' })} /></div>}
-          {ar && <div className="w-40"><DateField label="até " value={filtro.vendaAte ?? ''} onChange={(v) => setFiltro({ ...filtro, vendaAte: v ?? '' })} /></div>}
-          <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
+          <Button label="&Buscar títulos" variant="soft" onClick={() => setPesquisando(true)} disabled={ocupado} />
           {titulos && titulos.length > 0 && <Button label="Marcar/desmarcar &todos (T)" variant="ghost" onClick={marcarTodos} />}
+          {titulos && titulos.length > 0 && <Button label="Limpar a grade" variant="ghost" onClick={limparGrade} disabled={ocupado} />}
+          <small className="text-fg-muted">A Pesquisa dos títulos abertos de todas as suas lojas{ar ? ' (boleto emitido em roxo)' : ''}: marque e confirme.</small>
         </div>
+        {pesquisando && (
+          <Pesquisa resourcePath={ar ? 'financeiro/agrupar-receber' : 'financeiro/agrupar-pagar'} multisselecao
+            onSelecionarVarios={(ls) => void trazerDaPesquisa(ls)} onSelecionar={(l) => void trazerDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+        )}
         {titulos && (titulos.length === 0
-          ? <small className="text-fg-muted">Nenhum título aberto com esses filtros.</small>
+          ? <small className="text-fg-muted">Nenhum título na grade.</small>
           : (
             <div className="max-h-96 overflow-auto rounded-md border border-border">
               <table className="w-full text-sm">

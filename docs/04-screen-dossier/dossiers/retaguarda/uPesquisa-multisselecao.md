@@ -494,7 +494,14 @@ empate: um gap sobre tabela morta vai para o fim.
     `financeiro/baixa-apagar` (GET_APAGAR das lojas, compromisso bloqueado em vermelho e fornecedor com débito em azul), em
     multisseleção; os marcados entram no lote pelos códigos (`titulos?codigos=…`, ainda abertos). Saíram a grade e os filtros próprios.
     Smoke §298.39.
-  - A seguir: o agrupamento (o cliente 95443 tem 4.752 títulos abertos — o corte em 500 morde mesmo filtrando por ele) e a liberação do
-    controle de contas (a conta 1 tem 17.844 movimentos não liberados contra o corte em 5.000). O CNAB (1.000) não morde: a loja 50, a
-    única que remete, tem 827 títulos abertos.
+  - **Agrupamento a receber e a pagar (#11, #12)** ✅ — e um achado maior que o corte em 500 (o cliente 95443 tem 4.752 títulos abertos):
+    **o legado agrupa entre lojas.** As Pesquisas do agrupar (GET_RCB, GET_APAGAR_AGRUPAR) não filtram loja, e desde 2025 **8.085 dos
+    21.863 títulos a receber agrupados** (e 51 dos 864 a pagar) eram de outra loja que não a do consolidado — sempre de uma loja da
+    relação do operador. O Apollo só aceitava a loja do login, e o reverter/remover/membros também: o agrupamento do cliente quebraria.
+    Agora: `financeiro/agrupar-receber` (boleto emitido em roxo) e `financeiro/agrupar-pagar` nas lojas do operador; os marcados vão à
+    grade de trabalho já marcados (`cadastro/{lado}?paraAgrupar=S&codigos=…`); o agrupar e o incluir aceitam títulos das lojas do
+    operador (o consolidado nasce na loja do login); reverter, remover, membros e a impressão pegam o grupo inteiro. O maior agrupamento
+    desde 2025 teve 974 títulos — cabe na marcação da Pesquisa (1.000). Smoke §298.40.
+  - A seguir: a liberação do controle de contas (a conta 1 tem 17.844 movimentos não liberados contra o corte em 5.000). O CNAB (1.000)
+    não morde: a loja 50, a única que remete, tem 827 títulos abertos.
 
