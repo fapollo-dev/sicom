@@ -116,7 +116,11 @@ export class LoteCobrancaRepository {
     const db = this.dbp.forTenantRead() as AnyDB;
     let q = db.selectFrom('get_areceber').selectAll().where('codempresa', '=', empresaId)
       .where('quitada', '=', 'N').where(sql<string>`coalesce(agrupado, 'N')`, '=', 'N');
-    if (opts.consiliado) q = q.where('consiliado', '=', opts.consiliado);
+    // o CONSILIADO = 'S' do btnAddItenClick (UCadLoteCobranca.pas:90-94) só vale com o FECHAMENTO_CAIXA da empresa = 'S' — e aí o cliente
+    // não o afrouxa; sem ele, o legado não filtra (produção 08/10/2026: FECHAMENTO_CAIXA nulo nas 5 lojas). O Apollo fixava 'S' na tela.
+    const fc = (await db.selectFrom('empresas').select('fechamento_caixa').where('idempresa', '=', empresaId).executeTakeFirst()) as { fechamento_caixa?: string | null } | undefined;
+    const consiliado = fc?.fechamento_caixa === 'S' ? 'S' : opts.consiliado;
+    if (consiliado) q = q.where('consiliado', '=', consiliado);
     if (opts.excluirDoLote != null) {
       q = q.where(
         'codrcb',

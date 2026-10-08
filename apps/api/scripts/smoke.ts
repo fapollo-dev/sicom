@@ -414,6 +414,30 @@ async function main() {
     const ar = (await arRes.json().catch(() => [])) as any[];
     check('GET /cobranca/areceber lista títulos da empresa (picker)', arRes.status === 200 && Array.isArray(ar) && ar.length > 0, ar?.length);
 
+    {
+      // 13c.1b) o CONSILIADO = 'S' do picker só com o FECHAMENTO_CAIXA da empresa (UCadLoteCobranca.pas:90-94) — a produção não tem
+      // fechamento de caixa em loja nenhuma, e o Apollo fixava 'S' (multisseleção, divergência #6)
+      const pgCs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const fcAntes = (await pgCs.query(`SELECT fechamento_caixa FROM empresas WHERE idempresa = 1`)).rows[0]?.fechamento_caixa ?? null;
+      const naoConc = Number((await pgCs.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, quitada, agrupado, consiliado, gerado)
+        VALUES (1, 20, '2026-03-05', '2026-08-01', 31, 'N', 'N', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb);
+      const tem = async (qs = '') => ((await (await fetch(`${base}/cobranca/areceber${qs}`, { headers: H })).json().catch(() => [])) as any[]).some((r) => Number(r.codrcb) === naoConc);
+      let semFc = false; let comFc = true; let comFcPedindoN = true;
+      try {
+        await pgCs.query(`UPDATE empresas SET fechamento_caixa = NULL WHERE idempresa = 1`);
+        semFc = await tem();
+        await pgCs.query(`UPDATE empresas SET fechamento_caixa = 'S' WHERE idempresa = 1`);
+        comFc = await tem();
+        comFcPedindoN = await tem('?consiliado=N');
+      } finally {
+        await pgCs.query(`UPDATE empresas SET fechamento_caixa = $1 WHERE idempresa = 1`, [fcAntes]).catch(() => undefined);
+        await pgCs.query(`DELETE FROM areceber WHERE codrcb = $1`, [naoConc]).catch(() => undefined);
+        await pgCs.end();
+      }
+      check('LOTE COBRANÇA: o picker só exige o título conciliado quando a empresa tem fechamento de caixa — sem ele o não conciliado aparece; com ele some, e pedir consiliado=N não afrouxa',
+        semFc && !comFc && !comFcPedindoN, { semFc, comFc, comFcPedindoN });
+    }
+
     // 13c.2) Lookup do Cobrador (parceiros FUN='S') — alimenta o SelectField da tela
     const cobRes = await fetch(`${base}/cobranca/cobradores`, { headers: H });
     const cob = (await cobRes.json().catch(() => [])) as any[];
@@ -7987,6 +8011,36 @@ async function main() {
             log: cnLog, tit: tit1 && { r: tit1.registro_arq_remessa, nn: tit1.nosso_numero_boleto }, reemitir: cnReemitir.status,
             guards: { outroBco: cnOutroBco.status, zero: cnZero.status, semVenc: cnSemVenc.status },
             filhos: cnFilhos?.n, login: cnLoginTxt?.login_arq_remessa, seqBanco: cnGerJ.sequencia_banco });
+
+        {
+          // 47at.0b) a Pesquisa dos títulos e a conta do legado (multisseleção #14, uConfBoleto.pas:1881-1893 e o SegContas): ATIVADO = 'S'
+          // do cliente; com a conta, só o banco dela; a conta é achada pelo número, de qualquer loja (a loja 50 gera pela conta 182, da empresa 1)
+          const contaOutraLoja = (await pgRv.query(`INSERT INTO contas_bancarias (codbco, idempresa, nroconta, carteira_cobranca, variacao_carteira, tipo_cobranca, ativo)
+            VALUES (1, 2, '23055-9', 109, 1, 1, 'S') RETURNING codconta`)).rows[0] as any;
+          await pgRv.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, tipofj, cli, frn, fun, con, ativado) VALUES (994701, 1, 'CLIENTE DESATIVADO CNAB', 'J', 'S', 'N', 'N', 'N', 'N') ON CONFLICT (codparceiro) DO NOTHING`);
+          const rcbDesat = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, codbco)
+            VALUES (1, 994701, 'CNABDES', '2026-02-10', '2026-03-10', 10, 'N', 'DP', 1) RETURNING codrcb`)).rows[0] as any;
+          const rcbOutroBco = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, codbco)
+            VALUES (1, 1, 'CNABBB', '2026-02-10', '2026-03-10', 11, 'N', 'DP', 2) RETURNING codrcb`)).rows[0] as any;
+          await pgRv.query(`UPDATE areceber SET codbco = 1 WHERE codrcb = $1`, [rcbZero.codrcb]);
+          const tit = async (corpo: Record<string, unknown>) => {
+            const r = await fetch(`${base}/${CNB}/titulos`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+            return { status: r.status, cods: (((await r.json().catch(() => ({}))) as any).linhas ?? []).map((l: any) => Number(l.codrcb)) as number[] };
+          };
+          const todos = await tit({});
+          const doBanco1 = await tit({ codconta: contaCnab.codconta });
+          const gerOutraLoja = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaOutraLoja.codconta, codrcbs: [rcbZero.codrcb] }) });
+          const gerOutraLojaJ = (await gerOutraLoja.json().catch(() => ({}))) as any;
+          check('CNAB §47at.0b [a Pesquisa dos títulos e a conta do legado]: o título de cliente DESATIVADO não aparece (ATIVADO = S); com a conta escolhida só os títulos do banco dela; a conta de OUTRA loja do mesmo banco é aceita (o legado procura só pelo número — a loja 50 gera pela conta da empresa 1) e o gerar segue para as travas do título (o valor 0 → 422 do título, não CONTA_BANCARIA_NAO_ENCONTRADA)',
+            todos.status === 200 && !todos.cods.includes(Number(rcbDesat.codrcb)) && todos.cods.includes(Number(rcbOutroBco.codrcb))
+            && doBanco1.status === 200 && !doBanco1.cods.includes(Number(rcbOutroBco.codrcb)) && doBanco1.cods.includes(Number(rcbZero.codrcb))
+            && gerOutraLoja.status === 422 && gerOutraLojaJ.code !== 'CONTA_BANCARIA_NAO_ENCONTRADA' && gerOutraLojaJ.code !== 'CONTA_DE_OUTRO_BANCO',
+            { desativadoNaLista: todos.cods.includes(Number(rcbDesat.codrcb)), outroBco: [todos.cods.includes(Number(rcbOutroBco.codrcb)), doBanco1.cods.includes(Number(rcbOutroBco.codrcb))],
+              zeroNoBanco1: doBanco1.cods.includes(Number(rcbZero.codrcb)), gerOutraLoja: [gerOutraLoja.status, gerOutraLojaJ.code] });
+          await pgRv.query(`DELETE FROM areceber WHERE codrcb IN ($1, $2)`, [rcbDesat.codrcb, rcbOutroBco.codrcb]);
+          await pgRv.query(`DELETE FROM parceiros WHERE codparceiro = 994701`);
+          await pgRv.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [contaOutraLoja.codconta]);
+        }
 
         // 47at.1a) BOLETO: nosso número com DV, CÓDIGO DE BARRAS (44) e LINHA DIGITÁVEL (47).
         // O algoritmo foi verificado contra 1.077 linhas digitáveis REAIS do Oracle (APAGAR.CODBARRASBLT,
@@ -15853,6 +15907,9 @@ async function main() {
         const adSemOp = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCxSemOp, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
         const adSemOpJ = (await adSemOp.json().catch(() => ({}))) as any;
         await pgAd.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7) ON CONFLICT DO NOTHING`, [adCxSemOp]);
+        // a conta é nova, mas testes anteriores gravam movimento em código de conta fixo: o número que a sequência der a ela pode já ter
+        // movimento órfão (aconteceu quando um bloco novo criou uma conta antes). O cenário exige SÓ o crédito em CARTOES.
+        await pgAd.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1`, [adCxSemOp]);
         await pgAd.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idpgto, data_fechamento) VALUES ($1,1,5000,'C','MANUAL',3,'2026-06-01')`, [adCxSemOp]);
         const adNaoDinheiro = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCxSemOp, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
         const adNaoDinheiroJ = (await adNaoDinheiro.json().catch(() => ({}))) as any;
@@ -18665,6 +18722,37 @@ async function main() {
           && semXml.status === 422 && outraLoja.status === 422 && semGrant.status === 403,
           { notas: (lista.notas ?? []).map((n: any) => [n.codnf, n.temXml]), aut: aut.notas?.length, xml: String(xml.xml ?? '').slice(0, 20), semXml: semXml.status, outra: outraLoja.status, rbac: semGrant.status });
 
+        {
+          // 137.2) a MANUTENÇÃO (#46, uExportaNFe.pas:165-300 + SalvaXMLNFe): a Pesquisa da GET_NF com os filtros do legado, a grade das
+          // marcadas (só as lojas do operador, em ordem de número) e o "Salvar XML NFe" em zip — <chave>-NFe.xml na pasta do número ou solta
+          await pgXn.query(`UPDATE nf SET tipoemissao = '0' WHERE codnf IN ($1, $2)`, [nfA, nfB]);
+          const pes = (await (await fetch(`${base}/cadastro/pesquisa?recurso=fiscal/nf-manutencao&campo=nro_nf&operacao=igual&valor=990701&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any;
+          await pgXn.query(`UPDATE nf SET tipoemissao = '1' WHERE codnf = $1`, [nfA]);
+          const pesTerceiros = (await (await fetch(`${base}/cadastro/pesquisa?recurso=fiscal/nf-manutencao&campo=nro_nf&operacao=igual&valor=990701&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any;
+          const lojasOp7 = new Set([1, ...(await pgXn.query(`SELECT codempresa FROM relacao_operador_empresa WHERE codoperador = 7`)).rows.map((r: any) => Number(r.codempresa))]);
+          const grade = (await (await fetch(`${base}/${XN}/manutencao`, { method: 'POST', headers: H, body: JSON.stringify({ codnfs: [nfC, nfB, nfA] }) })).json().catch(() => ({}))) as any;
+          const esperadas = [nfA, nfB, ...(lojasOp7.has(2) ? [nfC] : [])];
+          const baixa = async (codnfs: number[], separarPorNumero: boolean) => {
+            const r = await fetch(`${base}/${XN}/manutencao/xml`, { method: 'POST', headers: H, body: JSON.stringify({ codnfs, separarPorNumero }) });
+            const buf = r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+            const { unzipSync } = await import('fflate');
+            return { status: r.status, semXml: r.headers.get('x-notas-sem-xml'), nomes: buf ? Object.keys(unzipSync(buf)).sort() : [], arquivos: buf ? unzipSync(buf) : {} };
+          };
+          const porNumero = await baixa([nfA, nfB], true);
+          const solta = await baixa([nfA, nfB], false);
+          const soSemXml = await baixa([nfB], true);
+          const demais = await fetch(`${base}/${XN}/manutencao`, { method: 'POST', headers: H, body: JSON.stringify({ codnfs: Array.from({ length: 1000 }, (_, i) => i + 1) }) });
+          const xmlA = porNumero.arquivos[`990701/${chaveA}-NFe.xml`];
+          check('EXPORTA NF-e §137.2 [a manutenção: a Pesquisa, a grade e o "Salvar XML NFe" em zip]: a Pesquisa acha a NF-e própria, processada, modelo 55 com chave e status (a de emissão de terceiros não); a grade traz as marcadas das lojas do operador em ordem de número; o zip leva <chave>-NFe.xml na pasta do número (ou solta) e lista em NAO_SALVAS.txt a que não tem XML; só nota sem XML, 422; mais de 999, 400',
+            (pes.linhas ?? []).length === 1 && Number(pes.linhas[0].codigo) === nfA && (pesTerceiros.linhas ?? []).length === 0
+            && JSON.stringify((grade.notas ?? []).map((n: any) => n.codnf)) === JSON.stringify(esperadas)
+            && porNumero.status === 200 && JSON.stringify(porNumero.nomes) === JSON.stringify([`990701/${chaveA}-NFe.xml`, 'NAO_SALVAS.txt']) && porNumero.semXml === '1'
+            && !!xmlA && Buffer.from(xmlA).toString('utf8').includes('<nfeProc>')
+            && solta.status === 200 && JSON.stringify(solta.nomes) === JSON.stringify([`${chaveA}-NFe.xml`, 'NAO_SALVAS.txt'])
+            && soSemXml.status === 422 && demais.status === 400,
+            { pes: (pes.linhas ?? []).map((l: any) => l.codigo), terceiros: (pesTerceiros.linhas ?? []).length, grade: (grade.notas ?? []).map((n: any) => n.codnf), esperadas,
+              porNumero: [porNumero.status, porNumero.nomes, porNumero.semXml], solta: [solta.status, solta.nomes], soSemXml: soSemXml.status, demais: demais.status });
+        }
         await pgXn.query(`DELETE FROM nfe_xml WHERE codnf = $1`, [nfA]);
         await pgXn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfA, nfB, nfC]);
       } finally {
@@ -30103,6 +30191,19 @@ async function main() {
             && compra.status === 200 && naCompra === 1 && parceiro.status === 422 && parceiro.code === 'PERFIL_SEM_OPERADORES'
             && inexistente.status === 422 && inexistente.code === 'OPERADOR_NAO_ENCONTRADO' && (semMudar.operadores ?? []).map((o: any) => Number(o.codoperador)).join() === '929802',
             { g1, l1: l1.operadores, g2, l2: l2.operadores, saiu, compra, naCompra, parceiro, inexistente, semMudar: semMudar.operadores });
+        }
+
+        // PRODUTO — a NATUREZA (edtNatureza, UCadProduto.pas:4241-4251): a GET_PC_TIPOCREDITOISENTO da produção (mig 416) com o IDPISCOFINS do
+        // produto; o retorno é o IDTABELA e a descrição é 'código - descrição'
+        {
+          await pgPq.query(`INSERT INTO pc_tipocreditoisento (idtabela, idpiscofins, idbasecreditoisento, descricao) VALUES
+            (929901, 929905, 101, 'NATUREZA SMOKE A'), (929902, 929906, 102, 'NATUREZA SMOKE B') ON CONFLICT (idtabela) DO NOTHING`);
+          const nat = await pq('recurso=lookup/pc-natureza&campo=descricao&operacao=qualquer&valor=NATUREZA SMOKE&porPagina=10&f_idpiscofins=929905');
+          const linhas = (nat.j.linhas ?? []) as any[];
+          await pgPq.query(`DELETE FROM pc_tipocreditoisento WHERE idtabela IN (929901, 929902)`);
+          check('PESQUISA §298.38 [a natureza do produto]: a GET_PC_TIPOCREDITOISENTO filtra pelo PIS/COFINS do produto e devolve o IDTABELA, com a descrição "código - descrição" da view da produção',
+            nat.status === 200 && linhas.length === 1 && Number(linhas[0].idtabela) === 929901 && linhas[0].descricao === '101 - NATUREZA SMOKE A',
+            { status: nat.status, linhas: linhas.map((l) => [l.idtabela, l.descricao]), code: nat.j?.code });
         }
 
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no

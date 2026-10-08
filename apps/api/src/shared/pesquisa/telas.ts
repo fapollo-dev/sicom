@@ -280,6 +280,22 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
       { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'NFe Transferência entre lojas' },
     ] },
+  // MANUTENÇÃO DE NF-e (btnPesquisarNotasFiscaisClick, uExportaNFe.pas:165-300): a GET_NF das lojas do operador (SelecionaEmpresa), processada,
+  // emissão própria, modelo 55, com chave, status e número, com as cores da tela (emitida, cancelada, processada, importada); em
+  // multisseleção, até 999 notas vão para a grade de manutenção
+  'fiscal/nf-manutencao': { view: 'get_nf', relacao: 'rel_get_nf', ocultas: OCULTAS.nf, form: 'FRMEXPORTANFE', titulo: 'Notas fiscais', retorno: 'codigo',
+    statusRetorno: '',
+    obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas()),
+      sql<SqlBool>`coalesce(${sql.ref('processada')}, 'S') = 'S'`, sql<SqlBool>`${sql.ref('tipo_emissao')} = 'P'`,
+      sql<SqlBool>`${sql.ref('modelo')}::text = '55'`, sql<SqlBool>`${sql.ref('chave_nfe')} IS NOT NULL`,
+      sql<SqlBool>`${sql.ref('status_nfe')} IS NOT NULL`, sql<SqlBool>`coalesce(${sql.ref('nro_nf')}, 0) <> 0`],
+    descricaoObrigatorios: "IDEMPRESA IN (lojas) AND COALESCE(PROCESSADA, 'S') = 'S' AND TIPO_EMISSAO = 'P' AND MODELO = 55 AND CHAVE_NFE IS NOT NULL AND STATUS_NFE IS NOT NULL AND COALESCE(NRO_NF, 0) <> 0",
+    cores: [
+      { coluna: 'status_nfe', op: '=', valor: 'NFE ENVIADA A RECEITA', cor: 'AZUL', legenda: 'NFe Emitida' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE CANCELADA NA RECEITA', cor: 'VERMELHO', legenda: 'NFe Cancelada' },
+      { coluna: 'processada', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Notas processadas' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
+    ] },
   'cadastro/marcas': { view: 'get_marcas', form: 'FRMCADMARCAS', titulo: 'Marcas', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },
   'cadastro/cidades': { view: 'get_cidades', form: 'FRMCADCIDADES', titulo: 'Cidades', retorno: 'idcidade' },
   'cadastro/familias': { view: 'get_familias_prod', form: 'FRMCADFAMILIAPROD', titulo: 'Família de produtos', retorno: 'codigo', campoAtivo: ATIVO,
@@ -539,6 +555,10 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // (CODPERFIL como CODIGO, PERFIL, ATIVO, TIPO) e já tira os excluídos
   'lookup/perfis': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADUSUARIOS',
     titulo: 'Perfil', retorno: 'codigo', statusRetorno: '' },
+  // a NATUREZA do produto (edtNatureza, UCadProduto.pas:4241-4251): a GET_PC_TIPOCREDITOISENTO com o IDPISCOFINS do produto (a tela manda
+  // em `fixos`); o produto guarda o IDTABELA. O status na produção: frmCadProduto|GET_PC_TIPOCREDITOISENTO|edtNatureza
+  'lookup/pc-natureza': { view: 'get_pc_tipocreditoisento', form: 'FRMPESQUISA', titulo: 'Natureza da receita', retorno: 'idtabela',
+    abertura: { campo: 'descricao', operacao: 'qualquer' } },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
 

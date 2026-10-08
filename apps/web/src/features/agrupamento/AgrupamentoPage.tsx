@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
+import { LookupField } from '../../shared/ui/LookupField';
 import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
@@ -206,7 +207,11 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
           {marcados.length} documento(s) · {clientes.size} {ar ? 'cliente(s)' : 'fornecedor(es)'} · total <strong className="tabular-nums">{moeda(total)}</strong>
         </small>
         <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
-          <Field label="Parceiro do título (código)" inputMode="numeric" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} />
+          {/* o edtCliente do legado (uAgrupaContasAPagar.pas:96-101, uAgrupaContasAReceber.pas:103): a GET_PARCEIROS sem filtro, com o status
+              da Pesquisa pela tela que o abriu (na produção, frmAgrupaContasAPagar|GET_PARCEIROS|edtCliente) */}
+          <LookupField label="Parceiro do título" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao"
+            statusTela={{ pai: ar ? 'frmAgrupaContasAReceber' : 'frmAgrupaContasAPagar', retorno: 'edtCliente' }}
+            value={f.codparceiro ? Number(f.codparceiro) : undefined} onChange={(cod) => setF({ ...f, codparceiro: cod ? String(cod) : '' })} />
           {ar && <Field label="Forma de pagamento (código)" inputMode="numeric" value={f.idpgto} onChange={(e) => setF({ ...f, idpgto: e.target.value })} />}
           {ar && <DateField label="Data do lançamento" value={f.dtvenda} onChange={(v) => setF({ ...f, dtvenda: v ?? '' })} />}
           <DateField label="Vencimento" value={f.dtvenc} onChange={(v) => setF({ ...f, dtvenc: v ?? '' })} />

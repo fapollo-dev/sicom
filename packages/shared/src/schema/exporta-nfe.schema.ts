@@ -9,3 +9,16 @@ export const exportaNfeSchema = z.object({
   limite: z.coerce.number().int().positive().max(5000).default(1000),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 export type ExportaNfeDto = z.infer<typeof exportaNfeSchema>;
+
+/** a grade de MANUTENÇÃO: as notas marcadas na Pesquisa (até 999 — uExportaNFe.pas:241-245) */
+export const notasDaManutencaoSchema = z.object({
+  codnfs: z.array(z.coerce.number().int().positive()).min(1).max(999, 'Permitido um máximo de 1000 registros para manutenção de nf-e.'),
+});
+export type NotasDaManutencaoDto = z.infer<typeof notasDaManutencaoSchema>;
+
+/** o "Salvar XML NFe" (SalvaXMLNFe, udmNF.pas:5057): "Separado pelo número da nota" ou "Em uma unica pasta" */
+export const salvarXmlNfeSchema = notasDaManutencaoSchema.extend({
+  separarPorNumero: z.boolean().default(true),
+});
+export type SalvarXmlNfeDto = z.infer<typeof salvarXmlNfeSchema>;
+

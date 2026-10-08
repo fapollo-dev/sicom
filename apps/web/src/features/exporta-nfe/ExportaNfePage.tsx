@@ -7,8 +7,13 @@ import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useShortcut } from '../../shared/keyboard';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { SelectField } from '../../shared/ui/SelectField';
 
-/** EXPORTAÇÃO DE NF-e (`FRMEXPORTANFE`). Dossiê: `uExportaNFe.md`. */
+/**
+ * MANUTENÇÃO / EXPORTAÇÃO DE NF-e (`FRMEXPORTANFE`). Dossiê: `uExportaNFe.md`. O F3 é o do legado (a Pesquisa da GET_NF em multisseleção
+ * enche a grade); o "Buscar" por período é do Apollo. "Salvar XML NFe" leva as notas da grade num zip.
+ */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
@@ -23,6 +28,9 @@ export function ExportaNfePage() {
   const [notas, setNotas] = useState<Nota[] | null>(null);
   const [xml, setXml] = useState<{ chavenfe: string | null; xml: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // a Pesquisa da manutenção (btnPesquisarNotasFiscaisClick) e a opção do "Salvar XML NFe" (SalvaXMLNFe: separado pelo número / numa pasta)
+  const [pesquisando, setPesquisando] = useState(false);
+  const [separar, setSeparar] = useState('numero');
   const pedir = async <T,>(url: string): Promise<T> => {
     const r = await fetch(url, { headers: apiHeaders() });
     handle401(r);
@@ -33,13 +41,46 @@ export function ExportaNfePage() {
     setOcupado(true);
     try { setXml(null); setNotas((await pedir<{ notas: Nota[] }>(`${BASE}/fiscal/nf-exportacao?${new URLSearchParams(f)}`)).notas); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
-  // F3 = btnPesquisarNotasFiscaisClick, o "[F3] - Pesquisar notas fiscais" (FormKeyDown do uExportaNFe)
-  useShortcut('f3', () => void buscar(), { when: !ocupado });
+  // F3 = btnPesquisarNotasFiscaisClick, o "[F3] - Pesquisar notas fiscais" (FormKeyDown do uExportaNFe): a Pesquisa da GET_NF em
+  // multisseleção; as marcadas (até 999) vão para a grade
+  useShortcut('f3', () => setPesquisando(true), { when: !ocupado && !pesquisando });
+  const carregarMarcadas = async (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    const codnfs = [...new Set(linhas.map((l) => Number(l.codigo ?? l.codnf)).filter((c) => Number.isInteger(c) && c > 0))];
+    if (!codnfs.length) return;
+    if (codnfs.length > 999) return mensagem.erro('Permitido um máximo de 1000 registros para manutenção de nf-e.');
+    setOcupado(true);
+    try {
+      setXml(null);
+      const r = await fetch(`${BASE}/fiscal/nf-exportacao/manutencao`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ codnfs }) });
+      handle401(r);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw Object.assign(new Error('ERRO'), { envelope: isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText } }); }
+      setNotas(((await r.json()) as { notas: Nota[] }).notas);
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  // "Salvar XML NFe" (ManipulaNF(4)): todas as notas da grade, num zip
+  const salvarXmls = async () => {
+    if (!notas?.length) return;
+    setOcupado(true);
+    try {
+      const r = await fetch(`${BASE}/fiscal/nf-exportacao/manutencao/xml`, { method: 'POST', headers: apiHeaders(),
+        body: JSON.stringify({ codnfs: notas.map((n) => n.codnf), separarPorNumero: separar === 'numero' }) });
+      handle401(r);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw Object.assign(new Error('ERRO'), { envelope: isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText } }); }
+      const nome = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? 'xml-nfe.zip';
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = nome; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const sem = Number(r.headers.get('x-notas-sem-xml') ?? 0);
+      mensagem.sucesso(sem ? `Processo finalizado! ${sem} nota(s) sem XML guardado — ver NAO_SALVAS.txt no arquivo.` : 'Processo finalizado!');
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
   const verXml = async (codnf: number) => { try { setXml(await pedir(`${BASE}/fiscal/nf-exportacao/${codnf}/xml`)); } catch (e) { mensagem.erro(e); } };
   const copiar = async () => { if (!xml) return; try { await navigator.clipboard.writeText(xml.xml); mensagem.sucesso('XML copiado.'); } catch { mensagem.erro(new Error('Não foi possível copiar.')); } };
   return (
     <div className="flex flex-col gap-gp-md">
-      <PageHeader title="Exportação de NF-e" />
+      <PageHeader title="Manutenção de NF-e" />
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <p className="mb-form-gap text-body-sm text-fg-muted">As notas eletrônicas do período. Abra uma nota para ver o XML autorizado guardado e copiá-lo. Transmitir, cancelar e carta de correção estão na tela da nota.</p>
         <div className="flex flex-wrap items-end gap-gp-sm">
@@ -48,7 +89,19 @@ export function ExportaNfePage() {
           <div className="w-36"><label className="mb-1 block text-body-sm text-fg-muted">Modelo</label><select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={f.modelo} onChange={(e) => setF({ ...f, modelo: e.target.value })}><option value="55">NF-e (55)</option><option value="65">NFC-e (65)</option><option value="todos">Todos</option></select></div>
           <div className="w-40"><label className="mb-1 block text-body-sm text-fg-muted">Situação</label><select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="todas">Todas</option><option value="autorizadas">Autorizadas</option><option value="canceladas">Canceladas</option></select></div>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="[F3] Pesquisar notas fiscais" variant="soft" disabled={ocupado} onClick={() => setPesquisando(true)} />
         </div>
+        {notas && notas.length > 0 && (
+          <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
+            <div className="w-64"><SelectField label="Salvar NFe" options={[{ value: 'numero', label: 'Separado pelo número da nota' }, { value: 'unica', label: 'Em uma unica pasta' }]}
+              value={separar} onChange={(v) => setSeparar(v || 'numero')} /></div>
+            <Button label="Salvar &XML NFe" variant="outline" disabled={ocupado} onClick={() => void salvarXmls()} />
+          </div>
+        )}
+        {pesquisando && (
+          <Pesquisa resourcePath="fiscal/nf-manutencao" multisselecao onSelecionarVarios={(ls) => void carregarMarcadas(ls)}
+            onSelecionar={(l) => void carregarMarcadas([l])} onFechar={() => setPesquisando(false)} />
+        )}
       </section>
       {notas && (
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">

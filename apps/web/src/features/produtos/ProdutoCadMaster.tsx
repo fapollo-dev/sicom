@@ -714,6 +714,25 @@ function FiscalSection({
             />
           )}
         />
+        {/* a NATUREZA da receita (edtNatureza, UCadProduto.pas:4241-4251): a GET_PC_TIPOCREDITOISENTO do PIS/COFINS do produto; guarda o
+            IDTABELA (34,6 mil produtos com ela na produção) */}
+        <Controller
+          control={form.control}
+          name="idtabela"
+          render={({ field }) => (
+            <LookupField
+              label="&Natureza (PIS/COFINS)"
+              recurso="lookup/pc-natureza"
+              campoCodigo="idtabela"
+              descricao="descricao"
+              fixos={form.watch('idpiscofins') != null ? { idpiscofins: Number(form.watch('idpiscofins')) } : undefined}
+              statusTela={{ pai: 'frmCadProduto', retorno: 'edtNatureza' }}
+              value={field.value as number | undefined}
+              onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)}
+              disabled={!editavel}
+            />
+          )}
+        />
         <Controller
           control={form.control}
           name="codfigurafiscal"

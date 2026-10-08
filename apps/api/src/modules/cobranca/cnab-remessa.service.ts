@@ -251,8 +251,13 @@ export class CnabRemessaService {
     return e;
   }
 
-  /** os títulos da empresa com o estado do boleto — a grade da tela (a seleção no legado é manual). */
-  async titulos(f: { codparceiro?: number; status?: string; de?: string; ate?: string }) {
+  /**
+   * os títulos da empresa com o estado do boleto — a grade da tela. A Pesquisa do legado (uConfBoleto.pas:1886-1893) é a GET_ARECEBER com
+   * `ATIVADO = 'S'` (o do CLIENTE, C.ATIVADO na view) e, com a conta escolhida, `CODBCO` = o banco da conta (o edtCodBCO escondido que o
+   * SegContas enche). Produção 08/10/2026: 8 títulos abertos da loja 50 são de cliente desativado (5 já com remessa). As lojas: o legado
+   * aceita várias (GetMultiEmpresa), mas nenhum dos 239 arquivos de 2025-26 mistura lojas — o Apollo fica na do login.
+   */
+  async titulos(f: { codparceiro?: number; status?: string; de?: string; ate?: string; codconta?: number }) {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     let q = db.selectFrom('areceber as r')
@@ -264,7 +269,13 @@ export class CnabRemessaService {
       ])
       .where('r.codempresa', '=', emp)
       .where(sql`coalesce(r.quitada,'N')`, '<>', 'S')
-      .where(sql`coalesce(r.agrupado,'N')`, '=', 'N'); // agrupado não entra na cobrança bancária (:856)
+      .where(sql`coalesce(r.agrupado,'N')`, '=', 'N') // agrupado não entra na cobrança bancária (:856)
+      .where('p.ativado', '=', 'S');
+    if (f.codconta != null) {
+      const conta = (await db.selectFrom('contas_bancarias').select('codbco').where('codconta', '=', Number(f.codconta)).executeTakeFirst()) as { codbco?: number | null } | undefined;
+      if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: f.codconta });
+      q = q.where('r.codbco', '=', Number(conta.codbco));
+    }
     if (f.codparceiro != null) q = q.where('r.codparceiro', '=', Number(f.codparceiro));
     if (f.status) q = q.where('r.status_boleto', '=', f.status);
     if (f.de) q = q.where(sql`r.dtvenc`, '>=', sql`${f.de}::date`);
@@ -335,9 +346,11 @@ export class CnabRemessaService {
       const bb = febraban === '001';
 
       // 2) conta bancária (carteira/variação) + empresa (nome do cedente)
+      // a conta é achada pelo número, de QUALQUER loja (o SegContas do legado procura CONTAS_BANCARIAS só pelo NROCONTA): a loja 50 gera
+      // as remessas Itaú pela conta 182, cadastrada na empresa 1 (553 arquivos até 06/10/2026) — a trava que vale é a do banco, abaixo
       const conta = (await trx.selectFrom('contas_bancarias')
         .select(['codconta', 'nroconta', 'codbco', 'carteira_cobranca', 'variacao_carteira', 'convenio'])
-        .where('codconta', '=', dto.codconta).where('idempresa', '=', emp)
+        .where('codconta', '=', dto.codconta)
         .executeTakeFirst()) as Record<string, unknown> | undefined;
       if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: dto.codconta });
       // a conta TEM de ser do banco da configuração — sem isto sai um arquivo Itaú com agência da conf e
@@ -677,9 +690,10 @@ export class CnabRemessaService {
       .where('codconf', '=', dto.codconf).where('codempresa', '=', emp)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!conf) throw new BusinessRuleError('CONF_BANCARIA_NAO_ENCONTRADA', { codconf: dto.codconf });
+    // a conta de qualquer loja, como no `gerar` (o SegContas do legado procura só pelo NROCONTA)
     const conta = (await db.selectFrom('contas_bancarias')
       .select(['codconta', 'nroconta', 'codbco', 'carteira_cobranca', 'convenio'])
-      .where('codconta', '=', dto.codconta).where('idempresa', '=', emp)
+      .where('codconta', '=', dto.codconta)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: dto.codconta });
     const bancoRow = (await db.selectFrom('bancos').select(['codbcoblt', 'banco'])

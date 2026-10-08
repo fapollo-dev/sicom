@@ -460,4 +460,29 @@ empate: um gap sobre tabela morta vai para o fim.
   - A grade passa a ser editável no que o operador preenche (o valor, as quantidades), e o Gravar barra com o `PadraoValidada` do legado
     ("O valor do desconto Deve ser Informada.", "A quantidade…", com "Produtos do Grupo A/B:"). O servidor já recusava o zero.
   - jsdom `promocaoLote.spec.tsx`.
+- **Corte 4 — Manutenção de NF-e (#46)** ✅:
+  - O F3 é o do legado: a Pesquisa `fiscal/nf-manutencao` (a GET_NF das lojas do operador, processada, emissão própria, modelo 55, com
+    chave, status e número; as cores emitida/cancelada/processada/importada) em multisseleção; até 999 notas vão para a grade
+    (`POST /fiscal/nf-exportacao/manutencao`). O "Buscar" por período ficou como extra do Apollo; o título volta a ser "Manutenção de NF-e".
+  - "Salvar XML NFe" (o ManipulaNF(4) → SalvaXMLNFe): todas as notas da grade num zip, cada uma `<chave>-NFe.xml`, na pasta do número
+    ("Separado pelo número da nota") ou soltas ("Em uma unica pasta"). O legado regera e consulta a SEFAZ; o Apollo entrega o XML
+    autorizado guardado e lista em NAO_SALVAS.txt a nota sem XML. Enviar, cancelar, PDF, e-mail e imprimir seguem na tela da nota.
+  - Smoke §137.2.
+- **Corte 6 — as duas divergências** ✅:
+  - **#6 Lote de cobrança:** o CONSILIADO = 'S' do picker só vale com o FECHAMENTO_CAIXA da empresa = 'S' (UCadLoteCobranca.pas:90-94),
+    decidido no servidor; o Apollo fixava 'S' na tela. Produção: FECHAMENTO_CAIXA nulo nas 5 lojas — o legado não filtra. Smoke 13c.1b.
+  - **#14 CNAB:** (a) a Pesquisa do legado exige o cliente ATIVADO = 'S' — 8 títulos abertos da loja 50 são de cliente desativado; (b) com
+    a conta escolhida, só os títulos do banco dela (o edtCodBCO escondido que o SegContas enche); (c) **achado maior: a conta é achada
+    pelo número, de qualquer loja** — a loja 50 gera as remessas Itaú pela conta 182, da empresa 1 (553 arquivos, o último em
+    06/10/2026). O Apollo exigia conta da loja do login e recusaria a remessa do cliente; a trava que fica é a do banco (conta × config).
+    As lojas: nenhum dos 239 arquivos de 2025-26 mistura lojas — o Apollo segue na do login. Smoke §47at.0b.
+- **Corte 5 — avaliação (08/10/2026):**
+  - **#101 K200 por departamento: INERTE, provado.** A K200 do legado só lê `APURACAO_ESTOQUE_ESCRITURADO` (o QryK200,
+    udmSpedFiscal.dfm:8948-8953), que tem **0 linhas** na produção: marcada ou não, a K200 sai vazia. Não há o que portar enquanto essa
+    tabela não for alimentada.
+  - **#76 Etiqueta de parceiros: uso NÃO provado.** Há um modelo (`etip - etiqueta mala direta.fr3`, DEFAULT, alterado pelo usuário 1 em
+    24/06/2025) e o caminho é Cadastro de clientes → Pesquisa → Etiquetas (FlagEtiqueta 1); a impressão não deixa rastro no banco.
+    Não convertido — fica para decisão.
+  - **#53 Restituição de tributação: uso NÃO provado.** O menu apaga o inventário em tela e o recria com os marcados; o resultado é
+    igual ao de uma digitação comum, sem marca de origem. Não convertido — fica para decisão.
 

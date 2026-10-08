@@ -120,7 +120,15 @@ A multisseleção foi aplicada nas telas dos cortes 0 a 3 do mapa (`uPesquisa-mu
   abre).
 - jsdom `pesquisaInsF2.spec.tsx`.
 
-**Falta:** o status do lookup de campo; os cortes 4 a 6 do mapa da multisseleção.
+**O status do lookup de campo** ✅ (`9345cab6` + 08/10/2026): a chave é a tela que abriu + o controle de retorno, como a produção. As 10
+chaves da CONFIG_STATUS_TELA da produção: 9 ligadas — frmAPagar (edtCodPLC, edtCODPARCEIRO), frmCadProduto (edtCODGRUPO, edtCODSUBGRUPO,
+edtCODDPTO e edtNatureza — este com o campo NATUREZA que a tela do produto não tinha, sobre a GET_PC_TIPOCREDITOISENTO da produção,
+mig 416), frmMovCaixa e FrmLancamentoContabilNF (edtCodPLC), frmAgrupaContasAPagar/AReceber (edtCliente — o parceiro do título virou
+lookup). Fica uma: frmConsCRTbx|GET_CARTAOBX|edtLote — a "Consulta baixa" por lote não existe como tela no Apollo (o estorno do lote é
+pela linha da tela de cartões); 1 linha na produção.
+
+**Cortes 4 a 6 do mapa da multisseleção:** feitos em 08/10/2026 (ver `uPesquisa-multisselecao.md`); do corte 5, o #101 é inerte com
+prova e #76/#53 ficam para decisão (uso não provado).
 
 ## 1. Resumo para quem tem pressa
 

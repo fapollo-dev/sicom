@@ -50,8 +50,9 @@ export function CnabRemessaPage() {
     if (busy) return;
     setBusy(true);
     try {
+      // com a conta escolhida, só os títulos do banco dela (o CODBCO que o legado põe na Pesquisa, uConfBoleto.pas:1881-1893)
       const r = await post<{ linhas: Linha[] }>('/cobranca/cnab/titulos', {
-        de: de || undefined, ate: ate || undefined, status: status || undefined,
+        de: de || undefined, ate: ate || undefined, status: status || undefined, codconta: Number(codconta) > 0 ? Number(codconta) : undefined,
       });
       setLinhas(r.linhas); setSel(new Set());
       if (!r.linhas.length) mensagem.sucesso('Nenhum título em aberto no filtro.');

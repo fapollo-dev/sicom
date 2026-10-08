@@ -27,10 +27,10 @@ export function AddTitulosModal({ excluirDoLote, jaSelecionados, onFechar, onCon
   const [rows, setRows] = useState<AreceberRow[]>([]);
   const [selecao, setSelecao] = useState<GridSelectionState>(SEM_SELECAO);
 
-  // carrega os títulos disponíveis (consiliado='S' como no legado)
+  // carrega os títulos disponíveis — o servidor aplica o CONSILIADO = 'S' quando a empresa tem fechamento de caixa, como o legado
   useEffect(() => {
     let alive = true;
-    listAreceber({ excluirDoLote, consiliado: 'S' })
+    listAreceber({ excluirDoLote })
       .then((r) => {
         if (alive) setRows(r);
       })

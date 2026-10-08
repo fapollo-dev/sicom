@@ -11,6 +11,8 @@ export const cnabTitulosSchema = z.object({
   status: z.enum(['E', 'C']).optional(),
   de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (AAAA-MM-DD).').optional(),
   ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data final inválida (AAAA-MM-DD).').optional(),
+  /** a conta da cobrança: os títulos do banco dela (o CODBCO do legado) */
+  codconta: z.coerce.number().int().positive().optional(),
 });
 export type CnabTitulosDto = z.infer<typeof cnabTitulosSchema>;
 
