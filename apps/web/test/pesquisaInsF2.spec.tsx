@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { useContext } from 'react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { z } from 'zod';
@@ -62,9 +63,12 @@ describe('Pesquisa — Ins / F2, o cadastro da view por cima (uPesquisa.pas:1534
   });
 
   it('o F2 abre o cadastro no registro da linha posicionada', async () => {
+    const user = userEvent.setup();
     montar();
     fireEvent.keyDown(await screen.findByLabelText('Texto'), { key: 'Enter' });
-    fireEvent.click(await screen.findByText('SEIS'));
+    // o Enter leva o foco à grade (60 ms depois); só então o clique — que, como no navegador, move o foco à linha
+    await waitFor(() => expect(document.activeElement?.closest('[role="row"]')).toBeTruthy());
+    await user.click(await screen.findByText('SEIS'));
     act(() => { fireEvent.keyDown(window, { key: 'F2', code: 'F2' }); });
     await screen.findByText('gravar teste');
     expect(aberto).toEqual({ id: 6 });
