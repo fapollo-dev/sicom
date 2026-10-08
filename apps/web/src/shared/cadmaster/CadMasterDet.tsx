@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   useFieldArray,
   type FieldValues,
@@ -8,7 +8,7 @@ import {
 import type { ZodSchema } from 'zod';
 import type { LogDaTela } from '../log/RegistrosLogModal';
 import { CadMaster } from './CadMaster';
-import type { ColunaPesquisa } from './Pesquisa';
+import { Pesquisa, type ColunaPesquisa } from './Pesquisa';
 import { Button } from '../ui/Button';
 
 interface CamposCtx<T extends FieldValues> {
@@ -28,6 +28,18 @@ interface DetalheSpec<T extends FieldValues> {
   novoItem: () => any;
   /** render dos campos de UMA linha (recebe index + form + editável) */
   itemCampos: (ctx: ItemCtx<T>) => ReactNode;
+  /**
+   * o "Adicionar" do legado pela PESQUISA EM MULTISSELEÇÃO (`HabilitaMultiselecao` + `ClonarDatasetCodigos`): o botão abre a Pesquisa do
+   * recurso e cada linha marcada vira um item, sem repetir a chave (o `Locate` antes do `Append`). Sem isto, o botão acrescenta uma
+   * linha vazia (`novoItem`)
+   */
+  pesquisa?: {
+    recurso: string;
+    /** o item a partir da linha da view */
+    item: (linha: Record<string, unknown>) => any;
+    /** a chave que não se repete no detalhe */
+    chave: (item: any) => string | number | null | undefined;
+  };
 }
 
 interface Props<T extends FieldValues> {
@@ -77,6 +89,21 @@ function DetalheGrid<T extends FieldValues>({
   editavel: boolean;
 }) {
   const { fields, append, remove } = useFieldArray<T>({ control: form.control, name: spec.chave });
+  const [pesquisando, setPesquisando] = useState(false);
+  const pesq = spec.pesquisa;
+  const adicionarDaPesquisa = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    if (!pesq) return;
+    const atuais = (form.getValues(spec.chave as never) as unknown as unknown[] | undefined) ?? [];
+    const ja = new Set(atuais.map((i) => String(pesq.chave(i) ?? '')));
+    for (const l of linhas) {
+      const item = pesq.item(l);
+      const k = String(pesq.chave(item) ?? '');
+      if (k === '' || ja.has(k)) continue;
+      ja.add(k);
+      append(item);
+    }
+  };
   return (
     <fieldset
       disabled={!editavel}
@@ -92,8 +119,15 @@ function DetalheGrid<T extends FieldValues>({
           </div>
         ))}
         <div>
-          <Button label="&Adicionar item" variant="soft" onClick={() => append(spec.novoItem())} />
+          {pesq
+            // a legenda do legado ("Adicionar", sem atalho — o Alt+A é o do rodapé)
+            ? <Button label="Adicionar" variant="soft" onClick={() => setPesquisando(true)} />
+            : <Button label="&Adicionar item" variant="soft" onClick={() => append(spec.novoItem())} />}
         </div>
+        {pesq && pesquisando && (
+          <Pesquisa resourcePath={pesq.recurso} multisselecao onSelecionarVarios={adicionarDaPesquisa}
+            onSelecionar={(l) => adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+        )}
       </div>
     </fieldset>
   );

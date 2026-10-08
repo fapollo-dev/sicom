@@ -348,3 +348,10 @@ empate: um gap sobre tabela morta vai para o fim.
   - O teto de cada lista subiu de 200 para 2.000: a produção tem 520 subgrupos.
   - Fica de fora o texto digitado no campo: no legado, um LIKE pelo nome com o operador escolhido; a API não tem esse filtro.
   - Smoke §298.26; jsdom `filtroFamilias.spec.tsx`.
+- **Corte 1 — os 3 restantes** ✅ (só web). Em todos, o "Adicionar" do legado abre a Pesquisa em multisseleção:
+  - **Fornecedores desassociados do produto:** `lookup/parceiros` com FRN = 'S' e ATIVADO = 'S'; o código entra uma vez só, mesmo que
+    a view repita o parceiro por endereço (UCadProduto.pas:1830-1862).
+  - **Formas de pagamento do parceiro:** `cadastro/formas-pgto`. Cada marcada entra com o IDPGTO e a MODALIDADE da view, **sem**
+    conferir repetição, como o legado; na produção há 1 caso repetido (uCadClientes.pas:4181-4198).
+  - **Empresas do operador:** `cadastro/empresas`, pela opção `pesquisa` nova do `CadMasterDet`; a empresa que já está não repete
+    (uCadUsuarios.pas:168-189). A legenda é a do legado, "Adicionar", sem atalho: o Alt+A é o do rodapé.

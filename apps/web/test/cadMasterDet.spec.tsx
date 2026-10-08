@@ -69,4 +69,49 @@ describe('CadMasterDet — grid de itens (núcleo do TfrmCadMasterDet)', () => {
     await waitFor(() => expect(screen.queryByLabelText('valor-1')).toBeNull());
     expect(screen.getByLabelText('valor-0')).toBeTruthy();
   });
+
+  it('com `pesquisa`, o Adicionar do detalhe abre a Pesquisa em multisseleção e as marcadas entram sem repetir a chave', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const u = String(url);
+      const corpo = u.includes('/pesquisa/meta') ? {
+        titulo: 'Empresas', view: 'GET_EMPRESAS', colunas: [{ campo: 'codigo', titulo: 'Codigo', tipo: 'numero' }, { campo: 'fantasia', titulo: 'Fantasia', tipo: 'texto' }],
+        operacoes: { texto: ['igual', 'qualquer'], numero: ['igual'], data: ['igual'] },
+        abertura: { campo: 'fantasia', operacao: 'qualquer', valor: null, ordenacao: null, ordemDesc: false }, opcoes: [], situacao: false, retorno: 'codigo', obrigatorio: null,
+      } : u.includes('/cadastro/pesquisa?') ? { linhas: [{ codigo: 1, fantasia: 'LOJA 1', _linha: 0 }, { codigo: 2, fantasia: 'LOJA 2', _linha: 1 }], total: 2 }
+        : [];
+      return { ok: true, status: 200, json: async () => corpo };
+    }) as any;
+    function TelaPesq() {
+      return (
+        <CadMasterDet<any>
+          titulo="Operadores" resourcePath="teste/md" pk="id" schema={z.object({ empresas: z.array(z.object({ codempresa: z.number().optional() })) })}
+          defaultValues={{ empresas: [] }} campos={() => null}
+          detalhe={{
+            chave: 'empresas', titulo: 'Empresas', novoItem: () => ({ codempresa: undefined }),
+            itemCampos: ({ form, index }) => <span>empresa {String(form.getValues(`empresas.${index}.codempresa`))}</span>,
+            pesquisa: { recurso: 'cadastro/empresas', item: (l) => ({ codempresa: Number(l.codigo) }), chave: (i) => i?.codempresa },
+          }}
+        />
+      );
+    }
+    render(wrap(<TelaPesq />));
+    const botoes = () => screen.getAllByRole('button');
+    fireEvent.click(botoes().find((b) => (b.textContent || '').trim() === 'Adicionar' && !b.closest('fieldset'))!); // o do rodapé: inserção
+    const doDetalhe = () => botoes().find((b) => (b.textContent || '').trim() === 'Adicionar' && !!b.closest('fieldset'))!;
+    const marcarTudoEOk = async () => {
+      fireEvent.click(doDetalhe());
+      fireEvent.keyDown(await screen.findByLabelText('Texto'), { key: 'Enter' });
+      await screen.findByText('LOJA 2');
+      for (const c of screen.getAllByRole('checkbox', { name: 'Selecionar linha' })) fireEvent.click(c);
+      await waitFor(() => expect(screen.getByText(/2 registros selecionados/)).toBeTruthy());
+      fireEvent.click(botoes().find((b) => b.textContent === 'OK')!);
+      await waitFor(() => expect(screen.queryByLabelText('Texto')).toBeNull());
+    };
+    await marcarTudoEOk();
+    expect(screen.getByText('empresa 1')).toBeTruthy();
+    expect(screen.getByText('empresa 2')).toBeTruthy();
+    // de novo as mesmas: nada se repete (o Locate('CODEMPRESA') do legado)
+    await marcarTudoEOk();
+    expect(screen.getAllByText(/^empresa \d$/)).toHaveLength(2);
+  });
 });

@@ -42,6 +42,7 @@ import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { getSessao } from '../../shared/auth/session';
 import { useShortcut } from '../../shared/keyboard';
 import { LookupField } from '../../shared/ui/LookupField';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 type Linha = Record<string, any>;
@@ -239,9 +240,10 @@ export function ProdutoCadMaster() {
 
 /**
  * A aba "Fornecedores desassociados" (UCadProduto.pas:679, BtnAdicionar/BtnExcluir :1830): os fornecedores de quem o
- * produto foi tirado — a importação de itens do pedido de compra não o traz para eles. Fornecedor repetido é ignorado.
+ * produto foi tirado — a importação de itens do pedido de compra não o traz para eles. O Adicionar abre a Pesquisa da GET_PARCEIROS
+ * (FRN = 'S' AND ATIVADO = 'S') em MULTISSELEÇÃO e os marcados entram sem repetir (o Locate('CODPARCEIRO'), :1837-1862).
  */
-function FornecedoresDesassociadosSection({
+export function FornecedoresDesassociadosSection({
   form,
   editavel,
 }: {
@@ -253,31 +255,34 @@ function FornecedoresDesassociadosSection({
     name: 'fornecedores_desassociados',
     keyName: 'fieldId',
   });
-  const [escolhido, setEscolhido] = useState<string | undefined>(undefined);
+  const [pesquisando, setPesquisando] = useState(false);
   // a lista: "cod - razão" só dos fornecedores dela
   const nomes = useNomesDosCodigos('lookup/parceiros', 'codparceiro', fields.map((f) => f.codparceiro));
   const rotulo = (cod: unknown) => {
     const l = nomes?.get(String(cod ?? ''));
     return l ? `${cod} - ${l.razao ?? ''}` : String(cod ?? '');
   };
-  const adicionar = () => {
-    const c = Number(escolhido);
-    if (!c) return;
-    if (!fields.some((f) => Number(f.codparceiro) === c)) append({ codparceiro: c });
-    setEscolhido(undefined);
+  // os marcados na Pesquisa (a GET_PARCEIROS repete o parceiro por endereço: o código entra uma vez só)
+  const adicionar = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    const ja = new Set(fields.map((f) => Number(f.codparceiro)));
+    for (const l of linhas) {
+      const c = Number(l.codigo ?? l.codparceiro);
+      if (Number.isInteger(c) && c > 0 && !ja.has(c)) { ja.add(c); append({ codparceiro: c }); }
+    }
   };
   return (
     <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Fornecedores desassociados</legend>
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="min-w-80 flex-1">
-            {/* UCadProduto.pas:1837 (BtnAdicionarProdFornDesassociadosClick) — GET_PARCEIROS, FRN = 'S' AND ATIVADO = 'S' */}
-            <LookupField label="Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S', ativado: 'S' }}
-              value={escolhido} onChange={(cod) => setEscolhido(cod || undefined)} disabled={!editavel} />
-          </div>
-          <Button label="Desassociar fornecedor" variant="soft" onClick={adicionar} />
+          {/* UCadProduto.pas:1837 (BtnAdicionarProdFornDesassociadosClick) — GET_PARCEIROS, FRN = 'S' AND ATIVADO = 'S', multisseleção */}
+          <Button label="Adicionar fornecedores" variant="soft" disabled={!editavel} onClick={() => setPesquisando(true)} />
         </div>
+        {pesquisando && (
+          <Pesquisa resourcePath="lookup/parceiros" fixos={{ frn: 'S', ativado: 'S' }} multisselecao
+            onSelecionarVarios={adicionar} onSelecionar={(l) => adicionar([l])} onFechar={() => setPesquisando(false)} />
+        )}
         {fields.length === 0 ? (
           <p className="text-body-sm text-fg-muted">Nenhum fornecedor desassociado.</p>
         ) : (

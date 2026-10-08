@@ -3,6 +3,7 @@ import { type UseFormReturn, useFieldArray } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { Modal } from '../../shared/ui/Modal';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import {
   type BancoParceiroDto,
   type CriarParceiroDto,
@@ -154,8 +155,10 @@ function BancoModal({
 // ────────────────────────── Formas de pagamento ──────────────────────────
 
 /**
- * Formas de pagamento liberadas (PARCEIROS_PGTO). IDPgto e Modalidade são inputs simples.
- * TODO F3: trocar o IDPgto por um lookup data-bound FORMAS_PGTO (hoje deferido → input numérico).
+ * Formas de pagamento liberadas (PARCEIROS_PGTO). O Adicionar é o do legado (uCadClientes.pas:4181-4198, `TfrmPesquisa.Pesquisa` na
+ * GET_FORMAS_PGTO): a Pesquisa em MULTISSELEÇÃO, e cada marcada entra com o IDPGTO (o CODIGO da view) e a MODALIDADE dela — sem conferir
+ * repetição, como lá (a PARCEIROS_PGTO tem chave própria; na produção há 1 parceiro com a mesma forma duas vezes). Editar uma linha
+ * continua pelo modal.
  */
 export function PgtosSection({
   form,
@@ -170,6 +173,14 @@ export function PgtosSection({
     keyName: 'fieldId',
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [pesquisando, setPesquisando] = useState(false);
+  const adicionarDaPesquisa = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    for (const l of linhas) {
+      const idpgto = Number(l.codigo ?? l.idpgto);
+      if (Number.isInteger(idpgto)) append({ idpgto, modalidade: l.modalidade == null ? undefined : String(l.modalidade) });
+    }
+  };
 
   const onConfirmar = (item: PgtoParceiroDto) => {
     if (editIdx == null) return;
@@ -193,10 +204,14 @@ export function PgtosSection({
       botaoLabel="Adicionar forma de &pagamento"
       vazio="Sem formas de pagamento."
       editavel={editavel}
-      onAdicionar={() => setEditIdx(-1)}
+      onAdicionar={() => setPesquisando(true)}
       rows={fields as Array<PgtoParceiroDto & { fieldId: string }>}
       columns={columns}
     >
+      {pesquisando && (
+        <Pesquisa resourcePath="cadastro/formas-pgto" multisselecao onSelecionarVarios={adicionarDaPesquisa}
+          onSelecionar={(l) => adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+      )}
       {editIdx != null && (
         <PgtoModal
           inicial={editIdx >= 0 ? (fields[editIdx] as PgtoParceiroDto) : undefined}
@@ -232,7 +247,6 @@ function PgtoModal({
       secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-        {/* TODO F3: lookup FORMAS_PGTO (data-bound). Por ora, IDPgto é input numérico simples. */}
         <Field
           label="&IDPgto"
           value={item.idpgto != null ? String(item.idpgto) : ''}

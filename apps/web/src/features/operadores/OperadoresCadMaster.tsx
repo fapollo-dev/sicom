@@ -53,6 +53,8 @@ export function OperadoresCadMaster() {
         chave: 'empresas',
         titulo: 'Empresas permitidas (ao menos uma)',
         novoItem: () => ({ codempresa: undefined }),
+        // o BitBtn1 do legado (uCadUsuarios.pas:168-189): a Pesquisa da GET_EMPRESAS em multisseleção; a empresa que já está não repete
+        pesquisa: { recurso: 'cadastro/empresas', item: (l) => ({ codempresa: Number(l.codigo) }), chave: (i) => i?.codempresa },
         itemCampos: ({ form, index }) => (
           <Controller
             control={form.control}
