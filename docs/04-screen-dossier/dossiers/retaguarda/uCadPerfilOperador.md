@@ -14,7 +14,7 @@
 - **PERMISSOES** (já migrado, mig 002): `FORM, OPCAO, CODOPERADOR, CODPERFIL, CODEMPRESA, CAPTION, FORM_CAPTION`. **Presença de linha = acesso concedido** (sem flag). Grant keyed a CODOPERADOR (direto, modo dominante) OU CODPERFIL (por perfil).
 - **PERFIL** (mig 084): `CODPERFIL, PERFIL (nome), ATIVO, TIPO, INDR (soft-delete)`. GLOBAL (sem empresa, fiel).
 - **RELACAO_OPERADOR_PERFIL** (mig 084): operador↔perfil M:N (`CODRELACAO, CODOPERADOR, CODPERFIL, INDR`). UNIQUE parcial 1-ativo-por-par.
-- **Modo** (`CONFIGURACOES.CONTROLE_PERMISSOES`): 'usuario' (PINHEIRAO, direto) / 'perfil' (só perfis) / 'ambos' (∪). No monorepo = `APP_PERMISSAO_MODO` (default 'usuario'). Acesso efetivo (ambos) = grants próprios ∪ grants dos perfis do operador.
+- **Modo** (`CONFIGURACOES.CONTROLE_PERMISSOES`, `COALESCE(específica, global)`): 'usuario' / 'perfil' / 'ambos' (∪). **PINHEIRAO = AMBOS** (a específica Modulo/Retaguarda = 'A' ganha da global 'Usuario' — corrigido em 08/10/2026, prova em `uCtrlPermissoes.md` §2). No monorepo o modo vem da config (`modoPermissao`); `APP_PERMISSAO_MODO` só como override. Acesso efetivo (ambos) = grants próprios ∪ grants dos perfis do operador. Os perfis do operador se gravam na tela de Operadores (abas "Perfil operador" e "Perfil de compras").
 - **Adiado:** `PERFILREL` (herança de perfil, 4), `OPERADORES_RESTRICAO_ACESSO` (janela de horário, 1), `APP_PERMISSOES` (mobile, 255), `AUDIT_PERMISSOES` (trilha).
 
 ## 2. Corte-1 (ENTREGUE) — PERFIL + relação

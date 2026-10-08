@@ -3720,10 +3720,10 @@ async function main() {
     const opNoEmp = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 510, nome: 'SEM EMP', login: 'SEMEMP' }) });
     const opEmptyEmp = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 511, nome: 'EMP VAZIA', login: 'EMPVAZIA', empresas: [] }) });
     check('OPER: ≥1 empresa obrigatória (sem/vazia → 400)', opNoEmp.status === 400 && opEmptyEmp.status === 400, { sem: opNoEmp.status, vazia: opEmptyEmp.status });
-    // 40.7) supervisor (idsupervisor) — lookup opcional (auto-relação; 0 dados reais, sem regra).
-    const opSup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 512, nome: 'COM SUP', login: 'COMSUP', idsupervisor: 7, empresas: [{ codempresa: 1 }] }) });
+    // 40.7) supervisor (idsupervisor) — do OPERADOR, escolhido entre os SUPERVISORES ativos (uCadUsuarios.pas:497-501, :745-755); o op 1 é SUP.
+    const opSup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 512, nome: 'COM SUP', login: 'COMSUP', tipoop: 'OPE', idsupervisor: 1, empresas: [{ codempresa: 1 }] }) });
     const op512 = (await (await fetch(`${base}/${OP}/512`, { headers: H })).json().catch(() => ({}))) as any;
-    check('OPER: idsupervisor gravado (lookup opcional)', opSup.status === 201 && Number(op512.idsupervisor) === 7, { op512 });
+    check('OPER: idsupervisor gravado (o operador com um supervisor ativo)', opSup.status === 201 && Number(op512.idsupervisor) === 1, { op512 });
     // 40.8) TRAVA usuário-sistema (op 1 = ADMIN real): PUT e DELETE → 422 OPERADOR_PROTEGIDO.
     const opSicomPut = await fetch(`${base}/${OP}/1`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: 'HACK' }) });
     const opSicomDel = await fetch(`${base}/${OP}/1`, { method: 'DELETE', headers: H });
@@ -10174,8 +10174,8 @@ async function main() {
       check('PERFIL §77.5: catálogo não-vazio + conceder grant ao perfil (FRMLIBERACOES/BTNCONSULTAR) → gravado',
         Array.isArray(cat) && cat.length > 0 && gOn.status === 200 && temGrant, { cat: cat.length, grant: temGrant });
 
-      // 77.5b-e) CORTE-3 — o caminho por OPERADOR, que é o do cliente (CONTROLE_PERMISSOES='Usuario': 55.251
-      // linhas por operador contra 2.438 por perfil). Sem isto o administrador não dá nem tira acesso de
+      // 77.5b-e) CORTE-3 — o caminho por OPERADOR, o mais usado pelo cliente (55.251 linhas por operador contra 2.438 por
+      // perfil; o modo é AMBOS — §77.7b). Sem isto o administrador não dá nem tira acesso de
       // ninguém depois da virada. Regras do legado exercitadas: exclusividade operador×perfil (uCtrlPermissoes
       // .pas:314-315), CAPTION/FORM_CAPTION na gravação (:331-332), lote e clonagem destrutiva.
       const PM = 'cadastro/permissoes';
@@ -10260,6 +10260,30 @@ async function main() {
       process.env.APP_PERMISSAO_MODO = 'usuario'; // reset
       check('PERFIL §77.7 FOLD: modo inválido/vazio → fail-SAFE (op8 403, como usuario); "AMBOS" maiúsculo canoniza → 200',
         acVazio.status === 403 && acUpper.status === 200, { vazio: acVazio.status, upper: acUpper.status });
+      {
+        // 77.7b) O MODO VEM DA CONFIG DO CLIENTE (GetConfigControlePermissao, udmPrincipal.pas:2698): sem o env, manda
+        // COALESCE(específica, global) de CONTROLE_PERMISSOES. Produção: global 'Usuario' + Modulo/Retaguarda 'A' = AMBOS
+        // (a VANICE usa a Agenda de Promoção só pelo perfil). Op 8 só tem FRMLIBERACOES pelo perfil.
+        delete process.env.APP_PERMISSAO_MODO;
+        const semEspecifica = await fetch(`${base}/operadores/liberacoes`, { headers: H8 }); // catálogo 'Usuario' (mig 414)
+        await pgPf.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (206, 'Modulo', 'Retaguarda', 'A')
+          ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'A'`);
+        const comA = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+        await pgPf.query(`UPDATE configuracoes_especificas SET valor = 'P' WHERE id = 206 AND tipo = 'Modulo' AND chave = 'Retaguarda'`);
+        const comP = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+        const op7ComP = await fetch(`${base}/operadores/liberacoes`, { headers: H }); // o op 7 não tem perfil: no modo perfil, nada
+        await pgPf.query(`UPDATE configuracoes_especificas SET valor = 'U' WHERE id = 206 AND tipo = 'Modulo' AND chave = 'Retaguarda'`);
+        const comU = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+        // a específica de OUTRO módulo não vale no Retaguarda
+        await pgPf.query(`DELETE FROM configuracoes_especificas WHERE id = 206`);
+        await pgPf.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (206, 'Modulo', 'PDV', 'A')`);
+        const outroModulo = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+        await pgPf.query(`DELETE FROM configuracoes_especificas WHERE id = 206`);
+        process.env.APP_PERMISSAO_MODO = 'usuario'; // o resto da corrida segue no modo usuário
+        check('PERFIL §77.7b: o modo vem da CONFIG — global Usuario → op8 403; específica Retaguarda A → 200 (ambos); P → 200 e o op 7 sem perfil 403; U → 403; específica de outro módulo não vale → 403',
+          semEspecifica.status === 403 && comA.status === 200 && comP.status === 200 && op7ComP.status === 403 && comU.status === 403 && outroModulo.status === 403,
+          { semEspecifica: semEspecifica.status, A: comA.status, P: comP.status, op7P: op7ComP.status, U: comU.status, outroModulo: outroModulo.status });
+      }
 
       // 77.8) TRILHA AUDIT_PERMISSOES (corte-2): concede(§77.5)+revoga(§77.6)+concede(§77.7) → ≥3 registros.
       const aud1 = (await (await fetch(`${base}/cadastro/permissoes/auditoria?codperfil=${codperfil}`, { headers: H })).json().catch(() => [])) as any[];
@@ -29979,6 +30003,52 @@ async function main() {
           check('PESQUISA §298.34 [análise de notas, Múltiplos CFOPs no "Por CST"]: a lista de CFOPs filtra pelo CFOP do item — com todos os CFOPs vistos voltam as mesmas linhas (menos as de CFOP do item vazio, que o NP.CFOP IN do legado também não casa), com um que não existe, nenhuma',
             tudo.status === 200 && comTodos.status === 200 && linhasDe(comTodos).length === linhasDe(tudo).filter((l) => cfopsVistos.includes(Number(l.cfop))).length && nenhum.status === 200 && linhasDe(nenhum).length === 0,
             { tudo: [tudo.status, linhasDe(tudo).length, tudo.j?.code], cfopsVistos: cfopsVistos.slice(0, 8), comTodos: linhasDe(comTodos).length, nenhum: [nenhum.status, linhasDe(nenhum).length, nenhum.j?.code] });
+        }
+
+        // CADASTRO DE USUÁRIOS, as abas de PERFIL e de SUPERVISIONADOS (multisseleção #110/#111, uCadUsuarios.pas:220-300, :557-588)
+        {
+          const OPR = `${base}/cadastro/operadores`;
+          const perf = async (perfil: string, tipo: string, ativo: string) => Number((await pgPq.query(
+            `INSERT INTO perfil (perfil, ativo, tipo) VALUES ($1, $2, $3) RETURNING codperfil`, [perfil, ativo, tipo])).rows[0].codperfil);
+          const [pA, pC, pX] = [await perf('SMOKE 298.35 ACESSO', 'ACESSO', 'S'), await perf('SMOKE 298.35 COMPRA', 'COMPRA', 'S'), await perf('SMOKE 298.35 INATIVO', 'ACESSO', 'N')];
+          await pgPq.query(`INSERT INTO operadores (codoperador, nome, login, tipoop, idgrupo, desabilitado, ativo, indr) VALUES
+            (929801, 'SUPERVISIONADO 298', 'SUPV298A', 'OPE', 2, 'N', 'S', 'I'), (929802, 'USUARIO 298', 'SUPV298B', 'USU', 1, 'N', 'S', 'I')
+            ON CONFLICT (codoperador) DO NOTHING`);
+          const cria = await fetch(OPR, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'sup298', codoperador: 929800, nome: 'SUPERVISOR 298', login: 'SUP298',
+            tipoop: 'SUP', empresas: [{ codempresa: 1 }], perfis: [{ codperfil: pA }], perfis_compra: [{ codperfil: pC }], supervisionados: [{ codoperador: 929801 }] }) });
+          const lido = (await (await fetch(`${OPR}/929800`, { headers: H })).json().catch(() => ({}))) as any;
+          const supDe = async (op: number) => (await pgPq.query(`SELECT idsupervisor FROM operadores WHERE codoperador = $1`, [op])).rows[0]?.idsupervisor ?? null;
+          const supervisionou = await supDe(929801);
+          const put = async (corpo: Record<string, unknown>, op = 929800) => {
+            const r = await fetch(`${OPR}/${op}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo) });
+            return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
+          };
+          const tirou = await put({ perfis: [] });
+          const historico = (await pgPq.query(`SELECT indr, indr_usuario, indr_data IS NOT NULL AS tem_data FROM relacao_operador_perfil WHERE codoperador = 929800 AND codperfil = $1`, [pA])).rows;
+          const voltou = await put({ perfis: [{ codperfil: pA }] });
+          const linhasA = (await pgPq.query(`SELECT indr FROM relacao_operador_perfil WHERE codoperador = 929800 AND codperfil = $1 ORDER BY codrelacao`, [pA])).rows.map((r: any) => r.indr);
+          const inativo = await put({ perfis: [{ codperfil: pA }, { codperfil: pX }] });
+          const tipoErrado = await put({ perfis_compra: [{ codperfil: pC }, { codperfil: pA }] });
+          const naoOpe = await put({ supervisionados: [{ codoperador: 929801 }, { codoperador: 929802 }] });
+          // o supervisor do operador: só um SUPERVISOR ativo; e quem vira outro tipo perde o campo
+          const supInvalido = await put({ tipoop: 'OPE', idsupervisor: 929802 }, 929801);
+          const virouUsu = await put({ tipoop: 'USU' });
+          const perdeuSupervisionados = await supDe(929801);
+          await pgPq.query(`UPDATE operadores SET idsupervisor = 1 WHERE codoperador = 929802`);
+          const usuComSup = await put({ tipoop: 'USU', nome: 'USUARIO 298' }, 929802);
+          const usuLimpou = await supDe(929802);
+          check('OPERADORES §298.35 [as abas de perfil e de supervisionados]: o Gravar leva perfis, perfis de compra e supervisionados (o IDSUPERVISOR do OPE); tirar o perfil vira E com usuário e data e pôr de novo é linha nova (o histórico fica); perfil inativo ou de outro tipo e supervisionado que não é OPE → 422; supervisor que não é SUP → 422; quem deixa de ser SUP perde os supervisionados e quem não é OPE perde o supervisor',
+            cria.status === 201 && (lido.perfis ?? []).map((p: any) => Number(p.codperfil)).join() === String(pA) && lido.perfis?.[0]?.perfil === 'SMOKE 298.35 ACESSO'
+            && (lido.perfis_compra ?? []).map((p: any) => Number(p.codperfil)).join() === String(pC)
+            && (lido.supervisionados ?? []).map((o: any) => Number(o.codoperador)).join() === '929801' && Number(supervisionou) === 929800
+            && tirou.status === 200 && historico.length === 1 && historico[0].indr === 'E' && Number(historico[0].indr_usuario) === 7 && historico[0].tem_data
+            && voltou.status === 200 && JSON.stringify(linhasA) === JSON.stringify(['E', 'I'])
+            && inativo.status === 422 && inativo.code === 'OPERADOR_PERFIL_INVALIDO' && tipoErrado.status === 422 && tipoErrado.code === 'OPERADOR_PERFIL_INVALIDO'
+            && naoOpe.status === 422 && naoOpe.code === 'OPERADOR_SUPERVISIONADO_INVALIDO'
+            && supInvalido.status === 422 && supInvalido.code === 'OPERADOR_SUPERVISOR_INVALIDO'
+            && virouUsu.status === 200 && perdeuSupervisionados === null && usuComSup.status === 200 && usuLimpou === null,
+            { cria: cria.status, lido: { perfis: lido.perfis, compra: lido.perfis_compra, sup: lido.supervisionados }, supervisionou, tirou, historico, voltou, linhasA,
+              inativo, tipoErrado, naoOpe, supInvalido, virouUsu, perdeuSupervisionados, usuComSup, usuLimpou });
         }
 
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no

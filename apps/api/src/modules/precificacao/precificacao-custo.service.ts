@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { opcaoConcedidaNaEmpresa } from '../../shared/acesso/acesso.service';
 import { FiscalPricingService } from './preco-fiscal.service';
 import { ConfigService } from '../cadastro/config.service';
 import { gerarLotesFilhos } from './lote-filho';
@@ -114,10 +115,8 @@ export class PrecificacaoCustoService {
   /** o operador pode ALTERAR o preço de venda? (grant EDTVRVENDA — fold auditoria: o legado desabilita o campo,
    *  :1362-1365; sem isso qualquer BTNGRAVAR reprecificava a loja). */
   private async podeAlterarPreco(db: AnyDB, idempresa: number): Promise<boolean> {
-    const ok = await db.selectFrom('permissoes').select('form')
-      .where('form', '=', 'FRMPRIFICACAOCUSTO').where('opcao', '=', 'EDTVRVENDA').where('codempresa', '=', idempresa)
-      .where('codoperador', '=', this.op()).executeTakeFirst();
-    return !!ok;
+    // um controle da tela: no legado vem do `GetSQLPermissaoControles` (uMaster), que segue o modo (usuário/perfil/ambos)
+    return opcaoConcedidaNaEmpresa(db, 'FRMPRIFICACAOCUSTO', 'EDTVRVENDA', idempresa);
   }
 
   /** parâmetros fiscais de (produto, empresa): regime, alíquotas de saída, despesa operacional, IR/CSLL. */

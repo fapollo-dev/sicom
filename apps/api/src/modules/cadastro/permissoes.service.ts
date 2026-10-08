@@ -10,10 +10,10 @@ type AnyDB = any;
 /**
  * PERMISSÕES (`FRMCTRLPERMISSOES`) — matriz de grants FORM×OPCAO. Dossiê: `uCtrlPermissoes.md`.
  *
- * ⚠️ o corte-2 só sabia conceder por PERFIL, e o cliente concede por **OPERADOR**: a config
- * `CONTROLE_PERMISSOES` vale 'Usuario' em produção, com 55.251 linhas por operador contra 2.438 por perfil (que
- * nesse modo o legado nem consulta, `udmPrincipal.pas:2698-2714`). Sem o caminho por operador, o administrador
- * não conseguiria dar nem tirar acesso de ninguém depois da virada. Corte-3 fecha isso.
+ * ⚠️ o corte-2 só sabia conceder por PERFIL, e o cliente concede sobretudo por **OPERADOR**: 55.251 linhas por operador
+ * contra 2.438 por perfil. O modo da produção é AMBOS (`CONTROLE_PERMISSOES`: a específica do Retaguarda 'A' ganha da
+ * global 'Usuario', `udmPrincipal.pas:2698-2714` — ver `acesso.service.ts` `modoPermissao`), então os dois caminhos valem.
+ * Sem o caminho por operador, o administrador não conseguiria dar nem tirar acesso de ninguém depois da virada.
  *
  * Regras do legado que valem para os dois caminhos:
  *  · a chave é (form, opção, operador|perfil, **empresa**) e a verificação é fail-closed (`:3971-4000`);

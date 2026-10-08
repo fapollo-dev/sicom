@@ -527,6 +527,11 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // já tira o SICOM e os excluídos; o `campoCodigo` da web (codoperador) fica oculto no fim
   'lookup/operadores-da-loja': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCTRLPERMISSOES',
     titulo: 'Operadores', retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
+  // GET_PERFIL — as abas de perfil do cadastro de usuários (ExistePerfilSelecionado, uCadUsuarios.pas:802-817: ATIVO = 'S' AND TIPO = a aba,
+  // que a tela manda em `fixos`; o legado cria a Pesquisa sem controle de retorno). A rel_get_perfil (mig 393) tem as colunas da produção
+  // (CODPERFIL como CODIGO, PERFIL, ATIVO, TIPO) e já tira os excluídos
+  'lookup/perfis': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADUSUARIOS',
+    titulo: 'Perfil', retorno: 'codigo', statusRetorno: '' },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
 

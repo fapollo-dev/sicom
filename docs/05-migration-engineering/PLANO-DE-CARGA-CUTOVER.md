@@ -893,6 +893,10 @@ codempresa/opcao` e retorna `RecordCount > 0` — **fail-closed**, igual ao noss
 outra coisa que já fazíamos por analogia: quando não há opção, **a opção é o próprio nome do formulário** (o
 gate da tela).
 
+> ⚠️ **Corrigido em 08/10/2026:** o parágrafo abaixo está errado. A global vale 'Usuario', mas a específica do módulo
+> Retaguarda vale 'A' e o `COALESCE(CE.VALOR, C.VALOR)` do legado fica com ela — o cliente está em **AMBOS**, e os
+> perfis contam (a VANICE usa a Agenda de Promoção só pelo perfil). Prova em `uCtrlPermissoes.md` §2.
+
 Dois números que fecham o assunto e mudam uma suposição: a config `CONTROLE_PERMISSOES` vale **'Usuario'** em
 produção — o cliente concede **por operador**, não por perfil. São 55.251 linhas por operador contra 2.438 por
 perfil (que no modo 'Usuario' o legado nem consulta), e 42 vínculos operador×perfil ativos que hoje não têm

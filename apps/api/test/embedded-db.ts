@@ -458,6 +458,8 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('411_colunas_novas_producao.sql'));
   await pool.query(sql('412_config_status_tela.sql'));
   await pool.query(sql('413_pesquisa_views_legado.sql'));
+  await pool.query(sql('414_config_controle_permissoes.sql'));
+  await pool.query(sql('415_relacao_operador_perfil_compra.sql'));
   await pool.end();
   return pg;
 }

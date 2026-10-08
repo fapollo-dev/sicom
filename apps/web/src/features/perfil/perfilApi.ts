@@ -72,8 +72,8 @@ export function auditoriaDoOperador(codoperador: number): Promise<AuditoriaPermi
 }
 
 // ── CONTROLE DE PERMISSÕES por OPERADOR (FRMCTRLPERMISSOES, corte-3) ─────────────────────────────────────────
-// É o modo que o cliente usa: `CONTROLE_PERMISSOES='Usuario'` (55.251 linhas por operador contra 2.438 por
-// perfil, que nesse modo o legado nem consulta). Ver dossiê `uCtrlPermissoes.md`.
+// O caminho mais usado pelo cliente (55.251 linhas por operador contra 2.438 por perfil); o modo da produção é AMBOS —
+// operador ∪ perfis. Ver dossiê `uCtrlPermissoes.md` §2.
 export function grantsDoOperador(codoperador: number, codempresa?: number): Promise<{ codoperador: number; codempresa: number; grants: Array<{ form: string; opcao: string }> }> {
   const q = codempresa != null ? `?codempresa=${codempresa}` : '';
   return req(`/cadastro/permissoes/operador/${codoperador}${q}`);

@@ -401,7 +401,7 @@ empate: um gap sobre tabela morta vai para o fim.
   - Até 1.000 códigos vão ao relatório (`produtos` no schema; o serviço já filtrava). Fechar sem marcar gera sem filtro.
   - O SetDefault('RAZAO') do legado aponta para coluna que a GET_PRODUTOS da produção não tem: a Pesquisa abre no padrão.
   - Divergência: o Imprimir usa a última escolha (o legado pergunta de novo; a janela de impressão precisa abrir no clique).
-  - Fica para depois: os relatórios 22 e 46, em que o legado também pergunta.
+  - Os relatórios 22 (promoção por loja) e 46 (produtos por operador), em que o legado também pergunta, vieram depois (`e7b72dd8`, §298.33).
   - Smoke §298.29; jsdom `relVendasFiltroProdutos.spec.tsx`.
 - **Corte 2 — Produto: receita, decomposição e composição** ✅. Os três "Adicionar" abrem a Pesquisa da GET_PRODUTOS_ESTOQUE com o
   estoque e o depósito da loja (a composição também com o preço da loja e ATIVO_VENDA = 'S'), em DESCRICAO / Começado com, em
@@ -424,3 +424,22 @@ empate: um gap sobre tabela morta vai para o fim.
     - limite de venda: produtos (#73);
     - cotação: produtos e fornecedores (#38/#39; "Vários…" ao lado do avulso).
   - jsdom `codigosComPesquisa.spec.tsx`.
+- **Corte 4 — Análise de notas, "Múltiplos CFOPs" (#99)** ✅ (`4c11ef12`): só no "Por CST", pelo CFOP do item (`NP.CFOP IN …`); a caixa
+  "Múltiplos CFOPs" troca o campo único pela lista com Pesquisa. Smoke §298.34.
+- **Corte 4 — Operadores: perfis e supervisionados (#110, #111)** ✅:
+  - **Achado que mudou o acesso de todo o app:** o cliente roda em **CONTROLE_PERMISSOES = AMBOS**, não 'Usuario' como estava escrito.
+    A global diz 'Usuario', mas a específica Modulo/Retaguarda diz 'A', e o `COALESCE(CE.VALOR, C.VALOR)` do legado fica com ela.
+    Prova: a VANICE (op 50) abriu a Agenda de Promoção 1.422 vezes sem nenhuma linha própria da tela — vem do perfil COMPRADOR GERAL.
+    O Apollo fixava 'usuario' e tiraria dela a tela; agora o modo vem da config (`modoPermissao`, mig 414, smoke §77.7b). Detalhe e a
+    divergência consciente (o vínculo retirado, 'E', ainda dá acesso no legado; no Apollo não) em `uCtrlPermissoes.md` §2.
+  - As abas que a tela não tinha: "Perfil operador" (ACESSO), "Perfil de compras" (COMPRA; tabela nova, mig 415) e, só no SUPERVISOR,
+    "Operadores supervisionados". O Adicionar é a Pesquisa em multisseleção (`lookup/perfis` com ATIVO='S' e o TIPO da aba;
+    `lookup/operadores` com TIPO_SIGLA='OPE'); vai tudo no Gravar do operador.
+  - O vínculo retirado vira 'E' com INDR_USUARIO/INDR_DATA e o reposto é linha nova: o histórico do legado fica (não é o delete+insert
+    do motor de detalhe).
+  - A regra do supervisor: o campo só no tipo Operador (limpo nos outros), a escolha só entre SUPERVISORES ativos; quem deixa de ser
+    supervisor perde os supervisionados, com a confirmação do legado.
+  - Produção: 43 vínculos de acesso ativos (4 novos e 12 retirados em 2026); perfil de compra nunca usado (0 vínculos, 0
+    parceiros/produtos/famílias com perfil de compra) — o `ValidaPerfilOperador` do pedido segue inerte; supervisionados: 0.
+  - Fica de fora: o F2 que abre o cadastro de perfil por cima e a biometria.
+  - Smoke §298.35; jsdom `operadoresAbas.spec.tsx`.

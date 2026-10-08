@@ -50,7 +50,9 @@ const operadorBase = z.object({
   login: z.string().trim().min(1, 'Informe o login.').max(50, 'Login muito longo (máx. 50).'),
   tipoop: opcional(z.enum(TIPO_VALUES, { message: 'Tipo de operador inválido.' })),
   codparceiro: opcional(z.number().int()),
-  idsupervisor: opcional(z.number().int()), // sem UI no corte-1 (fluxo supervisionados = corte-2)
+  // o supervisor do próprio operador: só o OPERADOR tem (ProcessaRegrasSupervisor, uCadUsuarios.pas:745-755 — o campo só habilita
+  // no tipo OPE e é limpo nos outros); a escolha é um SUPERVISOR ativo (GET_OPERADORES, TIPO_SIGLA='SUP' AND DESABILITADO='N')
+  idsupervisor: opcional(z.number().int()),
   desabilitado: opcional(z.enum(['S', 'N'])),
   desabilita_operacoes_basicas: opcional(z.enum(['S', 'N'])),
   desabilita_desconto_pdv: opcional(z.enum(['S', 'N'])),
@@ -72,6 +74,13 @@ const operadorBase = z.object({
   codigoauxiliar: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
   ativo: opcional(z.enum(['S', 'N'])),
   bloquearsuperliberarprop: opcional(z.enum(['S', 'N'])),
+  // as abas "Perfil operador" e "Perfil de compras" (RELACAO_OPERADOR_PERFIL / _COMPRA, uCadUsuarios.pas:220-264): o Adicionar abre a
+  // Pesquisa da GET_PERFIL (ATIVO='S' e o TIPO da aba) em multisseleção; gravam no Gravar do operador. Omitir = não mexe.
+  perfis: z.array(z.object({ codperfil: z.number().int().positive(), perfil: z.string().nullish() })).optional(),
+  perfis_compra: z.array(z.object({ codperfil: z.number().int().positive(), perfil: z.string().nullish() })).optional(),
+  // a aba "Operadores supervisionados" (só do SUPERVISOR, uCadUsuarios.pas:266-300 e o DepoisGravar :557-588): os OPERADORES que ele
+  // supervisiona — o Gravar põe o IDSUPERVISOR deles. Omitir = não mexe.
+  supervisionados: z.array(z.object({ codoperador: z.number().int().positive(), nome: z.string().nullish() })).optional(),
 });
 
 export const operadorSchema = z.preprocess(stripNulls, operadorBase);

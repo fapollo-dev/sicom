@@ -22,14 +22,29 @@ Três coisas que isto fixa, e que o nosso guard já faz:
   "gate da tela", e é por isso que existem linhas como `('FRMCADPLC','FRMCADPLC')`;
 - a chave é **(form, opção, operador, EMPRESA)** — permissão é por empresa.
 
-## 2. Usuário × Perfil: é UM ou OUTRO, e o cliente usa USUÁRIO
+## 2. Usuário × Perfil: o cliente está em AMBOS (corrigido em 08/10/2026)
 
-`GetConfigControlePermissao` (`udmPrincipal.pas:2698`) lê a config **`CONTROLE_PERMISSOES`**: `'Usuario'`/`'U'`
-→ por usuário · `'Perfil'`/`'P'` → por perfil · qualquer outra coisa → ambos.
+`GetConfigControlePermissao` (`udmPrincipal.pas:2698`) lê a config **`CONTROLE_PERMISSOES`** com
+`COALESCE(CE.VALOR, C.VALOR)` — a ESPECÍFICA ganha da global: `''`/`'Usuario'`/`'U'` → por usuário ·
+`'Perfil'`/`'P'` → por perfil · qualquer outra coisa → ambos (a UNION dos dois, `:2905-2910`).
 
-Em **produção o valor é `'Usuario'`**. E os números confirmam o uso: **55.251 linhas por operador** contra 2.438
-por perfil (que nesse modo o legado nem consulta), com 42 vínculos operador×perfil ativos que hoje não têm
-efeito nenhum.
+> ⚠️ **Esta seção dizia "produção = 'Usuario'" e estava errada.** A leitura olhou só `CONFIGURACOES.VALOR`
+> ('Usuario'). A produção tem a específica `CONFIGURACOES_ESPECIFICAS` (ID 206, Modulo/Retaguarda) = **'A'**, e o
+> COALESCE do legado fica com ela: **o Retaguarda roda em AMBOS** — os grants do operador ∪ os dos perfis dele.
+
+A prova no dado vivo (08/10/2026, só leitura): a VANICE (op 50) não tem nenhuma linha própria de
+`FRMCADAGENDAPROMOCAO`, em empresa nenhuma; a tela vem do perfil COMPRADOR GERAL. E ela abriu a "Agenda de
+Promoção" **1.422 vezes** (LOG, nov/2023 a set/2026). O menu barra quem não passa no
+`PossuiAcessoForm(FormName, FormName)` (`uMenuSuperior.pas:702`) — no modo usuário ela não entraria.
+
+O peso: 55.251 linhas por operador contra 2.438 por perfil, 43 vínculos operador×perfil ativos, e o cliente
+mexe neles (4 vínculos novos e 12 retirados em 2026, o último em 06/10/2026). O Apollo fixava 'usuario'
+(`APP_PERMISSAO_MODO`) e tiraria da VANICE a Agenda na virada; agora o modo vem da config
+(`acesso.service.ts` `modoPermissao`), com o env só como override de teste.
+
+**Divergência consciente:** o `GetCodPerfilVincOperador` (`:4046`) não filtra o vínculo retirado (INDR='E') — no
+legado, tirar o perfil do operador não tira o acesso. O Apollo filtra. O maior efeito: o JOAO LUCAS (op 23)
+alcança no legado 154 telas pela DIRETORIA retirada em 2021 (ele não tem LOG desde 2025).
 
 A exclusividade é imposta na gravação (`AdicionarPermissao`, `:314-315`):
 

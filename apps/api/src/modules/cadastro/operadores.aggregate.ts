@@ -17,10 +17,9 @@ import { sql } from 'kysely';
  *
  * Regras portadas: ≥1 empresa no gravar (uCadUsuarios.pas:444 — via zod `empresas.min(1)`, opcional no update
  * parcial); **usuário-sistema PROTEGIDO** (não editar/excluir/criar/renomear) — logins 'SICOM' (literal legado
- * uCadUsuarios.pas:332/358) + 'ADMIN' (op 1 real deste tenant, Oracle). `idsupervisor` é lookup opcional
- * (0 dados reais, sem FK — auto-relação de aplicação).
- * ADIADO (corte seguinte): senha+hash+login/sessão/auth, perfis/PERMISSOES granular, biometria, MENU,
- * ENFORCEMENT das empresas (sem consumidor no retaguarda até o epic de auth).
+ * uCadUsuarios.pas:332/358) + 'ADMIN' (op 1 real deste tenant, Oracle). `idsupervisor` só no OPERADOR (sem FK — auto-relação
+ * de aplicação); as abas de perfis e de supervisionados gravam no `aposGravarTrx` (ver `gravarPerfis`/`gravarSupervisionados`).
+ * Fora daqui: a biometria (BitBtn2, leitor NBioBSP).
  */
 // Logins do usuário-SISTEMA: 'SICOM' (literal do legado, uCadUsuarios.pas:332/358) + 'ADMIN' (o real
 // deste tenant — op 1 'ACESSO DE PROGRAMADOR', Oracle). Não editar/excluir, nem criar/renomear PARA eles.
@@ -30,6 +29,66 @@ const ehProtegido = (login: unknown): boolean => LOGINS_PROTEGIDOS.includes(Stri
 async function loginProtegido(db: { selectFrom: (t: string) => any }, id: number): Promise<boolean> {
   const r = await db.selectFrom('operadores').select('login').where('codoperador', '=', id).executeTakeFirst();
   return ehProtegido(r?.login);
+}
+
+/**
+ * as abas de PERFIL do operador (uCadUsuarios.pas:220-264, :370-391; uRdmCadUsuarios.pas:230-289, :343-364): a "Perfil operador"
+ * (ACESSO → RELACAO_OPERADOR_PERFIL, que conta no acesso quando o CONTROLE_PERMISSOES é Perfil/Ambos — a produção é Ambos) e a
+ * "Perfil de compras" (COMPRA → RELACAO_OPERADOR_PERFIL_COMPRA). O legado guarda o histórico: o vínculo novo é uma linha 'I'; o
+ * retirado vira 'E' com INDR_USUARIO/INDR_DATA — nada é apagado. Por isso não é um `detalhe` do motor (que regrava delete+insert).
+ */
+const ABAS_DE_PERFIL = [
+  { chave: 'perfis', tipo: 'ACESSO', tabela: 'relacao_operador_perfil' },
+  { chave: 'perfis_compra', tipo: 'COMPRA', tabela: 'relacao_operador_perfil_compra' },
+] as const;
+
+async function gravarPerfis(trx: any, id: number, dto: Record<string, unknown>): Promise<void> {
+  const op = currentTenant().operadorId ?? null;
+  for (const aba of ABAS_DE_PERFIL) {
+    const lista = dto[aba.chave] as Array<{ codperfil: number }> | undefined;
+    if (lista === undefined) continue;
+    const quer = [...new Set(lista.map((p) => Number(p.codperfil)))];
+    const ativos = ((await trx.selectFrom(aba.tabela).select('codperfil').where('codoperador', '=', id)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E').forUpdate().execute()) as Array<{ codperfil: number }>).map((r) => Number(r.codperfil));
+    const novos = quer.filter((c) => !ativos.includes(c));
+    const saem = ativos.filter((c) => !quer.includes(c));
+    if (novos.length) {
+      // o que a Pesquisa do legado oferece: perfil ATIVO do TIPO da aba (`ExistePerfilSelecionado`, uCadUsuarios.pas:802-817)
+      const validos = new Set(((await trx.selectFrom('perfil').select('codperfil').where('codperfil', 'in', novos)
+        .where('ativo', '=', 'S').where(sql`upper(tipo)`, '=', aba.tipo).where(sql`coalesce(indr,'I')`, '<>', 'E')
+        .execute()) as Array<{ codperfil: number }>).map((r) => Number(r.codperfil)));
+      const invalido = novos.find((c) => !validos.has(c));
+      if (invalido != null) throw new BusinessRuleError('OPERADOR_PERFIL_INVALIDO', { codperfil: invalido, tipo: aba.tipo });
+      await trx.insertInto(aba.tabela).values(novos.map((codperfil) => ({ codoperador: id, codperfil, indr: 'I', dtcadastro: sql`now()` }))).execute();
+    }
+    if (saem.length) {
+      await trx.updateTable(aba.tabela).set({ indr: 'E', indr_usuario: op, indr_data: sql`now()` })
+        .where('codoperador', '=', id).where('codperfil', 'in', saem).where(sql`coalesce(indr,'I')`, '<>', 'E').execute();
+    }
+  }
+}
+
+/**
+ * a aba "Operadores supervisionados" — só do SUPERVISOR (`TbsSupervisionados.TabVisible := cbbTipo.ItemIndex = 2`, :754). O Adicionar
+ * é a Pesquisa da GET_OPERADORES com TIPO_SIGLA='OPE' (:266-300); o `DepoisGravar` (:557-588) põe o IDSUPERVISOR dos que entraram e
+ * limpa o dos que saíram, com UPDATE cru. Quem deixa de ser supervisor perde a lista (cbbTipoExit, :528-549: "O vínculo de supervisor
+ * com outros operadores será removido"). Produção 08/10/2026: nenhum operador com IDSUPERVISOR.
+ */
+async function gravarSupervisionados(trx: any, id: number, dto: Record<string, unknown>): Promise<void> {
+  const tipo = ((await trx.selectFrom('operadores').select('tipoop').where('codoperador', '=', id).executeTakeFirst()) as { tipoop?: string } | undefined)?.tipoop;
+  const atuais = ((await trx.selectFrom('operadores').select('codoperador').where('idsupervisor', '=', id).execute()) as Array<{ codoperador: number }>).map((r) => Number(r.codoperador));
+  const lista = dto.supervisionados as Array<{ codoperador: number }> | undefined;
+  const quer = tipo !== 'SUP' ? [] : lista === undefined ? atuais : [...new Set(lista.map((o) => Number(o.codoperador)))].filter((c) => c !== id);
+  const novos = quer.filter((c) => !atuais.includes(c));
+  const saem = atuais.filter((c) => !quer.includes(c));
+  if (novos.length) {
+    const validos = new Set(((await trx.selectFrom('operadores').select('codoperador').where('codoperador', 'in', novos)
+      .where('tipoop', '=', 'OPE').where(sql`coalesce(indr,'I')`, '<>', 'E').execute()) as Array<{ codoperador: number }>).map((r) => Number(r.codoperador)));
+    const invalido = novos.find((c) => !validos.has(c));
+    if (invalido != null) throw new BusinessRuleError('OPERADOR_SUPERVISIONADO_INVALIDO', { codoperador: invalido });
+    await sql`UPDATE operadores SET idsupervisor = ${id} WHERE codoperador IN (${sql.join(novos)})`.execute(trx);
+  }
+  if (saem.length) await sql`UPDATE operadores SET idsupervisor = NULL WHERE codoperador IN (${sql.join(saem)})`.execute(trx);
 }
 
 export const operadoresAggregateConfig: AggregateConfig = {
@@ -87,7 +146,10 @@ export const operadoresAggregateConfig: AggregateConfig = {
   derivar: (dto) => {
     const t = dto.tipoop as string | undefined;
     const g = t ? TIPOOP_IDGRUPO[t] : undefined;
-    return g != null ? { idgrupo: g } : {};
+    const out: Record<string, unknown> = g != null ? { idgrupo: g } : {};
+    // o supervisor é do OPERADOR: nos outros tipos o campo fica desabilitado e é limpo (ProcessaRegrasSupervisor, :745-755)
+    if (t && t !== 'OPE') out.idsupervisor = null;
+    return out;
   },
   // trava do usuário-sistema: (a) não CRIAR/RENOMEAR para um login protegido (checa dto.login) e
   // (b) não EDITAR um operador de sistema existente (checa o login gravado pela PK, no update).
@@ -104,14 +166,39 @@ export const operadoresAggregateConfig: AggregateConfig = {
       exigirOpcao(await opcoesConcedidas(db, 'FRMCADUSUARIOS'), 'FRMCADUSUARIOS', 'EDTSENHARETAGUARDA', 'definir a senha do retaguarda');
     }
     if (id != null && (await loginProtegido(db, id))) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });
+    // o supervisor escolhido: a Pesquisa do legado só oferece SUPERVISOR não desabilitado (uCadUsuarios.pas:497-501). Só confere quando
+    // muda — o que já está gravado não trava o Gravar se o supervisor for desabilitado depois.
+    const sup = dto.idsupervisor == null ? null : Number(dto.idsupervisor);
+    if (sup != null && (dto.tipoop === undefined || dto.tipoop === 'OPE')) {
+      const atual = id == null ? null : ((await db.selectFrom('operadores').select('idsupervisor').where('codoperador', '=', id).executeTakeFirst()) as { idsupervisor?: number | null } | undefined)?.idsupervisor;
+      if (atual == null || Number(atual) !== sup) {
+        const ok = await db.selectFrom('operadores').select('codoperador').where('codoperador', '=', sup).where('tipoop', '=', 'SUP')
+          .where(sql`coalesce(desabilitado,'N')`, '=', 'N').where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst();
+        if (!ok) throw new BusinessRuleError('OPERADOR_SUPERVISOR_INVALIDO', { idsupervisor: sup });
+      }
+    }
   },
   // a senha do cadastro vai ao hash forte (a cifra reversível do legado — SENHA/LOGIN_SENHA — não é gravada, como no cutover
   // das senhas) e o operador troca no primeiro acesso (SOLICITAR_ALTERACAO_SENHA)
   aposGravarTrx: async ({ trx, id, dto }) => {
+    await gravarPerfis(trx, id, dto);
+    await gravarSupervisionados(trx, id, dto);
     const senha = String(dto.senha ?? '');
     if (!senha) return;
     await sql`UPDATE operadores SET senha_hash = ${hashSenha(senha)}, solicitar_alteracao_senha = 'S', tentativas_login = 0, bloqueado_ate = NULL
                WHERE codoperador = ${id}`.execute(trx);
+  },
+  // a leitura traz as abas: os perfis ativos de cada tipo (as queries do uRdmCadUsuarios.dfm:390-409, :596-619) e os supervisionados
+  // (QrySupervisionados, :544-550)
+  anexarLeitura: async ({ db, id, registro }) => {
+    const out: Record<string, unknown> = { ...registro };
+    for (const aba of ABAS_DE_PERFIL) {
+      out[aba.chave] = await db.selectFrom(`${aba.tabela} as r`).leftJoin('perfil as p', 'p.codperfil', 'r.codperfil')
+        .select(['r.codperfil', 'p.perfil']).where('r.codoperador', '=', id).where(sql`coalesce(r.indr,'I')`, '<>', 'E')
+        .orderBy('r.dtcadastro').orderBy('r.codperfil').execute();
+    }
+    out.supervisionados = await db.selectFrom('operadores').select(['codoperador', 'nome']).where('idsupervisor', '=', id).orderBy('codoperador').execute();
+    return out;
   },
   validarRemocao: async ({ id, db }) => {
     if (await loginProtegido(db, id)) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });

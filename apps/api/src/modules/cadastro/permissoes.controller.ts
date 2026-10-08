@@ -12,7 +12,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
  * PERMISSÕES (`FRMCTRLPERMISSOES`) — matriz de grants FORM×OPCAO, por PERFIL e por OPERADOR. Base
  * `cadastro/permissoes`. RBAC **FRMCTRLPERMISSOES** — o formulário que o cliente realmente concede (16
  * operadores, 968 acessos): o `FRMCADPERFILOPERADOR/BTNPERMISSOES` que pedíamos antes não existe lá.
- * O caminho por OPERADOR é o que o cliente usa (`CONTROLE_PERMISSOES='Usuario'`) — ver dossiê uCtrlPermissoes.md.
+ * O cliente concede sobretudo por OPERADOR, e o modo é AMBOS (operador ∪ perfis) — ver dossiê uCtrlPermissoes.md §2.
  */
 @Controller('cadastro/permissoes')
 @UseGuards(AcessoGuard)
