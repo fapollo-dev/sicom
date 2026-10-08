@@ -53,35 +53,51 @@ export class PermissoesService {
       .execute();
   }
 
-  /** os grants (form×opção) concedidos a um perfil na empresa corrente. */
-  async listarPorPerfil(codperfil: number): Promise<{ codperfil: number; grants: Array<Record<string, unknown>> }> {
+  /**
+   * o perfil da aba Perfil (o SegPerfil do uCtrlPermissoes.dfm: CODPERFIL, INDR = 'I', TIPO = 'ACESSO', ATIVO = 'S'; a Pesquisa da aba,
+   * spdBuscaPerfilClick :1447, filtra igual) — "Informe um perfil válido." (EdtCodPerfilExit :649). Só o perfil de acesso tem
+   * permissão: na produção, 2.346 linhas em 7 perfis, todos ACESSO; o de compra e o de parceiro não passam por esta tela.
+   */
+  private async assertPerfilDeAcesso(db: AnyDB, codperfil: number): Promise<void> {
+    const p = (await db.selectFrom('perfil').select(['tipo', 'ativo']).where('codperfil', '=', codperfil)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst()) as { tipo?: string | null; ativo?: string | null } | undefined;
+    if (!p) throw new BusinessRuleError('PERFIL_NAO_ENCONTRADO', { codperfil });
+    if (String(p.tipo ?? '').toUpperCase() !== 'ACESSO' || String(p.ativo ?? 'S').toUpperCase() !== 'S') throw new BusinessRuleError('PERFIL_INVALIDO', { codperfil });
+  }
+
+  /** os grants (form×opção) de um perfil de acesso numa empresa (o cbbEmpresaPerfil; ausente = a da sessão). */
+  async listarPorPerfil(codperfil: number, codempresa?: number): Promise<{ codperfil: number; codempresa: number; grants: Array<Record<string, unknown>> }> {
     const db = this.dbp.forTenantRead() as AnyDB;
-    const perf = await db.selectFrom('perfil').select('codperfil').where('codperfil', '=', codperfil).where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst();
-    if (!perf) throw new BusinessRuleError('PERFIL_NAO_ENCONTRADO', { codperfil });
+    await this.assertPerfilDeAcesso(db, codperfil);
+    const emp = this.empDe(codempresa);
     const grants = await db
       .selectFrom('permissoes')
       .select(['form', 'opcao'])
       .where('codperfil', '=', codperfil)
-      .where('codempresa', '=', this.emp())
+      .where('codempresa', '=', emp)
       .execute();
-    return { codperfil, grants };
+    return { codperfil, codempresa: emp, grants };
   }
 
-  /** concede/revoga um grant FORM×OPCAO a um perfil na empresa corrente (presença = concedido, fiel ao legado). */
-  async setGrant(codperfil: number, form: string, opcao: string, concedido: boolean): Promise<{ codperfil: number; form: string; opcao: string; concedido: boolean }> {
-    const emp = this.emp();
+  /**
+   * concede/revoga um grant FORM×OPCAO a um perfil de acesso numa empresa (presença = concedido, fiel ao legado). Grava CAPTION/FORM_CAPTION
+   * como o AdicionarPermissao (:331-332), que é o mesmo para operador e perfil.
+   */
+  async setGrant(codperfil: number, form: string, opcao: string, concedido: boolean, codempresa?: number): Promise<{ codperfil: number; codempresa: number; form: string; opcao: string; concedido: boolean }> {
+    const emp = this.empDe(codempresa);
     const ator = currentTenant().operadorId ?? null;
     const f = form.trim().toUpperCase();
     const o = opcao.trim().toUpperCase();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const perf = await trx.selectFrom('perfil').select('codperfil').where('codperfil', '=', codperfil).where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst();
-      if (!perf) throw new BusinessRuleError('PERFIL_NAO_ENCONTRADO', { codperfil });
+      await this.assertPerfilDeAcesso(trx, codperfil);
       // idempotente: apaga qualquer duplicata do par (perfil, form, opcao, empresa) antes de (re)inserir.
       // numDeletedRows>0 ⇒ o grant EXISTIA (p/ auditar só a mudança real, sem query extra).
       const del = await trx.deleteFrom('permissoes').where('codperfil', '=', codperfil).where(sql`upper(form)`, '=', f).where(sql`upper(opcao)`, '=', o).where('codempresa', '=', emp).executeTakeFirst();
       const existia = Number((del as any)?.numDeletedRows ?? 0) > 0;
       if (concedido) {
-        await trx.insertInto('permissoes').values({ form: f, opcao: o, codperfil, codempresa: emp }).execute();
+        const { caption, form_caption } = await this.rotulos(trx, f, o);
+        // codoperador FICA NULO: operador OU perfil, nunca os dois (:314-315)
+        await trx.insertInto('permissoes').values({ form: f, opcao: o, codperfil, codempresa: emp, caption, form_caption }).execute();
       }
       // TRILHA (AUDIT_PERMISSOES): registra só quando o estado MUDA (concede o ausente / revoga o presente),
       // na MESMA transação. TIPO fiel ao legado: 'INSERT'=concede, 'DELETE'=revoga; ATOR = operador da sessão.
@@ -94,7 +110,7 @@ export class PermissoesService {
         await this.logPermissao(trx, concedido ? 'Inseriu' : 'Excluiu', { codperfil }, emp, (quem, paraO) =>
           `${quem} ${concedido ? 'liberou' : 'removeu'} a permissão ${r.form_caption ?? f} da tela ${r.caption ?? o} para o  ${paraO}.`);
       }
-      return { codperfil, form: f, opcao: o, concedido };
+      return { codperfil, codempresa: emp, form: f, opcao: o, concedido };
     });
   }
 
@@ -207,6 +223,7 @@ export class PermissoesService {
     const alvo = porOperador ? Number(dto.codoperador) : Number(dto.codperfil);
     const db = this.dbp.forTenantRead() as AnyDB;
     if (porOperador) await this.assertOperador(db, alvo);
+    else await this.assertPerfilDeAcesso(db, alvo);
 
     const segmento = ((await db.selectFrom('empresas').select('segmento').where('idempresa', '=', emp).executeTakeFirst()) as { segmento?: string } | undefined)?.segmento ?? null;
     const industrial = String(segmento ?? '').toUpperCase() === 'INDUSTRIA';
@@ -276,6 +293,11 @@ export class PermissoesService {
       if (dto.tipo === 'USUARIO') {
         await this.assertOperador(trx, dto.de);
         await this.assertOperador(trx, dto.para);
+      } else {
+        // a origem vem da GET_PERFIL sem filtro (btnCloneClick :382); o destino é o perfil da aba (de acesso, ativo)
+        const de = await trx.selectFrom('perfil').select('codperfil').where('codperfil', '=', dto.de).where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst();
+        if (!de) throw new BusinessRuleError('PERFIL_NAO_ENCONTRADO', { codperfil: dto.de });
+        await this.assertPerfilDeAcesso(trx, dto.para);
       }
       const del = await trx.deleteFrom('permissoes').where(col, '=', dto.para).where('codempresa', '=', dto.para_empresa).executeTakeFirst();
       const apagados = Number((del as any)?.numDeletedRows ?? 0);

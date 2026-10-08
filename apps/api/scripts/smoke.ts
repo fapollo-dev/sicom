@@ -10223,7 +10223,7 @@ async function main() {
     const pgPf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     try {
       // 77.1) criar perfil → 201; view get_perfil traz qtde_operadores 0.
-      const pf1 = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'GERENTE LOJA', ativo: 'S' }) });
+      const pf1 = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'GERENTE LOJA', ativo: 'S', tipo: 'ACESSO' }) });
       const pf1J = (await pf1.json().catch(() => ({}))) as any;
       const codperfil = Number(pf1J.codperfil ?? pf1J.codigo);
       const pfRow = ((await (await fetch(`${base}/cadastro/perfil?campo=codperfil&operador=igual&valor=${codperfil}`, { headers: H })).json().catch(() => [])) as any[])[0];
@@ -10260,6 +10260,45 @@ async function main() {
       const temGrant = (grants.grants ?? []).some((g: any) => g.form === 'FRMLIBERACOES' && g.opcao === 'BTNCONSULTAR');
       check('PERFIL §77.5: catálogo não-vazio + conceder grant ao perfil (FRMLIBERACOES/BTNCONSULTAR) → gravado',
         Array.isArray(cat) && cat.length > 0 && gOn.status === 200 && temGrant, { cat: cat.length, grant: temGrant });
+
+      // 77.5a) a ABA PERFIL do controle de permissões (cxTbsPerfil): só o perfil de ACESSO ativo (o SegPerfil: INDR 'I', TIPO 'ACESSO',
+      // ATIVO 'S' — "Informe um perfil válido."); na produção os 2.346 grants por perfil estão todos em perfis de acesso. A empresa é a
+      // do seletor da aba (cbbEmpresaPerfil) e o grant leva o rótulo, como o do operador
+      {
+        const novo = async (perfil: string, tipo: string, ativo: string) => {
+          const r = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H, body: JSON.stringify({ perfil, tipo, ativo }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          return Number(j.codperfil ?? j.codigo);
+        };
+        const pCompra = await novo('SMOKE COMPRA', 'COMPRA', 'S');
+        const pInativo = await novo('SMOKE INATIVO', 'ACESSO', 'N');
+        const put = async (body: Record<string, unknown>, rota = '') => {
+          const r = await fetch(`${base}/cadastro/permissoes${rota}`, { method: 'PUT', headers: H, body: JSON.stringify(body) });
+          return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
+        };
+        const gCompra = await put({ codperfil: pCompra, form: 'FRMLIBERACOES', opcao: 'BTNIMPRIMIR', concedido: true });
+        const gInativo = await put({ codperfil: pInativo, form: 'FRMLIBERACOES', opcao: 'BTNIMPRIMIR', concedido: true });
+        const lCompra = await fetch(`${base}/cadastro/permissoes/perfil/${pCompra}`, { headers: H });
+        const loteCompra = await put({ codperfil: pCompra, form: 'FRMLIBERACOES', concedido: true }, '/lote');
+        const cloneCompra = await fetch(`${base}/cadastro/permissoes/clonar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'PERFIL', de: codperfil, de_empresa: 1, para: pCompra, para_empresa: 1 }) });
+        const cloneCompraJ = (await cloneCompra.json().catch(() => ({}))) as any;
+        await pgPf.query(`UPDATE permissoes SET caption='Imprimir', form_caption='LIBERACOES' WHERE form='FRMLIBERACOES' AND opcao='BTNIMPRIMIR' AND codoperador IS NOT NULL`);
+        const tinhaRotulo = Number((await pgPf.query(`SELECT count(*)::int n FROM permissoes WHERE form='FRMLIBERACOES' AND opcao='BTNIMPRIMIR' AND caption IS NOT NULL`)).rows[0].n) > 0;
+        if (!tinhaRotulo) await pgPf.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa, caption, form_caption) VALUES ('FRMLIBERACOES','BTNIMPRIMIR',8,2,'Imprimir','LIBERACOES')`);
+        const gEmp2 = await put({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNIMPRIMIR', concedido: true, codempresa: 2 });
+        const naEmp2 = ((await (await fetch(`${base}/cadastro/permissoes/perfil/${codperfil}?codempresa=2`, { headers: H })).json().catch(() => ({}))) as any).grants ?? [];
+        const naEmp1 = ((await (await fetch(`${base}/cadastro/permissoes/perfil/${codperfil}`, { headers: H })).json().catch(() => ({}))) as any).grants ?? [];
+        const linha = (await pgPf.query(`SELECT codempresa, codoperador, caption, form_caption FROM permissoes WHERE codperfil=$1 AND form='FRMLIBERACOES' AND opcao='BTNIMPRIMIR'`, [codperfil])).rows as any[];
+        await put({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNIMPRIMIR', concedido: false, codempresa: 2 });
+        if (!tinhaRotulo) await pgPf.query(`DELETE FROM permissoes WHERE form='FRMLIBERACOES' AND opcao='BTNIMPRIMIR' AND codoperador=8 AND codempresa=2`);
+        for (const c of [pCompra, pInativo]) await fetch(`${base}/cadastro/perfil/${c}`, { method: 'DELETE', headers: H });
+        check('PERMISSÕES §77.5a [a aba Perfil do controle de permissões]: o perfil de COMPRA e o de acesso INATIVO são recusados com "Informe um perfil válido." (422 PERFIL_INVALIDO) — conceder, consultar, marcar todos e ser destino de cópia; o de acesso ativo recebe o grant na empresa do seletor (2), com o rótulo e sem operador, e a consulta por empresa separa a 2 da 1',
+          gCompra.status === 422 && gCompra.code === 'PERFIL_INVALIDO' && gInativo.status === 422 && gInativo.code === 'PERFIL_INVALIDO'
+          && lCompra.status === 422 && loteCompra.status === 422 && loteCompra.code === 'PERFIL_INVALIDO' && cloneCompra.status === 422 && cloneCompraJ.code === 'PERFIL_INVALIDO'
+          && gEmp2.status === 200 && naEmp2.some((g: any) => g.opcao === 'BTNIMPRIMIR') && !naEmp1.some((g: any) => g.opcao === 'BTNIMPRIMIR')
+          && linha.length === 1 && Number(linha[0].codempresa) === 2 && linha[0].codoperador == null && linha[0].caption === 'Imprimir' && linha[0].form_caption === 'LIBERACOES',
+          { gCompra, gInativo, lCompra: lCompra.status, loteCompra, clone: [cloneCompra.status, cloneCompraJ.code], gEmp2, naEmp2, naEmp1, linha });
+      }
 
       // 77.5b-e) CORTE-3 — o caminho por OPERADOR, o mais usado pelo cliente (55.251 linhas por operador contra 2.438 por
       // perfil; o modo é AMBOS — §77.7b). Sem isto o administrador não dá nem tira acesso de

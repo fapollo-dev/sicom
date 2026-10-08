@@ -35,6 +35,8 @@ export const permissaoGrantSchema = z.object({
   form: z.string().trim().min(1, 'Informe a tela (form).').max(60),
   opcao: z.string().trim().min(1, 'Informe a opção.').max(60),
   concedido: z.boolean(),
+  /** empresa do grant (o cbbEmpresaPerfil da aba Perfil); ausente = a da sessão. */
+  codempresa: z.coerce.number().int().positive().optional(),
 });
 export type PermissaoGrantDto = z.infer<typeof permissaoGrantSchema>;
 

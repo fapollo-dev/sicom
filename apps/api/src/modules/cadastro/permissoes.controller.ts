@@ -27,8 +27,8 @@ export class PermissoesController {
 
   @Get('perfil/:codperfil')
   @RequerAcesso('FRMCTRLPERMISSOES', 'FRMCTRLPERMISSOES')
-  listarPorPerfil(@Param('codperfil', ParseIntPipe) codperfil: number) {
-    return this.svc.listarPorPerfil(codperfil);
+  listarPorPerfil(@Param('codperfil', ParseIntPipe) codperfil: number, @Query('codempresa') codempresa?: string) {
+    return this.svc.listarPorPerfil(codperfil, codempresa ? Number(codempresa) : undefined);
   }
 
   /** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant; filtro opcional por perfil. */
@@ -44,7 +44,7 @@ export class PermissoesController {
   @HttpCode(200)
   @RequerAcesso('FRMCTRLPERMISSOES', 'FRMCTRLPERMISSOES')
   setGrant(@Body(new ZodValidationPipe(permissaoGrantSchema)) dto: PermissaoGrantDto) {
-    return this.svc.setGrant(dto.codperfil, dto.form, dto.opcao, dto.concedido);
+    return this.svc.setGrant(dto.codperfil, dto.form, dto.opcao, dto.concedido, dto.codempresa);
   }
 
   /** os grants de um OPERADOR (empresa opcional; ausente = a da sessão, como o seletor da tela do legado). */

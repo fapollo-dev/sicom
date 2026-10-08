@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { RegistrosLogModal } from '../../shared/log/RegistrosLogModal';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Modal } from '../../shared/ui/Modal';
@@ -8,23 +9,24 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
+import { Tabs } from '../../shared/ui/Tabs';
 import {
   catalogoPermissoes, grantsDoOperador, setGrantOperador, setLotePermissoes, clonarPermissoes,
-  auditoriaDoOperador, type AuditoriaPermissao,
+  auditoriaDoOperador, grantsDoPerfil, setGrantPerfil, auditoriaPermissoes, type AuditoriaPermissao,
 } from './perfilApi';
 
 /**
- * CONTROLE DE PERMISSÕES (`FRMCTRLPERMISSOES`) — a tela do administrador, por **OPERADOR**.
- *
- * É o modo que o cliente usa: a config `CONTROLE_PERMISSOES` vale `'Usuario'` em produção, com 55.251 linhas
- * por operador contra 2.438 por perfil (que nesse modo o legado nem consulta). A tela de *Perfis & Permissões*
- * continua existindo para o caminho por perfil; esta é a que resolve acesso no dia a dia.
+ * CONTROLE DE PERMISSÕES (`FRMCTRLPERMISSOES`) — a tela do administrador, por **USUÁRIO** ou por **PERFIL** (as abas cxTbsUsuario e
+ * cxTbsPerfil do legado). O modo da produção é AMBOS (operador ∪ perfis): 55.251 linhas por operador e 2.346 por perfil.
  *
  * O que veio do legado, e de onde (dossiê `uCtrlPermissoes.md`):
- *  · a permissão é por **(tela, opção, operador, EMPRESA)** — daí o seletor de empresa (`cbbEmpresaChange`);
+ *  · a permissão é por **(tela, opção, operador OU perfil, EMPRESA)** — daí o seletor de empresa (`cbbEmpresaChange`);
  *  · **marcar/desmarcar todos**, por tela e no geral (`btnMarcarTodosOpcoesClick` · `btnMarcarTodosFormClick`);
- *  · **clonar** de um operador para outro, inclusive entre empresas (`btnCopiarParaClick` →
- *    `SP_REPLICA_PERMISSAO`) — e é **destrutivo**: o destino é apagado antes, por isso a confirmação.
+ *  · **clonar** para o usuário/perfil da aba, inclusive entre empresas (`btnCopiarParaClick` → `SP_REPLICA_PERMISSAO`) — e é
+ *    **destrutivo**: o destino é apagado antes, por isso a confirmação;
+ *  · a aba Perfil só aceita o perfil de ACESSO ativo (o SegPerfil e a Pesquisa da aba: ATIVO = 'S' AND TIPO = 'ACESSO'); a origem da
+ *    cópia é qualquer perfil (a GET_PERFIL sem filtro). O "Registro de log" é só do usuário ("Informe o usuário.");
+ *  · aberta pelo F4 da tela de perfis (`AbreTelaComCodigo`/`AbreTelaTipoCodigo = tpPerfil`): `?perfil=N` abre a aba Perfil com ele.
  */
 const chave = (form: string, opcao: string) => `${form} ${opcao}`;
 
@@ -32,8 +34,12 @@ type Acao = { form: string; opcao: string; caption?: string | null; form_caption
 
 export function CtrlPermissoesPage() {
   const mensagem = useMensagem();
+  const [params] = useSearchParams();
+  const perfilInicial = Number(params.get('perfil') ?? 0) || undefined;
+  // a aba (TbsUsuarioEnter): trocar limpa o código e a empresa da outra
+  const [tipo, setTipo] = useState<'USUARIO' | 'PERFIL'>(perfilInicial ? 'PERFIL' : 'USUARIO');
   const [catalogo, setCatalogo] = useState<Acao[]>([]);
-  const [operador, setOperador] = useState<number | undefined>();
+  const [operador, setOperador] = useState<number | undefined>(perfilInicial);
   const [empresa, setEmpresa] = useState<number | undefined>();
   const [concedidos, setConcedidos] = useState<Set<string>>(new Set());
   const [filtroForm, setFiltroForm] = useState<string>('');
@@ -53,25 +59,36 @@ export function CtrlPermissoesPage() {
 
   useEffect(() => void catalogoPermissoes().then(setCatalogo).catch(() => setCatalogo([])), []);
 
+  const porPerfil = tipo === 'PERFIL';
   const recarregar = useCallback(async (cod: number, emp?: number) => {
     try {
-      const g = await grantsDoOperador(cod, emp);
+      const g = porPerfil ? await grantsDoPerfil(cod, emp) : await grantsDoOperador(cod, emp);
       setConcedidos(new Set(g.grants.map((x) => chave(x.form, x.opcao))));
-      void auditoriaDoOperador(cod).then(setTrilha).catch(() => setTrilha([]));
+      void (porPerfil ? auditoriaPermissoes(cod) : auditoriaDoOperador(cod)).then(setTrilha).catch(() => setTrilha([]));
     } catch (e) {
+      // "Informe um perfil válido." — o código não fica
+      setConcedidos(new Set());
+      setTrilha([]);
       mensagem.erro(e);
     }
-  }, [mensagem]);
+  }, [mensagem, porPerfil]);
 
   useEffect(() => { if (operador != null) void recarregar(operador, empresa); }, [operador, empresa, recarregar]);
+  const trocarAba = (t: string) => {
+    if (t === tipo) return;
+    setTipo(t as 'USUARIO' | 'PERFIL');
+    setOperador(undefined); setEmpresa(undefined); setConcedidos(new Set()); setTrilha([]); setClonando(false);
+  };
+  const quem = porPerfil ? 'perfil' : 'operador';
 
   const toggle = async (a: Acao) => {
-    if (operador == null) { mensagem.erro('Selecione o operador.'); return; }
+    if (operador == null) { mensagem.erro(`Selecione o ${quem}.`); return; }
     const k = chave(a.form, a.opcao);
     const concedido = !concedidos.has(k);
     setConcedidos((s) => { const n = new Set(s); if (concedido) n.add(k); else n.delete(k); return n; }); // otimista
     try {
-      await setGrantOperador({ codoperador: operador, form: a.form, opcao: a.opcao, concedido, codempresa: empresa });
+      if (porPerfil) await setGrantPerfil(operador, a.form, a.opcao, concedido, empresa);
+      else await setGrantOperador({ codoperador: operador, form: a.form, opcao: a.opcao, concedido, codempresa: empresa });
       void recarregar(operador, empresa);
     } catch (e) {
       mensagem.erro(e);
@@ -80,11 +97,11 @@ export function CtrlPermissoesPage() {
   };
 
   const lote = async (concedido: boolean, form?: string) => {
-    if (operador == null) { mensagem.erro('Selecione o operador.'); return; }
-    if (!form && concedido && !window.confirm('Conceder TODAS as ações do catálogo a este operador?')) return;
+    if (operador == null) { mensagem.erro(`Selecione o ${quem}.`); return; }
+    if (!form && concedido && !window.confirm(`Conceder TODAS as ações do catálogo a este ${quem}?`)) return;
     setOcupado(true);
     try {
-      const r = await setLotePermissoes({ codoperador: operador, form, concedido, codempresa: empresa });
+      const r = await setLotePermissoes({ ...(porPerfil ? { codperfil: operador } : { codoperador: operador }), form, concedido, codempresa: empresa });
       // o legado não concede as telas de INDÚSTRIA a empresa que não é industrial (uCtrlPermissoes.pas:478)
       mensagem.sucesso(`${r.alterados} alteração(ões).${r.ignorados_industria ? ` ${r.ignorados_industria} tela(s) de indústria fora (a empresa não é industrial).` : ''}`);
       await recarregar(operador, empresa);
@@ -98,10 +115,10 @@ export function CtrlPermissoesPage() {
   const confirmarClone = async () => {
     const { de, de_empresa, para, para_empresa } = clone;
     if (de == null || para == null || de_empresa == null || para_empresa == null) { mensagem.erro('Informe origem, destino e as empresas.'); return; }
-    if (!window.confirm('As permissões atuais do operador de DESTINO serão APAGADAS e substituídas pelas da origem. Confirma?')) return;
+    if (!window.confirm(`As permissões atuais do ${quem} de DESTINO serão APAGADAS e substituídas pelas da origem. Confirma?`)) return;
     setOcupado(true);
     try {
-      const r = await clonarPermissoes({ tipo: 'USUARIO', de, de_empresa, para, para_empresa });
+      const r = await clonarPermissoes({ tipo, de, de_empresa, para, para_empresa });
       mensagem.sucesso(`${r.copiados} permissão(ões) copiada(s); ${r.apagados} do destino foram apagadas.`);
       setClonando(false);
       if (operador === para) await recarregar(operador, empresa);
@@ -134,17 +151,25 @@ export function CtrlPermissoesPage() {
       ],
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [concedidos, operador, empresa]);
+  ], [concedidos, operador, empresa, tipo]);
 
   return (
     <div className="flex flex-col gap-gp-md">
       <PageHeader title="Controle de permissões" />
+      <Tabs active={tipo} onChange={trocarAba} tabs={[{ id: 'USUARIO', label: 'Usuário' }, { id: 'PERFIL', label: 'Perfil' }]} />
 
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-          {/* os operadores da loja do login (CODIGO_EMPRESA = empresa — uCtrlPermissoes.pas:1464-1466; o "Copiar de" idem, :380-384) */}
-          <LookupField label="&Operador" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
-            value={operador} onChange={(cod) => setOperador(cod ? Number(cod) : undefined)} />
+          {porPerfil ? (
+            // spdBuscaPerfilClick (:1447): a GET_PERFIL com ATIVO = 'S' AND TIPO = 'ACESSO'; o código de outro tipo o servidor recusa
+            <LookupField key="perfil" label="&Perfil" recurso="lookup/perfis" campoCodigo="codigo" descricao="perfil" fixos={{ ativo: 'S', tipo: 'ACESSO' }}
+              statusTela={{ pai: 'frmCtrlPermissoes', retorno: 'EdtCodPerfil' }}
+              value={operador} onChange={(cod) => setOperador(cod ? Number(cod) : undefined)} />
+          ) : (
+            // os operadores da loja do login (CODIGO_EMPRESA = empresa — uCtrlPermissoes.pas:1464-1466; o "Copiar de" idem, :380-384)
+            <LookupField key="usuario" label="&Operador" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+              value={operador} onChange={(cod) => setOperador(cod ? Number(cod) : undefined)} />
+          )}
           <SelectField label="Empresa" options={empresaOptions} value={empresa != null ? String(empresa) : undefined}
             onChange={(v) => setEmpresa(v ? Number(v) : undefined)} placeholder="Empresa da sessão" />
           <SelectField label="&Tela" options={[{ value: '', label: 'Todas as telas' }, ...forms.map((f) => ({ value: f, label: f }))]}
@@ -153,11 +178,12 @@ export function CtrlPermissoesPage() {
         <div className="mt-form-gap flex flex-wrap gap-gp-sm">
           <Button label={filtroForm ? 'Marcar tudo desta tela' : 'Marcar &tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(true, filtroForm || undefined)} />
           <Button label={filtroForm ? 'Desmarcar tudo desta tela' : '&Desmarcar tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(false, filtroForm || undefined)} />
-          <Button label="&Copiar de outro operador…" variant="soft" disabled={ocupado} onClick={() => { setClone({ para: operador, de_empresa: empresa, para_empresa: empresa }); setClonando(true); }} />
+          <Button label={porPerfil ? '&Copiar de outro perfil…' : '&Copiar de outro operador…'} variant="soft" disabled={ocupado || (porPerfil && operador == null)}
+            onClick={() => { setClone({ para: operador, de_empresa: empresa, para_empresa: empresa }); setClonando(true); }} />
           {/* BtnLogClick (uCtrlPermissoes.pas:460): exige o usuário; mostra a coluna Empresa — quem liberou/removeu o quê */}
-          <Button label="Registro de &log" variant="soft" disabled={operador == null} onClick={() => setLogAberto(true)} />
+          {!porPerfil && <Button label="Registro de &log" variant="soft" disabled={operador == null} onClick={() => setLogAberto(true)} />}
         </div>
-        {operador == null && <p className="mt-form-gap text-body-sm text-fg-muted">Selecione um operador para ver e editar as permissões. Sem permissão registrada, a ação é negada — é assim no legado também.</p>}
+        {operador == null && <p className="mt-form-gap text-body-sm text-fg-muted">Selecione um {quem} para ver e editar as permissões. Sem permissão registrada, a ação é negada — é assim no legado também.</p>}
       </section>
 
       {operador != null && (
@@ -191,28 +217,40 @@ export function CtrlPermissoesPage() {
       )}
 
       {clonando && (
-        <Modal open onClose={() => setClonando(false)} size="md" title="Copiar permissões de outro operador"
+        <Modal open onClose={() => setClonando(false)} size="md" title={porPerfil ? 'Copiar permissões de outro perfil' : 'Copiar permissões de outro operador'}
           primaryAction={{ label: 'Copiar', onClick: () => void confirmarClone() }}
           secondaryAction={{ label: 'Cancelar', onClick: () => setClonando(false) }}>
           <div className="flex flex-col gap-form-gap">
             <p className="text-body-sm text-fg-danger">
-              Atenção: as permissões atuais do operador de destino são <strong>apagadas</strong> e substituídas
+              Atenção: as permissões atuais do {quem} de destino são <strong>apagadas</strong> e substituídas
               pelas da origem. É cópia, não soma — mesmo comportamento do sistema antigo.
             </p>
             <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-              <LookupField label="Copiar &de" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
-                value={clone.de} onChange={(cod) => setClone((c) => ({ ...c, de: cod ? Number(cod) : undefined }))} />
+              {porPerfil ? (
+                // btnCloneClick (:382): a GET_PERFIL sem filtro
+                <LookupField label="Copiar &de" recurso="lookup/perfis" campoCodigo="codigo" descricao="perfil"
+                  value={clone.de} onChange={(cod) => setClone((c) => ({ ...c, de: cod ? Number(cod) : undefined }))} />
+              ) : (
+                <LookupField label="Copiar &de" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+                  value={clone.de} onChange={(cod) => setClone((c) => ({ ...c, de: cod ? Number(cod) : undefined }))} />
+              )}
               <SelectField label="Empresa de origem" options={empresaOptions} value={clone.de_empresa != null ? String(clone.de_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, de_empresa: v ? Number(v) : undefined }))} />
-              <LookupField label="Para" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
-                value={clone.para} onChange={(cod) => setClone((c) => ({ ...c, para: cod ? Number(cod) : undefined }))} />
+              {porPerfil ? (
+                // o destino é o perfil da aba (FEditCodigo)
+                <LookupField label="Para" recurso="lookup/perfis" campoCodigo="codigo" descricao="perfil" fixos={{ ativo: 'S', tipo: 'ACESSO' }} disabled
+                  value={clone.para} onChange={() => undefined} />
+              ) : (
+                <LookupField label="Para" recurso="lookup/operadores-da-loja" campoCodigo="codoperador" descricao={descOperador}
+                  value={clone.para} onChange={(cod) => setClone((c) => ({ ...c, para: cod ? Number(cod) : undefined }))} />
+              )}
               <SelectField label="Empresa de destino" options={empresaOptions} value={clone.para_empresa != null ? String(clone.para_empresa) : undefined}
                 onChange={(v) => setClone((c) => ({ ...c, para_empresa: v ? Number(v) : undefined }))} />
             </div>
           </div>
         </Modal>
       )}
-    {logAberto && operador != null && (
+    {logAberto && operador != null && !porPerfil && (
         <RegistrosLogModal log={{ form: 'FRMCTRLPERMISSOES', chave: 'CODOPERADOR', exibirEmpresa: true }} valor={operador} onFechar={() => setLogAberto(false)} />
       )}
     </div>

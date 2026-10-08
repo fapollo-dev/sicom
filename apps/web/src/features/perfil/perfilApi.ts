@@ -51,11 +51,12 @@ export function gravarOperadoresDoPerfil(codperfil: number, operadores: number[]
 export function catalogoPermissoes(): Promise<Array<{ form: string; opcao: string; caption?: string | null; form_caption?: string | null }>> {
   return req('/cadastro/permissoes/catalogo');
 }
-export function grantsDoPerfil(codperfil: number): Promise<{ codperfil: number; grants: Array<{ form: string; opcao: string }> }> {
-  return req(`/cadastro/permissoes/perfil/${codperfil}`);
+export function grantsDoPerfil(codperfil: number, codempresa?: number): Promise<{ codperfil: number; codempresa: number; grants: Array<{ form: string; opcao: string }> }> {
+  const q = codempresa != null ? `?codempresa=${codempresa}` : '';
+  return req(`/cadastro/permissoes/perfil/${codperfil}${q}`);
 }
-export function setGrantPerfil(codperfil: number, form: string, opcao: string, concedido: boolean): Promise<unknown> {
-  return req('/cadastro/permissoes', { method: 'PUT', body: JSON.stringify({ codperfil, form, opcao, concedido }) });
+export function setGrantPerfil(codperfil: number, form: string, opcao: string, concedido: boolean, codempresa?: number): Promise<unknown> {
+  return req('/cadastro/permissoes', { method: 'PUT', body: JSON.stringify({ codperfil, form, opcao, concedido, codempresa }) });
 }
 
 /** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant de um perfil (corte-2). */

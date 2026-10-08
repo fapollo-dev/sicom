@@ -182,3 +182,21 @@ Windows. Na produção a LOG tem 1.501 linhas de PERMISSOES — o único registr
 Convertido na mig 313: o serviço grava na LOG os textos de `GetMsgAcaoLog` (:897) — liberar/remover uma permissão
 (`talMarcarOpcao`/`talDesmarcaOpcao`), todas as da tela, acesso total/geral e a clonagem (com o defeito do legado de
 repetir o tipo onde viria o nome da origem, como a produção grava) — e a tela ganhou o **Registro de log**.
+
+## A aba Perfil (08/10/2026)
+
+A tela do legado tem duas abas — **Usuário** (cxTbsUsuario) e **Perfil** (cxTbsPerfil) — e o Apollo só tinha a primeira; a permissão do
+perfil se editava numa matriz da tela de perfis, que o legado não tem (lá o F4 da tela de perfis abre ESTA tela já na aba Perfil:
+`AbreTelaComCodigo`/`AbreTelaTipoCodigo = tpPerfil`, uCadPerfilOperador.pas). Com o modo AMBOS da produção, os 2.346 grants por perfil
+(7 perfis, 2 empresas) contam no acesso.
+
+- **Qual perfil**: o de ACESSO ativo — o `SegPerfil` do .dfm (CODPERFIL, INDR = 'I', TIPO = 'ACESSO', ATIVO = 'S') e a Pesquisa da aba
+  (`spdBuscaPerfilClick` :1447, a mesma condição); outro dá "Informe um perfil válido." (`EdtCodPerfilExit` :649). Na produção todos os
+  grants por perfil estão em perfis de acesso. A API recusa o perfil de compra/parceiro e o inativo em conceder, consultar, marcar todos
+  e como destino da cópia (422 `PERFIL_INVALIDO`); a origem da cópia é qualquer perfil (`btnCloneClick` :382, a GET_PERFIL sem filtro).
+- **Empresa**: o `cbbEmpresaPerfil` (todas as empresas) — a consulta e o grant do perfil passam a aceitar a empresa, como os do operador.
+- O grant do perfil grava o `CAPTION`/`FORM_CAPTION` (o `AdicionarPermissao` é o mesmo para os dois).
+- **Registro de log** só na aba Usuário ("Informe o usuário.", `BtnLogClick` :460 — a LOG do perfil grava VALOR 0).
+- Trocar de aba limpa o código e a empresa da outra (`TbsUsuarioEnter`). `?perfil=N` abre a aba Perfil com ele.
+- Smoke §77.5a; jsdom `ctrlPermissoesPerfil.spec.tsx`.
+
