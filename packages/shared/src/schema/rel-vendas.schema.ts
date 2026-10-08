@@ -28,6 +28,9 @@ export const relVendasSchema = z.object({
   grupos: z.array(z.coerce.number().int()).max(2000).optional(),
   subgrupos: z.array(z.coerce.number().int()).max(2000).optional(),
   secoes: z.array(z.coerce.number().int()).max(2000).optional(),
+  // o filtro de produtos (MultiProdutos, URelVendas.pas:3419-3447 — com FILTRA_PRODUTOS_RELATORIO_VENDAS = 'S', o Gerar pergunta e abre a
+  // Pesquisa em multisseleção): `P.IDPRODUTO IN (…)`, no máximo 1.000 (o teto do legado)
+  produtos: z.array(z.coerce.number().int().positive()).max(1000).optional(),
   nrocupom: z.coerce.number().int().nonnegative().optional(),
   nropedido: z.string().trim().max(20).optional(),
   aliquota: z.string().trim().max(6).optional(),

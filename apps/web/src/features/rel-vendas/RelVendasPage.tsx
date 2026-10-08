@@ -9,6 +9,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -65,20 +66,48 @@ export function RelVendasPage() {
       .then((l: Array<{ arquivo: string; completo: boolean; faltam: string[] }>) => { setLayouts(l); setLayout(l.find((x) => x.completo)?.arquivo ?? ''); })
       .catch(() => setLayouts([]));
   }, []);
-  const filtroAtual = () => ({
+  // o filtro de produtos (MultiProdutos, URelVendas.pas:1253-1265, :3419-3447): com a FILTRA_PRODUTOS_RELATORIO_VENDAS ligada, o Gerar
+  // pergunta "Deseja realizar o filtro de produtos?" e abre a Pesquisa dos produtos das lojas em multisseleção (no máximo 1.000);
+  // fechar a Pesquisa sem marcar gera sem o filtro. O Imprimir usa a última escolha (o legado pergunta de novo; aqui a janela de
+  // impressão precisa abrir no clique)
+  const [filtraProdutos, setFiltraProdutos] = useState(false);
+  const [produtosSel, setProdutosSel] = useState<number[] | undefined>(undefined);
+  const [escolhendoProdutos, setEscolhendoProdutos] = useState(false);
+  useEffect(() => {
+    fetch(`${BASE}/relatorios/vendas/opcoes`, { headers: apiHeaders() })
+      .then((r) => (r.ok ? r.json() : { filtraProdutos: false }))
+      .then((o: { filtraProdutos?: boolean }) => setFiltraProdutos(!!o.filtraProdutos))
+      .catch(() => setFiltraProdutos(false));
+  }, []);
+  const filtroAtual = (produtos: number[] | undefined = produtosSel) => ({
     dtini, dtfim, canceladas, promocao: promocao === 'T' ? undefined : promocao,
     produto: produto || undefined, fornecedor: fornecedor || undefined,
     custoReposicao: custoRep, filtrarHora, horaIni, horaFim, ...familias,
+    ...(produtos?.length ? { produtos } : {}),
   });
   const imprimir = () => {
     imprimirRelatorio('/relatorios/vendas/produtos-vendidos/impressao', { ...filtroAtual(), layout }).catch((e) => mensagem.erro(e));
   };
 
-  const gerar = async () => {
+  const gerarClick = () => {
+    if (busy) return;
+    if (filtraProdutos && window.confirm('Deseja realizar o filtro de produtos?')) { setEscolhendoProdutos(true); return; }
+    setProdutosSel(undefined);
+    void gerar(undefined);
+  };
+  const aposEscolherProdutos = (linhasMarcadas: Array<Record<string, unknown>>) => {
+    setEscolhendoProdutos(false);
+    const ids = [...new Set(linhasMarcadas.map((l) => Number(l.codigo)))].filter((x) => Number.isInteger(x) && x > 0).slice(0, 1000);
+    const sel = ids.length ? ids : undefined;
+    setProdutosSel(sel);
+    void gerar(sel);
+  };
+
+  const gerar = async (produtos: number[] | undefined = produtosSel) => {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await req<{ linhas: Linha[]; totais: Totais; filtro: Filtro }>('/relatorios/vendas/produtos-vendidos', filtroAtual());
+      const r = await req<{ linhas: Linha[]; totais: Totais; filtro: Filtro }>('/relatorios/vendas/produtos-vendidos', filtroAtual(produtos));
       setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
       if (!r.linhas.length) mensagem.sucesso('Nenhuma venda no período/filtro.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
@@ -119,7 +148,17 @@ export function RelVendasPage() {
         <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={filtrarHora} onChange={(e) => setFiltrarHora(e.target.checked)} /> Filtrar hora</label>
         {filtrarHora && <><div className="w-24"><Field label="De" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} /></div><div className="w-24"><Field label="Até" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} /></div><small className="text-fg-muted">janela contínua: {dtini} {horaIni} → {dtfim} {horaFim}</small></>}
         <FiltroFamilias value={familias} onChange={setFamilias} />
-        <Button label="&Gerar" variant="soft" disabled={busy} onClick={() => void gerar()} />
+        <Button label="&Gerar" variant="soft" disabled={busy} onClick={gerarClick} />
+        {produtosSel?.length ? (
+          <small className="text-fg-muted">
+            {produtosSel.length} produto(s) filtrado(s){' '}
+            <button type="button" className="underline" onClick={() => setProdutosSel(undefined)}>tirar o filtro</button>
+          </small>
+        ) : null}
+        {escolhendoProdutos && (
+          <Pesquisa resourcePath="relatorios/vendas-produtos" multisselecao onSelecionarVarios={aposEscolherProdutos}
+            onSelecionar={(l) => aposEscolherProdutos([l])} onFechar={() => { setEscolhendoProdutos(false); setProdutosSel(undefined); void gerar(undefined); }} />
+        )}
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
         {/* "Imprimir" no layout .fr3 do cliente (URelVendas.pas:531 — o arquivo escolhido no combo) */}
         <div className="w-80"><SelectField label="&Layout de impressão" value={layout} onChange={setLayout}

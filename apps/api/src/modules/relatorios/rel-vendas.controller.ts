@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { relVendasSchema, type RelVendasDto } from '@apollo/shared';
 import { RelVendasService } from './rel-vendas.service';
 import { RelVendasFr3Service } from './rel-vendas-fr3.service';
+import { ConfigService } from '../cadastro/config.service';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -16,7 +18,18 @@ const relVendasImpressaoSchema = (relVendasSchema as unknown as z.AnyZodObject).
 @Controller('relatorios/vendas')
 @UseGuards(AcessoGuard)
 export class RelVendasController {
-  constructor(private readonly svc: RelVendasService, private readonly fr3: RelVendasFr3Service) {}
+  constructor(private readonly svc: RelVendasService, private readonly fr3: RelVendasFr3Service, private readonly config: ConfigService) {}
+
+  /**
+   * o que a tela pergunta antes de gerar: a FILTRA_PRODUTOS_RELATORIO_VENDAS ('S' na produção, geral e específica) liga a pergunta "Deseja
+   * realizar o filtro de produtos?" e a Pesquisa dos produtos (URelVendas.pas:1253-1265; no fonte de 2020 ela vinha do ConfigDB.xml local)
+   */
+  @Get('opcoes')
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  async opcoes() {
+    const v = await this.config.resolver('FILTRA_PRODUTOS_RELATORIO_VENDAS', { empresaId: currentTenant().empresaId ?? undefined });
+    return { filtraProdutos: String(v ?? '').trim().toUpperCase() === 'S' };
+  }
 
   /** produtos vendidos no período: 1 linha por (empresa × produto) + totais recalculados. */
   @Post('produtos-vendidos')

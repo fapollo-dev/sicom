@@ -371,6 +371,12 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
     },
     detalhes: DETALHES_PEDIDO,
     rotuloDetalhes: '[F9] - Consulta de Códigos Auxiliares [F10] - Consulta do Estoque  [F11] - Consulta do Estoque do Depósito' },
+  // RELATÓRIO DE VENDAS, o filtro de produtos (MultiProdutos, URelVendas.pas:3419-3447): a GET_PRODUTOS com IDEMPRESA nas lojas do
+  // relatório, em multisseleção (no máximo 1.000 vão ao filtro). O SetDefault('RAZAO', …) aponta para uma coluna que a GET_PRODUTOS da
+  // produção não tem (é FORNECEDOR): a Pesquisa abre no padrão
+  'relatorios/vendas-produtos': { view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMRELVENDAS',
+    titulo: 'Produtos', retorno: 'codigo', desempate: ['idempresa'], rotuloDetalhes: 'Limitação de no máximo 1000 registros selecionados.',
+    obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas())] },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },

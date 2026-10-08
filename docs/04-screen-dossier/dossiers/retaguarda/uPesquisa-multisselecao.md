@@ -395,3 +395,11 @@ empate: um gap sobre tabela morta vai para o fim.
     como o legado.
   - A tela mostrava o item zerado como 1 na grade e no total (`qtdeDoItem`); corrigido.
   - Smoke §298.28.
+- **Corte 2 — Hub de vendas, produtos (rel 01)** ✅:
+  - Com a FILTRA_PRODUTOS_RELATORIO_VENDAS = 'S' (a da produção; o fonte de 2020 a lia do ConfigDB.xml), o "Gerar" pergunta "Deseja
+    realizar o filtro de produtos?" e abre a Pesquisa `relatorios/vendas-produtos`: a GET_PRODUTOS das lojas, em multisseleção.
+  - Até 1.000 códigos vão ao relatório (`produtos` no schema; o serviço já filtrava). Fechar sem marcar gera sem filtro.
+  - O SetDefault('RAZAO') do legado aponta para coluna que a GET_PRODUTOS da produção não tem: a Pesquisa abre no padrão.
+  - Divergência: o Imprimir usa a última escolha (o legado pergunta de novo; a janela de impressão precisa abrir no clique).
+  - Fica para depois: os relatórios 22 e 46, em que o legado também pergunta.
+  - Smoke §298.29; jsdom `relVendasFiltroProdutos.spec.tsx`.

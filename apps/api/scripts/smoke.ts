@@ -29840,6 +29840,39 @@ async function main() {
             { semPerm, criados, codsBx, lote1: [lote1?.status, lote1?.j], lote2: [lote2?.status, lote2?.j], fechadoQ, exZ: [exZ?.status, exZ?.j], itensDepois, exFechado });
         }
 
+        // RELATÓRIO DE VENDAS (rel 01), o filtro de produtos (MultiProdutos): a FILTRA_PRODUTOS_RELATORIO_VENDAS liga a pergunta; o filtro
+        // vai como lista de códigos, no máximo 1.000; a Pesquisa dos produtos traz as lojas do operador
+        {
+          const cfg = (await pgPq.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'FILTRA_PRODUTOS_RELATORIO_VENDAS'`)).rows[0] as { id: number; valor: string | null } | undefined;
+          let opS: any; let opN: any;
+          try {
+            if (!cfg) {
+              await pgPq.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, valorespossiveis, config_especificas_permitidas)
+                VALUES (505, 'FILTRA_PRODUTOS_RELATORIO_VENDAS', 'S', 'S/N', 'Filtra produtos no relatório de vendas', 'S;N', 'Empresa') ON CONFLICT (id) DO NOTHING`);
+            }
+            await pgPq.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'FILTRA_PRODUTOS_RELATORIO_VENDAS'`);
+            opS = (await (await fetch(`${base}/relatorios/vendas/opcoes`, { headers: H })).json().catch(() => ({}))) as any;
+            await pgPq.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'FILTRA_PRODUTOS_RELATORIO_VENDAS'`);
+            opN = (await (await fetch(`${base}/relatorios/vendas/opcoes`, { headers: H })).json().catch(() => ({}))) as any;
+          } finally {
+            if (cfg) await pgPq.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'FILTRA_PRODUTOS_RELATORIO_VENDAS'`, [cfg.valor]).catch(() => undefined);
+            else await pgPq.query(`DELETE FROM configuracoes WHERE id = 505 AND codigo = 'FILTRA_PRODUTOS_RELATORIO_VENDAS'`).catch(() => undefined);
+          }
+          const rel = async (produtos: number[]) => {
+            const r = await fetch(`${base}/relatorios/vendas/produtos-vendidos`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2020-01-01', dtfim: '2039-12-31', produtos }) });
+            return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+          };
+          const [inexistente, demais] = [await rel([987654321]), await rel(Array.from({ length: 1001 }, (_, i) => i + 1))];
+          const lojasOp = (await pgPq.query(`SELECT codempresa FROM relacao_operador_empresa WHERE codoperador = 7`)).rows.map((r: any) => Number(r.codempresa));
+          const pesqProd = await pq('recurso=relatorios/vendas-produtos&campo=descricao&operacao=qualquer&valor=&porPagina=100');
+          const lojasVistas = [...new Set(((pesqProd.j.linhas ?? []) as any[]).map((l) => Number(l.idempresa)))];
+          check('PESQUISA §298.29 [relatório de vendas, o filtro de produtos — URelVendas.pas:1253-1265, :3419-3447]: a FILTRA_PRODUTOS_RELATORIO_VENDAS liga a pergunta (S liga, N não); o filtro vai como lista de códigos (um que não vendeu dá nenhuma linha) e passar de 1.000 é recusado na validação (400); a Pesquisa dos produtos traz só as lojas do operador',
+            opS?.filtraProdutos === true && opN?.filtraProdutos === false
+            && inexistente.status === 200 && (inexistente.j.linhas ?? []).length === 0 && demais.status === 400
+            && pesqProd.status === 200 && lojasVistas.length > 0 && (lojasOp.length === 0 || lojasVistas.every((l) => lojasOp.includes(l))),
+            { op: [opS, opN], inexistente: [inexistente.status, (inexistente.j.linhas ?? []).length], demais: demais.status, lojasVistas, lojasOp });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)
