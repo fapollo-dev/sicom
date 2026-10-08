@@ -45,6 +45,12 @@ export class ProdutoHistoricoController {
   }
 
   /** o "Imprimir" da composição (Rel_ComposicaoProduto.fr3) */
+  /** o campo do valor do componente (EMPRESAS.CAMPOCOMPOSICAO) — o Adicionar componente em lote o usa */
+  @Get('composicao/campo')
+  campoComposicao() {
+    return this.svc.campoComposicao();
+  }
+
   @Get(':id/composicao/impressao')
   @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')
   impressaoComposicao(@Param('id', ParseIntPipe) id: number) {

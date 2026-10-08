@@ -29873,6 +29873,38 @@ async function main() {
             { op: [opS, opN], inexistente: [inexistente.status, (inexistente.j.linhas ?? []).length], demais: demais.status, lojasVistas, lojasOp });
         }
 
+        // PRODUTO — a receita, a decomposição e a composição em lote (UCadProduto.pas:1779-1981): a GET_PRODUTOS_ESTOQUE da loja (a composição
+        // também com o preço da loja e ATIVO_VENDA), o campo do valor do componente (EMPRESAS.CAMPOCOMPOSICAO) e o cabeçalho da receita
+        {
+          const campoAntes = (await pgPq.query(`SELECT campocomposicao FROM empresas WHERE idempresa = 1`)).rows[0]?.campocomposicao ?? null;
+          let campoNulo: any; let campoOk: any; let est: any; let estV: any; let put: any; let original: any;
+          try {
+            await pgPq.query(`UPDATE empresas SET campocomposicao = NULL WHERE idempresa = 1`);
+            const r0 = await fetch(`${base}/cadastro/produtos/composicao/campo`, { headers: H });
+            campoNulo = { status: r0.status, j: (await r0.json().catch(() => ({}))) as any };
+            await pgPq.query(`UPDATE empresas SET campocomposicao = 'VRCUSTO' WHERE idempresa = 1`);
+            campoOk = (await (await fetch(`${base}/cadastro/produtos/composicao/campo`, { headers: H })).json().catch(() => ({}))) as any;
+            est = await pq('recurso=lookup/produtos-estoque&campo=descricao&operacao=comeca&valor=&porPagina=50');
+            estV = await pq('recurso=lookup/produtos-estoque-venda&campo=descricao&operacao=comeca&valor=&porPagina=50');
+            original = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+            const r = await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ ...original, receitafator: 2.5, receitaqtde: 1 }) });
+            put = { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+          } finally {
+            await pgPq.query(`UPDATE empresas SET campocomposicao = $1 WHERE idempresa = 1`, [campoAntes]).catch(() => undefined);
+            if (original) await pgPq.query(`UPDATE produtos SET receitafator = $1, receitaqtde = $2 WHERE idproduto = 1`, [original.receitafator ?? null, original.receitaqtde ?? null]).catch(() => undefined);
+          }
+          const linhasEst = (est?.j?.linhas ?? []) as any[];
+          const linhasEstV = (estV?.j?.linhas ?? []) as any[];
+          check('PESQUISA §298.30 [produto — receita, decomposição e composição em lote]: a Pesquisa da GET_PRODUTOS_ESTOQUE traz só o estoque e o depósito da loja (a da composição também o preço da loja e ATIVO_VENDA = S); sem o EMPRESAS.CAMPOCOMPOSICAO, o Adicionar componente é recusado com a mensagem do legado, e configurado ele diz a coluna (vrcusto); o cabeçalho da receita (RECEITAFATOR e RECEITAQTDE) grava e volta',
+            est?.status === 200 && linhasEst.length > 0 && linhasEst.every((l) => Number(l.empresa_estoque) === 1 && Number(l.empresa_estoque_dep) === 1)
+            && estV?.status === 200 && linhasEstV.every((l) => Number(l.empresa_preco) === 1 && l.ativo_venda === 'S' && Number(l.empresa) === 1)
+            && campoNulo?.status === 422 && /não esta configurado no cadastro de empresas/.test(String(campoNulo.j?.message ?? ''))
+            && campoOk?.campo === 'vrcusto'
+            && put?.status === 200 && Number(put.j?.receitafator) === 2.5 && Number(put.j?.receitaqtde) === 1,
+            { est: [est?.status, linhasEst.length, linhasEst.slice(0, 2).map((l) => [l.codigo, l.empresa_estoque, l.empresa_estoque_dep])], estV: [estV?.status, linhasEstV.length],
+              campoNulo: [campoNulo?.status, campoNulo?.j?.message], campoOk, put: [put?.status, put?.j?.receitafator, put?.j?.receitaqtde, put?.j?.code] });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

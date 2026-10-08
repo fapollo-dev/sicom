@@ -23,6 +23,17 @@ export async function getHistorico(idproduto: number, aba: AbaHistorico, f: Filt
   return (await res.json()) as RespostaHistorico;
 }
 
+/** o campo do valor do componente da composição (EMPRESAS.CAMPOCOMPOSICAO); sem ele configurado, 422 com a mensagem do legado */
+export async function campoComposicao(): Promise<{ campo: string }> {
+  const res = await fetch(`${BASE}/cadastro/produtos/composicao/campo`, { headers: apiHeaders() });
+  handle401(res);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error((body as { message?: string })?.message ?? `HTTP ${res.status}`), { status: res.status, body, envelope: body });
+  }
+  return (await res.json()) as { campo: string };
+}
+
 /** o destino do "Detalhar" de uma linha do kardex (o `ProcessaHistorico` do legado, no servidor) */
 export type DetalheKardex =
   | { destino: 'venda'; nropedido: string; idempresa: number }

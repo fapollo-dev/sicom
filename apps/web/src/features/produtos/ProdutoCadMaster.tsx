@@ -43,6 +43,7 @@ import { getSessao } from '../../shared/auth/session';
 import { useShortcut } from '../../shared/keyboard';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { campoComposicao } from './produtoHistoricoApi';
 import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 type Linha = Record<string, any>;
@@ -1277,6 +1278,23 @@ function ComposicaoSection({
   const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01));
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
+  // os marcados entram com QTDE = 1 e o VALOR do campo da empresa (CarregarItensComposicao, UCadProduto.pas:8385); o que já está não repete
+  const [campoValor, setCampoValor] = useState<string | null>(null);
+  const abrirPesquisaComponentes = async () => {
+    try { setCampoValor((await campoComposicao()).campo); } catch (e) { mensagem.erro(e); }
+  };
+  const adicionarComponentes = (linhas: Array<Record<string, unknown>>) => {
+    const campo = campoValor;
+    setCampoValor(null);
+    const ja = new Set(fields.map((f) => Number(f.idproduto_01)));
+    for (const l of linhas) {
+      const id = Number(l.codigo);
+      if (!Number.isInteger(id) || ja.has(id)) continue;
+      ja.add(id);
+      append({ idproduto_01: id, qtde: 1, valor: Number(campo ? l[campo] : 0) || 0 } as ComposicaoItemDto);
+    }
+  };
+
   const onConfirmar = (item: ComposicaoItemDto) => {
     if (editIdx == null) return;
     if (editIdx < 0) append(item);
@@ -1349,13 +1367,19 @@ function ComposicaoSection({
       </legend>
       <div className="flex flex-col gap-gp-sm">
         <div>
+          {/* btnAddItemClick (UCadProduto.pas:1966-1981): exige o EMPRESAS.CAMPOCOMPOSICAO; a Pesquisa da GET_PRODUTOS_ESTOQUE da loja, com
+              o preço da loja e ATIVO_VENDA = 'S', em multisseleção */}
           <Button
             label="Adicionar &componente"
             variant="soft"
             disabled={!pode('BTNADDITEM')}
-            onClick={() => setEditIdx(-1)}
+            onClick={() => void abrirPesquisaComponentes()}
           />
         </div>
+        {campoValor && (
+          <Pesquisa resourcePath="lookup/produtos-estoque-venda" multisselecao onSelecionarVarios={adicionarComponentes}
+            onSelecionar={(l) => adicionarComponentes([l])} onFechar={() => setCampoValor(null)} />
+        )}
 
         {fields.length === 0 ? (
           <small className="text-fg-muted">Sem componentes.</small>
@@ -1415,6 +1439,23 @@ function DecomposicaoSection({
   // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
   const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_01));
   const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  // os marcados entram com PERCENTUAL = 0 (CarregarItensDEComposicao, UCadProduto.pas:8473); o que já está na grade não repete e avisa
+  const mensagemDecomp = useMensagem();
+  const [pesquisandoDecomp, setPesquisandoDecomp] = useState(false);
+  const adicionarResultantes = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisandoDecomp(false);
+    const ja = new Set(fields.map((f) => Number(f.idproduto_01)));
+    const repetidos: number[] = [];
+    for (const l of linhas) {
+      const id = Number(l.codigo);
+      if (!Number.isInteger(id)) continue;
+      if (ja.has(id)) { repetidos.push(id); continue; }
+      ja.add(id);
+      append({ idproduto_01: id, percentual: 0 } as DecomposicaoItemDto);
+    }
+    if (repetidos.length) mensagemDecomp.erro(new Error(repetidos.map((id) => `Produto ${id} já encontra-se na grade.`).join('\n')));
+  };
 
   const onConfirmar = (item: DecomposicaoItemDto) => {
     if (editIdx == null) return;
@@ -1483,13 +1524,18 @@ function DecomposicaoSection({
       </legend>
       <div className="flex flex-col gap-gp-sm">
         <div>
+          {/* btnAddDescompClick (UCadProduto.pas:1942-1952): a Pesquisa da GET_PRODUTOS_ESTOQUE da loja em multisseleção */}
           <Button
             label="Adicionar &resultante"
             variant="soft"
             disabled={!pode('BTNADDDESCOMP')}
-            onClick={() => setEditIdx(-1)}
+            onClick={() => setPesquisandoDecomp(true)}
           />
         </div>
+        {pesquisandoDecomp && (
+          <Pesquisa resourcePath="lookup/produtos-estoque" multisselecao onSelecionarVarios={adicionarResultantes}
+            onSelecionar={(l) => adicionarResultantes([l])} onFechar={() => setPesquisandoDecomp(false)} />
+        )}
 
         {fields.length === 0 ? (
           <small className="text-fg-muted">Sem itens de decomposição.</small>
@@ -1545,7 +1591,7 @@ function DecomposicaoSection({
  * produto (idproduto_receita = ingrediente, via lookup). A flag `receita` é DERIVADA server-side
  * da presença de itens. A gravação cascateia no engine agregado.
  */
-function ReceitaSection({
+export function ReceitaSection({
   form,
   editavel,
 }: {
@@ -1564,6 +1610,26 @@ function ReceitaSection({
   // a grade e a janela do item: os produtos das linhas pelo nome (GET_PRODUTOS) na frente do combo de 200
   const produtoOptions = useOpcoesDosProdutos(fields.map((f) => f.idproduto_receita));
   const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  // os marcados entram com QTDE 1, UNIDADE KG, o VRCUSTO como valor e o FATORCX_PRODUCAO (CarregaItensReceita, UCadProduto.pas:8316); o
+  // ingrediente que já está não repete
+  const mensagemReceita = useMensagem();
+  const [pesquisandoReceita, setPesquisandoReceita] = useState(false);
+  const abrirPesquisaIngredientes = () => {
+    if (!(Number(form.getValues('receitafator' as never)) > 0)) { mensagemReceita.erro(new Error('Informe a quantidade da receita.')); return; }
+    setPesquisandoReceita(true);
+  };
+  const adicionarIngredientes = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisandoReceita(false);
+    if (!(Number(form.getValues('receitaqtde' as never)) > 0)) form.setValue('receitaqtde' as never, 1 as never, { shouldDirty: true });
+    const ja = new Set(fields.map((f) => Number(f.idproduto_receita)));
+    for (const l of linhas) {
+      const id = Number(l.codigo);
+      if (!Number.isInteger(id) || ja.has(id)) continue;
+      ja.add(id);
+      append({ idproduto_receita: id, qtde: 1, unidade: 'KG', valor: Number(l.vrcusto) || 0, fatorcxprod: Number(l.fatorcx_producao) || 0 } as ReceitaItemDto);
+    }
+  };
 
   const onConfirmar = (item: ReceitaItemDto) => {
     if (editIdx == null) return;
@@ -1628,12 +1694,31 @@ function ReceitaSection({
       </legend>
       <div className="flex flex-col gap-gp-sm">
         <div>
-          <Button
-            label="Adicionar ingrediente"
-            variant="soft"
-            onClick={() => setEditIdx(-1)}
-          />
+          {/* o cabeçalho da receita (edtQdeReceita = RECEITAFATOR, edtFatorReceita = RECEITAQTDE) e o Adicionar (btnAddItemReceitaClick,
+              UCadProduto.pas:1779-1806): sem a quantidade total, "Informe a quantidade da receita."; a Pesquisa da GET_PRODUTOS_ESTOQUE da loja
+              em multisseleção; a quantidade unitária zerada vira 1 */}
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-48">
+              <Controller control={form.control} name={'receitafator' as never} render={({ field }) => (
+                <NumberField label="Qtde total da receita" value={(field.value as number | undefined) ?? undefined} onChange={field.onChange} decimais={3} min={0} />
+              )} />
+            </div>
+            <div className="w-40">
+              <Controller control={form.control} name={'receitaqtde' as never} render={({ field }) => (
+                <NumberField label="Qtde unitária" value={(field.value as number | undefined) ?? undefined} onChange={field.onChange} decimais={2} min={0} />
+              )} />
+            </div>
+            <Button
+              label="Adicionar ingrediente"
+              variant="soft"
+              onClick={abrirPesquisaIngredientes}
+            />
+          </div>
         </div>
+        {pesquisandoReceita && (
+          <Pesquisa resourcePath="lookup/produtos-estoque" multisselecao onSelecionarVarios={adicionarIngredientes}
+            onSelecionar={(l) => adicionarIngredientes([l])} onFechar={() => setPesquisandoReceita(false)} />
+        )}
 
         {fields.length === 0 ? (
           <small className="text-fg-muted">Sem ingredientes.</small>

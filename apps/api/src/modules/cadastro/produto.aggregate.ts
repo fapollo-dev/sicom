@@ -111,6 +111,8 @@ export const produtoAggregateConfig: AggregateConfig = {
     'pesobruto_produto', 'pesobruto_caixa', 'pesobruto_pallet',
     'pallet_caixas_por_camada', 'pallet_camadas_por_pallet', 'pallet_caixas_por_pallet',
     'pallet_empilhamento', 'pallet_produtos_por_caixa', 'pallet_produtos_por_pallet', 'fatorcx_prod',
+    // o cabeçalho da receita (RECEITAFATOR "Qtde total da receita", RECEITAQTDE "Qtde unitária")
+    'receitafator', 'receitaqtde',
     // corte P1 do produto (25/09/2026) — o que a tela do legado preenche e o Apollo não gerenciava (o "Inseriu" da LOG de 2026 lista todos; o operador
     // altera RECEITAUNIDADE 302 vezes, TPDESCPRECO2 785, VRDESCPRECO2 527, PRODUTO_NOTAVEL 164, USO_CONSUMO 16…)
     'uso_consumo', 'visivel_rel', 'imprimircomp', 'pis', 'tipopis', 'gerar_m220_m620', 'tipo_item',

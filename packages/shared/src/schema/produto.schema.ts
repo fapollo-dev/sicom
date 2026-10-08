@@ -337,6 +337,11 @@ const produtoBase = z.object({
   // "% Perdas" do produto em KG (edtPERCENTUAL_PERDASExit: 0 a 100) — no rateio CR, 100 = item de perda total
   percentual_perdas: dec(z.number().min(0, 'Percentual inválido').max(100, 'Percentual inválido')),
   receitaunidade: opcional(z.string().trim().max(2)), // KG / UN
+  // o cabeçalho da receita (UCadProduto.dfm: edtQdeReceita = RECEITAFATOR "Qtde total da receita", edtFatorReceita = RECEITAQTDE
+  // "Qtde unitária"): o legado exige a quantidade total antes de incluir ingredientes (btnAddItemReceitaClick); os 10 produtos com
+  // receita da produção têm os dois. A Produção lê o RECEITAFATOR como o rendimento
+  receitafator: dec(z.number().nonnegative()),
+  receitaqtde: dec(z.number().nonnegative()),
   apresentacao_etiqueta: dec(z.number().nonnegative()),
   dias_validade_minimo: dec(z.number().int().nonnegative()), // "Mínimo dias validade"
   fator_pedidocompra: dec(z.number().nonnegative()),

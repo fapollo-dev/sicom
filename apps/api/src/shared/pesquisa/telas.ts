@@ -377,6 +377,18 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'relatorios/vendas-produtos': { view: 'get_produtos', viewLegado: 'GET_PRODUTOS', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMRELVENDAS',
     titulo: 'Produtos', retorno: 'codigo', desempate: ['idempresa'], rotuloDetalhes: 'Limitação de no máximo 1000 registros selecionados.',
     obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas())] },
+  // PRODUTO — o Adicionar da receita, da decomposição (btnAddItemReceitaClick / btnAddDescompClick, UCadProduto.pas:1795, :1942) e da
+  // composição (btnAddItemClick, :1966-1981): a GET_PRODUTOS_ESTOQUE com o estoque e o depósito da LOJA; a composição também com o preço
+  // da loja e ATIVO_VENDA = 'S'. SetDefault DESCRICAO / Começado com; em multisseleção
+  'lookup/produtos-estoque': { view: 'get_produtos_estoque', viewLegado: 'GET_PRODUTOS_ESTOQUE', form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'codigo',
+    abertura: { campo: 'descricao', operacao: 'comeca' },
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('empresa_estoque')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_estoque_dep')} = ${ctx.empresa ?? -1}`] },
+  'lookup/produtos-estoque-venda': { view: 'get_produtos_estoque', viewLegado: 'GET_PRODUTOS_ESTOQUE', form: 'FRMCADPRODUTO', titulo: 'Produtos', retorno: 'codigo',
+    abertura: { campo: 'descricao', operacao: 'comeca' },
+    obrigatorios: (ctx) => [
+      sql<SqlBool>`${sql.ref('empresa_estoque')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_estoque_dep')} = ${ctx.empresa ?? -1}`,
+      sql<SqlBool>`${sql.ref('empresa')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_preco')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('ativo_venda')} = 'S'`,
+    ] },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },

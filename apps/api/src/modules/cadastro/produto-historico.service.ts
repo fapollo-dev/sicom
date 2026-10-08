@@ -47,6 +47,18 @@ const IMPRESSOES: Partial<Record<AbaHistorico, { arquivo: string; dataset: strin
 export class ProdutoHistoricoService {
   constructor(private readonly dbp: DatabaseProvider) {}
 
+  /**
+   * o campo do VALOR do componente da composição (EMPRESAS.CAMPOCOMPOSICAO — a coluna da GET_PRODUTOS_ESTOQUE cujo valor entra no item;
+   * VRCUSTO nas 5 lojas da produção). Sem ele, o legado recusa o Adicionar com a mensagem do btnAddItemClick (UCadProduto.pas:1966-1970)
+   */
+  async campoComposicao(): Promise<{ campo: string }> {
+    const r = (await sql<{ c: string | null }>`SELECT campocomposicao AS c FROM empresas WHERE idempresa = ${this.emp()}`
+      .execute(this.dbp.forTenantRead() as never)).rows[0];
+    const campo = String(r?.c ?? '').trim().toLowerCase();
+    if (!campo) throw new BusinessRuleError('PRODUTO_CAMPO_COMPOSICAO_NAO_CONFIGURADO', {}, 'Campo referente ao valor não esta configurado no cadastro de empresas. Verifique!');
+    return { campo };
+  }
+
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
     if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');

@@ -403,3 +403,13 @@ empate: um gap sobre tabela morta vai para o fim.
   - Divergência: o Imprimir usa a última escolha (o legado pergunta de novo; a janela de impressão precisa abrir no clique).
   - Fica para depois: os relatórios 22 e 46, em que o legado também pergunta.
   - Smoke §298.29; jsdom `relVendasFiltroProdutos.spec.tsx`.
+- **Corte 2 — Produto: receita, decomposição e composição** ✅. Os três "Adicionar" abrem a Pesquisa da GET_PRODUTOS_ESTOQUE com o
+  estoque e o depósito da loja (a composição também com o preço da loja e ATIVO_VENDA = 'S'), em DESCRICAO / Começado com, em
+  multisseleção:
+  - **Receita:** QTDE 1, KG, o VRCUSTO como valor e o FATORCX_PRODUCAO. O legado exige a "Qtde total da receita" (RECEITAFATOR) antes;
+    ela e a "Qtde unitária" (RECEITAQTDE) não estavam no formulário do Apollo e entraram. A unitária zerada vira 1.
+  - **Decomposição:** PERCENTUAL 0; o repetido avisa "Produto X já encontra-se na grade.".
+  - **Composição:** QTDE 1 e o VALOR da coluna do EMPRESAS.CAMPOCOMPOSICAO (VRCUSTO nas 5 lojas). Sem ele, a mensagem do legado.
+  - Fica fora: o recálculo da venda do produto pela composição (Σ qtde × valor), que o legado faz ao carregar os itens. É regra de
+    preço, não de multisseleção.
+  - Smoke §298.30; jsdom `produtoReceitaLote.spec.tsx`.
