@@ -26,7 +26,7 @@ export interface ContaReceber { codconta: number; nroconta: string | null; titul
 export interface FormaCartao { idpgto: number; modalidade: string; destino: string }
 export interface TipoRecursoReceber { tipo: number; rotulo: string; liberado: 'S' | 'N'; caixa: boolean; banco: boolean }
 export interface PadroesReceber { ccJuros: number | null; ccAcrescimo: number | null; ccDesconto: number | null; diasFutura: number; mostrarTroco: boolean; recursos: TipoRecursoReceber[]; empresas: number[] }
-export interface FiltroReceber { busca?: string; codparceiro?: string; vencDe?: string; vencAte?: string; empresas?: number[]; dtpgto?: string }
+export interface FiltroReceber { busca?: string; codparceiro?: string; vencDe?: string; vencAte?: string; empresas?: number[]; dtpgto?: string; codigos?: number[] }
 
 export const iniciarBaixaReceber = () => req<{ idlote: number }>('/cobranca/baixa-receber/iniciar', { method: 'POST' });
 export const padroesBaixaReceber = () => req<PadroesReceber>('/cobranca/baixa-receber/padroes');

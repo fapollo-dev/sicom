@@ -78,8 +78,10 @@ export class BaixaReceberLoteService {
   }
 
   /**
-   * A pesquisa (`GET_RCB`, :891-896): abertos, não agrupados, das empresas escolhidas e — com `EMPRESAS.FECHAMENTO_CAIXA='S'` —
-   * só os conciliados. O desconto do cliente por prazo (`DIASPRAZO`/`DESCPADRAO`, :949-956) vem calculado para a data dada.
+   * Os documentos do lote: com `codigos`, os marcados na Pesquisa `financeiro/baixa-receber` (o `cdsDoctos` com CODIGO IN …, :905-940) —
+   * é o caminho da tela. Sem eles, a lista por filtro (abertos, não agrupados, das empresas escolhidas e, com
+   * `EMPRESAS.FECHAMENTO_CAIXA='S'`, só os conciliados). O desconto do cliente por prazo (`DIASPRAZO`/`DESCPADRAO`, :949-956) vem
+   * calculado para a data dada.
    */
   async titulos(f: BaixaReceberTitulosDto): Promise<Record<string, unknown>[]> {
     const emp = this.emp();
@@ -104,6 +106,7 @@ export class BaixaReceberLoteService {
          AND (${f.vencDe ?? null}::date IS NULL OR r.dtvenc >= ${f.vencDe ?? null}::date)
          AND (${f.vencAte ?? null}::date IS NULL OR r.dtvenc <= ${f.vencAte ?? null}::date)
          AND (${f.busca ?? null}::text IS NULL OR r.duplicata ILIKE '%' || ${f.busca ?? null}::text || '%' OR p.razao ILIKE '%' || ${f.busca ?? null}::text || '%')
+         ${f.codigos?.length ? sql`AND r.codrcb = ANY(${f.codigos}::int[])` : sql``}
        ORDER BY r.dtvenc, p.razao, r.codrcb
        LIMIT 2000
     `.execute(db)).rows;

@@ -8,9 +8,10 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import {
   contasBaixa, gravarBaixa, iniciarBaixa, manutencaoBaixa, padroesBaixa, titulosBaixa,
-  type ContaBaixa, type FiltroTitulos, type PadroesBaixa, type TituloBaixa,
+  type ContaBaixa, type PadroesBaixa, type TituloBaixa,
 } from './baixaApagarApi';
 
 /**
@@ -44,9 +45,9 @@ export function BaixaApagarPage() {
   const [contas, setContas] = useState<ContaBaixa[]>([]);
   const [lote, setLote] = useState<number | null>(null);
   const [loteManutencao, setLoteManutencao] = useState<number | null>(null);
-  const [filtro, setFiltro] = useState<FiltroTitulos>({});
-  const [pesquisa, setPesquisa] = useState<TituloBaixa[] | null>(null);
-  const [marcados, setMarcados] = useState<Set<number>>(new Set());
+  // as lojas do GetMultiEmpresa (vazio = a do login) e a Pesquisa da GET_APAGAR aberta (o btnAdicionarRegistro, UBaixaApagar.pas:292-327)
+  const [empresas, setEmpresas] = useState<number[]>([]);
+  const [pesquisando, setPesquisando] = useState(false);
   const [docs, setDocs] = useState<DocGrade[]>([]);
   const [dtpgto, setDtpgto] = useState(hoje());
   const [cc, setCc] = useState({ juros: '', acrescimo: '', desconto: '' });
@@ -104,22 +105,25 @@ export function BaixaApagarPage() {
     setRecursos([]);
     setNovo(null);
     setDtpgto(hoje());
-    setPesquisa(await titulosBaixa(filtro));
-    setMarcados(new Set());
+    setPesquisando(true);
   });
-  const pesquisar = () => executar(async () => {
-    setPesquisa(await titulosBaixa(filtro));
-    setMarcados(new Set());
-  });
-  const alternar = (id: number) => setMarcados((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
-  const adicionar = () => {
+  const abrirPesquisa = () => {
     // "Exclua os recursos antes de adicionar um documento." (:896-897)
     if (recursos.length) { mensagem.erro(new Error('Exclua os recursos antes de adicionar um documento.')); return; }
-    const ja = new Set(docs.map((d) => d.codapg));
-    const novos = (pesquisa ?? []).filter((t) => marcados.has(t.codapg) && !ja.has(t.codapg)).map((t) => ({ ...t, calculaJuro: false, acreDesc: t.acre_desc }));
-    setDocs([...docs, ...novos]);
-    setMarcados(new Set());
+    setPesquisando(true);
   };
+  // os marcados na Pesquisa viram documentos do lote (GET_APAGAR WHERE CODIGO IN …, :344-346); o que já está no lote não repete
+  const adicionarDaPesquisa = (linhas: Array<Record<string, unknown>>) => executar(async () => {
+    setPesquisando(false);
+    const ja = new Set(docs.map((d) => d.codapg));
+    const codigos = [...new Set(linhas.map((l) => Number(l.codigo ?? l.codapg)).filter((c) => Number.isInteger(c) && c > 0 && !ja.has(c)))];
+    if (!codigos.length) return;
+    const titulos = await titulosBaixa({ codigos, empresas });
+    setDocs((atual) => {
+      const tem = new Set(atual.map((d) => d.codapg));
+      return [...atual, ...titulos.filter((t) => !tem.has(t.codapg)).map((t) => ({ ...t, calculaJuro: false, acreDesc: t.acre_desc }))];
+    });
+  });
   const excluirDoc = (codapg: number) => {
     if (recursos.length) { mensagem.erro(new Error('Exclua os recursos antes de excluir um documento.')); return; }
     if (!window.confirm('Deseja realmente excluir este documento?')) return;
@@ -175,7 +179,7 @@ export function BaixaApagarPage() {
     setLoteManutencao(null);
     setDocs([]);
     setRecursos([]);
-    setPesquisa(null);
+    setPesquisando(false);
     if (params.get('manutencao')) navigate('/cobranca/baixa-apagar', { replace: true });
   });
   const cancelar = () => {
@@ -184,7 +188,7 @@ export function BaixaApagarPage() {
     setDocs([]);
     setRecursos([]);
     setNovo(null);
-    setPesquisa(null);
+    setPesquisando(false);
   };
 
   const nomeConta = (c: ContaBaixa) => `${c.nroconta ?? c.codconta} · ${c.titular ?? ''}${c.caixa ? ' (caixa)' : ''}`;
@@ -216,54 +220,25 @@ export function BaixaApagarPage() {
       </section>
 
       {lote && !loteManutencao && (
-        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <strong className="text-sm">Documentos a pagar em aberto</strong>
-          <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-56"><Field label="Documento ou fornecedor" value={filtro.busca ?? ''} onChange={(e) => setFiltro({ ...filtro, busca: e.target.value })} /></div>
-            <div className="w-36"><Field label="Fornecedor (código)" inputMode="numeric" value={filtro.codparceiro ?? ''} onChange={(e) => setFiltro({ ...filtro, codparceiro: e.target.value })} /></div>
-            <div className="w-40"><DateField label="Vencimento de" value={filtro.vencDe ?? ''} onChange={(v) => setFiltro({ ...filtro, vencDe: v ?? '' })} /></div>
-            <div className="w-40"><DateField label="até" value={filtro.vencAte ?? ''} onChange={(v) => setFiltro({ ...filtro, vencAte: v ?? '' })} /></div>
-            {padroes && padroes.empresas.length > 1 && (
-              <div className="w-44"><Field label="Empresas (códigos)" value={(filtro.empresas ?? []).join(',')} onChange={(e) => setFiltro({ ...filtro, empresas: e.target.value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) })} /></div>
-            )}
-            <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
-            <Button label="Adicionar marcados" variant="ghost" onClick={adicionar} disabled={ocupado || marcados.size === 0} />
-          </div>
-          {pesquisa && (pesquisa.length === 0
-            ? <small className="text-fg-muted">Nenhum documento em aberto com esses filtros.</small>
-            : (
-              <div className="max-h-72 overflow-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-fg-muted">
-                      <th className="px-2 py-1" /><th className="px-2 py-1">Documento</th><th className="px-2 py-1">Fornecedor</th><th className="px-2 py-1">Empresa</th>
-                      <th className="px-2 py-1">Vencimento</th><th className="px-2 py-1 text-right">Valor</th><th className="px-2 py-1 text-right">Desconto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pesquisa.map((t) => (
-                      // a cor do legado (:309-323): compromisso bloqueado em vermelho, fornecedor com débito em azul — só colore
-                      <tr key={t.codapg} className={`border-t border-border ${t.bloqueio === 'S' ? 'text-danger' : t.fornecedor_possui_debito === 'S' ? 'text-info' : ''}`}>
-                        <td className="px-2 py-1"><CheckboxField label="Selecionar" value={marcados.has(t.codapg) ? 'S' : 'N'} onChange={() => alternar(t.codapg)} /></td>
-                        <td className="px-2 py-1">{t.nr_documento ?? ''}{t.nrparcela ? ` (${t.nrparcela})` : ''}</td>
-                        <td className="px-2 py-1">{t.codparceiro} · {t.fornecedor ?? ''}</td>
-                        <td className="px-2 py-1 tabular-nums">{t.codempresa}</td>
-                        <td className="px-2 py-1 tabular-nums">{dataBr(t.vencimento)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{moeda(t.base)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{t.desconto ? moeda(t.desconto) : ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+        <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <strong className="w-full text-sm">Documentos a pagar em aberto</strong>
+          {padroes && padroes.empresas.length > 1 && (
+            <div className="w-44"><Field label="Empresas (códigos)" value={empresas.join(',')} placeholder="esta loja"
+              onChange={(e) => setEmpresas(e.target.value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0))} /></div>
+          )}
+          <Button label="&Adicionar documentos" variant="soft" onClick={abrirPesquisa} disabled={ocupado} />
+          <small className="text-fg-muted">A Pesquisa dos documentos abertos (compromisso bloqueado em vermelho, fornecedor com débito em azul): marque e confirme.</small>
         </section>
+      )}
+      {pesquisando && (
+        <Pesquisa resourcePath="financeiro/baixa-apagar" multisselecao parametros={{ empresas: empresas.length ? empresas.join(',') : undefined }}
+          onSelecionarVarios={(ls) => void adicionarDaPesquisa(ls)} onSelecionar={(l) => void adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
       )}
 
       {lote && (
         <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <strong className="text-sm">Documentos da baixa</strong>
-          {docs.length === 0 ? <small className="text-fg-muted">Marque documentos na pesquisa e adicione.</small> : (
+          {docs.length === 0 ? <small className="text-fg-muted">Adicione documentos pela Pesquisa.</small> : (
             <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead>

@@ -30277,6 +30277,36 @@ async function main() {
             { status: nat.status, linhas: linhas.map((l) => [l.idtabela, l.descricao]), code: nat.j?.code });
         }
 
+        // BAIXAS A PAGAR E A RECEBER — a Pesquisa do legado no lugar da grade que cortava em 2.000 (a loja 1 da produção tem 16.023 títulos a
+        // receber e 5.922 a pagar em aberto): GET_RCB / GET_APAGAR das lojas, os abertos, as cores; e o lote recebe exatamente os marcados
+        {
+          const ar = async (quitada: string, agrupado: string) => Number((await pgPq.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, agrupado, consiliado)
+            VALUES (1, 20, 'BXPESQ', '2026-01-05', '2026-01-20', 33, $1, $2, 'S') RETURNING codrcb`, [quitada, agrupado])).rows[0].codrcb);
+          const ap = async (quitada: string, bloqueio: string) => Number((await pgPq.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtcompra, dtvenc, valor, quitada, tipodoc, bloqueio)
+            VALUES (1, 2, 'BXPESQ', '2026-01-05', '2026-01-20', 44, $1, 'DP', $2) RETURNING codapg`, [quitada, bloqueio])).rows[0].codapg);
+          const [r1, r2, rQ, rAg] = [await ar('N', 'N'), await ar('N', 'N'), await ar('S', 'N'), await ar('N', 'S')];
+          const [p1, p2, pQ] = [await ap('N', 'S'), await ap('N', 'N'), await ap('S', 'N')];
+          const pesq = async (rec: string, cods: number[]) => {
+            const linhas: number[] = [];
+            for (const c of cods) linhas.push(...(((await pq(`recurso=${rec}&campo=codigo&operacao=igual&valor=${c}&porPagina=10`)).j.linhas ?? []) as any[]).map((l) => Number(l.codigo)));
+            return linhas;
+          };
+          const vistosAr = await pesq('financeiro/baixa-receber', [r1, r2, rQ, rAg]);
+          const vistosAp = await pesq('financeiro/baixa-apagar', [p1, p2, pQ]);
+          const corAp = (await pq(`recurso=financeiro/baixa-apagar&campo=codigo&operacao=igual&valor=${p1}&porPagina=10`)).j;
+          const loteAr = (await (await fetch(`${base}/cobranca/baixa-receber/titulos?codigos=${r2},${rQ}&dtpgto=2026-01-20`, { headers: H })).json().catch(() => [])) as any[];
+          const loteAp = (await (await fetch(`${base}/cobranca/baixa-apagar/titulos?codigos=${p2},${pQ}`, { headers: H })).json().catch(() => [])) as any[];
+          const semGrant = await fetch(`${base}/cadastro/pesquisa?recurso=financeiro/baixa-receber&campo=codigo&operacao=igual&valor=${r1}&porPagina=10`, { headers: H_SEM_ACESSO });
+          await pgPq.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [[r1, r2, rQ, rAg]]);
+          await pgPq.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [[p1, p2, pQ]]);
+          check('PESQUISA §298.39 [as baixas pela Pesquisa]: a GET_RCB da baixa a receber traz os abertos não agrupados (o quitado e o agrupado não) e a GET_APAGAR da baixa a pagar os abertos, com a cor do compromisso bloqueado; o lote recebe exatamente os marcados que seguem abertos (o quitado fica fora); sem a tela, 403',
+            JSON.stringify(vistosAr) === JSON.stringify([r1, r2]) && JSON.stringify(vistosAp) === JSON.stringify([p1, p2])
+            && corAp?.linhas?.[0]?._cor === 'VERMELHO'
+            && loteAr.map((t) => Number(t.codrcb)).join() === String(r2) && loteAp.map((t) => Number(t.codapg)).join() === String(p2)
+            && semGrant.status === 403,
+            { vistosAr, esperadoAr: [r1, r2], vistosAp, esperadoAp: [p1, p2], cor: corAp?.linhas?.[0]?._cor, loteAr: loteAr.map((t) => t.codrcb), loteAp: loteAp.map((t) => t.codapg), semGrant: semGrant.status });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

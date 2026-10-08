@@ -101,6 +101,7 @@ export class BaixaApagarLoteService {
          AND (${f.vencDe ?? null}::date IS NULL OR a.dtvenc >= ${f.vencDe ?? null}::date)
          AND (${f.vencAte ?? null}::date IS NULL OR a.dtvenc <= ${f.vencAte ?? null}::date)
          AND (${f.busca ?? null}::text IS NULL OR a.duplicata ILIKE '%' || ${f.busca ?? null}::text || '%' OR p.razao ILIKE '%' || ${f.busca ?? null}::text || '%')
+         ${f.codigos?.length ? sql`AND a.codapg = ANY(${f.codigos}::int[])` : sql``}
        ORDER BY a.dtvenc, p.razao, a.codapg
        LIMIT 2000
     `.execute(db)).rows;

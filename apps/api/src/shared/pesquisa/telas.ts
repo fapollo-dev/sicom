@@ -476,6 +476,29 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'ROXO', legenda: 'Boletos Bancários emitidos' },
       { coluna: 'data_vencimento', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'Vencida' },
     ] },
+  // BAIXA A PAGAR (FRMBAIXAAPAGAR, btnAdicionarRegistroClick, UBaixaApagar.pas:292-327): a GET_APAGAR (os abertos — o WHERE está na view)
+  // das lojas do GetMultiEmpresa, com as cores do legado (BLOQUEIO = S vermelho "Compromisso bloqueado"; FORNECEDOR_POSSUI_DEBITO = S
+  // azul "Fornecedor possui débito"); em multisseleção — os marcados viram os documentos do lote (GET_APAGAR WHERE CODIGO IN …)
+  'financeiro/baixa-apagar': { view: 'get_apagar', viewLegado: 'GET_APAGAR', relacao: 'rel_get_apagar', ocultas: OCULTAS.apagar, form: 'FRMBAIXAAPAGAR',
+    titulo: 'Documentos a pagar', retorno: 'codigo', statusRetorno: '', totalizador: true,
+    requer: { form: 'FRMBAIXAAPAGAR', opcao: 'FRMBAIXAAPAGAR' },
+    obrigatorios: async (ctx) => [emLista('codigo_empresa', await ctx.lojas())],
+    descricaoObrigatorios: 'CODIGO_EMPRESA in (lojas)',
+    cores: [
+      { coluna: 'bloqueio', op: '=', valor: 'S', cor: 'VERMELHO', legenda: 'Compromisso bloqueado' },
+      { coluna: 'fornecedor_possui_debito', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Fornecedor possui débito' },
+    ] },
+  // BAIXA A RECEBER (FRMBAIXAARECEBER, btnAdicionarRegistroClick, UBaixaAreceber.pas:888-903): a GET_RCB das lojas do GetMultiEmpresa, aberta
+  // (QUITADA = 'N') e não agrupada, só a conciliada quando a loja do login fecha caixa; a cor VENCIDAS (DATA_VENCIMENTO < hoje, :2563-2570);
+  // em multisseleção — os marcados viram os documentos do lote (o `cdsDoctos` com CODIGO IN …)
+  'financeiro/baixa-receber': { view: 'get_areceber', viewLegado: 'GET_RCB', relacao: 'get_rcb', ocultas: OCULTAS.rcb, form: 'FRMBAIXAARECEBER',
+    titulo: 'Documentos a receber', retorno: 'codigo', statusRetorno: '', totalizador: true, desempate: ['data_pagamento'],
+    requer: { form: 'FRMBAIXAARECEBER', opcao: 'FRMBAIXAARECEBER' },
+    obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas()),
+      sql<SqlBool>`trim(${sql.ref('quitada')}) = 'N'`, sql<SqlBool>`coalesce(trim(${sql.ref('agrupado')}), 'N') = 'N'`,
+      sql<SqlBool>`(coalesce((select e.fechamento_caixa from empresas e where e.idempresa = ${ctx.empresa ?? -1}), 'N') <> 'S' or ${sql.ref('consiliado')} = 'S')`],
+    descricaoObrigatorios: "IDEMPRESA IN (lojas) AND COALESCE(AGRUPADO, 'N') = 'N' AND QUITADA = 'N' [AND CONSILIADO = 'S']",
+    cores: [{ coluna: 'data_vencimento', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'VENCIDAS' }] },
   // B5: a GET_HISTORICO_CONTABIL da produção (CODIGO, DESC_HISTORICO, STATUS) — o DESC_HISTORICO no fim da view (mig 413); retorno CODIGO
   'cadastro/historico-contabil': { view: 'get_historico_contabil', ocultas: OCULTAS.historicoContabil, form: 'FRMCADHISTORICOCONTABIL',
     titulo: 'Histórico contábil', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },

@@ -485,4 +485,16 @@ empate: um gap sobre tabela morta vai para o fim.
     Não convertido — fica para decisão.
   - **#53 Restituição de tributação: uso NÃO provado.** O menu apaga o inventário em tela e o recria com os marcados; o resultado é
     igual ao de uma digitação comum, sem marca de origem. Não convertido — fica para decisão.
+- **Corte 6 — a Pesquisa no lugar das grades que cortavam (08/10/2026):**
+  - Medido na produção: a loja 1 tem **16.023 títulos a receber e 5.922 a pagar em aberto** (2.947 a receber só com vencimento em 2026)
+    e baixou 881 títulos a receber em 2026. A grade das baixas ordenava por vencimento e cortava em 2.000 sem avisar: sem filtro, mostrava
+    os de 2020-21 e escondia os de 2026.
+  - **Baixa a receber (#4) e baixa a pagar (#1)** ✅: o "Iniciar baixa" e o "&Adicionar documentos" abrem a Pesquisa do legado —
+    `financeiro/baixa-receber` (GET_RCB das lojas, aberta e não agrupada, conciliada quando a loja fecha caixa, VENCIDAS em vermelho) e
+    `financeiro/baixa-apagar` (GET_APAGAR das lojas, compromisso bloqueado em vermelho e fornecedor com débito em azul), em
+    multisseleção; os marcados entram no lote pelos códigos (`titulos?codigos=…`, ainda abertos). Saíram a grade e os filtros próprios.
+    Smoke §298.39.
+  - A seguir: o agrupamento (o cliente 95443 tem 4.752 títulos abertos — o corte em 500 morde mesmo filtrando por ele) e a liberação do
+    controle de contas (a conta 1 tem 17.844 movimentos não liberados contra o corte em 5.000). O CNAB (1.000) não morde: a loja 50, a
+    única que remete, tem 827 títulos abertos.
 

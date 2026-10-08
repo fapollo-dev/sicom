@@ -26,7 +26,7 @@ export interface TituloBaixa {
 export interface ContaBaixa { codconta: number; nroconta: string | null; titular: string | null; codbco: number | null; idempresa: number; caixa: boolean; cbo_baixa_cp: string }
 export interface TipoRecurso { tipo: number; rotulo: string; liberado: 'S' | 'N'; contaCaixa: boolean }
 export interface PadroesBaixa { ccJuros: number | null; ccAcrescimo: number | null; ccDesconto: number | null; diasFutura: number; permiteRetroativa: boolean; recursos: TipoRecurso[]; empresas: number[] }
-export interface FiltroTitulos { busca?: string; codparceiro?: string; vencDe?: string; vencAte?: string; empresas?: number[] }
+export interface FiltroTitulos { busca?: string; codparceiro?: string; vencDe?: string; vencAte?: string; empresas?: number[]; codigos?: number[] }
 
 export const iniciarBaixa = () => req<{ idlote: number }>('/cobranca/baixa-apagar/iniciar', { method: 'POST' });
 export const padroesBaixa = () => req<PadroesBaixa>('/cobranca/baixa-apagar/padroes');

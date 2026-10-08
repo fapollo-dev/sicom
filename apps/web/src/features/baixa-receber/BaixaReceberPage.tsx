@@ -4,19 +4,19 @@ import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { DateField } from '../../shared/ui/DateField';
 import { SelectField } from '../../shared/ui/SelectField';
-import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import {
   contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, retornoBaixaReceber, titulosBaixaReceber,
-  type ContaReceber, type FiltroReceber, type FormaCartao, type PadroesReceber, type TituloReceber,
+  type ContaReceber, type FormaCartao, type PadroesReceber, type TituloReceber,
 } from './baixaReceberApi';
 
 /**
  * BAIXA DE CONTAS A RECEBER (`FRMBAIXAARECEBER`, `UBaixaAreceber.pas`; `uBaixaAreceber-spec.md`). "Iniciar baixa" aloca o lote;
- * a pesquisa traz os títulos abertos (vencidos em vermelho). Na grade, % e R$ de acréscimo/desconto por documento (o desconto
+ * a Pesquisa da GET_RCB traz os títulos abertos (vencidos em vermelho), em multisseleção. Na grade, % e R$ de acréscimo/desconto por documento (o desconto
  * do cliente por prazo já entra); o acréscimo/desconto global é rateado pelo valor e pede a senha de desconto. Os recursos saem
  * de contas correntes: DINHEIRO (caixa ou banco), DOC, TRANSFERÊNCIA, DÉBITO, ANTECIPAÇÃO e CARTAO (a forma escolhida). O
  * excesso do recurso vira acréscimo. Desconto no lote pede o login de um liberador quando a config exige.
@@ -39,9 +39,9 @@ export function BaixaReceberPage() {
   const [formasCartao, setFormasCartao] = useState<FormaCartao[]>([]);
   const [lote, setLote] = useState<number | null>(null);
   const [loteManutencao, setLoteManutencao] = useState<number | null>(null);
-  const [filtro, setFiltro] = useState<FiltroReceber>({});
-  const [pesquisa, setPesquisa] = useState<TituloReceber[] | null>(null);
-  const [marcados, setMarcados] = useState<Set<number>>(new Set());
+  // as lojas do GetMultiEmpresa (vazio = a do login) e a Pesquisa da GET_RCB aberta (o btnAdicionarRegistro, UBaixaAreceber.pas:888-903)
+  const [empresas, setEmpresas] = useState<number[]>([]);
+  const [pesquisando, setPesquisando] = useState(false);
   const [docs, setDocs] = useState<DocGrade[]>([]);
   const [dtpgto, setDtpgto] = useState(hoje());
   const [global, setGlobal] = useState({ valor: '', senha: '' });
@@ -103,8 +103,7 @@ export function BaixaReceberPage() {
     setGlobal({ valor: '', senha: '' });
     setLiberacao(null);
     setDtpgto(hoje());
-    setPesquisa(await titulosBaixaReceber({ ...filtro, dtpgto: hoje() }));
-    setMarcados(new Set());
+    setPesquisando(true);
   });
   // "Importar arquivo retorno" (`ProcessarArquivoRetorno`, :2596-2775): a grade vem do arquivo, a data é a do arquivo e o
   // histórico padrão do recurso cita o arquivo; grava pelo fluxo normal
@@ -118,23 +117,29 @@ export function BaixaReceberPage() {
     setNovo(null);
     setGlobal({ valor: '', senha: '' });
     setLiberacao(null);
-    setPesquisa(null);
+    setPesquisando(false);
     setDtpgto(r.dtpgto ?? hoje());
     setArquivoRetorno(r.nomeArquivo ?? arquivo.name);
     setDocs(r.documentos.map((d) => ({ ...d, desconto_cliente: 0, percentual: 0, acreDescValor: d.acre_desc ?? 0 })));
     if (r.naoEncontrados.length) mensagem.erro(new Error(`${r.naoEncontrados.length} boleto(s) do arquivo não foram encontrados no sistema ou já foram baixados.`));
   });
-  const pesquisar = () => executar(async () => {
-    setPesquisa(await titulosBaixaReceber({ ...filtro, dtpgto }));
-    setMarcados(new Set());
-  });
-  const alternar = (id: number) => setMarcados((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
-  const adicionar = () => {
+  const abrirPesquisa = () => {
     if (recursos.length) { mensagem.erro(new Error('Exclua os recursos antes de adicionar um documento.')); return; }
-    const ja = new Set(docs.map((d) => d.codrcb));
-    setDocs([...docs, ...(pesquisa ?? []).filter((t) => marcados.has(t.codrcb) && !ja.has(t.codrcb)).map((t) => ({ ...t, percentual: 0, acreDescValor: 0 }))]);
-    setMarcados(new Set());
+    setPesquisando(true);
   };
+  // os marcados na Pesquisa viram documentos do lote (o `cdsDoctos` com CODIGO IN …, :905-940), com o desconto do cliente na data da
+  // baixa; o que já está no lote não repete
+  const adicionarDaPesquisa = (linhas: Array<Record<string, unknown>>) => executar(async () => {
+    setPesquisando(false);
+    const ja = new Set(docs.map((d) => d.codrcb));
+    const codigos = [...new Set(linhas.map((l) => Number(l.codigo ?? l.codrcb)).filter((c) => Number.isInteger(c) && c > 0 && !ja.has(c)))];
+    if (!codigos.length) return;
+    const titulos = await titulosBaixaReceber({ codigos, dtpgto, empresas });
+    setDocs((atual) => {
+      const tem = new Set(atual.map((d) => d.codrcb));
+      return [...atual, ...titulos.filter((t) => !tem.has(t.codrcb)).map((t) => ({ ...t, percentual: 0, acreDescValor: 0 }))];
+    });
+  });
   const excluirDoc = (codrcb: number) => {
     if (recursos.length) { mensagem.erro(new Error('Exclua os recursos antes de excluir um documento.')); return; }
     if (!window.confirm('Deseja realmente excluir este documento?')) return;
@@ -200,7 +205,7 @@ export function BaixaReceberPage() {
       setLoteManutencao(null);
       setDocs([]);
       setRecursos([]);
-      setPesquisa(null);
+      setPesquisando(false);
       setGlobal({ valor: '', senha: '' });
       setLiberacao(null);
       setArquivoRetorno(null);
@@ -219,7 +224,7 @@ export function BaixaReceberPage() {
     setDocs([]);
     setRecursos([]);
     setNovo(null);
-    setPesquisa(null);
+    setPesquisando(false);
     setLiberacao(null);
   };
 
@@ -265,53 +270,25 @@ export function BaixaReceberPage() {
       </section>
 
       {lote && !loteManutencao && !arquivoRetorno && (
-        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <strong className="text-sm">Documentos a receber em aberto</strong>
-          <div className="flex flex-wrap items-end gap-gp-sm">
-            <div className="w-56"><Field label="Documento ou cliente" value={filtro.busca ?? ''} onChange={(e) => setFiltro({ ...filtro, busca: e.target.value })} /></div>
-            <div className="w-36"><Field label="Cliente (código)" inputMode="numeric" value={filtro.codparceiro ?? ''} onChange={(e) => setFiltro({ ...filtro, codparceiro: e.target.value })} /></div>
-            <div className="w-40"><DateField label="Vencimento de" value={filtro.vencDe ?? ''} onChange={(v) => setFiltro({ ...filtro, vencDe: v ?? '' })} /></div>
-            <div className="w-40"><DateField label="até" value={filtro.vencAte ?? ''} onChange={(v) => setFiltro({ ...filtro, vencAte: v ?? '' })} /></div>
-            {padroes && padroes.empresas.length > 1 && (
-              <div className="w-44"><Field label="Empresas (códigos)" value={(filtro.empresas ?? []).join(',')} onChange={(e) => setFiltro({ ...filtro, empresas: e.target.value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0) })} /></div>
-            )}
-            <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
-            <Button label="&Adicionar marcados" variant="ghost" onClick={adicionar} disabled={ocupado || marcados.size === 0} />
-          </div>
-          {pesquisa && (pesquisa.length === 0
-            ? <small className="text-fg-muted">Nenhum documento em aberto com esses filtros.</small>
-            : (
-              <div className="max-h-72 overflow-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-fg-muted">
-                      <th className="px-2 py-1" /><th className="px-2 py-1">Documento</th><th className="px-2 py-1">Cliente</th><th className="px-2 py-1">Empresa</th>
-                      <th className="px-2 py-1">Vencimento</th><th className="px-2 py-1 text-right">Valor</th><th className="px-2 py-1 text-right">Desconto do cliente</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pesquisa.map((t) => (
-                      <tr key={t.codrcb} className={`border-t border-border ${t.vencido ? 'text-danger' : ''}`}>
-                        <td className="px-2 py-1"><CheckboxField label="Selecionar" value={marcados.has(t.codrcb) ? 'S' : 'N'} onChange={() => alternar(t.codrcb)} /></td>
-                        <td className="px-2 py-1">{t.duplicata ?? ''}</td>
-                        <td className="px-2 py-1">{t.codparceiro} · {t.cliente ?? ''}</td>
-                        <td className="px-2 py-1 tabular-nums">{t.codempresa}</td>
-                        <td className="px-2 py-1 tabular-nums">{dataBr(t.vencimento)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{moeda(t.valor)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{t.desconto_cliente ? moeda(t.desconto_cliente) : ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+        <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <strong className="w-full text-sm">Documentos a receber em aberto</strong>
+          {padroes && padroes.empresas.length > 1 && (
+            <div className="w-44"><Field label="Empresas (códigos)" value={empresas.join(',')} placeholder="esta loja"
+              onChange={(e) => setEmpresas(e.target.value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0))} /></div>
+          )}
+          <Button label="&Adicionar documentos" variant="soft" onClick={abrirPesquisa} disabled={ocupado} />
+          <small className="text-fg-muted">A Pesquisa dos documentos abertos (vencidos em vermelho): marque e confirme para trazê-los ao lote.</small>
         </section>
+      )}
+      {pesquisando && (
+        <Pesquisa resourcePath="financeiro/baixa-receber" multisselecao parametros={{ empresas: empresas.length ? empresas.join(',') : undefined }}
+          onSelecionarVarios={(ls) => void adicionarDaPesquisa(ls)} onSelecionar={(l) => void adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
       )}
 
       {lote && (
         <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <strong className="text-sm">Documentos da baixa</strong>
-          {docs.length === 0 ? <small className="text-fg-muted">Marque documentos na pesquisa e adicione.</small> : (
+          {docs.length === 0 ? <small className="text-fg-muted">Adicione documentos pela Pesquisa.</small> : (
             <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead>

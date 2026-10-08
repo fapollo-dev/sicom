@@ -14,6 +14,8 @@ export const baixaApagarTitulosSchema = z.object({
   vencDe: z.preprocess((v) => (v === '' ? undefined : v), data.optional()),
   vencAte: z.preprocess((v) => (v === '' ? undefined : v), data.optional()),
   busca: z.preprocess((v) => (v === '' ? undefined : v), z.string().trim().max(60).optional()),
+  /** os títulos marcados na Pesquisa (o `cdsDoctos` do legado com CODIGO IN …): o lote recebe exatamente esses */
+  codigos: z.preprocess((v) => (typeof v === 'string' ? v.split(',').filter(Boolean) : v), z.array(z.coerce.number().int().positive()).max(1000).optional()),
 });
 export type BaixaApagarTitulosDto = z.infer<typeof baixaApagarTitulosSchema>;
 
