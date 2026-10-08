@@ -15490,6 +15490,28 @@ async function main() {
     const permiteDef = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
     check('CFG: DELETE override → 204 + valor efetivo volta ao default (S)', cfgDel.status === 204 && permiteDef?.valorEfetivo === 'S' && permiteDef?.overrideEmpresa === null, { status: cfgDel.status, ef: permiteDef?.valorEfetivo });
     await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=2`, { method: 'DELETE', headers: HA2 }); // limpa o override da emp 2
+    // 89.9) a LOG do CONFIGURADOR GERAL (50 linhas na produção desde 2025, todas de CONFIGURACOES_ESPECIFICAS): CHAVE = o código, VALOR 0,
+    // a empresa do escopo, o texto sem normalizar — Inseriu/Excluiu com "Valor: x", Alterou com "Antes: x | Depois: y"; regravar igual não loga
+    {
+      const pgCg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const desde = Number((await pgCg.query(`SELECT coalesce(max(idlog), 0) AS m FROM log`)).rows[0].m);
+        const put = (valor: string) => fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: HA, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor }) });
+        await put('S'); await put('N'); await put('N');
+        await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=1`, { method: 'DELETE', headers: HA });
+        const desc = (await pgCg.query(`SELECT descricao FROM configuracoes WHERE codigo = 'PERMITE_PROC_NF_ESTOQUE_NEG'`)).rows[0]?.descricao;
+        const logs = (await pgCg.query(`SELECT acao, tabela, chave, valor::int AS valor, idempresa, historico FROM log
+                                         WHERE formulario = 'Configurador Geral' AND idlog > $1 ORDER BY idlog`, [desde])).rows as any[];
+        const base1 = `Parametro: ${desc} | Tipo: Empresa | Chave: 1 | `;
+        check('CFG §89.9 [a LOG do Configurador Geral]: incluir o override grava "Parametro: <descrição> | Tipo: Empresa | Chave: 1 | Valor: S", trocar grava "Antes: S | Depois: N", regravar o mesmo valor não grava, excluir grava "Valor: N" — TABELA CONFIGURACOES_ESPECIFICAS, CHAVE = o código, VALOR 0, a empresa do escopo, o texto como está',
+          logs.length === 3 && logs.map((l) => l.acao).join() === 'Inseriu,Alterou,Excluiu'
+          && logs[0].historico === `${base1}Valor: S` && logs[1].historico === `${base1}Antes: S | Depois: N` && logs[2].historico === `${base1}Valor: N`
+          && logs.every((l) => l.tabela === 'CONFIGURACOES_ESPECIFICAS' && l.chave === 'PERMITE_PROC_NF_ESTOQUE_NEG' && l.valor === 0 && Number(l.idempresa) === 1),
+          { logs, desc });
+      } finally {
+        await pgCg.end();
+      }
+    }
 
     // 90) LIVRO RAZÃO contábil (uRelRazaoContabil) — relatório read-only do DIÁRIO por conta/período.
     // Conta de teste DEDICADA (99001, classe='A') p/ determinismo total — nenhuma outra seção a toca.

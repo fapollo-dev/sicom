@@ -44,6 +44,20 @@ curva ABC por fornecedor (98) é a das COMPRAS e não existia — **convertida**
 o último fim de preço 2 em 2017); a precificação por tabela de preço (158) vira ⛔ (`PRECO`/`PRECO_ITEM` vazias). O placar acima segue como
 retrato de 18/09; esta correção muda três linhas: 🟢 −3, ✅ +1, 🪦 +1, ⛔ +1.
 
+**Atualização 08/10/2026 — a varredura da LOG por FORMULÁRIO** (produção 2025-26, 57 títulos, cruzados com o que o Apollo grava): a LOG
+mostra telas e janelas vivas que o menu não mostra. Resultado:
+- ✅ **"Processamento rápido de nota fiscal"** (838 linhas, 157 notas desde 2024) — a janela da entrada de transferência,
+  convertida (`uProcessaNotaFiscal.md`).
+- ✅ **"Configurador Geral"** (50) — a LOG das configurações por escopo, agora gravada.
+- 🟡 **"GERACAOAUTOMATICA"** (189 desde 2025, último 18/09/2026, 4 operadores): "Pedido de compra gerado a partir das diferenças dos
+  itens da nota fiscal faltantes e inexistentes. Nro: N gerado a partir do pedido nro: M" — o pedido NOVO nasce aberto, com o
+  fornecedor, as lojas e o vencimento/faturamento do pedido de ORIGEM, e a origem é sempre um pedido antigo (2022-2024). Não está no
+  fonte de 2020 e o gatilho não aparece no dado (as notas processadas antes não são do pedido de origem): **sem prova do gatilho, não
+  convertido** — precisa do fonte novo ou de recon com o usuário.
+- Divergência de texto já registrada: "Cadastro de parceiros - Fornecedor"/"- Transportadora" (o título vem do menu escolhido).
+- Fora de escopo/marginais: "Cadastro de Relatórios" (upload de .fr3 do suporte), "Lançamento automático OFX" (17, último 05/2025),
+  concorrentes (21), "Configuração Integração Bancária (Boleto)" (5) e títulos de 1 a 3 linhas.
+
 **Todo veredito tem procedência**: contagem no Oracle de produção (só leitura), linha do fonte Delphi, ou
 ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 

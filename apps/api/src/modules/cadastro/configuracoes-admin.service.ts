@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
+import { gravarLog, type AcaoLog } from '../../shared/log/registro-log';
 
 type AnyDB = Kysely<any>;
 export type EscopoTipo = 'Empresa' | 'Usuario' | 'Modulo';
@@ -122,7 +123,21 @@ export class ConfiguracoesAdminService {
     return emp;
   }
 
-  /** grava/atualiza o override da EMPRESA corrente (só se a chave permite escopo Empresa; valor válido). */
+  /**
+   * a LOG do Configurador Geral (50 linhas na produção desde 2025, todas da CONFIGURACOES_ESPECIFICAS): TABELA CONFIGURACOES_ESPECIFICAS,
+   * CHAVE = o CÓDIGO da configuração, VALOR 0, a empresa quando o escopo é Empresa, e o texto como está (sem normalizar) —
+   * "Parametro: <descrição> | Tipo: Empresa | Chave: 1 | Valor: N" na inclusão e na exclusão, "… | Antes: S | Depois: N" na alteração
+   */
+  private async logConfig(trx: AnyDB, acao: AcaoLog, codigo: string, tipo: EscopoTipo, chave: string, valores: { valor?: string; antes?: string; depois?: string }): Promise<void> {
+    const descricao = ((await trx.selectFrom('configuracoes').select('descricao').where('codigo', '=', codigo).executeTakeFirst()) as { descricao?: string | null } | undefined)?.descricao ?? codigo;
+    const fim = acao === 'Alterou' ? `Antes: ${valores.antes ?? ''} | Depois: ${valores.depois ?? ''}` : `Valor: ${valores.valor ?? ''}`;
+    await gravarLog(trx, {
+      acao, formulario: 'Configurador Geral', tabela: 'CONFIGURACOES_ESPECIFICAS', chave: codigo, valor: 0, normalizar: false,
+      historico: `Parametro: ${descricao} | Tipo: ${tipo} | Chave: ${chave} | ${fim}`, idempresa: tipo === 'Empresa' ? Number(chave) : null,
+    });
+  }
+
+  /** grava/atualiza o override da EMPRESA corrente (só se a chave permite escopo Empresa; valor válido), com a LOG do Configurador Geral. */
   async setOverride(codigo: string, dto: { tipo: EscopoTipo; chave: string; valor: string }): Promise<Record<string, unknown>> {
     const emp = this.assertEscopoEmpresa(dto.tipo, dto.chave);
     const cfg = await this.chaveCfg(codigo);
@@ -130,24 +145,34 @@ export class ConfiguracoesAdminService {
     if (!permitidos.includes('Empresa'))
       throw new BusinessRuleError('CONFIG_ESCOPO_NAO_PERMITIDO', { tipo: 'Empresa', permitidos });
     this.validarValor(cfg, dto.valor);
-    await (this.dbp.forTenant() as AnyDB)
-      .insertInto('configuracoes_especificas')
-      .values({ id: cfg.id, tipo: 'Empresa', chave: String(emp), valor: dto.valor })
-      .onConflict((oc: any) => oc.columns(['id', 'tipo', 'chave']).doUpdateSet({ valor: dto.valor }))
-      .execute();
+    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const atual = (await trx.selectFrom('configuracoes_especificas').select('valor').where('id', '=', cfg.id).where('tipo', '=', 'Empresa')
+        .where('chave', '=', String(emp)).forUpdate().executeTakeFirst()) as { valor?: unknown } | undefined;
+      await trx
+        .insertInto('configuracoes_especificas')
+        .values({ id: cfg.id, tipo: 'Empresa', chave: String(emp), valor: dto.valor })
+        .onConflict((oc: any) => oc.columns(['id', 'tipo', 'chave']).doUpdateSet({ valor: dto.valor }))
+        .execute();
+      if (!atual) await this.logConfig(trx, 'Inseriu', codigo, 'Empresa', String(emp), { valor: dto.valor });
+      else if (String(atual.valor ?? '') !== dto.valor) await this.logConfig(trx, 'Alterou', codigo, 'Empresa', String(emp), { antes: String(atual.valor ?? ''), depois: dto.valor });
+    });
     return { codigo, tipo: 'Empresa', chave: String(emp), valor: dto.valor };
   }
 
-  /** remove o override da EMPRESA corrente (volta ao default). */
+  /** remove o override da EMPRESA corrente (volta ao default), com a LOG do Configurador Geral. */
   async removerOverride(codigo: string, tipo: EscopoTipo, chave: string): Promise<void> {
     const emp = this.assertEscopoEmpresa(tipo, chave);
     const cfg = await this.chaveCfg(codigo);
-    await (this.dbp.forTenant() as AnyDB)
-      .deleteFrom('configuracoes_especificas')
-      .where('id', '=', cfg.id)
-      .where('tipo', '=', 'Empresa')
-      .where('chave', '=', String(emp))
-      .execute();
+    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const apagada = (await trx
+        .deleteFrom('configuracoes_especificas')
+        .where('id', '=', cfg.id)
+        .where('tipo', '=', 'Empresa')
+        .where('chave', '=', String(emp))
+        .returning('valor')
+        .executeTakeFirst()) as { valor?: unknown } | undefined;
+      if (apagada) await this.logConfig(trx, 'Excluiu', codigo, 'Empresa', String(emp), { valor: String(apagada.valor ?? '') });
+    });
   }
 
   /** altera o DEFAULT global da chave (CONFIGURACOES.VALOR) — per-tenant. */
