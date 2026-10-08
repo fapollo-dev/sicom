@@ -510,6 +510,12 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
                               and coalesce(o.habiltiar_libe_moviment, 'S') = 'S')`];
     },
     descricaoObrigatorios: "(LIBERADO <> 'SIM') AND (CODIGO_CONTA = conta)" },
+  // ATUALIZAÇÃO AUTOMÁTICA (FRMMULTATUALIZACAO, btnBuscaProdutoClick, uMultAtualizacao.pas:228-260): a GET_PRODUTOS_ATUALIZACAO da loja do login
+  // (EMPRESA = loja) em multisseleção — a grade da atualização em massa "vira" os marcados. A grade própria de antes cortava em 500 sem avisar:
+  // com um filtro maior, a atualização em massa pegaria só parte dele
+  'cadastro/mult-atualizacao-produtos': { view: 'get_produtos_atualizacao', viewLegado: 'GET_PRODUTOS_ATUALIZACAO', form: 'FRMMULTATUALIZACAO',
+    titulo: 'Produtos', retorno: 'idproduto', statusRetorno: '', requer: { form: 'FRMMULTATUALIZACAO', opcao: 'FRMMULTATUALIZACAO' },
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('empresa')} = ${ctx.empresa ?? -1}`], descricaoObrigatorios: 'EMPRESA = loja' },
   // BAIXA A PAGAR (FRMBAIXAAPAGAR, btnAdicionarRegistroClick, UBaixaApagar.pas:292-327): a GET_APAGAR (os abertos — o WHERE está na view)
   // das lojas do GetMultiEmpresa, com as cores do legado (BLOQUEIO = S vermelho "Compromisso bloqueado"; FORNECEDOR_POSSUI_DEBITO = S
   // azul "Fornecedor possui débito"); em multisseleção — os marcados viram os documentos do lote (GET_APAGAR WHERE CODIGO IN …)

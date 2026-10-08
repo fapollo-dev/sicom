@@ -506,5 +506,9 @@ empate: um gap sobre tabela morta vai para o fim.
     recentes nunca apareciam). Agora "Liberar movimentações" abre a Pesquisa `financeiro/liberar-movimentos` (a GET_MOV_CONTAS_BANCARIAS da
     conta com LIBERADO <> 'SIM', só com a conta do operador e a liberação permitida) em multisseleção e pede a data depois, como o
     legado. Smoke §298.41.
-  - O CNAB (1.000) não morde: a loja 50, a única que remete, tem 827 títulos abertos.
+  - **Atualização automática (#83)** ✅: a grade cortava em 500 em silêncio — numa atualização EM MASSA, um filtro maior seria atualizado
+    só em parte. Agora o "Buscar produtos (F3)" é a Pesquisa `cadastro/mult-atualizacao-produtos` (a GET_PRODUTOS_ATUALIZACAO da loja) em
+    multisseleção e a grade vira os marcados (`produtos?ids=…`), como o `btnBuscaProdutoClick`. Smoke §109.1b.
+  - O CNAB (1.000) não morde: a loja 50, a única que remete, tem 827 títulos abertos. Com isso não sobra grade com corte silencioso
+    entre os 21 cobertos do §1.
 

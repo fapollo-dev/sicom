@@ -7,6 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { multApi, type LinhaSimulada, type ProdutoMult } from './multAtualizacaoApi';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 /**
  * ATUALIZAÇÃO AUTOMÁTICA DE PRODUTOS (`FRMMULTATUALIZACAO`).
@@ -21,7 +22,8 @@ const moeda = (v: unknown) => (v == null ? '' : Number(v).toLocaleString('pt-BR'
 export function MultAtualizacaoPage() {
   const { tem: pode } = useOpcoesDoForm('FRMMULTATUALIZACAO'); // permissões de controle (docs/05-migration-engineering/permissoes-de-controle.md)
   const mensagem = useMensagem();
-  const [f, setF] = useState({ texto: '', codgrupo: '', codsubgrupo: '', codfor: '', somenteAtivos: 'S' });
+  // o btnBuscaProduto do legado: a Pesquisa da GET_PRODUTOS_ATUALIZACAO da loja; a grade vira os marcados
+  const [pesquisando, setPesquisando] = useState(false);
   const [produtos, setProdutos] = useState<ProdutoMult[]>([]);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [alt, setAlt] = useState<{ campo: string; operacao: string; modo: string; valor: string }>({
@@ -33,21 +35,20 @@ export function MultAtualizacaoPage() {
   const metaCampo = CAMPOS_MULT.find((c) => c.campo === alt.campo)!;
   const operacoesValidas = OPERACOES_MULT.filter((o) => o.tipo === 'ambos' || o.tipo === metaCampo.tipo);
 
-  const buscar = async () => {
+  const trazerDaPesquisa = async (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    const ids = [...new Set(linhas.map((l) => Number(l.idproduto ?? l.codigo)).filter((c) => Number.isInteger(c) && c > 0))];
+    if (!ids.length) return;
     setOcupado(true);
     try {
-      const q: Record<string, string> = { somenteAtivos: f.somenteAtivos, limite: '500' };
-      if (f.texto) q.texto = f.texto;
-      if (f.codgrupo) q.codgrupo = f.codgrupo;
-      if (f.codsubgrupo) q.codsubgrupo = f.codsubgrupo;
-      if (f.codfor) q.codfor = f.codfor;
-      const r = await multApi.buscar(q);
+      const r: ProdutoMult[] = [];
+      for (let i = 0; i < ids.length; i += 400) r.push(...(await multApi.buscar({ ids: ids.slice(i, i + 400).join(',') })));
       setProdutos(r); setSel(new Set(r.map((p) => p.idproduto))); setPrevia(null);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
   // F3 = btnBuscaProdutoClick (FormKeyDown do uMultAtualizacao; lá, fora dos campos PIS/COFINS e Natureza, que a tela não tem)
-  useShortcut('f3', () => void buscar(), { when: !ocupado });
+  useShortcut('f3', () => setPesquisando(true), { when: !ocupado && !pesquisando });
 
   const corpo = (): SimularMultDto => ({
     idprodutos: [...sel], campo: alt.campo as SimularMultDto['campo'],
@@ -66,7 +67,11 @@ export function MultAtualizacaoPage() {
       const r = await multApi.aplicar(corpo());
       mensagem.sucesso(`${r.produtos} produto(s) atualizado(s).`);
       setPrevia(null);
-      await buscar();
+      // a grade recarrega os mesmos produtos, com os valores gravados
+      const ids = produtos.map((x) => x.idproduto);
+      const r2: ProdutoMult[] = [];
+      for (let i = 0; i < ids.length; i += 400) r2.push(...(await multApi.buscar({ ids: ids.slice(i, i + 400).join(',') })));
+      setProdutos(r2);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -108,19 +113,13 @@ export function MultAtualizacaoPage() {
           <strong> antes de gravar</strong>. A simulação usa exatamente a mesma conta da gravação.
         </p>
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-64"><Field label="&Descrição ou EAN" value={f.texto} onChange={(e) => setF({ ...f, texto: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="Su&bgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value })} /></div>
-          <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
-          <label className="flex flex-col gap-gp-xs text-body-sm">
-            Situação
-            <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
-              value={f.somenteAtivos} onChange={(e) => setF({ ...f, somenteAtivos: e.target.value })}>
-              <option value="S">Só ativos</option><option value="N">Só inativos</option><option value="T">Todos</option>
-            </select>
-          </label>
-          <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Buscar produtos (F3)" disabled={ocupado} onClick={() => setPesquisando(true)} />
+          <small className="text-fg-muted">A Pesquisa dos produtos da loja: marque os que entram na atualização e confirme.</small>
         </div>
+        {pesquisando && (
+          <Pesquisa resourcePath="cadastro/mult-atualizacao-produtos" multisselecao
+            onSelecionarVarios={(ls) => void trazerDaPesquisa(ls)} onSelecionar={(l) => void trazerDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+        )}
       </section>
 
       {produtos.length > 0 && (

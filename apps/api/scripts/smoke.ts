@@ -16648,6 +16648,16 @@ async function main() {
           doGrupo.length === 3 && Math.abs(Number(doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA')?.vrvenda) - 20) < 0.005
           && Math.abs(Number(doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA')?.vrcusto) - 10) < 0.005,
           { achados: doGrupo.length, arroz: doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA') });
+        {
+          // §109.1b) a Pesquisa do legado no lugar da grade que cortava em 500 (btnBuscaProdutoClick, uMultAtualizacao.pas:228-260): a
+          // GET_PRODUTOS_ATUALIZACAO da loja; os marcados viram a grade (ids), sem o filtro de situação nem o corte
+          const pesqMa = (await (await fetch(`${base}/cadastro/pesquisa?recurso=cadastro/mult-atualizacao-produtos&campo=descricao&operacao=comeca&valor=ARROZ%20SMOKE%20MA&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any;
+          const porIds = (await (await fetch(`${base}/${MA}/produtos?ids=${prods[0]},${prods[2]}`, { headers: H })).json().catch(() => ([]))) as any[];
+          check('MULT ATUALIZAÇÃO §109.1b [a Pesquisa no lugar da grade que cortava em 500]: a GET_PRODUTOS_ATUALIZACAO da loja acha o produto; a grade recebe exatamente os marcados (por id)',
+            (pesqMa.linhas ?? []).some((l: any) => Number(l.idproduto) === prods[0])
+            && porIds.map((p: any) => Number(p.idproduto)).sort((a: number, b: number) => a - b).join() === [prods[0], prods[2]].sort((a, b) => a - b).join(),
+            { pesq: (pesqMa.linhas ?? []).map((l: any) => l.idproduto), code: pesqMa.code, porIds: porIds.map((p: any) => p.idproduto) });
+        }
 
         // SIMULAR: +10% no valor de venda. O percentual é do valor ATUAL DE CADA produto (20, 22, 24)
         const simBody = { idprodutos: prods, campo: 'VR_VENDA', operacao: 'SOMAR', modo: 'PERCENTUAL', valor: '10' };

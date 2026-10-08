@@ -85,6 +85,8 @@ export const filtroProdutosMultSchema = z.object({
   codfor: z.coerce.number().int().positive().optional(),
   somenteAtivos: z.enum(['S', 'N', 'T']).default('S'),
   limite: z.coerce.number().int().positive().max(5000).default(500),
+  /** os produtos marcados na Pesquisa da GET_PRODUTOS_ATUALIZACAO (a grade do legado "vira" os marcados) */
+  ids: z.preprocess((v) => (typeof v === 'string' ? v.split(',').filter(Boolean) : v), z.array(z.coerce.number().int().positive()).max(5000).optional()),
 });
 
 export const simularMultSchema = z.object({

@@ -88,9 +88,10 @@ export class MultAtualizacaoService {
          AND (${f.codsubgrupo ?? null}::int IS NULL OR p.codsubgrupo = ${f.codsubgrupo ?? null}::int)
          AND (${f.coddpto ?? null}::int     IS NULL OR p.coddpto     = ${f.coddpto ?? null}::int)
          AND (${f.codfor ?? null}::int      IS NULL OR p.codfor      = ${f.codfor ?? null}::int)
-         AND (${f.somenteAtivos} = 'T' OR coalesce(p.ativo, 'S') = ${f.somenteAtivos})
+         AND (${f.ids?.length ? true : false} OR ${f.somenteAtivos} = 'T' OR coalesce(p.ativo, 'S') = ${f.somenteAtivos})
+         ${f.ids?.length ? sql`AND p.idproduto = ANY(${f.ids}::int[])` : sql``}
        ORDER BY p.descricao
-       LIMIT ${f.limite}
+       LIMIT ${f.ids?.length ? f.ids.length : f.limite}
     `.execute(db)).rows;
   }
 
