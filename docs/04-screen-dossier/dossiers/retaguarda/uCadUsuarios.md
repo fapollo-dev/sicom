@@ -249,3 +249,9 @@ mantém); "A senha informada não confere!"; vai ao `senha_hash` (scrypt) com SO
 acesso), zera tentativas/bloqueio, e nunca volta na leitura. **Divergência consciente:** a cifra reversível do legado
 (SENHA = César +13, LOGIN_SENHA = CryptApollo) não é gravada — é a mesma decisão do cutover das senhas. Smoke §208.
 Pendente (MÉDIA): SENHAPDV/SENHARETAGUARDA e as 19 flags de PERMISSAOPDV (PDV fora do escopo).
+
+## F2 — o cadastro de perfil por cima (08/10/2026)
+
+`FormKeyDown` (uCadUsuarios.pas:687-726): F2 abre o cadastro de perfil no tipo da aba ativa (Perfil de compras → Compras; senão
+Acessos) e, ao voltar, recarrega o operador (`edtCodigoExit`); aberto pelo F2 do cadastro de perfil, o F2 fecha. Os dois se abrem em
+janela por cima, cada um com os portões dele no servidor (o legado não confere o acesso à outra tela). Ver `uCadPerfilOperador.md` §5.
