@@ -29744,6 +29744,17 @@ async function main() {
               cores: [corEtq(PA), corEtq(PI)], deItens: (deItens ?? []).map?.((e: any) => [e.idproduto, e.qtde]) ?? deItens });
         }
 
+        // os filtros de família do relatório de vendas (F3 em multisseleção): a lista passa do teto antigo de 200 — a produção tem 520
+        // subgrupos e o legado não tem teto
+        {
+          const muitos = Array.from({ length: 520 }, (_, i) => 990000 + i);
+          const vendas = async (rota: string) => (await fetch(`${base}/relatorios/${rota}`, { method: 'POST', headers: H,
+            body: JSON.stringify({ dtini: '2039-01-01', dtfim: '2039-01-01', subgrupos: muitos, departamentos: [1], grupos: muitos, secoes: [1] }) })).status;
+          const st = [await vendas('vendas-data/consultar'), await vendas('vendas-hora/consultar'), await vendas('vendas-departamento/consultar')];
+          check('PESQUISA §298.26 [os filtros de família do relatório de vendas]: as listas de departamento, grupo, seção e subgrupo aceitam o que a multisseleção marca — 520 subgrupos (o total da produção) passam; o teto antigo de 200 dava 422',
+            st.every((x) => x === 200 || x === 201), { st });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

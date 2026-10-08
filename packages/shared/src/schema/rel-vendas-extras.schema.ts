@@ -13,9 +13,9 @@ export const relVendasExtrasSchema = z.object({
   canceladas: z.enum(['N', 'S', 'T']).optional(),
   produto: z.string().max(60).optional(),
   fornecedor: z.string().max(60).optional(),
-  departamentos: z.array(z.coerce.number().int()).max(200).optional(),
-  grupos: z.array(z.coerce.number().int()).max(200).optional(),
-  subgrupos: z.array(z.coerce.number().int()).max(200).optional(),
-  secoes: z.array(z.coerce.number().int()).max(200).optional(),
+  departamentos: z.array(z.coerce.number().int()).max(2000).optional(),
+  grupos: z.array(z.coerce.number().int()).max(2000).optional(),
+  subgrupos: z.array(z.coerce.number().int()).max(2000).optional(),
+  secoes: z.array(z.coerce.number().int()).max(2000).optional(),
 });
 export type RelVendasExtrasDto = z.infer<typeof relVendasExtrasSchema>;

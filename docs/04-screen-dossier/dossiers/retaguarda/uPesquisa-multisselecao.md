@@ -341,3 +341,10 @@ empate: um gap sobre tabela morta vai para o fim.
 
   Saiu a rota `GET /cadastro/etiqueta/pesquisa`, que cortava em 500 em silêncio e ordenava pela data do preço. Smoke §298.25 e o check
   "ETIQUETA [pesquisa por situação]" migrado; jsdom `etiquetaPesquisa.spec.tsx`.
+- **Corte 1 — Hub de vendas, famílias** ✅: `shared/pesquisa/FiltroFamilias` (departamento, grupo, seção e subgrupo).
+  - F3 ou "…" abre a Pesquisa `lookup/familias` com o TIPO do nível, em multisseleção; o campo mostra o nome (se é um) ou
+    "*SELECIONADOS", e outra tecla limpa (URelVendas.pas:2462-2492).
+  - Entra nas 7 variantes cuja API já aplicava as listas: 01, 02, 06…, 07, 09…, os complementares e o 38.
+  - O teto de cada lista subiu de 200 para 2.000: a produção tem 520 subgrupos.
+  - Fica de fora o texto digitado no campo: no legado, um LIKE pelo nome com o operador escolhido; a API não tem esse filtro.
+  - Smoke §298.26; jsdom `filtroFamilias.spec.tsx`.

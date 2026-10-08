@@ -180,9 +180,12 @@ describe('Pesquisa — corte D: cores + legenda, atalhos de detalhe e totalizado
   });
 
   it('F8 abre o detalhe da linha posicionada (o cdsDetalhes)', async () => {
+    const user = userEvent.setup();
     abrir();
     await pesquisarCom('');
-    fireEvent.click(await screen.findByText('INATIVO'));
+    // o Enter leva o foco à grade (focarGrade, 60 ms depois); só então o clique — como no navegador, o clique move o foco à linha
+    await waitFor(() => expect(document.activeElement?.closest('[role="row"]')).toBeTruthy());
+    await user.click(await screen.findByText('INATIVO'));
     act(() => { fireEvent.keyDown(window, { key: 'F8', code: 'F8' }); });
     expect(await screen.findByText(/Consulta de Preços: 2 - INATIVO/)).toBeTruthy();
     const u = new URL(chamadas().find((x) => x.includes('/pesquisa/detalhe'))!);

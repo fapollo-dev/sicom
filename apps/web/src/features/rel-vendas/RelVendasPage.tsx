@@ -8,6 +8,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
+import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -41,6 +42,8 @@ export function RelVendasPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState(hoje());
   const [dtfim, setDtfim] = useState(hoje());
+  // os filtros de família do formulário (edtDpto/edtGrupo/edtSecao/edtSubgrupo — F3 em multisseleção)
+  const [familias, setFamilias] = useState<Familias>({});
   const [canceladas, setCanceladas] = useState('N');
   const [promocao, setPromocao] = useState('T');
   const [produto, setProduto] = useState('');
@@ -65,7 +68,7 @@ export function RelVendasPage() {
   const filtroAtual = () => ({
     dtini, dtfim, canceladas, promocao: promocao === 'T' ? undefined : promocao,
     produto: produto || undefined, fornecedor: fornecedor || undefined,
-    custoReposicao: custoRep, filtrarHora, horaIni, horaFim,
+    custoReposicao: custoRep, filtrarHora, horaIni, horaFim, ...familias,
   });
   const imprimir = () => {
     imprimirRelatorio('/relatorios/vendas/produtos-vendidos/impressao', { ...filtroAtual(), layout }).catch((e) => mensagem.erro(e));
@@ -115,6 +118,7 @@ export function RelVendasPage() {
             que a query faz de verdade, sem mudar o comportamento (a fidelidade é com o SQL, não com a legenda). */}
         <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={filtrarHora} onChange={(e) => setFiltrarHora(e.target.checked)} /> Filtrar hora</label>
         {filtrarHora && <><div className="w-24"><Field label="De" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} /></div><div className="w-24"><Field label="Até" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} /></div><small className="text-fg-muted">janela contínua: {dtini} {horaIni} → {dtfim} {horaFim}</small></>}
+        <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Gerar" variant="soft" disabled={busy} onClick={() => void gerar()} />
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
         {/* "Imprimir" no layout .fr3 do cliente (URelVendas.pas:531 — o arquivo escolhido no combo) */}

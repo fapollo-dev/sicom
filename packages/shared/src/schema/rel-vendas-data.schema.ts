@@ -14,10 +14,10 @@ export const relVendasDataSchema = z.object({
   promocao: z.enum(['S', 'N', 'T']).optional(),
   produto: z.string().max(60).optional(),
   fornecedor: z.string().max(60).optional(),
-  departamentos: z.array(z.coerce.number().int()).max(200).optional(),
-  grupos: z.array(z.coerce.number().int()).max(200).optional(),
-  subgrupos: z.array(z.coerce.number().int()).max(200).optional(),
-  secoes: z.array(z.coerce.number().int()).max(200).optional(),
+  departamentos: z.array(z.coerce.number().int()).max(2000).optional(),
+  grupos: z.array(z.coerce.number().int()).max(2000).optional(),
+  subgrupos: z.array(z.coerce.number().int()).max(2000).optional(),
+  secoes: z.array(z.coerce.number().int()).max(2000).optional(),
   aliquota: z.string().max(3).optional(),
 });
 export type RelVendasDataDto = z.infer<typeof relVendasDataSchema>;

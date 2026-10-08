@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -37,6 +38,8 @@ export function RelVendasHoraPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState(hoje());
   const [dtfim, setDtfim] = useState(hoje());
+  // os filtros de família do formulário (edtDpto/edtGrupo/edtSecao/edtSubgrupo — F3 em multisseleção)
+  const [familias, setFamilias] = useState<Familias>({});
   const [detalhe, setDetalhe] = useState(false);
   const [horas, setHoras] = useState<Hora[]>([]);
   const [det, setDet] = useState<Det[]>([]);
@@ -48,7 +51,7 @@ export function RelVendasHoraPage() {
     setBusy(true);
     try {
       const r = await req<{ horas: Hora[]; detalhe: Det[]; totais: Totais }>(
-        '/relatorios/vendas-hora/consultar', { dtini, dtfim, detalhe },
+        '/relatorios/vendas-hora/consultar', { dtini, dtfim, detalhe, ...familias },
       );
       setHoras(r.horas); setDet(r.detalhe); setTotais(r.totais);
       if (!r.horas.length) mensagem.sucesso('Não há venda no período informado.');
@@ -69,6 +72,7 @@ export function RelVendasHoraPage() {
           <input type="checkbox" checked={detalhe} onChange={(e) => setDetalhe(e.target.checked)} />
           Detalhar por &horário exato
         </label>
+        <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         <small className="w-full text-fg-muted">
           É o <b>perfil</b> do dia: num período de vários dias as horas <b>somam</b> entre os dias (não é uma

@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -168,6 +169,8 @@ export function RelVendasExtrasPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState(hoje());
   const [dtfim, setDtfim] = useState(hoje());
+  // os filtros de família do formulário (edtDpto/edtGrupo/edtSecao/edtSubgrupo — F3 em multisseleção)
+  const [familias, setFamilias] = useState<Familias>({});
   const [modo, setModo] = useState('ticket-produto');
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Record<string, unknown> | null>(null);
@@ -178,7 +181,7 @@ export function RelVendasExtrasPage() {
     setBusy(true);
     try {
       const r = await req<{ linhas: Linha[]; totais: Record<string, unknown> }>(
-        `/relatorios/vendas-extras/${modo}`, { dtini, dtfim },
+        `/relatorios/vendas-extras/${modo}`, { dtini, dtfim, ...familias },
       );
       setLinhas(r.linhas); setTotais(r.totais);
       if (!r.linhas.length) mensagem.sucesso('Nenhum registro no período informado.');
@@ -195,6 +198,7 @@ export function RelVendasExtrasPage() {
         <div className="w-96"><SelectField label="&Relatório" value={modo} onChange={(v) => { setModo(v); setLinhas([]); setTotais(null); }} options={MODOS} /></div>
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
+        <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         {modo === 'data-hora' && (
           <small className="w-full text-fg-muted">A hora vem do número do pedido do PDV (como no original), não do relógio da venda.</small>

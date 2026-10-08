@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -43,6 +44,8 @@ export function RelCurvaAbcPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState(hoje());
   const [dtfim, setDtfim] = useState(hoje());
+  // os filtros de família do formulário (edtDpto/edtGrupo/edtSecao/edtSubgrupo — F3 em multisseleção)
+  const [familias, setFamilias] = useState<Familias>({});
   const [produto, setProduto] = useState('');
   const [modo, setModo] = useState('PRODUTO');
   const [exibirFilhos, setExibirFilhos] = useState(false);
@@ -58,7 +61,7 @@ export function RelCurvaAbcPage() {
       // o «ranking por quantidade» (rel 18) é outro endpoint: não tem curva nenhuma, só ordena por qtde.
       const rota = modo === 'QUANTIDADE' ? '/relatorios/curva-abc/quantidade' : '/relatorios/curva-abc/consultar';
       const r = await req<{ linhas: Linha[]; totais: Totais; filtro: Filtro }>(rota, {
-        dtini, dtfim, produto: produto || undefined, exibirFilhos,
+        dtini, dtfim, produto: produto || undefined, exibirFilhos, ...familias,
         dimensao: modo === 'QUANTIDADE' ? undefined : modo,
       });
       setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
@@ -88,6 +91,7 @@ export function RelCurvaAbcPage() {
           <input type="checkbox" checked={exibirFilhos} onChange={(e) => setExibirFilhos(e.target.checked)} />
           Exibir produtos &filhos
         </label>
+        <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         {filtro?.cortes && (
           <small className="w-full text-fg-muted">

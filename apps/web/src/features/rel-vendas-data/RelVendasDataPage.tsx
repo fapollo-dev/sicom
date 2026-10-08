@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -41,6 +42,8 @@ export function RelVendasDataPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState(hoje());
   const [dtfim, setDtfim] = useState(hoje());
+  // os filtros de família do formulário (edtDpto/edtGrupo/edtSecao/edtSubgrupo — F3 em multisseleção)
+  const [familias, setFamilias] = useState<Familias>({});
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Totais | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,7 +52,7 @@ export function RelVendasDataPage() {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await req<{ linhas: Linha[]; totais: Totais }>('/relatorios/vendas-data/consultar', { dtini, dtfim });
+      const r = await req<{ linhas: Linha[]; totais: Totais }>('/relatorios/vendas-data/consultar', { dtini, dtfim, ...familias });
       setLinhas(r.linhas); setTotais(r.totais);
       if (!r.linhas.length) mensagem.sucesso('Não há venda no período informado.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
@@ -62,6 +65,7 @@ export function RelVendasDataPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
+        <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         <small className="w-full text-fg-muted">
           Um dia por linha. <b>Cupons</b> conta cupons (não itens), e o <b>ticket médio</b> é o faturamento do dia
