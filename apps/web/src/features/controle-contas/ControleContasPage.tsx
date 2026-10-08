@@ -76,7 +76,8 @@ export function ControleContasPage() {
       const r = await titulosDoMovimento(m.codmovconta);
       if (r.tipo === 'AR') navigate(`/cobranca/cons-rcb-bx?lote=${r.lote}`);
       else if (r.tipo === 'AP') navigate(`/cobranca/cons-apg-bx?lote=${r.lote}`);
-      else mensagem.sucesso(`Baixa de cartão do lote ${r.lote}${r.revertido ? ' (revertida)' : ''}.`);
+      // VisualizarCartoes (UconsMovBancaria.pas:969-984): a consulta do lote sem a busca e sem a reversão
+      else navigate(`/financeiro/cartoes/consulta-baixa?lote=${r.lote}&consulta=1`);
     } catch (e) { mensagem.erro(e); }
   };
 

@@ -357,6 +357,16 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       emLista('codigo_empresa', await ctx.lojas()),
       sql<SqlBool>`((select coalesce(e.fechamento_caixa, 'N') from empresas e where e.idempresa = ${ctx.empresa ?? -1}) <> 'S' or ${sql.ref('consiliado')} = 'S')`,
     ] },
+  // FRMCONSCRTBX, "[F3] - Buscar cartões" (btnAddChequeTerClick, UConsCRTbx.pas:62-85): a GET_CARTAOBX — os cartões baixados — das
+  // lojas escolhidas (o Empresa vem do GetMultiEmpresa da baixa de cartões); com o FECHAMENTO_CAIXA da empresa = 'S', só os
+  // CONSILIADO = 'S'; devolve o LOTE ao edtLote (o status da produção: frmConsCRTbx|GET_CARTAOBX|edtLote). A tela abre pelo
+  // "Consulta &titulos" (btnConsulta, Tag 1) da baixa de cartões
+  'financeiro/cartao-consulta-baixa': { statusRetorno: 'edtLote', view: 'get_cartaobx', form: 'frmConsCRTbx', titulo: 'Cartões baixados',
+    retorno: 'lote', requer: { form: 'FRMBAIXACARTAO', opcao: 'BTNCONSULTA' },
+    obrigatorios: async (ctx) => [
+      emLista('codigo_empresa', await ctx.lojas()),
+      sql<SqlBool>`((select coalesce(e.fechamento_caixa, 'N') from empresas e where e.idempresa = ${ctx.empresa ?? -1}) <> 'S' or ${sql.ref('consiliado')} = 'S')`,
+    ] },
   // ETIQUETAS (FRMETIQUETA), o botão da pesquisa (btnAdicionarRegistroClick, Uetiqueta.pas:700-760): a GET_PRODUTOS da loja (o
   // SetaEmpresaObrigatoria) com o filtro do rádio "Já impressas / Não impressas / Todas" (`etq_impressa = 'S'/'N'` — a view já dá
   // COALESCE(…,'N')) e o "Buscar somente produtos ativos" (`ATIVO = 'S'`, o da loja com ATIVO_PELA_MULTIPRECO); SetDefault DESCRICAO / Em

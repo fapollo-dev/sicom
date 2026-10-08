@@ -104,3 +104,29 @@ Agora é o fluxo do legado (`btnAdicionarRegistroClick`, `UbaixaCartao.pas:801-8
 - "Baixados"/"Todos" pedem ao servidor os 500 mais recentes, filtrados e ordenados lá.
 
 Smoke §298.24; jsdom `cartaoBaixaLote.spec.tsx`.
+
+## 7. A consulta do lote: "Cartões baixados" (`TfrmConsCRTbx`, 08/10/2026)
+
+A reversão existia (§5), mas a TELA dela não: o Apollo revertia pela linha da grade de cartões, que só alcança os baixados mais
+recentes, sem mostrar o que o lote moveu; e o "Visualizar títulos" do controle de contas só dava um aviso no lote de cartão.
+**Uso na produção (só leitura): 176 lotes revertidos em 2026, o último em 05/10/2026** (2025: 390; desde 2020: 1.207).
+
+- Não está no menu. Abre pelo "Consulta &titulos" da baixa (`btnConsulta`, Tag 1 → `BTNCONSULTA`; desabilitado com uma baixa em
+  andamento) e pelo "Visualizar títulos" do controle de contas (`VisualizarCartoes`, UconsMovBancaria.pas:969-984, sem a busca e sem a
+  reversão). Tela: `/financeiro/cartoes/consulta-baixa`; a linha baixada da grade de cartões leva a ela ("Consultar lote N").
+- **"[F3] - Buscar cartões"** (`btnAddChequeTerClick`, UConsCRTbx.pas:62-85): a Pesquisa da `GET_CARTAOBX` (`financeiro/cartao-consulta-baixa`)
+  das lojas escolhidas, só os `CONSILIADO = 'S'` com o FECHAMENTO_CAIXA da empresa; devolve o LOTE ao `edtLote` (o status salvo da
+  produção — `frmConsCRTbx|GET_CARTAOBX|edtLote`, campo DATA_BAIXA — agora tem chave).
+- **Cartões baixados** = `SELECT * FROM GET_CARTAOBX WHERE LOTE = :LOTE` (uma linha por baixa ativa, como a view): Documento, Operadora
+  do cartão, Valor, Valor com taxa, Data venda, Previsão compensação, Data baixa, Operador da baixa (o título do legado diz "Operadora
+  da baixa", mas a coluna é o NOME do operador). **Recursos utilizados** = a movimentação do lote com a conta e a modalidade (Conta
+  corrente, Titular, Modalidade, Valor, Histórico), o valor com o sinal do legado (o Apollo guarda o absoluto e o tipo).
+- **Reverter baixa**: a do §5, com a confirmação do legado ("Tem certeza que deseja reverter todos os documentos?") e o
+  "Reversão realizada com sucesso."; depois a tela limpa, como o legado fecha os dois datasets.
+- **Correção na reversão**: o Apollo reabria só os cartões das lojas do operador e revertia a movimentação INTEIRA — o cartão de outra
+  loja ficava baixado sem o dinheiro. O legado (`cdsDoctoBX` sem loja) reabre o lote todo; **19 lotes de mais de uma loja desde 2025**.
+  Agora o lote vai inteiro; a loja só decide se o operador ACHA o lote (algum cartão dele numa loja do operador — senão, "Não existem
+  documentos a reverter.").
+- O "Visualizar títulos" reconhece o lote de cartão pela `GET_CARTAOBX.LOTE` (o recebível baixado nele), como o legado — antes era a
+  `cartao_bx`. Smoke §47c.cons.
+

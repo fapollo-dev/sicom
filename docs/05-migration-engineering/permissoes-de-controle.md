@@ -151,7 +151,7 @@ Cruzando o que o Apollo exige × a PERMISSOES da produção, **46 atos** pediam 
 | FRMEXPORTABALANCA | gerar arquivos | `BTNEXPORTAR` | "Exportar" (Tag 1) |
 | FRMCADAGENDAPROMOCAO | encerrar / reabrir | `ENCERRARPROMOCAO` | "Encerrar Promoção" (binário novo) |
 | FRMCADAGENDAPROMOCAO | aplicar preço, vigência | gate | sem componente |
-| FRMBAIXACARTAO | estornar lote | `BTNCONSULTA` | o estorno está no frmConsCRTbx (btnReverterBaixa sem Tag), que só abre por "Consulta baixa" (Tag 1) |
+| FRMBAIXACARTAO | consultar / estornar lote | `BTNCONSULTA` | o estorno está no frmConsCRTbx (btnReverterBaixa sem Tag), que abre por "Consulta &titulos" (Tag 1); a consulta também abre pelo "Visualizar títulos" do controle de contas (gate dele) |
 | FRMDESCONTOTITULO | executar / reverter | `BTNADICIONARREGISTRO` / `BTNCONSULTA` | "Iniciar baixa" (Tag 1); a reversão abre pelo `btnConsultaClick` (Tag 1) |
 | FRMCADPERFILOPERADOR | vínculo perfil×operador | ler: gate · mudar: `BTNGRAVAR` | detalhe do cadastro, persiste no Gravar |
 | FRMCADCOTACAO | lançar preços | `BTNGRAVAR` | digitação na matriz do cadastro, persiste no Gravar |

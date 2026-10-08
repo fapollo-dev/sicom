@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CartaoPage } from '../src/features/cartao/CartaoPage';
 import { ShortcutScope } from '../src/shared/keyboard';
 
@@ -37,7 +39,11 @@ const botao = (texto: string) => screen.getAllByRole('button').find((b) => b.tex
 
 describe('Baixa de cartões — os recebíveis vêm da Pesquisa da GET_CARTAO para o lote (UbaixaCartao.pas:801-830)', () => {
   it('não lista cartões do CRUD em "Abertos"; Iniciar baixa → a Pesquisa → os marcados entram no lote sem repetir; baixar sem conta avisa', async () => {
-    render(<ShortcutScope><CartaoPage /></ShortcutScope>);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><ShortcutScope><CartaoPage /></ShortcutScope></MemoryRouter>
+      </QueryClientProvider>,
+    );
     await waitFor(() => expect(botao('Iniciar baixa')).toBeTruthy());
     // em "Abertos" não há a lista de 200 do CRUD (nenhum GET /cadastro/cartao sem filtro)
     expect((global.fetch as any).mock.calls.some((c: any[]) => /\/cadastro\/cartao(\?|$)/.test(String(c[0])))).toBe(false);

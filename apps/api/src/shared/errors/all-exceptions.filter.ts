@@ -220,6 +220,7 @@ const CODE_PT: Record<string, string> = {
   CARTAO_BAIXA_DATA_FUTURA: 'Data da baixa não pode ser maior que a data atual!',
   EMPRESA_SEM_CC_MULTA_JUROS: 'É necessário configurar na empresa o centro de custo de multas, juros e taxas!',
   CARTAO_BAIXA_FORMA_SEM_CONTA: 'Não há formas de pagamento configuradas para a empresa (a forma do cartão não tem conta corrente).',
+  CARTAO_LOTE_NAO_ENCONTRADO: 'Não existem documentos a reverter.',
   CARTAO_REVERSAO_CONTABILIZADA: 'Não é permitido reverter pois existe(m) documento(s) contabilizado(s).',
   CARTAO_LOTE_SEM_MOVIMENTACAO: 'Movimentação não encontrada.',
   CARTAO_NAO_ENCONTRADO: 'Recebível de cartão não encontrado.',

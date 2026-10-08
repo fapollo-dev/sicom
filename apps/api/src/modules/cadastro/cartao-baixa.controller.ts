@@ -2,7 +2,7 @@ import { Body, Get, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards }
 import { baixarCartaoSchema, type BaixarCartaoDto } from '@apollo/shared';
 import { CartaoBaixaService } from './cartao-baixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -30,6 +30,14 @@ export class CartaoBaixaController {
   @Get('baixas/:codvendcartao')
   @RequerAcesso('FRMBAIXACARTAO', 'BTNGRAVAR')
   baixas(@Param('codvendcartao', ParseIntPipe) codvendcartao: number) { return this.svc.baixasDoCartao(codvendcartao); }
+
+  /**
+   * a consulta do lote (FRMCONSCRTBX): os cartões baixados e os recursos utilizados. A tela não tem gate próprio — abre pelo "Consulta
+   * &titulos" da baixa de cartões (btnConsulta, Tag 1) e pelo "Visualizar títulos" do controle de contas (UconsMovBancaria.pas:969-984)
+   */
+  @Get('consulta-baixa/:idlote')
+  @RequerAcessoDeAlgum(['FRMBAIXACARTAO', 'BTNCONSULTA'], ['FRMCONTROLECONTASBANCARIAS', 'FRMCONTROLECONTASBANCARIAS'])
+  consultaBaixa(@Param('idlote', ParseIntPipe) idlote: number) { return this.svc.consultaBaixa(idlote); }
 
   @Post('estornar-lote/:idlote')
   @HttpCode(200)

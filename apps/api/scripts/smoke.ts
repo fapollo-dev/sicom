@@ -4656,9 +4656,42 @@ async function main() {
           && Number(cxTaxa[0].codplc) === Number(ccMj),
           { fut: [bxFut.status, bxFutJ.code], bx: bxJ, movs, lib, cxTaxa, bxData, ccMj, ctaForma, fpTef });
 
+        // a CONSULTA do lote (FRMCONSCRTBX): a Pesquisa da GET_CARTAOBX acha o lote pelas lojas do operador; a consulta traz os cartões
+        // baixados e os recursos utilizados com o sinal do legado; o "Visualizar títulos" do controle de contas a reconhece. Um cartão do
+        // lote numa loja que o operador não alcança some da Pesquisa, mas o lote vem inteiro e a reversão reabre todos (o legado não
+        // recorta a loja: 19 lotes de mais de uma loja desde 2025)
+        {
+          const CB = `${base}/${CART}/consulta-baixa`;
+          const pesqLote = async () => (((await (await fetch(`${base}/cadastro/pesquisa?recurso=financeiro/cartao-consulta-baixa&campo=lote&operacao=igual&valor=${idlote}&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? []) as any[];
+          const pesqAntes = await pesqLote();
+          const cons = (await (await fetch(`${CB}/${idlote}`, { headers: H })).json().catch(() => ({}))) as any;
+          const movC = Number((await pgCa.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE idlote=$1 AND tipomovimento='C' LIMIT 1`, [idlote])).rows[0]?.codmovconta ?? 0);
+          const vis = (await (await fetch(`${base}/cadastro/controle-contas/${movC}/titulos`, { headers: H })).json().catch(() => ({}))) as any;
+          const semGrant = await fetch(`${CB}/${idlote}`, { headers: H_SEM_ACESSO });
+          await pgCa.query(`UPDATE cartao SET idempresa = 2 WHERE codvendcartao = $1`, [c2]);
+          const pesqOutra = await pesqLote();
+          const consOutra = (await (await fetch(`${CB}/${idlote}`, { headers: H })).json().catch(() => ({}))) as any;
+          await pgCa.query(`UPDATE cartao SET idempresa = 2 WHERE codvendcartao = $1`, [c1]);
+          const foraDoAlcance = await fetch(`${CB}/${idlote}`, { headers: H });
+          const foraJ = (await foraDoAlcance.json().catch(() => ({}))) as any;
+          await pgCa.query(`UPDATE cartao SET idempresa = 1 WHERE codvendcartao = $1`, [c1]);
+          check('CARTÃO §47c.cons [a consulta do lote, FRMCONSCRTBX]: a Pesquisa da GET_CARTAOBX devolve o LOTE (os 2 cartões dele); a consulta traz os cartões baixados (bruto 150, líquido 147) e os 3 recursos com o sinal do legado (+147 na conta de destino, −147 e −3 na da forma; soma −3); o "Visualizar títulos" do crédito reconhece o lote de cartão; sem a tela, 403. Com um cartão na loja 2 (fora do operador), a Pesquisa mostra só o outro, mas a consulta traz o lote inteiro; com os dois fora, 422 "Não existem documentos a reverter."',
+            pesqAntes.length === 2 && pesqAntes.every((l) => Number(l.lote) === idlote)
+            && cons.cartoes?.length === 2 && JSON.stringify(cons.cartoes.map((c: any) => Number(c.codigo)).sort((a: number, b: number) => a - b)) === JSON.stringify([c1, c2].sort((a, b) => a - b))
+            && cons.totais?.valor === 150 && cons.totais?.valor_com_taxa === 147 && cons.cartoes.every((c: any) => c.data_baixa === '2026-06-10')
+            && (cons.recursos ?? []).map((m: any) => m.valor).join('|') === '147|-147|-3' && cons.totais?.recursos === -3
+            && vis.tipo === 'CARTAO' && Number(vis.lote) === idlote && semGrant.status === 403
+            && pesqOutra.length === 1 && Number(pesqOutra[0].codigo) === c1 && consOutra.cartoes?.length === 2
+            && foraDoAlcance.status === 422 && foraJ.code === 'CARTAO_LOTE_NAO_ENCONTRADO',
+            { pesqAntes, cons, vis, semGrant: semGrant.status, pesqOutra, consOutra: consOutra.cartoes?.length, fora: [foraDoAlcance.status, foraJ.code] });
+        }
+
         // reverter o lote (UConsCRTbx.pas:185-265): recebíveis ABERTOS; a movimentação NÃO é apagada — as 3 linhas ficam
-        // REVERTIDO='S' e ganham a contrária (tipo invertido, IDLOTE_REVERSAO = o lote, cada uma num lote novo, "Reabertura…")
+        // REVERTIDO='S' e ganham a contrária (tipo invertido, IDLOTE_REVERSAO = o lote, cada uma num lote novo, "Reabertura…").
+        // O c2 segue na loja 2 (fora do operador): o lote é revertido inteiro
         const es = await fetch(`${base}/${CART}/estornar-lote/${idlote}`, { method: 'POST', headers: H });
+        const c2Rev = (await pgCa.query(`SELECT liberado, idlote FROM cartao WHERE codvendcartao=$1`, [c2])).rows[0] as any;
+        await pgCa.query(`UPDATE cartao SET idempresa = 1 WHERE codvendcartao = $1`, [c2]);
         const esJ = (await es.json().catch(() => ({}))) as any;
         const libE = (await pgCa.query(`SELECT liberado, idlote, dtbaixa, valor_taxa_paga, codplc_taxa_cartao, data_operacao FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
         const origE = (await pgCa.query(`SELECT count(*) FILTER (WHERE revertido='S')::int AS rev, count(*)::int AS n FROM mov_contas_bancarias WHERE idlote=$1`, [idlote])).rows[0] as any;
@@ -4669,8 +4702,8 @@ async function main() {
           && Number(origE?.rev) === 3 && Number(origE?.n) === 3
           && contra.length === 3 && contra.map((c) => c.tipomovimento).join('') === 'DCC' && contra.map((c) => c.valor).join('|') === '147|147|3'
           && new Set(contra.map((c) => Number(c.idlote))).size === 3 && contra.every((c) => Number(c.idlote) !== idlote && String(c.historico).startsWith(`Reabertura da baixa de cartões, lote ${idlote}, realizada pelo usuário `))
-          && cxE === 0,
-          { es: [es.status, esJ], libE, origE, contra, cxE });
+          && cxE === 0 && c2Rev?.liberado === 'N' && c2Rev?.idlote == null,
+          { es: [es.status, esJ], libE, origE, contra, cxE, c2Rev });
 
         // OUTRAS DESPESAS (UbaixaCartao.pas:1151, :1240): saem do crédito, rateadas pelos cartões, e vão à CAIXA antes da taxa
         const bxOdX = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], outrasDespesas: 150 }) });

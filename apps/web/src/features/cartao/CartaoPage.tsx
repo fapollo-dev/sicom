@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { NumberField } from '../../shared/ui/NumberField';
 import { DateField } from '../../shared/ui/DateField';
@@ -7,8 +8,9 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import {
-  listarCartoes, criarCartao, excluirCartao, listarOperadoras, contasDoOperador, baixarCartoes, estornarLoteCartao, recebivelDaPesquisa, TETO_CONSULTA_CARTOES,
+  listarCartoes, criarCartao, excluirCartao, listarOperadoras, contasDoOperador, baixarCartoes, recebivelDaPesquisa, TETO_CONSULTA_CARTOES,
   type CartaoRecebivel, type Operadora, type ContaDoOperador, type DestinoBaixaCartao,
 } from './cartaoApi';
 
@@ -25,6 +27,8 @@ const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().joi
  */
 export function CartaoPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
+  const { tem: pode } = useOpcoesDoForm('FRMBAIXACARTAO'); // o btnConsulta tem Tag 1
   const [lista, setLista] = useState<CartaoRecebivel[]>([]);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   const [contas, setContas] = useState<ContaDoOperador[]>([]);
@@ -114,10 +118,8 @@ export function CartaoPage() {
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
-  const estornarLote = async (idlote: number) => {
-    if (!window.confirm(`Tem certeza que deseja reverter todos os documentos do lote ${idlote}?`)) return;
-    try { const r = await estornarLoteCartao(idlote); mensagem.sucesso(`Reversão realizada com sucesso — ${r.itens} recebível(is) reaberto(s), ${r.contraMovimentos} movimentação(ões) contrária(s).`); await carregar(); } catch (e) { mensagem.erro(e); }
-  };
+  // a consulta do lote (FRMCONSCRTBX): os cartões baixados, os recursos utilizados e o "Reverter baixa"
+  const consultarLote = (idlote?: number) => navigate(idlote ? `/financeiro/cartoes/consulta-baixa?lote=${idlote}` : '/financeiro/cartoes/consulta-baixa');
 
   const linhas = filtro === 'N' ? [...lote.values()] : lista;
   const totalBruto = linhas.reduce((s, r) => s + Number(r.valor ?? 0), 0);
@@ -132,7 +134,7 @@ export function CartaoPage() {
     { field: 'previsao_compensacao', headerName: 'Vencimento', type: 'text', width: 120, valueFormatter: dia },
     { field: 'liberado', headerName: 'Situação', type: 'text', width: 110, valueFormatter: (v: unknown) => (v === 'S' ? 'Baixado' : 'Aberto') },
     { field: 'acoes', headerName: '', type: 'actions', width: 150, getActions: ({ row }: { row: CartaoRecebivel }) => (row.liberado === 'S'
-      ? (row.idlote ? [{ id: 'est', label: `Reverter lote ${row.idlote}`, onClick: (r: CartaoRecebivel) => void estornarLote(Number(r.idlote)) }] : [])
+      ? (row.idlote && pode('BTNCONSULTA') ? [{ id: 'lote', label: `Consultar lote ${row.idlote}`, onClick: (r: CartaoRecebivel) => consultarLote(Number(r.idlote)) }] : [])
       : [
         ...(filtro === 'N' ? [{ id: 'rem', label: 'Tirar do lote', onClick: (r: CartaoRecebivel) => removerDoLote(Number(r.codvendcartao)) }] : []),
         { id: 'del', label: 'Excluir', onClick: (r: CartaoRecebivel) => void excluir(Number(r.codvendcartao)) },
@@ -164,6 +166,8 @@ export function CartaoPage() {
             <Button label="&Baixar o lote" variant="soft" disabled={busy || !lote.size} onClick={() => void baixarLote()} />
           </>
         )}
+        {/* "Consulta &titulos" (btnConsulta, Tag 1, UbaixaCartao.pas:933): a consulta do lote; desabilitado com uma baixa em andamento */}
+        <Button label="Consulta &títulos" variant="ghost" disabled={busy || lote.size > 0 || !pode('BTNCONSULTA')} onClick={() => consultarLote()} />
         <div className="flex-1 text-right text-body-sm text-fg-muted">
           Bruto <b className="text-fg">{brl(totalBruto)}</b> · Líquido <b className="text-fg">{brl(totalLiq)}</b> · {linhas.length} recebível(is)
           {filtro === 'N' ? ' no lote' : linhas.length >= TETO_CONSULTA_CARTOES ? ` (os ${TETO_CONSULTA_CARTOES} mais recentes)` : ''}

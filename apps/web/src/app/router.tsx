@@ -158,6 +158,7 @@ import { RelVendasExtrasPage } from '../features/rel-vendas-extras/RelVendasExtr
 import { ManifestoDfePage } from '../features/manifesto-dfe/ManifestoDfePage';
 import { PendenciasPage } from '../features/pendencias/PendenciasPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
+import { ConsCrtBxPage } from '../features/cons-crt-bx/ConsCrtBxPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
 import { ConciliacaoBancariaPage } from '../features/conciliacao/ConciliacaoBancariaPage';
@@ -237,6 +238,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/vendas-extras', element: <RelVendasExtrasPage /> }, // rel 21/22/26/33/39: complementares
       { path: '/relatorios/curva-abc', element: <RelCurvaAbcPage /> }, // rel 09: classificação A/B/C por faturamento acumulado // rel 13: o que não girou // DRE de caixa por conta gerencial // 4º relatório: cupons × média por dia // 3º relatório: vendas × formas de pagamento // aprovar/cancelar a conferência do coletor // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
+      { path: '/financeiro/cartoes/consulta-baixa', element: <ConsCrtBxPage /> }, // FRMCONSCRTBX — abre pela baixa de cartões e pelo controle de contas (fora do menu)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno
       { path: '/cobranca/cnab', element: <CnabRemessaPage /> }, // boleto + remessa CNAB (Itaú 400) dos títulos a receber

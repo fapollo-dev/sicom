@@ -295,6 +295,43 @@ export class CartaoBaixaService {
   }
 
   /**
+   * a CONSULTA do lote (`TfrmConsCRTbx`, "Cartões baixados", UConsCRTbx.pas:62-85): os cartões baixados (`SELECT * FROM GET_CARTAOBX
+   * WHERE LOTE = :LOTE`, o cdsDoctoBX — uma linha por baixa ativa, como a view) e os recursos utilizados (a movimentação bancária do lote,
+   * com a conta e a modalidade — o sqqContaCorrente). O lote vem inteiro, de qualquer loja, como no legado; o Apollo só exige que algum
+   * cartão dele seja de uma loja do operador (a Pesquisa que acha o lote filtra por elas). O VALOR do recurso sai com o sinal do legado
+   * (o Apollo guarda o absoluto e o tipo).
+   */
+  async consultaBaixa(idlote: number): Promise<{ idlote: number; cartoes: Record<string, unknown>[]; recursos: Record<string, unknown>[]; totais: Record<string, number> }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const permitidas = await this.empresasPermitidas(db, this.emp(), this.op());
+    const cartoes = (await sql<Record<string, unknown>>`
+      SELECT codigo, nrocupom, operadora, valor, valor_com_taxa, to_char(data, 'YYYY-MM-DD') AS data, to_char(previsao_compensacao, 'YYYY-MM-DD') AS previsao_compensacao,
+             to_char(data_baixa, 'YYYY-MM-DD') AS data_baixa, operador_baixa, codigo_empresa, contabilizado, valorpg
+        FROM get_cartaobx WHERE lote = ${idlote} ORDER BY codigo`.execute(db)).rows;
+    if (!cartoes.some((c) => permitidas.includes(Number(c.codigo_empresa)))) throw new BusinessRuleError('CARTAO_LOTE_NAO_ENCONTRADO', { idlote });
+    const recursos = (await sql<Record<string, unknown>>`
+      SELECT m.codmovconta, m.codconta, c.nroconta, c.titular, f.modalidade, CASE WHEN m.tipomovimento = 'D' THEN -m.valor ELSE m.valor END AS valor,
+             m.tipomovimento, m.historico, coalesce(m.revertido, 'N') AS revertido
+        FROM mov_contas_bancarias m
+        LEFT JOIN formas_pgto f      ON f.idpgto = m.idpgto
+        LEFT JOIN contas_bancarias c ON c.codconta = m.codconta
+       WHERE m.idlote = ${idlote}
+       ORDER BY m.codmovconta`.execute(db)).rows;
+    const lista = cartoes.map((c) => ({ ...c, valor: r2(num(c.valor)), valor_com_taxa: r2(num(c.valor_com_taxa)), valorpg: c.valorpg == null ? null : r2(num(c.valorpg)) }));
+    return {
+      idlote,
+      cartoes: lista,
+      recursos: recursos.map((m) => ({ ...m, valor: r2(num(m.valor)) })),
+      totais: {
+        cartoes: lista.length,
+        valor: r2(lista.reduce((s2, c) => s2 + c.valor, 0)),
+        valor_com_taxa: r2(lista.reduce((s2, c) => s2 + c.valor_com_taxa, 0)),
+        recursos: r2(recursos.reduce((s2, m) => s2 + num(m.valor), 0)), // o TOTAL (SUM(VALOR)) do cdsContaCorrente
+      },
+    };
+  }
+
+  /**
    * REVERTER o lote (`TfrmConsCRTbx.btnReverterBaixaClick`, `UConsCRTbx.pas:95-275`). Não apaga a movimentação: marca cada
    * linha do lote como REVERTIDA e lança a CONTRÁRIA — cada uma num lote novo, com `IDLOTE_REVERSAO` = o lote, emissão agora,
    * tipo invertido e "Reabertura da baixa de cartões, lote N, realizada pelo usuário X." (produção: 86909 → 86911/86912).
@@ -310,10 +347,12 @@ export class CartaoBaixaService {
       const hoje = String((await sql<{ d: string }>`SELECT to_char((now() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d);
       await this.assertPeriodo(trx, hoje);
       const permitidas = await this.empresasPermitidas(trx, emp, op);
-      const recs = (await trx.selectFrom('cartao').select(['codvendcartao', 'contabilizado', sql<string>`to_char(dtbaixa, 'YYYY-MM-DD')`.as('dtbaixa')])
-        .where('idlote', '=', idlote).where('idempresa', 'in', permitidas).where('liberado', '=', 'S').orderBy('codvendcartao').forUpdate().execute()) as Array<{ codvendcartao: number; contabilizado: string | null; dtbaixa: string | null }>;
-      // "Não existem documentos a reverter."
-      if (!recs.length) throw new BusinessRuleError('CARTAO_LOTE_NAO_ENCONTRADO', { idlote });
+      // o lote INTEIRO, de qualquer loja (o cdsDoctoBX é `GET_CARTAOBX WHERE LOTE`, sem loja): a movimentação é revertida toda, e
+      // reabrir só os cartões das lojas do operador deixaria os outros baixados sem o dinheiro (19 lotes de mais de uma loja desde 2025)
+      const recs = (await trx.selectFrom('cartao').select(['codvendcartao', 'idempresa', 'contabilizado', sql<string>`to_char(dtbaixa, 'YYYY-MM-DD')`.as('dtbaixa')])
+        .where('idlote', '=', idlote).where('liberado', '=', 'S').orderBy('codvendcartao').forUpdate().execute()) as Array<{ codvendcartao: number; idempresa: number; contabilizado: string | null; dtbaixa: string | null }>;
+      // "Não existem documentos a reverter." — e o lote que nenhuma loja do operador alcança não existe para ele (a Pesquisa filtra)
+      if (!recs.some((r) => permitidas.includes(Number(r.idempresa)))) throw new BusinessRuleError('CARTAO_LOTE_NAO_ENCONTRADO', { idlote });
       const contabilizados = recs.filter((r) => String(r.contabilizado ?? '') === 'S').map((r) => Number(r.codvendcartao));
       const integracao = String(((await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst()) as { integracao?: string | null } | undefined)?.integracao ?? '');
       // "Não é permitido reverter pois existe(m) documento(s) contabilizado(s). Código(s): …"

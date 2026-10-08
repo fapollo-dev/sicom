@@ -196,7 +196,8 @@ export class ControleContasService {
     if (lote > 0) {
       if ((await sql`SELECT 1 FROM areceber_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'AR', revertido };
       if ((await sql`SELECT 1 FROM apagar_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'AP', revertido };
-      if (!revertido && (await sql`SELECT 1 FROM cartao_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'CARTAO', revertido };
+      // o cartão pela GET_CARTAOBX.LOTE (o recebível baixado nesse lote), como o legado — é o que a consulta do lote mostra
+      if (!revertido && (await sql`SELECT 1 FROM cartao WHERE idlote = ${lote} AND liberado = 'S' LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'CARTAO', revertido };
     }
     throw new BusinessRuleError(revertido ? 'MOVIMENTO_REVERTIDO_SEM_TITULOS' : 'MOVIMENTO_SEM_TITULOS', { codmovconta });
   }

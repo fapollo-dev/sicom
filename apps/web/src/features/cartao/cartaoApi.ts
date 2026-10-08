@@ -86,6 +86,18 @@ export function baixarCartoes(dto: BaixarCartoesDto): Promise<{ idlote: number; 
 /** as contas do operador (`CONTAS_BANCARIAS_OP`) — a F3 da conta na baixa (`edtCodContaExit`) */
 export interface ContaDoOperador { codconta: number; nroconta?: string | null; titular?: string | null; codbco: number | null; caixa: boolean }
 export function contasDoOperador(): Promise<ContaDoOperador[]> { return req('/cadastro/cartao/baixa/contas', { method: 'GET' }); }
+/** a consulta do lote da baixa (FRMCONSCRTBX): os cartões baixados (GET_CARTAOBX) e os recursos utilizados (a movimentação do lote) */
+export interface ConsultaBaixaCartao {
+  idlote: number;
+  cartoes: Array<{ codigo: number; nrocupom: string | null; operadora: string | null; valor: number; valor_com_taxa: number; data: string | null;
+    previsao_compensacao: string | null; data_baixa: string | null; operador_baixa: string | null; codigo_empresa: number; contabilizado: string | null }>;
+  recursos: Array<{ codmovconta: number; codconta: number; nroconta: string | null; titular: string | null; modalidade: string | null; valor: number; tipomovimento: string; historico: string | null }>;
+  totais: { cartoes: number; valor: number; valor_com_taxa: number; recursos: number };
+}
+export function consultaBaixaCartao(idlote: number): Promise<ConsultaBaixaCartao> {
+  return req(`/cadastro/cartao/consulta-baixa/${idlote}`, { method: 'GET' });
+}
+
 export function estornarLoteCartao(idlote: number): Promise<{ idlote: number; itens: number; contraMovimentos: number }> {
   return req(`/cadastro/cartao/estornar-lote/${idlote}`, { method: 'POST' });
 }
