@@ -25,7 +25,8 @@ import { ImportarXmlModal } from './ImportarXmlModal';
 import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
-  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido, herdarItensPedido } from './pedidoCompraApi';
+  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido, herdarItensPedido,
+  baixarPedidosLote, excluirZeradosPedido } from './pedidoCompraApi';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -58,10 +59,11 @@ function estadoLojas(form: UseFormReturn<CriarPedidoCompraDto>) {
   return { lojas, fechamento, lojaLogadaFechada, participa, travado: fechamento === 'total' || lojaLogadaFechada };
 }
 
-/** a quantidade (caixas) do item: a soma das lojas quando elas vêm, senão a do item (default 1, a linha de antes). */
+/** a quantidade (caixas) do item: a soma das lojas quando elas vêm, senão a do item (sem ela, 1; o ZERO fica zero — o item do lote) */
 function qtdeDoItem(it: Partial<PedidoCompraItemDto>): number {
   if (Array.isArray(it.lojas) && it.lojas.length) return it.lojas.reduce((a, l) => a + (Number(l.qtde) || 0), 0);
-  return Number(it.qtde ?? 1) || 1;
+  const q = Number(it.qtde ?? 1);
+  return Number.isFinite(q) ? q : 1;
 }
 
 /** recarrega o estado por loja depois de fechar/reabrir (quem fechou, o que ficou parcial). */
@@ -111,8 +113,32 @@ export function PedidoCompraCadMaster() {
     [],
   );
 
+  // o "Baixar" (BtnBaixarClick, uPedidoCompra.pas:6540-6570): a Pesquisa dos pedidos não fechados da loja em multisseleção, a pergunta
+  // do legado e o fechar de cada um (as travas e o limite — o lote não é atalho); os recusados voltam com o motivo
+  const { tem: podePedido } = useOpcoesDoForm('FRMPEDIDOCOMPRA');
+  const mensagemPagina = useMensagem();
+  const [baixando, setBaixando] = useState(false);
+  const baixarLote = async (linhas: Array<Record<string, unknown>>) => {
+    setBaixando(false);
+    const ids = [...new Set(linhas.map((l) => Number(l.codigo ?? l.nropedido)))].filter((x) => Number.isInteger(x) && x > 0);
+    if (!ids.length) return;
+    if (!window.confirm('Deseja dar baixa nos pedidos selecionados ?')) return;
+    try {
+      const r = await baixarPedidosLote(ids);
+      if (!r.recusados.length) { mensagemPagina.sucesso('Baixa realizada com sucesso!'); return; }
+      const motivos = r.recusados.map((x) => `Pedido ${x.codpedcomp}: ${x.message ?? x.code}`).join('\n');
+      mensagemPagina.erro(new Error(`${r.baixados.length ? `Baixados: ${r.baixados.join(', ')}.\n` : ''}Não baixados:\n${motivos}`));
+    } catch (e) { mensagemPagina.erro(e); }
+  };
+
   return (
+    <>
+    {baixando && (
+      <Pesquisa resourcePath="compras/pedidos-baixa" multisselecao onSelecionarVarios={(ls) => void baixarLote(ls)}
+        onSelecionar={(l) => void baixarLote([l])} onFechar={() => setBaixando(false)} />
+    )}
     <CadMaster<CriarPedidoCompraDto>
+      outros={podePedido('BTNBAIXAR') ? [{ label: '&Baixar pedidos', onClick: () => setBaixando(true) }] : undefined}
       titulo="Pedido de Compra"
       resourcePath="compras/pedidos"
       pk="codpedcomp"
@@ -135,6 +161,7 @@ export function PedidoCompraCadMaster() {
         <PedidoForm form={form} editavel={editavel} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
       )}
     />
+    </>
   );
 }
 
@@ -905,6 +932,26 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
     }).catch((e) => mensagem.erro(e));
   };
 
+  // "EXCLUIR ITENS COM QTDE ZERADA" (o 1º do menu Outros do legado, retirarositenscomquantidade1Click): só com o pedido sem nenhuma
+  // loja fechada; a pergunta (padrão Não), os dois DELETE no servidor e o pedido recarregado — e o legado IMPRIME o pedido em seguida,
+  // respondendo sim ou não (FlagEnviaEmail := 0; mniImprimirPedidoClick). Com alteração não gravada, pede para gravar antes (o legado
+  // grava sozinho)
+  const excluirZerados = () => {
+    if (form.formState.isDirty) { mensagem.erro(new Error('Grave o pedido antes de excluir os itens com quantidade zerada.')); return; }
+    const confirmou = window.confirm('Deseja retirar os itens com quantidade igual a 0 (zero)?');
+    let comZerados = true;
+    imprimirRelatorio(() => `/compras/pedidos/${codpedcomp}/impressao/fr3?agrupado=0&zerados=${comZerados ? 1 : 0}`, undefined, async () => {
+      if (confirmou) {
+        await excluirZeradosPedido(codpedcomp);
+        const fresh = await obterPedido(codpedcomp);
+        form.setValue('itens' as any, (fresh.itens ?? []) as any);
+      }
+      const d = await obterImpressaoPedido(codpedcomp, false);
+      comZerados = d.imprime_zerado === 'S' || !d.tem_zerados
+        || (d.imprime_zerado === 'P' && window.confirm('Deseja imprimir os itens com quantidade igual a zero?'));
+    }).catch((e) => mensagem.erro(e));
+  };
+
   // corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO) — "Atualizar preço → On-line".
   const atualizarPrecos = async () => {
     if (executando) return;
@@ -994,6 +1041,7 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
         {fechado && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
         {est.lojaLogadaFechada && !recebido && <Button label="Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
+        {est.fechamento === 'nenhum' && est.participa && <Button label="Excluir itens com Qtde zerada" variant="ghost" onClick={excluirZerados} />}
         <Button label="&Imprimir pedido" variant="ghost" onClick={() => void imprimir(false)} />
         <Button label="Imprimir a&grupado" variant="ghost" onClick={() => void imprimir(true)} />
         {codpedcomp != null && (

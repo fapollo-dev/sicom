@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { mensagemPt } from '../../shared/errors/all-exceptions.filter';
 import { estadoFechamento, lojaFechada, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { herdarDoCatalogo } from './pedido-heranca';
@@ -96,6 +97,46 @@ export class PedidoCompraService {
       await novoHistorico(trx, codpedcomp, op, `Pedido fechado para a empresa ${emp} através da tela de pedido de compra.`);
       const depois = await estadoFechamento(trx, codpedcomp, 'S');
       return { codpedcomp, fechado: 'S' as const, idempresa: emp, fechamento: depois.tipo };
+    });
+  }
+
+  /**
+   * o "BAIXAR" EM LOTE (BtnBaixarClick, uPedidoCompra.pas:6540-6570): o legado faz um UPDATE cru do FECHADO da loja em cada pedido marcado,
+   * sem conferir nada — lá o limite diário/semanal de compra é conferido no GRAVAR. Aqui o limite está no FECHAR, então cada pedido passa
+   * pelo `fechar` (loja já fechada, sem itens, limite, meta diária): o lote não é atalho para fugir do limite. O que for recusado volta com
+   * o código e o motivo; os outros fecham (cada um na sua transação, como o UPDATE por pedido do legado).
+   */
+  async baixarLote(codpedcomps: number[]): Promise<{ baixados: number[]; recusados: Array<{ codpedcomp: number; code: string; message?: string }> }> {
+    const baixados: number[] = [];
+    const recusados: Array<{ codpedcomp: number; code: string; message?: string }> = [];
+    for (const cod of [...new Set(codpedcomps.map(Number).filter((x) => Number.isInteger(x) && x > 0))].slice(0, 2000)) {
+      try {
+        await this.fechar(cod);
+        baixados.push(cod);
+      } catch (e) {
+        if (!(e instanceof BusinessRuleError)) throw e;
+        recusados.push({ codpedcomp: cod, code: e.code, message: mensagemPt(e.code) ?? e.message });
+      }
+    }
+    return { baixados, recusados };
+  }
+
+  /**
+   * "EXCLUIR ITENS COM QTDE ZERADA" (retirarositenscomquantidade1Click, uPedidoCompra.pas): apaga as quantidades zeradas das lojas e o item
+   * que ficou sem nenhuma (os dois DELETE do legado). O menu só se habilita com o pedido gravado e sem nenhuma loja fechada
+   * (ValidarBotaoOutros: `TipoFechamento = tfSemFechamento`) — aqui a mesma trava, no servidor.
+   */
+  async excluirZerados(codpedcomp: number): Promise<{ codpedcomp: number; quantidades: number; itens: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado']);
+      const estado = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
+      if (estado.tipo !== 'nenhum') throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
+      const q = await sql`DELETE FROM pedido_compra_qtde WHERE coalesce(qtde, 0) = 0
+                            AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ${codpedcomp})`.execute(trx);
+      const i = await sql`DELETE FROM pedidocompra_i WHERE codpedcomp = ${codpedcomp}
+                            AND codpedcompi NOT IN (SELECT codpedcompi FROM pedido_compra_qtde)`.execute(trx);
+      return { codpedcomp, quantidades: Number(q.numAffectedRows ?? 0), itens: Number(i.numAffectedRows ?? 0) };
     });
   }
 

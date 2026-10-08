@@ -248,6 +248,12 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'bonificacao', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Pedido com bonificação' },
       { coluna: 'dt_vencimento', op: '<', hoje: true, cor: 'VERDE', legenda: 'Pedido vencido' },
     ] },
+  // o "Baixar" em lote do pedido (BtnBaixarClick, uPedidoCompra.pas:6540-6570): a GET_PEDIDOCOMPRA com FECHADO <> 'S' na LOJA LOGADA
+  // (o FECHADO da linha é o da loja), em multisseleção; sem SetDefault nem cores (abre no 1º alfabético). A opção do botão (BTNBAIXAR,
+  // 93 concessões na produção) é exigida
+  'compras/pedidos-baixa': { view: 'get_pedidocompra', viewLegado: 'GET_PEDIDOCOMPRA', relacao: 'rel_get_pedidocompra', ocultas: OCULTAS.pedidocompra,
+    form: 'FRMPEDIDOCOMPRA', titulo: 'Pedidos a baixar', retorno: 'codigo', desempate: ['idempresa'], requer: { form: 'FRMPEDIDOCOMPRA', opcao: 'BTNBAIXAR' },
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('fechado')} <> 'S'`, sql<SqlBool>`${sql.ref('idempresa')} = ${ctx.empresa ?? -1}`] },
   // uNF.pas:6202-6300: TIPO da tela e a loja do login (:6291); abre em PARCEIRO / Em qualquer lugar ordenando por CODIGO (:6302);
   // retorno CODIGO (= CODNF — a variável Filtro de :6288 nunca é atribuída, uPesquisa.pas:826-829 cai no CODIGO). B4: a GET_NF da
   // produção (rel_get_nf, mig 389) — 49 colunas, NRO_NF numérico e o STATUS_NFE DECODIFICADO (o operador procura "CANCELADA")

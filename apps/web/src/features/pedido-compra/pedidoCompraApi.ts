@@ -66,6 +66,14 @@ export function removerPedido(id: number): Promise<void> {
 }
 
 /** POST compras/pedidos/:id/fechar — rascunho→fechado (exige ≥1 item; o servidor reforça). */
+/** o "Baixar" em lote: cada pedido passa pelo fechar; o recusado volta com o motivo */
+export function baixarPedidosLote(codpedcomps: number[]): Promise<{ baixados: number[]; recusados: Array<{ codpedcomp: number; code: string; message?: string }> }> {
+  return req('/compras/pedidos/baixar-lote', { method: 'POST', body: JSON.stringify({ codpedcomps }) });
+}
+/** "Excluir itens com Qtde zerada" */
+export function excluirZeradosPedido(id: number): Promise<{ codpedcomp: number; quantidades: number; itens: number }> {
+  return req(`/compras/pedidos/${id}/excluir-zerados`, { method: 'POST' });
+}
 export function fecharPedido(id: number, senhaAdm?: string): Promise<{ codpedcomp: number; fechado: 'S' }> {
   // senhaAdm: a liberação da META DIÁRIA de compra da loja (mig 304, SenhaAdministrativa('ADM') do legado)
   return req(`/compras/pedidos/${id}/fechar`, { method: 'POST', body: JSON.stringify(senhaAdm ? { senhaAdm } : {}) });

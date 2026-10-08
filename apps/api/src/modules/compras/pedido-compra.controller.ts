@@ -47,6 +47,22 @@ export class PedidoCompraController {
     return this.svc.heranca(idproduto, codparceiro ? Number(codparceiro) : null);
   }
 
+  /** o "Baixar" em lote: cada pedido marcado passa pelo fechar (as travas e o limite); a opção do botão BTNBAIXAR */
+  @Post('baixar-lote')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNBAIXAR')
+  baixarLote(@Body() b: { codpedcomps?: unknown }) {
+    return this.svc.baixarLote(Array.isArray(b?.codpedcomps) ? (b.codpedcomps as unknown[]).map(Number) : []);
+  }
+
+  /** "Excluir itens com Qtde zerada" (o 1º do menu Outros) — pedido gravado e sem loja fechada */
+  @Post(':id/excluir-zerados')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  excluirZerados(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.excluirZerados(id);
+  }
+
   /** a herança dos produtos marcados na Pesquisa do F7 (o lote de itens) — a opção do botão BTNADICIONARI, como o F7 da tela */
   @Post('heranca-lote')
   @HttpCode(200)

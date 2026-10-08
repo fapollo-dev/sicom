@@ -385,3 +385,13 @@ empate: um gap sobre tabela morta vai para o fim.
   - No pedido de uma loja, a quantidade se digita na grade.
   - O item com QTDE = 0 passou a valer: o schema aceita, e o agregado e o duplicar não o trocam mais por 1 (sem quantidade, 1).
   - Smoke §298.27. Falta, do mesmo corte: o "Excluir itens com Qtde zerada" e o "Baixar" em lote (#34, pelas travas do fechar).
+- **Corte 2 — Pedido de compra, "Baixar" em lote e "Excluir itens com Qtde zerada"** ✅:
+  - **"&Baixar pedidos" (menu Outros):** a Pesquisa `compras/pedidos-baixa`, com FECHADO <> 'S' na loja e a opção BTNBAIXAR, em
+    multisseleção; a pergunta do legado; e o `fechar` de cada pedido.
+    - Os recusados voltam com o motivo, por exemplo "já está fechado", "sem itens" ou "limite excedido".
+    - Divergência consciente: o legado faz só o UPDATE do FECHADO da loja. Aqui o pedido fechado ganha também a data, o histórico e o
+      cabeçalho, como no Fechar pedido.
+  - **"Excluir itens com Qtde zerada":** pedido gravado e sem loja fechada; os dois DELETE do legado; e o pedido impresso em seguida,
+    como o legado.
+  - A tela mostrava o item zerado como 1 na grade e no total (`qtdeDoItem`); corrigido.
+  - Smoke §298.28.

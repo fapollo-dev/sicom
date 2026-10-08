@@ -29794,6 +29794,52 @@ async function main() {
               lote: [lote?.status, (lote?.j?.itens ?? []).map((i: any) => i.idproduto), lote?.j?.semPreco, lote?.j?.code], pedZero: [pedZero?.status, qtdes, pedZero?.j?.code] });
         }
 
+        // PEDIDO DE COMPRA, o "Baixar" em lote (BtnBaixarClick :6540-6570, pelas travas do fechar) e o "Excluir itens com Qtde zerada"
+        {
+          const permBx = `form = 'FRMPEDIDOCOMPRA' AND opcao = 'BTNBAIXAR' AND codoperador = 7 AND codempresa = 1`;
+          const tinhaBx = Number((await pgPq.query(`SELECT count(*) n FROM permissoes WHERE ${permBx}`)).rows[0].n) > 0;
+          const criados: number[] = [];
+          const criar = async (itens: unknown[]) => {
+            const r = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens }) });
+            const j = (await r.json().catch(() => ({}))) as any;
+            if (j?.codpedcomp) criados.push(Number(j.codpedcomp));
+            return Number(j?.codpedcomp ?? 0);
+          };
+          let semPerm = 0; let listaBx: any; let lote1: any; let lote2: any; let fechadoQ: string[] = []; let exZ: any; let itensDepois: number[] = []; let exFechado = 0;
+          try {
+            const pA = await criar([{ idproduto: 1, fatorembalagem: 1, vrcusto: 1, qtde: 1 }]);
+            const pZ = await criar([{ idproduto: 1, fatorembalagem: 1, vrcusto: 1, qtde: 0 }, { idproduto: 2, fatorembalagem: 1, vrcusto: 1, qtde: 2 }]);
+            await pgPq.query(`DELETE FROM permissoes WHERE ${permBx}`);
+            semPerm = (await fetch(`${base}/cadastro/pesquisa/meta?recurso=compras/pedidos-baixa`, { headers: H })).status;
+            await pgPq.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPEDIDOCOMPRA', 'BTNBAIXAR', 7, 1) ON CONFLICT DO NOTHING`);
+            listaBx = await pq(`recurso=compras/pedidos-baixa&campo=codigo&operacao=contido&valor=${pA},${pZ}`);
+            const bx = async () => { const r = await fetch(`${base}/compras/pedidos/baixar-lote`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [pA] }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+            lote1 = await bx();
+            lote2 = await bx();
+            fechadoQ = (await pgPq.query(`SELECT DISTINCT coalesce(q.fechado, 'N') f FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi WHERE i.codpedcomp = $1 AND q.idempresa = 1`, [pA])).rows.map((r: any) => r.f);
+            const rz = await fetch(`${base}/compras/pedidos/${pZ}/excluir-zerados`, { method: 'POST', headers: H });
+            exZ = { status: rz.status, j: (await rz.json().catch(() => ({}))) as any };
+            itensDepois = (await pgPq.query(`SELECT idproduto FROM pedidocompra_i WHERE codpedcomp = $1 ORDER BY idproduto`, [pZ])).rows.map((r: any) => Number(r.idproduto));
+            exFechado = (await fetch(`${base}/compras/pedidos/${pA}/excluir-zerados`, { method: 'POST', headers: H })).status;
+          } finally {
+            if (!tinhaBx) await pgPq.query(`DELETE FROM permissoes WHERE ${permBx}`).catch(() => undefined);
+            for (const c of criados) {
+              await pgPq.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [c]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [c]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = $1`, [c]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [c]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [c]).catch(() => undefined);
+            }
+          }
+          const codsBx = ((listaBx?.j?.linhas ?? []) as any[]).map((l) => Number(l.codigo));
+          check('PESQUISA §298.28 [pedido de compra, o "Baixar" em lote e o "Excluir itens com Qtde zerada"]: sem a opção BTNBAIXAR, a Pesquisa dos pedidos a baixar dá 403; ela traz os não fechados da loja; o lote baixa pelo fechar (as linhas da loja ficam FECHADO = S) e o 2º baixar do mesmo pedido volta recusado com o motivo em português; o Excluir zerados tira o item zerado, mantém o com quantidade e recusa o pedido com loja fechada',
+            semPerm === 403 && criados.length === 2 && codsBx.length === 2
+            && lote1?.status === 200 && (lote1.j.baixados ?? []).length === 1 && fechadoQ.join() === 'S'
+            && lote2?.status === 200 && (lote2.j.baixados ?? []).length === 0 && lote2.j.recusados?.[0]?.code === 'PEDIDO_JA_FECHADO' && /fechado/i.test(String(lote2.j.recusados?.[0]?.message ?? ''))
+            && exZ?.status === 200 && itensDepois.join() === '2' && exFechado === 422,
+            { semPerm, criados, codsBx, lote1: [lote1?.status, lote1?.j], lote2: [lote2?.status, lote2?.j], fechadoQ, exZ: [exZ?.status, exZ?.j], itensDepois, exFechado });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)
