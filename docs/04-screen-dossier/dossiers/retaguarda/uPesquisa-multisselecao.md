@@ -377,3 +377,11 @@ empate: um gap sobre tabela morta vai para o fim.
   - **"Baixar" em lote (#34):** o legado faz um UPDATE cru, sem conferir nada (:6546-6570). Lá o limite diário/semanal de compra é
     conferido no GRAVAR; o Apollo o move para o FECHAR. Por isso o lote passa pelas travas do Fechar pedido, pedido a pedido; sem
     isso, o lote seria um atalho para fugir do limite.
+- **Corte 2 — Pedido de compra, o lote de itens** ✅:
+  - O F7 e o "Adicionar &item" abrem a Pesquisa `lookup/produtos-pc`, com os filtros e atalhos do legado:
+    - a GET_PRODUTOS_PC com o ativo de compra pela ATIVO_PELA_MULTIPRECO, a UF da empresa, a loja e sem filho;
+    - F9-F11; a opção BTNADICIONARI exigida.
+  - Os marcados entram uma vez, com a herança do catálogo (`POST /compras/pedidos/heranca-lote`) e QTDE = 0 em cada loja.
+  - No pedido de uma loja, a quantidade se digita na grade.
+  - O item com QTDE = 0 passou a valer: o schema aceita, e o agregado e o duplicar não o trocam mais por 1 (sem quantidade, 1).
+  - Smoke §298.27. Falta, do mesmo corte: o "Excluir itens com Qtde zerada" e o "Baixar" em lote (#34, pelas travas do fechar).

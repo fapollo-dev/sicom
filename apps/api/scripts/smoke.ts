@@ -29755,6 +29755,45 @@ async function main() {
             st.every((x) => x === 200 || x === 201), { st });
         }
 
+        // PEDIDO DE COMPRA, o F7 em lote (uPedidoCompra.pas:4426-4512, :7383-7550): a Pesquisa da GET_PRODUTOS_PC com a opção do botão, a
+        // herança em lote e o item com QTDE = 0 que continua zero ao gravar (35% dos itens de 2026 são zerados; antes o 0 virava 1)
+        {
+          const permPc = `form = 'FRMPEDIDOCOMPRA' AND opcao = 'BTNADICIONARI' AND codoperador = 7 AND codempresa = 1`;
+          const tinhaPc = Number((await pgPq.query(`SELECT count(*) n FROM permissoes WHERE ${permPc}`)).rows[0].n) > 0;
+          const ufEmp = (await pgPq.query(`SELECT uf FROM empresas WHERE idempresa = 1`)).rows[0]?.uf ?? null;
+          let semPermMeta = 0; let semPermLote = 0; let lista: any; let lote: any; let pedZero: any; let codPedZero = 0;
+          try {
+            await pgPq.query(`DELETE FROM permissoes WHERE ${permPc}`);
+            semPermMeta = (await fetch(`${base}/cadastro/pesquisa/meta?recurso=lookup/produtos-pc`, { headers: H })).status;
+            semPermLote = (await fetch(`${base}/compras/pedidos/heranca-lote`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1] }) })).status;
+            await pgPq.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPEDIDOCOMPRA', 'BTNADICIONARI', 7, 1) ON CONFLICT DO NOTHING`);
+            lista = await pq('recurso=lookup/produtos-pc&campo=descricao&operacao=qualquer&valor=&porPagina=200');
+            const r = await fetch(`${base}/compras/pedidos/heranca-lote`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1, 1, 987654321] }) });
+            lote = { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+            const pz = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H,
+              body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 2, vrcusto: 3, qtde: 0 }, { idproduto: 2, fatorembalagem: 1, vrcusto: 1 }] }) });
+            pedZero = { status: pz.status, j: (await pz.json().catch(() => ({}))) as any };
+            codPedZero = Number(pedZero.j?.codpedcomp ?? 0);
+          } finally {
+            if (!tinhaPc) await pgPq.query(`DELETE FROM permissoes WHERE ${permPc}`).catch(() => undefined);
+            if (codPedZero) {
+              await pgPq.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [codPedZero]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codPedZero]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = $1`, [codPedZero]).catch(() => undefined);
+              await pgPq.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codPedZero]).catch(() => undefined);
+            }
+          }
+          const linhas = (lista?.j?.linhas ?? []) as any[];
+          const qtdes = ((pedZero?.j?.itens ?? []) as any[]).map((i) => [Number(i.idproduto), Number(i.qtde)]);
+          check('PESQUISA §298.27 [pedido de compra, o F7 em lote]: sem a opção BTNADICIONARI, a Pesquisa da GET_PRODUTOS_PC e a herança em lote dão 403; a Pesquisa traz só a loja, a UF da empresa e o que não é filho; a herança em lote devolve cada produto uma vez e o sem preço na loja em semPreco; o item gravado com QTDE = 0 continua 0 (sem quantidade, 1)',
+            semPermMeta === 403 && semPermLote === 403
+            && lista?.status === 200 && linhas.length > 0 && linhas.every((l) => Number(l.idempresa) === 1 && (ufEmp == null || l.uf === ufEmp))
+            && lote?.status === 200 && (lote.j.itens ?? []).length === 1 && Number(lote.j.itens?.[0]?.idproduto) === 1 && (lote.j.semPreco ?? []).includes(987654321)
+            && pedZero?.status === 201 && qtdes.some(([id, q]) => id === 1 && q === 0) && qtdes.some(([id, q]) => id === 2 && q === 1),
+            { semPerm: [semPermMeta, semPermLote], lista: [lista?.status, linhas.length, linhas.slice(0, 3).map((l) => [l.codigo, l.idempresa, l.uf])], ufEmp,
+              lote: [lote?.status, (lote?.j?.itens ?? []).map((i: any) => i.idproduto), lote?.j?.semPreco, lote?.j?.code], pedZero: [pedZero?.status, qtdes, pedZero?.j?.code] });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

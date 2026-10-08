@@ -47,6 +47,15 @@ export class PedidoCompraController {
     return this.svc.heranca(idproduto, codparceiro ? Number(codparceiro) : null);
   }
 
+  /** a herança dos produtos marcados na Pesquisa do F7 (o lote de itens) — a opção do botão BTNADICIONARI, como o F7 da tela */
+  @Post('heranca-lote')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNADICIONARI')
+  herancaLote(@Body() b: { idprodutos?: unknown; codparceiro?: unknown }) {
+    const ids = Array.isArray(b?.idprodutos) ? (b.idprodutos as unknown[]).map(Number) : [];
+    return this.svc.herancaLote(ids, b?.codparceiro != null && b.codparceiro !== '' ? Number(b.codparceiro) : null);
+  }
+
   /** as abas "Pendências do fornecedor" e "Trocas" (abertas a cada escolha do fornecedor) e o aviso do VerificaPendencias; as lojas
    *  são as do pedido na tela (`?empresas=1, 2`) */
   @Get('fornecedor/:codparceiro/pendencias')

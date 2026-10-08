@@ -168,6 +168,18 @@ const ESTOQUE_E_PRECO = (tabela: 'estoque' | 'estoque_dep') => (codigo: number) 
          m.vrcustorep as "ValorCustoRep", m.vrcustoreal as "ValorCustoReal", m.vrvenda as "ValorVenda"
     from ${sql.table(tabela)} e join multi_preco m on m.idproduto = e.idproduto and m.idempresa = e.idempresa
    where e.idproduto = ${codigo} order by e.idempresa`;
+/** os atalhos da Pesquisa do F7 do pedido de compra (uPedidoCompra.pas:4452-4480): F9 códigos auxiliares, F10/F11 o estoque da loja e
+ *  do depósito só com EMPRESA, QTDE, MINIMO e MAXIMO */
+const ESTOQUE_DO_PEDIDO = (tabela: 'estoque' | 'estoque_dep') => (codigo: number) => sql<Record<string, unknown>>`
+  select e.idempresa as "Empresa", e.qtde as "Qtde", e.minimo as "Minimo", e.maximo as "Maximo"
+    from ${sql.table(tabela)} e where e.idproduto = ${codigo} order by e.idempresa`;
+const DETALHES_PEDIDO: Detalhe[] = [
+  { tecla: 'f9', titulo: 'Consulta dos Códigos Auxiliares', consulta: (codigo) => sql<Record<string, unknown>>`
+      select c.codauxiliar as "Codauxiliar", c.fatoremb as "Fatoremb" from codauxiliar c
+       where c.codbarra = (select p.codbarra from produtos p where p.idproduto = ${codigo}) order by c.codauxiliar` },
+  { tecla: 'f10', titulo: 'Consulta do Estoque', consulta: ESTOQUE_DO_PEDIDO('estoque') },
+  { tecla: 'f11', titulo: 'Consulta do Estoque do Déposito', consulta: ESTOQUE_DO_PEDIDO('estoque_dep') },
+];
 const DETALHES_PRODUTO: Detalhe[] = [
   { tecla: 'f8', titulo: 'Consulta de Preços', consulta: (codigo) => sql<Record<string, unknown>>`
       select idempresa as "Idempresa", vrvenda as "Vrvenda", promocao as "Promocao", vrpromo as "Vrpromo"
@@ -334,6 +346,25 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'etq_impressa', op: '=', valor: 'S', cor: 'AZUL', legenda: 'Etiqueta Impressa Produto' },
       { coluna: 'etq_impressa', op: '=', valor: 'N', cor: 'PRETO', legenda: 'Etiqueta Não Impressa' },
     ] },
+  // PEDIDO DE COMPRA, o "F7 - A&dicionar" (btnAdicionarIClick, uPedidoCompra.pas:4426-4512): a GET_PRODUTOS_PC da loja — o ativo de
+  // compra pelo ATIVO_PELA_MULTIPRECO ((ATIVO_COMPRA_MP = 'S' ou nulo) com 'S'; senão ATIVO_COMPRA), UF = a da empresa, IDEMPRESA = a
+  // loja e o produto que não é filho; SetDefault DESCRICAO / Em qualquer lugar, ordenada por DESCRICAO; F9-F11; em multisseleção (os
+  // marcados vão ao lote de itens, com QTDE = 0 em cada loja). A opção do botão (BTNADICIONARI) é exigida, como o F7 da tela
+  'lookup/produtos-pc': { view: 'get_produtos_pc', viewLegado: 'GET_PRODUTOS_PC', form: 'FRMPEDIDOCOMPRA', titulo: 'Produtos', retorno: 'codigo',
+    requer: { form: 'FRMPEDIDOCOMPRA', opcao: 'BTNADICIONARI' },
+    abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' },
+    obrigatorios: (ctx) => {
+      const pelaMultiPreco = sql`(select coalesce(ce.valor, c.valor) from configuracoes c left join configuracoes_especificas ce on ce.id = c.id
+        where c.codigo = 'ATIVO_PELA_MULTIPRECO' limit 1)`;
+      return [
+        sql<SqlBool>`(case when ${pelaMultiPreco} = 'S' then coalesce(${sql.ref('ativo_compra_mp')}, 'S') else coalesce(${sql.ref('ativo_compra')}, 'S') end) = 'S'`,
+        sql<SqlBool>`${sql.ref('uf')} = (select e.uf from empresas e where e.idempresa = ${ctx.empresa ?? -1})`,
+        sql<SqlBool>`${sql.ref('idempresa')} = ${ctx.empresa ?? -1}`,
+        sql<SqlBool>`${sql.ref('codigo')} not in (select p.idproduto from produtos p where p.idproduto_pai is not null)`,
+      ];
+    },
+    detalhes: DETALHES_PEDIDO,
+    rotuloDetalhes: '[F9] - Consulta de Códigos Auxiliares [F10] - Consulta do Estoque  [F11] - Consulta do Estoque do Depósito' },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },

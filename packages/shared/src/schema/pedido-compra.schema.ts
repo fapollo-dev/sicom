@@ -61,10 +61,12 @@ export const pedidoCompraItemSchema = z.object({
   idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
   // mig 305: situação da NF do item (sem ela, o servidor herda a do cabeçalho)
   idsituacao_nf: opcional(z.coerce.number().int().positive()),
-  // QTDE = nº de embalagens pedidas (078 FLIP; o comprador digita CAIXAS). > 0; default 1. Base do TOTALCUSTO.
+  // QTDE = nº de embalagens pedidas (078 FLIP; o comprador digita CAIXAS); default 1. Base do TOTALCUSTO. ZERO é legítimo, como no
+  // legado: o lote de itens (a Pesquisa em multisseleção) entra com QTDE = 0 em cada loja e o comprador preenche só alguns — 35% dos
+  // itens de pedido de 2026 estão gravados zerados; o menu "Excluir itens com Qtde zerada" limpa (uPedidoCompra.pas:7383-7550)
   qtde: z.coerce
     .number({ message: 'Quantidade inválida.' })
-    .positive('A quantidade deve ser maior que zero.')
+    .nonnegative('Quantidade inválida.')
     .max(9_999_999, 'Quantidade acima do limite permitido.')
     .optional()
     .default(1),

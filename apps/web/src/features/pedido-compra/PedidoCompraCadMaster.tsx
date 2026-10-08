@@ -25,7 +25,8 @@ import { ImportarXmlModal } from './ImportarXmlModal';
 import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
-  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido } from './pedidoCompraApi';
+  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido, herdarItensPedido } from './pedidoCompraApi';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import type { PendenciasFornecedor } from './pedidoCompraApi';
@@ -472,11 +473,40 @@ function ItensSection({
   };
 
   // F7 = btnAdicionarIClick, o "F7 - A&dicionar" (FormKeyDown do uPedidoCompra): só com o pedido em inclusão/edição
-  // (`if not (State in [dsInsert, dsEdit]) then exit`) e com a opção do botão; com uma janela aberta por cima, a tecla é dela
+  // (`if not (State in [dsInsert, dsEdit]) then exit`) e com a opção do botão; com uma janela aberta por cima, a tecla é dela.
+  // Abre a Pesquisa da GET_PRODUTOS_PC em MULTISSELEÇÃO (uPedidoCompra.pas:4426-4512)
+  const [pesquisando, setPesquisando] = useState(false);
   useShortcut('f7', () => {
     if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
-    setEditIdx(-1);
-  }, { when: editavel && pode('BTNADICIONARI') && editIdx == null });
+    setPesquisando(true);
+  }, { when: editavel && pode('BTNADICIONARI') && editIdx == null && !pesquisando });
+
+  /**
+   * o LOTE de itens (`CarregarItensComArray`, uPedidoCompra.pas:7383-7550): cada produto marcado entra uma vez (o Locate IDPRODUTO), com
+   * a herança do catálogo da loja e QTDE = 0 em cada loja do pedido — o comprador preenche só os que vai comprar (35% dos itens de
+   * 2026 estão gravados zerados). O sem preço na loja não entra (a busca do legado é FROM MULTI_PRECO).
+   */
+  const adicionarDaPesquisa = async (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    const ja = new Set((form.getValues('itens' as any) as PedidoCompraItemDto[] ?? []).map((it) => Number(it.idproduto)));
+    const ids = [...new Set(linhas.map((l) => Number(l.codigo ?? l.idproduto)))].filter((id) => Number.isInteger(id) && id > 0 && !ja.has(id));
+    if (!ids.length) return;
+    try {
+      const r = await herdarItensPedido(ids, (form.getValues() as { codparceiro?: number }).codparceiro ?? null);
+      const lojas = estadoLojas(form).lojas;
+      for (const h of r.itens) {
+        const { origem_custo: _c, origem_fator: _f, ...campos } = h as Record<string, unknown>;
+        append({
+          ...(campos as Partial<PedidoCompraItemDto>), idproduto: Number(h.idproduto), qtde: 0,
+          ...(lojas.length > 1 ? { lojas: lojas.map((l) => ({ idempresa: l.idempresa, qtde: 0 })) } : {}),
+        } as PedidoCompraItemDto);
+      }
+      // o aviso de troca em aberto do fornecedor: uma vez, pelo 1º produto do lote que tem troca
+      const comTroca = r.itens.find((h) => pendForn?.trocas.some((t) => Number(t.idproduto) === Number(h.idproduto)));
+      if (comTroca) avisarTroca(comTroca.idproduto);
+      if (r.semPreco.length) mensagem.erro(new Error(`Sem preço nesta loja (não entraram): ${r.semPreco.join(', ')}.`));
+    } catch (e) { mensagem.erro(e); }
+  };
 
   const onConfirmar = (item: PedidoCompraItemDto) => {
     if (editIdx == null) return;
@@ -510,7 +540,8 @@ function ItensSection({
         isPrimary: true,
         valueGetter: (row) => rotuloProduto(row.idproduto),
       },
-      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 90, valueGetter: (row) => qtdeDoItem(row) },
+      // a quantidade se digita na grade no pedido de uma loja (a célula do legado); no de várias lojas, pela distribuição do item
+      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 90, valueGetter: (row) => qtdeDoItem(row), editable: editavel && lojasPedido.length <= 1, editType: 'number' as const },
       // mig 303: a distribuição entre as lojas, quando o pedido tem mais de uma
       ...(lojasPedido.length > 1
         ? [{
@@ -592,14 +623,14 @@ function ItensSection({
         ],
       },
     ],
-    [fields, remove, produtosDosItens, lojasPedido.length, codpedcomp, mensagem, pode],
+    [fields, remove, produtosDosItens, lojasPedido.length, codpedcomp, mensagem, pode, editavel],
   );
 
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap items-center gap-gp-sm">
-          <Button label="Adicionar &item" variant="soft" disabled={!pode('BTNADICIONARI')} onClick={() => setEditIdx(-1)} />
+          <Button label="Adicionar &item" variant="soft" disabled={!pode('BTNADICIONARI')} onClick={() => setPesquisando(true)} />
           {codpedcomp != null && (
             <>
               <Button label="Importar do fornecedor (&associados)" variant="ghost" onClick={() => void importar('associados')} />
@@ -618,6 +649,13 @@ function ItensSection({
               rows={itens}
               columns={columns}
               getRowId={(r) => r.fieldId}
+              onCellEditCommit={({ id, field, value }: { id: unknown; field: string; value: unknown }) => {
+                if (field !== 'qtde') return;
+                const q = Number(String(value ?? '').replace(',', '.'));
+                if (!Number.isFinite(q) || q < 0) return;
+                const idx = itens.findIndex((it) => it.fieldId === id);
+                if (idx >= 0) update(idx, { ...(fields[idx] as PedidoCompraItemDto), qtde: q });
+              }}
               toolbar={{ enableSearch: false, enableFilters: false }}
               paginationConfig={{ enabled: true, initialPageSize: 10 }}
               cardBreakpoint={false}
@@ -629,6 +667,10 @@ function ItensSection({
         )}
       </div>
 
+      {pesquisando && (
+        <Pesquisa resourcePath="lookup/produtos-pc" multisselecao onSelecionarVarios={(ls) => void adicionarDaPesquisa(ls)}
+          onSelecionar={(l) => void adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+      )}
       {editIdx != null && (
         <PedidoCompraItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as PedidoCompraItemDto) : undefined}

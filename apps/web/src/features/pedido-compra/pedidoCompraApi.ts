@@ -77,6 +77,10 @@ export function obterImpressaoPedido(id: number, agrupado: boolean): Promise<Imp
 }
 
 /** GET compras/pedidos/heranca/:idproduto — o que o item novo herda do catálogo da loja (mig 307). */
+/** a herança dos produtos marcados na Pesquisa do F7 (o lote de itens), numa chamada só; o sem preço na loja volta em `semPreco` */
+export function herdarItensPedido(idprodutos: number[], codparceiro?: number | null): Promise<{ itens: Array<Record<string, unknown>>; semPreco: number[] }> {
+  return req('/compras/pedidos/heranca-lote', { method: 'POST', body: JSON.stringify({ idprodutos, codparceiro: codparceiro ?? null }) });
+}
 export function herdarItemPedido(idproduto: number, codparceiro?: number | null): Promise<Record<string, unknown>> {
   return req(`/compras/pedidos/heranca/${idproduto}${codparceiro ? `?codparceiro=${codparceiro}` : ''}`);
 }

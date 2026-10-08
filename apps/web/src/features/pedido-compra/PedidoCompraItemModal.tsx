@@ -128,13 +128,14 @@ export function PedidoCompraItemModal({ inicial, lojas = [], codparceiro, onFech
 
   const salvar = () => {
     if (item.idproduto == null) return setErro('Informe o produto do item.');
-    if (multiLoja ? !(somaLojas > 0) : !(Number(item.qtde) > 0)) return setErro('A quantidade (embalagens) deve ser maior que zero.');
+    // zero é legítimo, como no legado (o item zerado fica no pedido; "Excluir itens com Qtde zerada" limpa)
+    if (multiLoja ? !(somaLojas >= 0) : !(Number(item.qtde) >= 0)) return setErro('Quantidade (embalagens) inválida.');
     if (!(Number(item.fatorembalagem) > 0)) return setErro('O fator de embalagem deve ser maior que zero.');
     if (!(Number(item.vrcusto) >= 0)) return setErro('Custo inválido.');
     if (multiLoja) {
       onConfirmar({ ...item, qtde: somaLojas, lojas: lojas.map((l) => ({ idempresa: l.idempresa, qtde: Number(porLoja[l.idempresa]) || 0 })) });
     } else {
-      onConfirmar({ ...item, qtde: Number(item.qtde) || 1 });
+      onConfirmar({ ...item, qtde: Number(item.qtde) || 0 });
     }
   };
 

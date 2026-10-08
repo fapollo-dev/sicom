@@ -161,8 +161,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
           const vlrembalagem = r4(num(it.fatorembalagem) * num(it.vrcusto));
           // mig 303: a quantidade é POR LOJA (`PEDIDO_COMPRA_QTDE`) e a do item é a SOMA — como a carga já faz.
           // Sem `lojas` no item, é o pedido de uma loja só: a quantidade inteira vai para a primeira loja do pedido
-          // (default 1, o comportamento de antes). Loja com zero é legítima (o legado cria a linha zerada).
-          const lojas = normalizarLojasItem(it.lojas, lojasPed, num(it.qtde) > 0 ? num(it.qtde) : 1);
+          // (sem quantidade, 1; zero informado fica zero). Loja com zero é legítima (o legado cria a linha zerada).
+          const lojas = normalizarLojasItem(it.lojas, lojasPed, qtdeInformada(it.qtde));
           const qtde = r4(lojas.reduce((a, l) => a + l.qtde, 0));
           return {
             ...it,
@@ -451,6 +451,11 @@ async function lojasDoMaster(trx: any, header: Record<string, unknown> | undefin
 }
 
 /** as quantidades de um item por loja: as que vieram (somando repetições), ou tudo na primeira loja do pedido. */
+/** a quantidade do item como veio: sem ela, 1 (o default de antes); ZERO informado continua zero (o lote do legado entra zerado) */
+function qtdeInformada(v: unknown): number {
+  return v === undefined || v === null || v === '' ? 1 : Math.max(0, num(v));
+}
+
 function normalizarLojasItem(bruto: unknown, lojasPed: number[], qtdeItem: number): Array<{ idempresa: number; qtde: number }> {
   if (Array.isArray(bruto) && bruto.length) {
     const soma = new Map<number, number>();
@@ -492,7 +497,7 @@ async function validarFechamentoPorLoja(
   const produtosDepois = new Set<string>();
   for (const it of dto.itens as Array<Record<string, unknown>>) {
     produtosDepois.add(String(it.idproduto));
-    for (const l of normalizarLojasItem(it.lojas, lojasPed, num(it.qtde) > 0 ? num(it.qtde) : 1)) {
+    for (const l of normalizarLojasItem(it.lojas, lojasPed, qtdeInformada(it.qtde))) {
       const k = `${it.idproduto}|${l.idempresa}`;
       depois.set(k, r4((depois.get(k) ?? 0) + l.qtde));
     }

@@ -607,7 +607,8 @@ export class PedidoCompraService {
       for (const it of itens) {
         const fator = num(it.fatorembalagem);
         const custo = num(it.vrcusto);
-        const qtde = num(it.qtde) > 0 ? num(it.qtde) : 1; // 078 FLIP: nº de embalagens (preserva no duplicar/espelho)
+        // 078 FLIP: nº de embalagens (preserva no duplicar/espelho — o zero também: o item zerado é legítimo)
+        const qtde = it.qtde == null ? 1 : Math.max(0, num(it.qtde));
         const vlrembalagem = r4(fator * custo);
         const base = { codpedcomp: novo, idproduto: it.idproduto as number, qtde, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(qtde * fator), totalcusto: Math.round((qtde * vlrembalagem + Number.EPSILON) * 100) / 100 };
         const item: Record<string, unknown> = bonificar
@@ -668,6 +669,25 @@ export class PedidoCompraService {
     // a busca do legado é `FROM MULTI_PRECO` da loja: produto sem preço nela nem aparece para ser escolhido
     if (!h) throw new BusinessRuleError('PRODUTO_SEM_PRECO_NA_LOJA', { idproduto, idempresa: emp });
     return h;
+  }
+
+  /**
+   * A HERANÇA DO LOTE (o "F7 - A&dicionar" do legado: a Pesquisa da GET_PRODUTOS_PC em multisseleção + `CarregarItensComArray`,
+   * uPedidoCompra.pas:4426-4512, :7383-7550): a herança de cada produto marcado, numa chamada só. O que não tem preço na loja volta em
+   * `semPreco` (a busca do legado é `FROM MULTI_PRECO` da loja — nem apareceria). Até 2.000 produtos.
+   */
+  async herancaLote(idprodutos: number[], codparceiro?: number | null): Promise<{ itens: Awaited<ReturnType<typeof herdarDoCatalogo>>[]; semPreco: number[] }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const custoRep = (await this.config.resolver('CUSTO_REP_PC', { empresaId: emp })) === 'S';
+    const fatorRefFornecedor = (await this.config.resolver('USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR', { empresaId: emp })) === 'S';
+    const itens: Awaited<ReturnType<typeof herdarDoCatalogo>>[] = [];
+    const semPreco: number[] = [];
+    for (const id of [...new Set(idprodutos.map(Number).filter((x) => Number.isInteger(x) && x > 0))].slice(0, 2000)) {
+      const h = await herdarDoCatalogo(db, { emp, idproduto: id, codparceiro: codparceiro ?? null, custoRep, fatorRefFornecedor });
+      if (h) itens.push(h); else semPreco.push(id);
+    }
+    return { itens, semPreco };
   }
 
   /**
