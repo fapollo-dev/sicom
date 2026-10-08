@@ -623,6 +623,8 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // (CODPERFIL como CODIGO, PERFIL, ATIVO, TIPO) e já tira os excluídos
   'lookup/perfis': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADUSUARIOS',
     titulo: 'Perfil', retorno: 'codigo', statusRetorno: '' },
+  // o CÓDIGO PIS/COFINS (BtnPisCofinsClick, uMultAtualizacao.pas:550-556): a GET_PISCOFINS, DESCRICAO / Começado com; retorno CODIGO (= IDPISCOFINS)
+  'lookup/piscofins': { view: 'get_piscofins', form: 'FRMPESQUISA', titulo: 'PIS COFINS', retorno: 'codigo', abertura: { campo: 'descricao', operacao: 'comeca' } },
   // a NATUREZA do produto (edtNatureza, UCadProduto.pas:4241-4251): a GET_PC_TIPOCREDITOISENTO com o IDPISCOFINS do produto (a tela manda
   // em `fixos`); o produto guarda o IDTABELA. O status na produção: frmCadProduto|GET_PC_TIPOCREDITOISENTO|edtNatureza
   'lookup/pc-natureza': { view: 'get_pc_tipocreditoisento', form: 'FRMPESQUISA', titulo: 'Natureza da receita', retorno: 'idtabela',

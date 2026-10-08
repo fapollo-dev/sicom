@@ -8,6 +8,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { multApi, type LinhaSimulada, type ProdutoMult } from './multAtualizacaoApi';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { LookupField } from '../../shared/ui/LookupField';
+import { SelectField } from '../../shared/ui/SelectField';
 
 /**
  * ATUALIZAÇÃO AUTOMÁTICA DE PRODUTOS (`FRMMULTATUALIZACAO`).
@@ -24,6 +26,8 @@ export function MultAtualizacaoPage() {
   const mensagem = useMensagem();
   // o btnBuscaProduto do legado: a Pesquisa da GET_PRODUTOS_ATUALIZACAO da loja; a grade vira os marcados
   const [pesquisando, setPesquisando] = useState(false);
+  // o painel PIS/COFINS (PnlPisCofins / BtnAlterarPC): o código, o tipo e a natureza — esta só quando o CST tem alíquota de COFINS zero
+  const [pc, setPc] = useState<{ idpiscofins?: number; aliqZero: boolean; tipopis: string; natureza?: number }>({ aliqZero: false, tipopis: '' });
   const [produtos, setProdutos] = useState<ProdutoMult[]>([]);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [alt, setAlt] = useState<{ campo: string; operacao: string; modo: string; valor: string }>({
@@ -47,7 +51,7 @@ export function MultAtualizacaoPage() {
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
-  // F3 = btnBuscaProdutoClick (FormKeyDown do uMultAtualizacao; lá, fora dos campos PIS/COFINS e Natureza, que a tela não tem)
+  // F3 = btnBuscaProdutoClick (FormKeyDown do uMultAtualizacao; lá, fora dos campos PIS/COFINS e Natureza, que têm o F3 próprio)
   useShortcut('f3', () => setPesquisando(true), { when: !ocupado && !pesquisando });
 
   const corpo = (): SimularMultDto => ({
@@ -72,6 +76,20 @@ export function MultAtualizacaoPage() {
       const r2: ProdutoMult[] = [];
       for (let i = 0; i < ids.length; i += 400) r2.push(...(await multApi.buscar({ ids: ids.slice(i, i + 400).join(',') })));
       setProdutos(r2);
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  // BtnAlterarPCClick (uMultAtualizacao.pas:141-225): os selecionados recebem o PIS/COFINS (com a natureza ou nenhuma), o tipo e PIS = 'S'
+  const alterarPisCofins = async () => {
+    if (!pc.idpiscofins && !pc.tipopis && !pc.natureza) return mensagem.erro('Informe os dados para realizar a alteração.');
+    if (pc.idpiscofins && pc.aliqZero && !pc.natureza) return mensagem.erro('A informação da natureza é obrigatória para este CST.');
+    if (!window.confirm(`Alterar o PIS/COFINS de ${sel.size} produto(s)?`)) return;
+    setOcupado(true);
+    try {
+      const r = await multApi.pisCofins({ idprodutos: [...sel], idpiscofins: pc.idpiscofins, tipopis: (pc.tipopis || undefined) as 'N' | 'A' | 'I' | 'S' | 'Z' | undefined,
+        natureza: pc.aliqZero ? pc.natureza : undefined });
+      mensagem.sucesso(`${r.produtos} produto(s) atualizado(s).`);
+      setPc({ aliqZero: false, tipopis: '' });
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
@@ -165,6 +183,30 @@ export function MultAtualizacaoPage() {
             {metaCampo.onde === 'multi_preco' && ' Este campo é gravado por empresa (preço).'}
             {metaCampo.campo === 'CODSUBGRUPO' && ' Trocar o subgrupo também acerta grupo, departamento e seção.'}
           </p>
+        </section>
+      )}
+
+      {produtos.length > 0 && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md" aria-label="PIS/COFINS">
+          <strong className="text-sm">PIS/COFINS dos selecionados</strong>
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-72">
+              <LookupField label="Código &PIS COFINS" recurso="lookup/piscofins" campoCodigo="codigo" descricao="descricao" value={pc.idpiscofins}
+                onChange={(cod, l) => setPc((x) => ({ ...x, idpiscofins: cod ? Number(cod) : undefined, aliqZero: !!cod && Number(l?.aliq_cofins_sai ?? 0) === 0, natureza: undefined }))} />
+            </div>
+            <div className="w-80">
+              <SelectField label="Tipo" value={pc.tipopis || undefined} onChange={(v) => setPc((x) => ({ ...x, tipopis: v ?? '' }))} placeholder="(não alterar)"
+                options={[{ value: 'N', label: 'Não Cumulativo (LEI 10833/2003) - Imp: 9,25%' }, { value: 'A', label: 'Cumulativo (LEI 10833/2003) - Imp: 3,65%' },
+                  { value: 'I', label: 'Isento "Retido" (LEI 10147/2001)' }, { value: 'S', label: 'Suspenso (LEI 10925/2004 - ART. 9º)' },
+                  { value: 'Z', label: 'Aliquota Zero (LEI 10925/2004)' }]} />
+            </div>
+            <div className="w-72">
+              <LookupField label="&Natureza PIS/COFINS" recurso="lookup/pc-natureza" campoCodigo="idbasecreditoisento" descricao="descricao"
+                fixos={pc.idpiscofins ? { idpiscofins: pc.idpiscofins } : undefined} value={pc.natureza} disabled={!pc.aliqZero}
+                onChange={(cod) => setPc((x) => ({ ...x, natureza: cod ? Number(cod) : undefined }))} />
+            </div>
+            <Button label="&Alterar PIS/COFINS" variant="soft" disabled={ocupado || sel.size === 0 || !pode('BTNPROCESSAR')} onClick={() => void alterarPisCofins()} />
+          </div>
         </section>
       )}
 

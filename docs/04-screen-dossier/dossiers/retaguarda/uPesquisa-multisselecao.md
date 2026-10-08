@@ -511,4 +511,9 @@ empate: um gap sobre tabela morta vai para o fim.
     multisseleção e a grade vira os marcados (`produtos?ids=…`), como o `btnBuscaProdutoClick`. Smoke §109.1b.
   - O CNAB (1.000) não morde: a loja 50, a única que remete, tem 827 títulos abertos. Com isso não sobra grade com corte silencioso
     entre os 21 cobertos do §1.
+- **Atualização automática — o painel PIS/COFINS (08/10/2026)** ✅: a API já fazia, a tela não tinha. Código PIS COFINS (F3 = a GET_PISCOFINS,
+  `lookup/piscofins`), o Tipo (os 5 do combo: N, A, I, S, Z) e a Natureza (F3 = a GET_PC_TIPOCREDITOISENTO do código), habilitada só quando o
+  CST tem COFINS de saída zero, como o `EdtIdPisCofinsExit`. Ao gravar, como a produção (LOG de jan/2023): **PRODUTOS e a MULTI_PRECO de
+  todas as lojas** — o Apollo só gravava a PRODUTOS, e a tela do legado lê da MULTI_PRECO —; com um código que não pede natureza, a
+  natureza é limpa (o Apollo a mantinha); PIS = 'S'. Mensagens do legado. Smoke §109.6.
 

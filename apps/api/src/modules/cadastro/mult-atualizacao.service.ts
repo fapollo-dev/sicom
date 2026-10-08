@@ -264,12 +264,25 @@ export class MultAtualizacaoService {
         idtabela = Number(t.idtabela);
       }
 
+      // o BtnAlterarPCClick + o Gravar (uMultAtualizacao.pas:141-225, :383-420): com o código PIS/COFINS informado, a natureza vai junto —
+      // a escolhida, ou NENHUMA (o legado limpa a NATUREZAICMS quando o CST não pede); o tipo só se escolhido; e o produto fica com PIS = 'S'.
+      // A produção grava nas DUAS tabelas — PRODUTOS e a MULTI_PRECO de todas as lojas (LOG da "Atualização automática", jan/2023:
+      // IDPISCOFINS e IDTABELA nas duas); a view da tela (GET_PRODUTOS_ATUALIZACAO) lê da MULTI_PRECO
+      const comPis = !!dto.idpiscofins;
       const r = await sql`
         UPDATE produtos
-           SET idpiscofins = coalesce(${dto.idpiscofins ?? null}::int, idpiscofins),
-               tipopis     = coalesce(${dto.tipopis ?? null}::char(1), tipopis),
-               idtabela    = coalesce(${idtabela}::int, idtabela),
+           SET idpiscofins = CASE WHEN ${comPis} THEN ${dto.idpiscofins ?? null}::int ELSE idpiscofins END,
+               idtabela    = CASE WHEN ${comPis} THEN ${idtabela}::int ELSE coalesce(${idtabela}::int, idtabela) END,
+               tipopis     = coalesce(${dto.tipopis ?? null}::varchar, tipopis),
+               pis         = 'S',
                usultalteracao = ${operador}, dtultimalteracao = now()
+         WHERE idproduto = ANY(${dto.idprodutos}::int[])
+      `.execute(trx);
+      await sql`
+        UPDATE multi_preco
+           SET idpiscofins = CASE WHEN ${comPis} THEN ${dto.idpiscofins ?? null}::int ELSE idpiscofins END,
+               idtabela    = CASE WHEN ${comPis} THEN ${idtabela}::int ELSE coalesce(${idtabela}::int, idtabela) END,
+               tipopis     = coalesce(${dto.tipopis ?? null}::varchar, tipopis)
          WHERE idproduto = ANY(${dto.idprodutos}::int[])
       `.execute(trx);
       void emp;

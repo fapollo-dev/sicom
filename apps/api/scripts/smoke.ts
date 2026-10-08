@@ -16658,6 +16658,31 @@ async function main() {
             && porIds.map((p: any) => Number(p.idproduto)).sort((a: number, b: number) => a - b).join() === [prods[0], prods[2]].sort((a, b) => a - b).join(),
             { pesq: (pesqMa.linhas ?? []).map((l: any) => l.idproduto), code: pesqMa.code, porIds: porIds.map((p: any) => p.idproduto) });
         }
+        {
+          // §109.6) o PIS/COFINS em massa (BtnAlterarPCClick + o Gravar, uMultAtualizacao.pas:141-225, :383-420): a natureza é obrigatória no
+          // CST de COFINS zero e tem de existir para ele; vai nas DUAS tabelas (PRODUTOS e a MULTI_PRECO das lojas, como o LOG da produção);
+          // com um código que não pede natureza, a natureza é LIMPA; o produto fica com PIS = 'S'
+          await pgMa.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_cofins_sai) VALUES (99501, 'SMOKE ALIQ ZERO', 0), (99502, 'SMOKE TRIBUTADO', 7.6) ON CONFLICT (idpiscofins) DO NOTHING`);
+          await pgMa.query(`INSERT INTO pc_tipocreditoisento (idtabela, idpiscofins, idbasecreditoisento, descricao) VALUES (99511, 99501, 301, 'NAT SMOKE') ON CONFLICT (idtabela) DO NOTHING`);
+          const pc = async (b: Record<string, unknown>) => {
+            const r = await fetch(`${base}/${MA}/pis-cofins`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prods[1]], ...b }) });
+            return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
+          };
+          const linha = async () => (await pgMa.query(`SELECT p.idpiscofins, p.idtabela, p.pis, p.tipopis, m.idpiscofins AS m_pis, m.idtabela AS m_tab
+            FROM produtos p JOIN multi_preco m ON m.idproduto = p.idproduto AND m.idempresa = 1 WHERE p.idproduto = $1`, [prods[1]])).rows[0] as any;
+          const semNat = await pc({ idpiscofins: 99501 });
+          const natRuim = await pc({ idpiscofins: 99501, natureza: 999 });
+          const ok = await pc({ idpiscofins: 99501, natureza: 301, tipopis: 'N' });
+          const depois = await linha();
+          const trocaTrib = await pc({ idpiscofins: 99502 });
+          const limpa = await linha();
+          check('MULT ATUALIZAÇÃO §109.6 [o PIS/COFINS em massa]: sem a natureza num CST de COFINS zero → 422 NATUREZA_OBRIGATORIA; natureza que não existe para o código → 422 NATUREZA_INVALIDA; com ela, PRODUTOS e MULTI_PRECO recebem o código e o IDTABELA, o tipo e PIS = S; trocar para um código tributado LIMPA a natureza nas duas',
+            semNat.status === 422 && semNat.code === 'NATUREZA_OBRIGATORIA' && natRuim.status === 422 && natRuim.code === 'NATUREZA_INVALIDA'
+            && ok.status === 200 && Number(depois.idpiscofins) === 99501 && Number(depois.idtabela) === 99511 && depois.pis === 'S' && String(depois.tipopis).trim() === 'N'
+            && Number(depois.m_pis) === 99501 && Number(depois.m_tab) === 99511
+            && trocaTrib.status === 200 && Number(limpa.idpiscofins) === 99502 && limpa.idtabela == null && Number(limpa.m_pis) === 99502 && limpa.m_tab == null,
+            { semNat, natRuim, ok, depois, trocaTrib, limpa });
+        }
 
         // SIMULAR: +10% no valor de venda. O percentual é do valor ATUAL DE CADA produto (20, 22, 24)
         const simBody = { idprodutos: prods, campo: 'VR_VENDA', operacao: 'SOMAR', modo: 'PERCENTUAL', valor: '10' };
