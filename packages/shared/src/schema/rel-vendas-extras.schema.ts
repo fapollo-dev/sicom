@@ -17,5 +17,7 @@ export const relVendasExtrasSchema = z.object({
   grupos: z.array(z.coerce.number().int()).max(2000).optional(),
   subgrupos: z.array(z.coerce.number().int()).max(2000).optional(),
   secoes: z.array(z.coerce.number().int()).max(2000).optional(),
+  // o filtro de produtos (MultiProdutos, URelVendas.pas:1253-1265): rel 22 e 46 — `P.IDPRODUTO IN (…)`, no máximo 1.000
+  produtos: z.array(z.coerce.number().int().positive()).max(1000).optional(),
 });
 export type RelVendasExtrasDto = z.infer<typeof relVendasExtrasSchema>;

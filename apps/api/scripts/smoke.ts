@@ -29952,6 +29952,18 @@ async function main() {
             { lido, semChave, gravouLookup, gravouCartao });
         }
 
+        // o filtro de produtos também nos relatórios 22 (promoção por loja) e 46 (produtos por operador), como o legado (cmbRelatorio 21 e 45)
+        {
+          const rv = async (rota: string, produtos: number[]) => (await fetch(`${base}/relatorios/${rota}`, { method: 'POST', headers: H,
+            body: JSON.stringify({ dtini: '2020-01-01', dtfim: '2039-12-31', produtos }) }));
+          const [r22, r46] = [await rv('vendas-extras/promocao-loja', [987654321]), await rv('vendas-operador/produtos-operador', [987654321])];
+          const [j22, j46] = [(await r22.json().catch(() => ({}))) as any, (await r46.json().catch(() => ({}))) as any];
+          const demais = (await rv('vendas-operador/produtos-operador', Array.from({ length: 1001 }, (_, i) => i + 1))).status;
+          check('PESQUISA §298.33 [o filtro de produtos nos relatórios 22 e 46]: a lista vai ao relatório (o produto que não vendeu dá nenhuma linha nos dois) e passar de 1.000 é recusado na validação',
+            r22.status === 200 && (j22.linhas ?? []).length === 0 && r46.status === 200 && (j46.linhas ?? []).length === 0 && demais === 400,
+            { r22: [r22.status, (j22.linhas ?? []).length, j22.code], r46: [r46.status, (j46.linhas ?? []).length, j46.code], demais });
+        }
+
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
         // fim da get_preco, get_motivos_operacao, get_historico_contabil e get_operacoes_conta. As colunas da produção (ALL_TAB_COLUMNS,
         // só leitura, 07/10/2026), na ordem, com a categoria do tipo (NUMBER → número; VARCHAR2/CHAR → texto)

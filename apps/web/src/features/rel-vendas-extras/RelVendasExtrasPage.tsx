@@ -7,6 +7,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { FiltroFamilias, type Familias } from '../../shared/pesquisa/FiltroFamilias';
+import { useFiltroProdutosVendas } from '../rel-vendas/useFiltroProdutosVendas';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -176,12 +177,18 @@ export function RelVendasExtrasPage() {
   const [totais, setTotais] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const consultar = async () => {
+  // o filtro de produtos do Gerar (MultiProdutos): o legado pergunta só no relatório 22 desta tela
+  const filtroProdutos = useFiltroProdutosVendas();
+  const consultar = () => {
     if (busy) return;
+    if (modo === 'promocao-loja') filtroProdutos.pedir((sel) => void executar(sel));
+    else void executar(undefined);
+  };
+  const executar = async (produtos: number[] | undefined) => {
     setBusy(true);
     try {
       const r = await req<{ linhas: Linha[]; totais: Record<string, unknown> }>(
-        `/relatorios/vendas-extras/${modo}`, { dtini, dtfim, ...familias },
+        `/relatorios/vendas-extras/${modo}`, { dtini, dtfim, ...familias, ...(produtos?.length ? { produtos } : {}) },
       );
       setLinhas(r.linhas); setTotais(r.totais);
       if (!r.linhas.length) mensagem.sucesso('Nenhum registro no período informado.');
@@ -200,6 +207,7 @@ export function RelVendasExtrasPage() {
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
         <FiltroFamilias value={familias} onChange={setFamilias} />
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        {modo === 'promocao-loja' && filtroProdutos.elemento}
         {modo === 'data-hora' && (
           <small className="w-full text-fg-muted">A hora vem do número do pedido do PDV (como no original), não do relógio da venda.</small>
         )}

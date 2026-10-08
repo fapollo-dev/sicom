@@ -16,6 +16,8 @@ export interface FiltroOperador {
   promocao?: 'S' | 'N' | 'T';
   produto?: string; fornecedor?: string;
   departamentos?: number[]; grupos?: number[]; subgrupos?: number[]; secoes?: number[];
+  /** o filtro de produtos do Gerar (MultiProdutos) — o legado o aplica nos relatórios 01, 22 e 46 */
+  produtos?: number[];
   aliquota?: string;
   exibirFilhos?: boolean;
 }
@@ -114,6 +116,7 @@ export class RelVendasOperadorService {
     if (f.grupos?.length) r = r.where('p.codgrupo', 'in', f.grupos.map(Number));
     if (f.subgrupos?.length) r = r.where('p.codsubgrupo', 'in', f.subgrupos.map(Number));
     if (f.secoes?.length) r = r.where('p.codsecao', 'in', f.secoes.map(Number));
+    if (f.produtos?.length) r = r.where('p.idproduto', 'in', f.produtos.map(Number));
     if (f.aliquota) r = r.where(sql<boolean>`v.aliquota like ${`%${f.aliquota}%`}`);
     return r;
   }
