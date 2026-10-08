@@ -21,7 +21,8 @@ export interface CadMaster<T> {
   carregarPorCodigo(id: number): Promise<void>;
   novo(): void;
   editar(): void;
-  gravar(values: unknown): Promise<void>;
+  /** grava e devolve o registro gravado (o embutido da Pesquisa o repassa a quem abriu) */
+  gravar(values: unknown): Promise<T | null>;
   excluir(): Promise<void>;
   cancelar(): void;
   // navegação de registro (DBNavigator sobre o cdsNavegation) — só no browse
@@ -93,6 +94,7 @@ export function useCadMaster<T extends Record<string, any>>(
         setRegistro(salvo ?? null);
         setModo('browse');
         setNavList([]); // o conjunto navegável mudou (insert/edit) → recarrega sob demanda
+        return salvo ?? null;
       } finally {
         setCarregando(false);
       }

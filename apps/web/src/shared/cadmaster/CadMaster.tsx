@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, useContext } from 'react';
 import { useForm, type FieldValues, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ZodSchema } from 'zod';
@@ -8,6 +8,7 @@ import { Button } from '../ui/Button';
 import { useMensagem } from '../mensagem';
 import { createResourceApi } from './resourceApi';
 import { useCadMaster } from './useCadMaster';
+import { CadMasterEmbutido } from './CadMasterEmbutido';
 import { Pesquisa, SITUACOES, type ColunaPesquisa, type Situacao } from './Pesquisa';
 import { RegistrosLogModal, type LogDaTela } from '../log/RegistrosLogModal';
 
@@ -103,6 +104,8 @@ export function CadMaster<T extends FieldValues>({
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
   const colunaCodigo = viewPk ?? pk;
   const cad = useCadMaster(api, pk, colunaCodigo);
+  // aberto pela Pesquisa (Ins/F2): em inclusão ou no registro; ao gravar avisa; o Sair fecha
+  const embutido = useContext(CadMasterEmbutido);
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues });
   const mensagem = useMensagem(); // exibição padronizada de erros (ADR-015)
   const [codigo, setCodigo] = useState('');
@@ -143,6 +146,11 @@ export function CadMaster<T extends FieldValues>({
   // aberta por outra tela com o registro na URL (`?codigo=`): o "Detalhar" do kardex abre a NF, o atalho da precificação abre a nota —
   // o `edtCodigo.Text := …` + `ExecutarOnExitEdtCodigo` do legado. Lido do location (não do router) para servir a qualquer montagem.
   useEffect(() => {
+    if (embutido) {
+      if ('novo' in embutido.inicial) onNovo();
+      else cad.carregarPorCodigo(embutido.inicial.id).catch((e) => mensagem.erro(e));
+      return;
+    }
     const cod = Number(new URLSearchParams(window.location.search).get('codigo'));
     if (Number.isInteger(cod) && cod > 0) cad.carregarPorCodigo(cod).catch((e) => mensagem.erro(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,13 +160,17 @@ export function CadMaster<T extends FieldValues>({
     // chave natural no insert: o código digitado entra no dto como a PK
     const dto = codigoEditavelInsert ? { ...values, [pk]: Number(codigo) } : values;
     try {
-      await cad.gravar(dto);
+      const salvo = await cad.gravar(dto);
+      if (embutido && salvo) embutido.onGravou(salvo as Record<string, unknown>);
     } catch (e) {
       // a pergunta do legado ("Deseja continuar?"): a regra devolve no detalhe o campo que confirma — sim reenvia com ele em true
       const env = (e as { envelope?: { message?: string; detalhe?: { confirmar?: unknown } } }).envelope;
       const confirmar = typeof env?.detalhe?.confirmar === 'string' ? env.detalhe.confirmar : null;
       if (confirmar && window.confirm(env?.message ?? 'Deseja continuar?')) {
-        try { await cad.gravar({ ...dto, [confirmar]: true } as typeof dto); } catch (e2) { mensagem.erro(e2); }
+        try {
+          const salvo = await cad.gravar({ ...dto, [confirmar]: true } as typeof dto);
+          if (embutido && salvo) embutido.onGravou(salvo as Record<string, unknown>);
+        } catch (e2) { mensagem.erro(e2); }
         return;
       }
       if (!confirmar) mensagem.erro(e);
@@ -183,6 +195,8 @@ export function CadMaster<T extends FieldValues>({
     }
   };
   const onCancelar = () => {
+    // o Sair (no browse) do cadastro aberto pela Pesquisa fecha a janela e volta a ela
+    if (embutido && cad.modo === 'browse') { embutido.onFechar(); return; }
     cad.cancelar();
     sincroniza();
   };

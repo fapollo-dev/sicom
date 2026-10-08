@@ -109,7 +109,18 @@ Divergências:
 
 A multisseleção foi aplicada nas telas dos cortes 0 a 3 do mapa (`uPesquisa-multisselecao.md` §4).
 
-**Falta:** Ins/F2; o status do lookup de campo; os cortes 4 a 6 do mapa da multisseleção.
+**Ins / F2 entregue (08/10/2026).** O cadastro da view abre por cima da Pesquisa (o `CreateForm`):
+- O `<CadMaster>` embutido (contexto `CadMasterEmbutido`) abre em inclusão (Ins) ou no registro da linha (F2), avisa ao gravar, e o
+  Sair fecha. As ~100 telas de cadastro não mudaram.
+- Exige o acesso ao formulário, com a mensagem do legado "Operador não possui acesso ao formulário solicitado".
+- Gravado o novo, a grade mostra só ele; gravado o F2, a grade se atualiza.
+- O par VIEW → FORM é um mapa estático por recurso (`app/cadastrosDaPesquisa.tsx`), porque a TABELA_CADASTRO da produção é suja:
+  parceiros (o papel pelo FRN), produtos, famílias, centros de custo, CFOP, operadores e bancos.
+- Ficam de fora cidades e plano de contas (sem tela de cadastro no menu do legado) e a GET_PRODUTOS_ESTOQUE (só a tela de produto a
+  abre).
+- jsdom `pesquisaInsF2.spec.tsx`.
+
+**Falta:** o status do lookup de campo; os cortes 4 a 6 do mapa da multisseleção.
 
 ## 1. Resumo para quem tem pressa
 

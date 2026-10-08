@@ -14,6 +14,7 @@ import { Button } from '../ui/Button';
 import { imprimirRelatorio } from '../fr3/imprimirRelatorio';
 import { abrirEtiquetasCom } from '../etiquetas/listaParaEtiquetas';
 import { useNavigate } from 'react-router-dom';
+import { CadMasterEmbutido, cadastroDaPesquisa } from './CadMasterEmbutido';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -425,6 +426,38 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     setConsulta((c) => ({ campo: u.campo, operacao: u.operacao, valor: u.valor, valor2: u.valor2, opcao: opcao ?? undefined, complemento: complemento ?? undefined, filtros: anteriores, n: (c?.n ?? 0) + 1 }));
     focarGrade();
   };
+  // Ins / F2 — o cadastro da view por cima da Pesquisa (uPesquisa.pas:1534-1567, CreateForm :875-931): exige o acesso ao formulário
+  // ("Operador não possui acesso ao formulário solicitado"); o Ins abre vazio e, gravado, a grade mostra SÓ o registro novo; o F2 abre
+  // a linha e, gravado, a grade se atualiza
+  const cadastro = cadastroDaPesquisa(resourcePath);
+  const [cadastroAberto, setCadastroAberto] = useState<{ inicial: { novo: true } | { id: number } } | null>(null);
+  const abrirCadastro = async (inicial: { novo: true } | { id: number }) => {
+    if (!cadastro) return;
+    try {
+      const r = await pedir<{ opcoes?: string[] }>(`/cadastro/acesso/opcoes/${encodeURIComponent(cadastro.form)}`);
+      if (!(r.opcoes ?? []).some((o) => o.toUpperCase() === cadastro.form.toUpperCase())) {
+        mensagem.erro(new Error('Operador não possui acesso ao formulário solicitado'));
+        return;
+      }
+    } catch (e) { mensagem.erro(e); return; }
+    setCadastroAberto({ inicial });
+  };
+  const aposGravarCadastro = (registro: Record<string, unknown>) => {
+    const novo = cadastroAberto && 'novo' in cadastroAberto.inicial;
+    setCadastroAberto(null);
+    if (novo && meta && cadastro) {
+      const v = String(registro[cadastro.pk] ?? '');
+      if (!v) return;
+      setCampo(meta.retorno);
+      setOperacao('igual');
+      setValor(v);
+      setValor2('');
+      setConsulta((c) => ({ campo: meta.retorno, operacao: 'igual', valor: v, valor2: '', opcao: opcao ?? undefined, complemento: complemento ?? undefined, n: (c?.n ?? 0) + 1 }));
+    } else {
+      setConsulta((c) => (c ? { ...c, n: c.n + 1 } : c));
+    }
+  };
+
   // F4 (SalvaConfig): guarda campo, operação e a coluna do totalizador desta pesquisa
   const salvarF4 = () => { if (campo) gravarLocal('f4', viewRef.current, { campo, operacao, soma: colunaSoma } satisfies ConfigF4); };
 
@@ -481,6 +514,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     total == null ? null : `${total.toLocaleString('pt-BR')} registro${total === 1 ? '' : 's'}`,
     multisselecao ? `${marcados.size} registro${marcados.size === 1 ? '' : 's'} selecionado${marcados.size === 1 ? '' : 's'}` : null,
     meta?.situacao ? `Ativo: ${SIT_LABEL[situacao]} (F6 no cadastro)` : null,
+    cadastro ? 'Ins - Novo · F2 - Alterar' : null,
     meta?.obrigatorio,
   ].filter(Boolean).join(' · ');
 
@@ -498,6 +532,14 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
         } : null}
         salvarF4={meta && opcaoEscolhida ? salvarF4 : null}
         variosFiltros={meta && opcaoEscolhida ? { alternar: alternarAcumulando, limpar: () => setFiltros([]) } : null}
+        cadastro={cadastro && meta && opcaoEscolhida && !cadastroAberto ? {
+          novo: () => void abrirCadastro({ novo: true }),
+          alterar: () => {
+            const l = linhaPosicionada();
+            const id = l ? Number(l[meta.retorno]) : NaN;
+            if (Number.isFinite(id)) void abrirCadastro({ id });
+          },
+        } : null}
         detalhes={consulta && !detalhe ? (meta?.detalhes ?? []).map((d) => d.tecla) : []}
         abrirDetalhe={abrirDetalhe}
         focarValor={() => {
@@ -505,8 +547,16 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
           setTimeout(() => document.querySelector<HTMLElement>('[data-pesquisa="valor"] input')?.focus(), 0);
         }}
       />
+      {cadastroAberto && cadastro && (
+        <Modal open onClose={() => setCadastroAberto(null)} size="lg" title={cadastro.titulo}
+          className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-y-auto">
+          <CadMasterEmbutido.Provider value={{ inicial: cadastroAberto.inicial, onGravou: aposGravarCadastro, onFechar: () => setCadastroAberto(null) }}>
+            {cadastro.render({ fixos })}
+          </CadMasterEmbutido.Provider>
+        </Modal>
+      )}
       <Modal
-        open
+        open={!cadastroAberto}
         onClose={onFechar}
         size="lg"
         title={meta?.titulo ? `Pesquisa ${meta.titulo}` : 'Pesquisa'}
@@ -758,12 +808,16 @@ function ValorDoFrame({ tipo, entre, valor, valor2, setValor, setValor2, onKeyDo
  * ao cadastro de baixo. F3 = SetaFocoFrame (limpa o valor e põe o foco). O F5/F7 (filtros acumulados) e o F6 (modo do filtro da
  * coluna) voltam nos cortes B/E do dossiê.
  */
-function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela, salvarF4, variosFiltros }: {
+function TeclasDaPesquisa({ focarValor, detalhes, abrirDetalhe, statusTela, salvarF4, variosFiltros, cadastro }: {
   focarValor: () => void; detalhes: string[]; abrirDetalhe: (tecla: string) => Promise<false | void>;
   statusTela: { salvar: () => void; apagar: () => void } | null;
   salvarF4: (() => void) | null;
   variosFiltros: { alternar: () => void; limpar: () => void } | null;
+  cadastro: { novo: () => void; alterar: () => void } | null;
 }) {
+  // Ins / F2: o cadastro da view (só onde há um registrado para o recurso)
+  useShortcut('insert', () => cadastro?.novo(), { when: !!cadastro });
+  useShortcut('f2', () => cadastro?.alterar(), { when: !!cadastro });
   useShortcut('f3', () => focarValor());
   // F7 liga/desliga os "Vários filtros"; F5 esvazia a lista (uPesquisa.pas:1503-1517)
   useShortcut('f7', () => variosFiltros?.alternar(), { when: !!variosFiltros });
