@@ -55,6 +55,8 @@ const EXEMPLO_CONTIDO: Record<TipoCampo, string> = { texto: 'Exemplo: APOLLO,SIS
 
 interface Meta {
   titulo?: string;
+  /** o FRM do legado da pesquisa (o FORMULARIO_PAI do status; FRMPESQUISA nos lookups genéricos) */
+  form?: string;
   /** a view aberta (o `FView` do legado) — a chave das memórias da estação; no A pagar, a da opção e do complemento */
   view?: string;
   colunas: Array<{ campo: string; titulo: string; tipo: TipoCampo }>;
@@ -141,6 +143,11 @@ interface Props {
    */
   multisselecao?: boolean;
   onSelecionarVarios?: (linhas: Record<string, any>[]) => void;
+  /**
+   * a chave do STATUS DA TELA no lookup de campo (CONFIG_STATUS_TELA): a tela que o abriu e o controle de retorno do legado — na
+   * produção, `frmAPagar` + `edtCodPLC`, `frmCadProduto` + `edtCODSUBGRUPO`… Sem ela o lookup não guarda status (o do cadastro guarda)
+   */
+  statusChave?: { pai: string; retorno: string };
 }
 
 /**
@@ -150,7 +157,7 @@ interface Props {
  * de 200 linhas — a grade pagina sobre o total. Abre vazia, como o legado. Enter/duplo clique/&OK devolvem o registro; o clique
  * simples só posiciona. Telas com opções antes da Pesquisa (A pagar, A receber) mostram as opções primeiro.
  */
-export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, parametros, situacaoInicial, multisselecao, onSelecionarVarios }: Props) {
+export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, onFechar, filtroExtra, fixos, parametros, situacaoInicial, multisselecao, onSelecionarVarios, statusChave }: Props) {
   const mensagem = useMensagem();
   const situacao = situacaoInicial ?? 'ativos';
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -189,6 +196,9 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroExtra, fixosChave]);
 
+  // o status da tela vale na pesquisa do cadastro e das telas; no lookup de campo, com a chave de quem o abriu (ou no lookup de uma tela só)
+  const temStatus = (m: Meta | null) => !!m && (!resourcePath.startsWith('lookup/') || !!statusChave || (m.form ?? 'FRMPESQUISA').toUpperCase() !== 'FRMPESQUISA');
+  const chaveQs = statusChave ? `&pai=${encodeURIComponent(statusChave.pai)}&retorno=${encodeURIComponent(statusChave.retorno)}` : '';
   // a Pesquisa sobre o meta da escolha: o SetDefault do chamador (a abertura), o F4 e o status da tela da view aberta
   const aplicar = (m: Meta, esc: string) => {
     setMeta(m);
@@ -209,8 +219,8 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       if (f4.soma && m.totalizador?.includes(f4.soma)) setColunaSoma(f4.soma);
     }
     // o status da tela (RecuperarStatus): o campo, a operação e o valor que o operador guardou com Ctrl+Shift+S — reabre sem pesquisar
-    if (!resourcePath.startsWith('lookup/')) {
-      pedir<{ campo: string; operacao: Operacao; valor: string; valor2: string } | null>(`/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${esc}`)
+    if (temStatus(m)) {
+      pedir<{ campo: string; operacao: Operacao; valor: string; valor2: string } | null>(`/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${esc}${chaveQs}`)
         .then((st) => {
           if (!st || !m.colunas.some((c) => c.campo === st.campo)) return;
           setCampo(st.campo);
@@ -258,9 +268,15 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
     setValor2(t === 'data' ? hojeNaLoja() : '');
   };
 
-  const focarGrade = () => {
-    setTimeout(() => corpoRef.current?.querySelector<HTMLElement>('[role="row"][tabindex], tbody tr[tabindex]')?.focus(), 60);
+  // o Enter leva o foco à grade QUANDO OS DADOS CHEGAM (antes era um setTimeout de 60 ms: com o servidor mais lento que isso, a grade
+  // ainda estava vazia e o foco nunca chegava a ela); tenta por alguns quadros até a 1ª linha existir
+  const focoPendente = useRef(false);
+  const tentarFocarGrade = (tentativas = 10) => {
+    const linha = corpoRef.current?.querySelector<HTMLElement>('[role="row"][tabindex], tbody tr[tabindex]');
+    if (linha) { linha.focus(); return; }
+    if (tentativas > 0) setTimeout(() => tentarFocarGrade(tentativas - 1), 30);
   };
+  const focarGrade = () => { focoPendente.current = true; };
   // F7 — "VÁRIOS FILTROS" (FSubSelect + cdsFiltros, uPesquisa.pas:1509-1517, :2160-2235, :2527-2553): ligado, cada pesquisa junta o
   // filtro atual aos ANTERIORES (and) e entra na lista se não for repetido; desligar esvazia a lista; F5 esvazia; Alt+Del na lista tira
   // o filtro (vale na próxima pesquisa). O texto vazio não é filtro e não entra
@@ -308,6 +324,7 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
       setPaginaAtual(r.linhas);
       setTotal(r.total);
       setSoma(r.soma ?? null);
+      if (focoPendente.current && r.linhas.length) { focoPendente.current = false; setTimeout(() => tentarFocarGrade(), 0); }
       return { data: r.linhas, total: r.total };
     } catch (e) {
       mensagem.erro(e);
@@ -521,12 +538,12 @@ export function Pesquisa({ resourcePath, colunas: colunasDaTela, onSelecionar, o
   return (
     <ShortcutScope>
       <TeclasDaPesquisa
-        statusTela={!resourcePath.startsWith('lookup/') && !!meta && opcaoEscolhida ? {
+        statusTela={temStatus(meta) && opcaoEscolhida ? {
           // Ctrl+Shift+S / Ctrl+Shift+D (uMaster.pas FormKeyDown → fStatusTela.Salvar/Excluir): sem mensagem, como no legado
-          salvar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}`, {
+          salvar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}${chaveQs}`, {
             method: 'PUT', headers: apiHeaders({ 'content-type': 'application/json' }), body: JSON.stringify({ campo, operacao, valor, valor2, soma: colunaSoma }),
           }).then((res) => { handle401(res); }).catch(() => undefined),
-          apagar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}`, {
+          apagar: () => void fetch(`${BASE}/cadastro/pesquisa/status?recurso=${encodeURIComponent(resourcePath)}${escolhaQs(opcao, complemento)}${chaveQs}`, {
             method: 'DELETE', headers: apiHeaders(),
           }).then((res) => { handle401(res); }).catch(() => undefined),
         } : null}
