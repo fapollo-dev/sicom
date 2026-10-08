@@ -58,6 +58,7 @@ describe('MensagemProvider — exibição padronizada de erros (ADR-015)', () =>
       return (
         <>
           <button onClick={() => erro(new Error('Selecione ao menos um título.'))}>aviso</button>
+          <button onClick={() => erro('Produto já adicionado.')}>texto</button>
           <button onClick={() => erro(new TypeError('Failed to fetch'))}>rede</button>
         </>
       );
@@ -65,6 +66,16 @@ describe('MensagemProvider — exibição padronizada de erros (ADR-015)', () =>
     render(<MensagemProvider><Avisos /></MensagemProvider>);
     fireEvent.click(screen.getByText('aviso'));
     expect(screen.getByText('Selecione ao menos um título.')).toBeTruthy();
+  });
+
+  it('o aviso passado como texto (mensagem.erro(\'…\')) também mostra o texto', () => {
+    function Texto() {
+      const { erro } = useMensagem();
+      return <button onClick={() => erro('Produto já adicionado.')}>texto</button>;
+    }
+    render(<MensagemProvider><Texto /></MensagemProvider>);
+    fireEvent.click(screen.getByText('texto'));
+    expect(screen.getByText('Produto já adicionado.')).toBeTruthy();
   });
 
   it('TypeError (falha de rede/código) não vaza o texto técnico: mostra o genérico', () => {

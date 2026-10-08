@@ -29,6 +29,8 @@ function extrairEnvelope(e: unknown): ErroResposta {
   // 3) o aviso da tela: `new Error('Selecione ao menos um título.')` — um Error COMUM criado com o texto (o padrão de ~20 telas). Antes ele
   //    caía no genérico e o operador não via a mensagem. Falha de rede e de código (TypeError, RangeError…) continuam no genérico
   if (e instanceof Error && e.name === 'Error' && e.message.trim() !== '') return { statusCode: 0, code: 'AVISO', message: e.message };
+  //    e o aviso passado como TEXTO (`mensagem.erro('Produto já adicionado.')` — ~90 chamadas), que também caía no genérico
+  if (typeof e === 'string' && e.trim() !== '') return { statusCode: 0, code: 'AVISO', message: e };
   // 4) fallback genérico em PT
   return { statusCode: 0, code: 'ERRO', message: ERRO_GENERICO };
 }
