@@ -15,6 +15,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { AgendaPromocaoRelatorios } from './AgendaPromocaoRelatorios';
 import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
 import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
@@ -131,6 +132,40 @@ export function AgendaPromocaoCadMaster() {
     limparAdder();
   };
   const removerItem = (id: number) => setItens((xs) => xs.filter((it) => it.idproduto !== id));
+
+  // "&Adicionar" (btnAdicionarItem → MostraTelaPesquisa + CarregarItens, uCadAgendaPromocao.pas:435-480, :~1290): a Pesquisa da
+  // GET_PRODUTOS (ATIVO = 'S' AND IMPRIMIRCOMP = 'N') em MULTISSELEÇÃO; cada marcado entra sem repetir o produto (o Locate CODBARRA),
+  // com o VRVENDA e o preço promocional = VRVENDA − VRVENDA × % de desconto do cabeçalho (sem %, o VRPROMO do produto) e o clube
+  // fidelidade do produto. O preço se corrige NA GRADE (duplo clique), como no legado; o produto em outra agenda o servidor confere ao
+  // gravar (PERMITE_PRODUTO_MAIS_UMA_AGENDA).
+  const [pesquisando, setPesquisando] = useState(false);
+  const adicionarDaPesquisa = (linhas: Array<Record<string, unknown>>) => {
+    setPesquisando(false);
+    const p = n(pct);
+    setItens((xs) => {
+      const ja = new Set(xs.map((it) => Number(it.idproduto)));
+      const novos: AgendaPromocaoItemDto[] = [];
+      for (const l of linhas) {
+        const id = Number(l.codigo ?? l.idproduto);
+        if (!Number.isInteger(id) || ja.has(id)) continue;
+        ja.add(id);
+        const venda = n(l.vrvenda);
+        const promo = p > 0 ? Math.round((venda - (venda * p) / 100) * 100) / 100 : n(l.vrpromo);
+        const clube = n(l.vrclubefidelidade);
+        novos.push({
+          idproduto: id, vrvenda: venda, vlrpromocao: promo, vrclube_fidelidade: clube > 0 ? clube : undefined, ativo: 'S',
+          tv: snParaTf('N'), radio: snParaTf('N'), tabloide: snParaTf('N'), interno: snParaTf('N'),
+        } as AgendaPromocaoItemDto);
+      }
+      return [...xs, ...novos];
+    });
+  };
+  // a grade editável (o cxGrid do legado): o preço promocional, o clube, o máximo e a compra mínima mudam na célula
+  const editarCelula = ({ id, field, value }: { id: unknown; field: string; value: unknown }) => {
+    const v = value === '' || value == null ? undefined : Number(String(value).replace(',', '.'));
+    if (v != null && (!Number.isFinite(v) || v < 0)) return;
+    setItens((xs) => xs.map((it) => (String(it.idproduto) === String(id) ? { ...it, [field]: v } : it)));
+  };
   // F2 = pnlBuscaProd.Visible + SetaFoco(edtCodBarra) + edtCodBarra.Clear (FormKeyDown do uCadAgendaPromocao): o produto do adder,
   // limpo e com o foco, para digitar o próximo item; com uma janela aberta por cima, a tecla é dela
   const produtoRef = useRef<HTMLDivElement>(null);
@@ -269,10 +304,11 @@ export function AgendaPromocaoCadMaster() {
     { field: 'atualizacao_grupo', headerName: 'Grupo', type: 'text', width: 110, valueGetter: (r) => (r.atualizacao_grupo === 'M' ? 'Atualiza grupo' : r.atualizacao_grupo === 'S' ? 'Do grupo' : '—') },
     { field: 'idproduto', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idproduto) },
     { field: 'vrvenda', headerName: 'Vr. Venda', type: 'text', width: 120, valueGetter: (r) => (n(r.vrvenda) > 0 ? fmtMoeda(r.vrvenda) : '—') },
-    { field: 'vlrpromocao', headerName: 'Vr. Promocional', type: 'text', width: 140, valueGetter: (r) => fmtMoeda(r.vlrpromocao) },
-    { field: 'vrclube_fidelidade', headerName: 'Vr. Fidelidade', type: 'text', width: 130, valueGetter: (r) => (n(r.vrclube_fidelidade) > 0 ? fmtMoeda(r.vrclube_fidelidade) : '—') },
-    { field: 'maximo', headerName: 'Máx.', type: 'number', width: 90, valueGetter: (r) => (n(r.maximo) > 0 ? n(r.maximo) : '—') },
-    { field: 'vlr_min_compra', headerName: 'Mín. compra', type: 'text', width: 120, valueGetter: (r) => (n(r.vlr_min_compra) > 0 ? fmtMoeda(r.vlr_min_compra) : '—') },
+    // editáveis na grade (duplo clique): o preço promocional, o clube fidelidade, o máximo e a compra mínima
+    { field: 'vlrpromocao', headerName: 'Vr. Promocional', type: 'number', width: 140, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => fmtMoeda(value) },
+    { field: 'vrclube_fidelidade', headerName: 'Vr. Fidelidade', type: 'number', width: 130, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => (n(value) > 0 ? fmtMoeda(value) : '—') },
+    { field: 'maximo', headerName: 'Máx.', type: 'number', width: 90, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => (n(value) > 0 ? String(n(value)) : '—') },
+    { field: 'vlr_min_compra', headerName: 'Mín. compra', type: 'number', width: 120, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => (n(value) > 0 ? fmtMoeda(value) : '—') },
     { field: 'tv', headerName: 'TV', type: 'text', width: 60, valueGetter: (r) => simNao(r.tv) },
     { field: 'radio', headerName: 'Rádio', type: 'text', width: 70, valueGetter: (r) => simNao(r.radio) },
     { field: 'tabloide', headerName: 'Tabloide', type: 'text', width: 80, valueGetter: (r) => simNao(r.tabloide) },
@@ -341,14 +377,22 @@ export function AgendaPromocaoCadMaster() {
             </div>
             <div className="flex items-end justify-end gap-gp-sm sm:col-span-2">
               <Button label="&Limpar" variant="ghost" onClick={limparAdder} />
-              <Button label="&Adicionar" variant="soft" onClick={adicionarItem} />
+              {/* o produto avulso (o painel do F2, pnlBuscaProd) */}
+              <Button label="Incluir produto" variant="ghost" onClick={adicionarItem} />
+              {/* o "&Adicionar" do legado: a Pesquisa em multisseleção */}
+              <Button label="&Adicionar" variant="soft" onClick={() => setPesquisando(true)} />
             </div>
+            {pesquisando && (
+              <Pesquisa resourcePath="lookup/produtos" fixos={{ ativo: 'S' }} parametros={{ naoComposto: 'S' }} multisselecao
+                onSelecionarVarios={adicionarDaPesquisa} onSelecionar={(l) => adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+            )}
           </div>
         </div>
 
         {itens.length > 0 && (
           <div className="mt-form-gap overflow-x-auto">
-            <DataTable persistId="agenda-promocao" savedViewsService={gradeLayoutService} rows={itens} columns={itensColunas} getRowId={(r) => String(r.idproduto)} />
+            <DataTable persistId="agenda-promocao" savedViewsService={gradeLayoutService} rows={itens} columns={itensColunas} getRowId={(r) => String(r.idproduto)}
+              onCellEditCommit={editarCelula} />
           </div>
         )}
 

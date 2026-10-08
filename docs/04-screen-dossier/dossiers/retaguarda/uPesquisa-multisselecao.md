@@ -355,3 +355,12 @@ empate: um gap sobre tabela morta vai para o fim.
     conferir repetição, como o legado; na produção há 1 caso repetido (uCadClientes.pas:4181-4198).
   - **Empresas do operador:** `cadastro/empresas`, pela opção `pesquisa` nova do `CadMasterDet`; a empresa que já está não repete
     (uCadUsuarios.pas:168-189). A legenda é a do legado, "Adicionar", sem atalho: o Alt+A é o do rodapé.
+- **Corte 2 — Agenda de promoção** ✅ (só web). O "&Adicionar" (o do legado, dica "Adicionar itens") é a Pesquisa `lookup/produtos`
+  (ATIVO = 'S' e IMPRIMIRCOMP = 'N') em multisseleção:
+  - cada marcado entra uma vez, com o VRVENDA e o preço promocional = VRVENDA − o % de desconto do cabeçalho (sem %, o VRPROMO) e o
+    clube do produto (CarregarItens);
+  - a grade passou a ser editável como o cxGrid do legado (duplo clique): Vr. Promocional, Vr. Fidelidade, Máx. e Mín. compra;
+  - o produto avulso (o painel do F2) virou "Incluir produto";
+  - a trava "promoção e clube iguais a zero" continua no gravar (o schema dos itens, uCadAgendaPromocao:651), e a de "produto em
+    outra agenda" no servidor (PERMITE_PRODUTO_MAIS_UMA_AGENDA);
+  - jsdom `agendaPromocaoLote.spec.tsx`.
