@@ -7,6 +7,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { hashSenha } from '../../shared/auth/crypto';
 import { sql } from 'kysely';
+import { sincronizarVinculos, TABELA_DO_TIPO } from './perfil-vinculos';
 
 /**
  * OPERADORES (uCadUsuarios) — corte-2: migra o CRUD simples para MESTRE-DETALHE (AggregateEngineService)
@@ -38,33 +39,22 @@ async function loginProtegido(db: { selectFrom: (t: string) => any }, id: number
  * retirado vira 'E' com INDR_USUARIO/INDR_DATA — nada é apagado. Por isso não é um `detalhe` do motor (que regrava delete+insert).
  */
 const ABAS_DE_PERFIL = [
-  { chave: 'perfis', tipo: 'ACESSO', tabela: 'relacao_operador_perfil' },
-  { chave: 'perfis_compra', tipo: 'COMPRA', tabela: 'relacao_operador_perfil_compra' },
+  { chave: 'perfis', tipo: 'ACESSO' },
+  { chave: 'perfis_compra', tipo: 'COMPRA' },
 ] as const;
 
 async function gravarPerfis(trx: any, id: number, dto: Record<string, unknown>): Promise<void> {
-  const op = currentTenant().operadorId ?? null;
   for (const aba of ABAS_DE_PERFIL) {
     const lista = dto[aba.chave] as Array<{ codperfil: number }> | undefined;
     if (lista === undefined) continue;
-    const quer = [...new Set(lista.map((p) => Number(p.codperfil)))];
-    const ativos = ((await trx.selectFrom(aba.tabela).select('codperfil').where('codoperador', '=', id)
-      .where(sql`coalesce(indr,'I')`, '<>', 'E').forUpdate().execute()) as Array<{ codperfil: number }>).map((r) => Number(r.codperfil));
-    const novos = quer.filter((c) => !ativos.includes(c));
-    const saem = ativos.filter((c) => !quer.includes(c));
-    if (novos.length) {
+    await sincronizarVinculos(trx, TABELA_DO_TIPO[aba.tipo], { coluna: 'codoperador', valor: id }, lista.map((p) => Number(p.codperfil)), async (novos) => {
       // o que a Pesquisa do legado oferece: perfil ATIVO do TIPO da aba (`ExistePerfilSelecionado`, uCadUsuarios.pas:802-817)
       const validos = new Set(((await trx.selectFrom('perfil').select('codperfil').where('codperfil', 'in', novos)
         .where('ativo', '=', 'S').where(sql`upper(tipo)`, '=', aba.tipo).where(sql`coalesce(indr,'I')`, '<>', 'E')
         .execute()) as Array<{ codperfil: number }>).map((r) => Number(r.codperfil)));
       const invalido = novos.find((c) => !validos.has(c));
       if (invalido != null) throw new BusinessRuleError('OPERADOR_PERFIL_INVALIDO', { codperfil: invalido, tipo: aba.tipo });
-      await trx.insertInto(aba.tabela).values(novos.map((codperfil) => ({ codoperador: id, codperfil, indr: 'I', dtcadastro: sql`now()` }))).execute();
-    }
-    if (saem.length) {
-      await trx.updateTable(aba.tabela).set({ indr: 'E', indr_usuario: op, indr_data: sql`now()` })
-        .where('codoperador', '=', id).where('codperfil', 'in', saem).where(sql`coalesce(indr,'I')`, '<>', 'E').execute();
-    }
+    });
   }
 }
 
@@ -193,7 +183,7 @@ export const operadoresAggregateConfig: AggregateConfig = {
   anexarLeitura: async ({ db, id, registro }) => {
     const out: Record<string, unknown> = { ...registro };
     for (const aba of ABAS_DE_PERFIL) {
-      out[aba.chave] = await db.selectFrom(`${aba.tabela} as r`).leftJoin('perfil as p', 'p.codperfil', 'r.codperfil')
+      out[aba.chave] = await db.selectFrom(`${TABELA_DO_TIPO[aba.tipo]} as r`).leftJoin('perfil as p', 'p.codperfil', 'r.codperfil')
         .select(['r.codperfil', 'p.perfil']).where('r.codoperador', '=', id).where(sql`coalesce(r.indr,'I')`, '<>', 'E')
         .orderBy('r.dtcadastro').orderBy('r.codperfil').execute();
     }

@@ -922,6 +922,7 @@ const CODE_PT: Record<string, string> = {
   LIBERACAO_NAO_AUTORIZADA: 'Supervisor não autorizado ou credenciais inválidas.',
   // Perfis & Permissões (FRMCADPERFILOPERADOR)
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
+  PERFIL_SEM_OPERADORES: 'Perfil de parceiro não tem operadores vinculados.',
   // De-para de fornecedor (CODREFERENCIA_FOR)
   DEPARA_NAO_ENCONTRADO: 'Referência de fornecedor não encontrada.',
   DEPARA_FORNECEDOR_INVALIDO: 'Fornecedor inválido (não é fornecedor desta empresa).',

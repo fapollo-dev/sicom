@@ -443,3 +443,14 @@ empate: um gap sobre tabela morta vai para o fim.
     parceiros/produtos/famílias com perfil de compra) — o `ValidaPerfilOperador` do pedido segue inerte; supervisionados: 0.
   - Fica de fora: o F2 que abre o cadastro de perfil por cima e a biometria.
   - Smoke §298.35; jsdom `operadoresAbas.spec.tsx`.
+- **Corte 4 — Perfil: operadores vinculados (#112)** ✅:
+  - O cadastro de perfil ganha a grade "Operadores vinculados" (ação "Operadores" na linha do perfil de ACESSO ou COMPRA; o de PARCEIRO
+    não tem operadores, como o `tpParceiro: Exit` do legado). O Adicionar é a Pesquisa da GET_OPERADORES em multisseleção; o repetido
+    avisa "O operador X já possui vinculo com o perfil Y ."; o Excluir confirma.
+  - Vai no Gravar (`PUT /cadastro/perfil-operador/perfil/:codperfil`, BTNGRAVAR do FRMCADPERFILOPERADOR), com o mesmo histórico da tela
+    de usuários (sai como 'E' com usuário e data, volta como linha nova) — o helper `perfil-vinculos.ts` serve as duas telas.
+  - Smoke §298.36.
+- **Corte 4 — Cotação: "Importar estoque mínimo" (#40)** ✅: o botão abre a Pesquisa `lookup/produtos-estoque-minimo` (a GET_PRODUTOS_ESTOQUE
+  da loja com QTDE <= MINIMO, DESCRICAO / Começado com) em multisseleção; os marcados entram como os do "Vários produtos". A
+  COTACAO_VERIFICA_PEDIDO_ABERTO (a pergunta dos pedidos em aberto) é 'N' na produção. Uso: 1 cotação em 2026, 3 em 2025. Smoke §298.37.
+

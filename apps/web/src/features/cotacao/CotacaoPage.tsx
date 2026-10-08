@@ -94,11 +94,11 @@ export function CotacaoPage() {
   };
   // a Pesquisa em multisseleção (uCadCotacao.pas:317 participantes, :873 produtos): os marcados entram todos, sem repetir; o produto com
   // a quantidade do campo (ou 1)
-  const [pesquisa, setPesquisa] = useState<'produtos' | 'fornecedores' | null>(null);
+  const [pesquisa, setPesquisa] = useState<'produtos' | 'minimo' | 'fornecedores' | null>(null);
   const addVarios = (linhas: Array<Record<string, unknown>>) => {
     const qual = pesquisa;
     setPesquisa(null);
-    if (qual === 'produtos') {
+    if (qual === 'produtos' || qual === 'minimo') {
       setNovosProdutos((atual) => {
         const ja = new Set(atual.map((p) => p.idproduto));
         const novos = linhas.map((l) => ({ idproduto: Number(l.codigo ?? l.idproduto), descricao: `${l.codbarra ?? ''} - ${l.descricao ?? ''}`, quantidade: Number(prodQtd) > 0 ? Number(prodQtd) : 1 }))
@@ -342,6 +342,8 @@ export function CotacaoPage() {
           <div className="w-28"><NumberField label="&Qtde" value={prodQtd} decimais={2} min={0} onChange={setProdQtd} /></div>
           <Button label="&Adicionar produto" variant="ghost" onClick={addProduto} />
           <Button label="Vários produtos…" variant="ghost" onClick={() => setPesquisa('produtos')} />
+          {/* o menu "Importar estoque mínimo" (uCadCotacao.pas:2431): os produtos da loja com estoque no mínimo ou abaixo */}
+          <Button label="Importar estoque mínimo…" variant="ghost" onClick={() => setPesquisa('minimo')} />
           {/* uCadCotacao.pas:314 — o legado filtra ATIVADO <> 'N' (sem FRN); o FRN='S' fica porque o servidor recusa o não-fornecedor
               (COTACAO_FORNECEDOR_INVALIDO) */}
           <div className="w-96"><LookupField label="&Fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ frn: 'S' }}
@@ -350,6 +352,10 @@ export function CotacaoPage() {
           <Button label="Vários fornecedores…" variant="ghost" onClick={() => setPesquisa('fornecedores')} />
           {pesquisa === 'produtos' && (
             <Pesquisa resourcePath="lookup/produtos" parametros={{ ativoCompra: 'S' }} multisselecao onSelecionarVarios={addVarios}
+              onSelecionar={(l) => addVarios([l])} onFechar={() => setPesquisa(null)} />
+          )}
+          {pesquisa === 'minimo' && (
+            <Pesquisa resourcePath="lookup/produtos-estoque-minimo" multisselecao onSelecionarVarios={addVarios}
               onSelecionar={(l) => addVarios([l])} onFechar={() => setPesquisa(null)} />
           )}
           {pesquisa === 'fornecedores' && (

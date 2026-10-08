@@ -10,7 +10,7 @@ vi.mock('../src/shared/cadmaster/Pesquisa', () => ({
   ),
 }));
 
-import { ListaPesquisada as Lista } from '../src/features/operadores/ListaPesquisada';
+import { ListaPesquisada as Lista } from '../src/shared/pesquisa/ListaPesquisada';
 import { ShortcutScope } from '../src/shared/keyboard';
 
 const ListaPesquisada = (p: Parameters<typeof Lista>[0]) => <ShortcutScope><Lista {...p} /></ShortcutScope>;

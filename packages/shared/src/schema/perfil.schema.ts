@@ -87,3 +87,9 @@ export const permissaoClonarSchema = z.object({
   path: ['para'],
 });
 export type PermissaoClonarDto = z.infer<typeof permissaoClonarSchema>;
+
+/** a lista de operadores vinculados a um perfil (o "Adicionar operador vinculado" do cadastro de perfil, em multisseleção) */
+export const operadoresDoPerfilSchema = z.object({
+  operadores: z.array(z.coerce.number({ message: 'Operador inválido.' }).int().positive()).max(5000),
+});
+export type OperadoresDoPerfilDto = z.infer<typeof operadoresDoPerfilSchema>;

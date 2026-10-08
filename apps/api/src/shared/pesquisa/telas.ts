@@ -394,6 +394,13 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       sql<SqlBool>`${sql.ref('empresa_estoque')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_estoque_dep')} = ${ctx.empresa ?? -1}`,
       sql<SqlBool>`${sql.ref('empresa')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_preco')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('ativo_venda')} = 'S'`,
     ] },
+  // COTAÇÃO — o "Importar estoque mínimo" (MniImportarEstoqueMinimoClick, uCadCotacao.pas:2431-2443): a GET_PRODUTOS_ESTOQUE com o estoque e o
+  // depósito da LOJA e QTDE <= MINIMO, DESCRICAO / Começado com, em multisseleção; os marcados entram como os do "Vários produtos"
+  'lookup/produtos-estoque-minimo': { view: 'get_produtos_estoque', viewLegado: 'GET_PRODUTOS_ESTOQUE', form: 'FRMCADCOTACAO', titulo: 'Produtos', retorno: 'codigo',
+    statusRetorno: '', abertura: { campo: 'descricao', operacao: 'comeca' },
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('empresa_estoque')} = ${ctx.empresa ?? -1}`, sql<SqlBool>`${sql.ref('empresa_estoque_dep')} = ${ctx.empresa ?? -1}`,
+      sql<SqlBool>`${sql.ref('qtde')} <= ${sql.ref('minimo')}`],
+    descricaoObrigatorios: 'EMPRESA_ESTOQUE = loja and EMPRESA_ESTOQUE_DEP = loja and QTDE <= MINIMO' },
   'cadastro/precos': { view: 'get_preco', ocultas: OCULTAS.preco, form: 'FRMCADTABELAPRECO', titulo: 'Tabela de preço', retorno: 'codigo', campoAtivo: ATIVO },
   'compras/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMCADCONDICOESPAGTO', titulo: 'Condições de pagamento', retorno: 'codigo',
     abertura: { campo: 'codigo', operacao: 'igual' } },

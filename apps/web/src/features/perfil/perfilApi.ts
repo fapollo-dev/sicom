@@ -39,6 +39,14 @@ export function setPerfilOperador(codoperador: number, codperfil: number, atribu
   return req('/cadastro/perfil-operador', { method: 'PUT', body: JSON.stringify({ codoperador, codperfil, atribuido }) });
 }
 
+/** os operadores vinculados ao perfil (a grade do cadastro de perfil) e a gravação da lista */
+export function operadoresDoPerfil(codperfil: number): Promise<{ codperfil: number; tipo: string; operadores: Array<{ codoperador: number; nome: string | null }> }> {
+  return req(`/cadastro/perfil-operador/perfil/${codperfil}`);
+}
+export function gravarOperadoresDoPerfil(codperfil: number, operadores: number[]): Promise<unknown> {
+  return req(`/cadastro/perfil-operador/perfil/${codperfil}`, { method: 'PUT', body: JSON.stringify({ operadores }) });
+}
+
 /** matriz de grants FORM×OPCAO por perfil. */
 export function catalogoPermissoes(): Promise<Array<{ form: string; opcao: string; caption?: string | null; form_caption?: string | null }>> {
   return req('/cadastro/permissoes/catalogo');

@@ -9,7 +9,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Tabs } from '../../shared/ui/Tabs';
-import { ListaPesquisada } from './ListaPesquisada';
+import { ListaPesquisada } from '../../shared/pesquisa/ListaPesquisada';
 import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@apollo/shared';
 
 type Item = Record<string, unknown>;

@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { X } from 'lucide-react';
-import { Button } from '../../shared/ui/Button';
-import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { Button } from '../ui/Button';
+import { Pesquisa } from '../cadmaster/Pesquisa';
 
 type Item = Record<string, unknown>;
 
 /**
- * uma aba de lista do cadastro de usuários (perfis, perfis de compra, supervisionados): a grade, o Adicionar — a Pesquisa em
- * multisseleção — e o Excluir da linha. O que já está na lista não entra de novo: o legado avisa nos perfis (`aoRepetir`) e pula
- * calado nos supervisionados (Locate, uCadUsuarios.pas:288).
+ * uma lista de vínculos (os perfis e os supervisionados do cadastro de usuários, os operadores do cadastro de perfil): a grade, o
+ * Adicionar — a Pesquisa em multisseleção — e o Excluir da linha. O que já está na lista não entra de novo: o legado avisa nos
+ * perfis (`aoRepetir`) e pula calado nos supervisionados (Locate, uCadUsuarios.pas:288).
  */
 export function ListaPesquisada({
   itens, onChange, chave, colunas, recurso, fixos, deLinha, editavel, aoRepetir, confirmarExclusao, rotulo,

@@ -30005,6 +30005,30 @@ async function main() {
             { tudo: [tudo.status, linhasDe(tudo).length, tudo.j?.code], cfopsVistos: cfopsVistos.slice(0, 8), comTodos: linhasDe(comTodos).length, nenhum: [nenhum.status, linhasDe(nenhum).length, nenhum.j?.code] });
         }
 
+        // COTAÇÃO — o "Importar estoque mínimo" (#40, uCadCotacao.pas:2431-2443): a GET_PRODUTOS_ESTOQUE da loja com QTDE <= MINIMO
+        {
+          const base0 = await pq('recurso=lookup/produtos-estoque&campo=descricao&operacao=comeca&valor=&porPagina=1');
+          const alvo = (base0.j.linhas ?? [])[0] as any;
+          const id = Number(alvo?.codigo);
+          const antes = (await pgPq.query(`SELECT minimo, qtde FROM estoque WHERE idproduto = $1 AND idempresa = 1`, [id])).rows[0] as any;
+          let abaixo: any; let acima: any;
+          try {
+            await pgPq.query(`UPDATE estoque SET minimo = coalesce(qtde, 0) + 1 WHERE idproduto = $1 AND idempresa = 1`, [id]);
+            abaixo = await pq(`recurso=lookup/produtos-estoque-minimo&campo=codigo&operacao=igual&valor=${id}&porPagina=10`);
+            await pgPq.query(`UPDATE estoque SET minimo = coalesce(qtde, 0) - 1 WHERE idproduto = $1 AND idempresa = 1`, [id]);
+            acima = await pq(`recurso=lookup/produtos-estoque-minimo&campo=codigo&operacao=igual&valor=${id}&porPagina=10`);
+          } finally {
+            await pgPq.query(`UPDATE estoque SET minimo = $2 WHERE idproduto = $1 AND idempresa = 1`, [id, antes?.minimo ?? null]).catch(() => undefined);
+          }
+          const todos = await pq('recurso=lookup/produtos-estoque-minimo&campo=descricao&operacao=comeca&valor=&porPagina=200');
+          const linhas = (todos.j.linhas ?? []) as any[];
+          check('PESQUISA §298.37 [cotação, "Importar estoque mínimo"]: a Pesquisa traz o produto da loja com o estoque no mínimo ou abaixo e não traz o que está acima; toda linha tem QTDE <= MINIMO, estoque e depósito da loja',
+            Number.isInteger(id) && id > 0 && abaixo?.status === 200 && (abaixo.j.linhas ?? []).some((l: any) => Number(l.codigo) === id)
+            && acima?.status === 200 && !(acima.j.linhas ?? []).some((l: any) => Number(l.codigo) === id)
+            && todos.status === 200 && linhas.every((l) => Number(l.qtde) <= Number(l.minimo) && Number(l.empresa_estoque) === 1 && Number(l.empresa_estoque_dep) === 1),
+            { id, antes, abaixo: [abaixo?.status, (abaixo?.j?.linhas ?? []).length, abaixo?.j?.code], acima: [acima?.status, (acima?.j?.linhas ?? []).length], todos: [todos.status, linhas.length] });
+        }
+
         // CADASTRO DE USUÁRIOS, as abas de PERFIL e de SUPERVISIONADOS (multisseleção #110/#111, uCadUsuarios.pas:220-300, :557-588)
         {
           const OPR = `${base}/cadastro/operadores`;
@@ -30049,6 +30073,36 @@ async function main() {
             && virouUsu.status === 200 && perdeuSupervisionados === null && usuComSup.status === 200 && usuLimpou === null,
             { cria: cria.status, lido: { perfis: lido.perfis, compra: lido.perfis_compra, sup: lido.supervisionados }, supervisionou, tirou, historico, voltou, linhasA,
               inativo, tipoErrado, naoOpe, supInvalido, virouUsu, perdeuSupervisionados, usuComSup, usuLimpou });
+        }
+
+        // CADASTRO DE PERFIL, os operadores vinculados (multisseleção #112, uCadPerfilOperador.pas:163-207): a lista vai no Gravar
+        {
+          const PV = `${base}/cadastro/perfil-operador/perfil`;
+          const perf = async (perfil: string, tipo: string) => Number((await pgPq.query(
+            `INSERT INTO perfil (perfil, ativo, tipo) VALUES ($1, 'S', $2) RETURNING codperfil`, [perfil, tipo])).rows[0].codperfil);
+          const [pA, pC, pP] = [await perf('SMOKE 298.36 ACESSO', 'ACESSO'), await perf('SMOKE 298.36 COMPRA', 'COMPRA'), await perf('SMOKE 298.36 PARCEIRO', 'PARCEIRO')];
+          const grava = async (cod: number, operadores: number[]) => {
+            const r = await fetch(`${PV}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ operadores }) });
+            return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
+          };
+          const le = async (cod: number) => (await (await fetch(`${PV}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+          const g1 = await grava(pA, [929801, 929802, 929801]);
+          const l1 = await le(pA);
+          const g2 = await grava(pA, [929802]);
+          const l2 = await le(pA);
+          const saiu = (await pgPq.query(`SELECT indr, indr_usuario FROM relacao_operador_perfil WHERE codperfil = $1 AND codoperador = 929801`, [pA])).rows;
+          const compra = await grava(pC, [929801]);
+          const naCompra = Number((await pgPq.query(`SELECT count(*)::int n FROM relacao_operador_perfil_compra WHERE codperfil = $1 AND codoperador = 929801 AND indr = 'I'`, [pC])).rows[0].n);
+          const parceiro = await grava(pP, [929801]);
+          const inexistente = await grava(pA, [929802, 999999]);
+          const semMudar = await le(pA);
+          check('PERFIL §298.36 [os operadores vinculados ao perfil]: gravar a lista põe cada operador uma vez; tirar vira E com usuário (o histórico fica); o perfil de COMPRA grava na tabela dele; o de PARCEIRO não tem operadores (422) e operador inexistente barra o lote inteiro (422, nada muda)',
+            g1.status === 200 && (l1.operadores ?? []).map((o: any) => Number(o.codoperador)).sort().join() === '929801,929802' && l1.tipo === 'ACESSO'
+            && g2.status === 200 && (l2.operadores ?? []).map((o: any) => Number(o.codoperador)).join() === '929802'
+            && saiu.length === 1 && saiu[0].indr === 'E' && Number(saiu[0].indr_usuario) === 7
+            && compra.status === 200 && naCompra === 1 && parceiro.status === 422 && parceiro.code === 'PERFIL_SEM_OPERADORES'
+            && inexistente.status === 422 && inexistente.code === 'OPERADOR_NAO_ENCONTRADO' && (semMudar.operadores ?? []).map((o: any) => Number(o.codoperador)).join() === '929802',
+            { g1, l1: l1.operadores, g2, l2: l2.operadores, saiu, compra, naCompra, parceiro, inexistente, semMudar: semMudar.operadores });
         }
 
         // ── corte B5: as 6 views da Pesquisa sem versão integral (mig 413) — a rel_get_plc e a rel_get_cfop novas e a coluna do legado no
