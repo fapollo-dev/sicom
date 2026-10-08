@@ -364,3 +364,16 @@ empate: um gap sobre tabela morta vai para o fim.
   - a trava "promoção e clube iguais a zero" continua no gravar (o schema dos itens, uCadAgendaPromocao:651), e a de "produto em
     outra agenda" no servidor (PERMITE_PRODUTO_MAIS_UMA_AGENDA);
   - jsdom `agendaPromocaoLote.spec.tsx`.
+- **Corte 2 — Pedido de compra, achados antes de implementar (08/10/2026):**
+  - **Item com quantidade 0 é fluxo normal do legado:**
+    - 10.677 dos 30.721 itens de pedido de 2026 (35%) estão gravados com quantidade total 0. O lote do legado põe cada produto com
+      QTDE = 0 em cada loja (`CarregarItensComArray`, uPedidoCompra.pas:7383-7550) e o comprador preenche só alguns.
+    - Há o menu "Excluir itens com Qtde zerada" (`retirarositenscomquantidade1Click`) e a IMPRIME_ZERADO_PC.
+    - O schema do Apollo exige `qtde > 0` no item, regra que não vem do legado: alinhar antes do lote.
+  - **O ValidaPerfilOperador** (o perfil de compra do departamento e do produto, que barra o lote inteiro) está **inerte com o dado
+    atual**: 0 das 5.988.302 linhas da GET_PRODUTOS_PC têm COD_PERFIL_DEPARTAMENTO ou COD_PERFIL_PRODUTO. Fica registrado, não
+    desligado: se o cliente passar a usar perfis, ele entra.
+  - **A tabela do fornecedor no custo** (GetUltimaTabelaFornecedor) está desligada no cliente (`pedido-heranca.ts`).
+  - **"Baixar" em lote (#34):** o legado faz um UPDATE cru, sem conferir nada (:6546-6570). Lá o limite diário/semanal de compra é
+    conferido no GRAVAR; o Apollo o move para o FECHAR. Por isso o lote passa pelas travas do Fechar pedido, pedido a pedido; sem
+    isso, o lote seria um atalho para fugir do limite.
