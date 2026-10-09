@@ -49,11 +49,12 @@ mostra telas e janelas vivas que o menu não mostra. Resultado:
 - ✅ **"Processamento rápido de nota fiscal"** (838 linhas, 157 notas desde 2024) — a janela da entrada de transferência,
   convertida (`uProcessaNotaFiscal.md`).
 - ✅ **"Configurador Geral"** (50) — a LOG das configurações por escopo, agora gravada.
-- 🟡 **"GERACAOAUTOMATICA"** (189 desde 2025, último 18/09/2026, 4 operadores): "Pedido de compra gerado a partir das diferenças dos
+- 🪦 **"GERACAOAUTOMATICA"** (189 desde 2025, último 18/09/2026, 4 operadores): "Pedido de compra gerado a partir das diferenças dos
   itens da nota fiscal faltantes e inexistentes. Nro: N gerado a partir do pedido nro: M" — o pedido NOVO nasce aberto, com o
-  fornecedor, as lojas e o vencimento/faturamento do pedido de ORIGEM, e a origem é sempre um pedido antigo (2022-2024). Não está no
-  fonte de 2020 e o gatilho não aparece no dado (as notas processadas antes não são do pedido de origem): **sem prova do gatilho, não
-  convertido** — precisa do fonte novo ou de recon com o usuário.
+  fornecedor, as lojas e o vencimento/faturamento do pedido de ORIGEM (sempre um pedido antigo, 2022-2024), e leva os itens do pedido
+  que a nota não trouxe (ex.: 13298 → 35696 com o produto que faltou na nota 74246; 13433, entregue inteiro, → 35896 vazio). Fora do
+  fonte de 2020. **Marginal com prova (09/10/2026): o resultado nunca é usado** — dos 189 pedidos gerados, **156 nascem sem item,
+  nenhum recebeu nota e nenhum foi fechado ou excluído**. Não convertido.
 - Divergência de texto já registrada: "Cadastro de parceiros - Fornecedor"/"- Transportadora" (o título vem do menu escolhido).
 - Fora de escopo/marginais: "Cadastro de Relatórios" (upload de .fr3 do suporte), "Lançamento automático OFX" (17, último 05/2025),
   concorrentes (21), "Configuração Integração Bancária (Boleto)" (5) e títulos de 1 a 3 linhas.
