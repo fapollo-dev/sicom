@@ -279,8 +279,11 @@ export class PrecificacaoCustoService {
     const prod = (await db.selectFrom('produtos').select(['idproduto', 'codbarra', 'descricao', 'aliquota', 'codgrupopreco', 'ativo'])
       .where('idproduto', '=', idproduto).executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto });
-    const mp = (await db.selectFrom('multi_preco').selectAll().where('idproduto', '=', idproduto).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
-    if (!mp) throw new BusinessRuleError('PRECO_NAO_ENCONTRADO', { idproduto, idempresa: emp });
+    // a loja sem linha de preço abre vazia (`dtsEmpresaDataChange`, :1774-1779: cdsMultiPreco.Append com IDPRODUTO/IDEMPRESA) e o Gravar a
+    // inclui — a loja 50 da produção tem 12.875 linhas contra 47.815 das outras
+    const mp = ((await db.selectFrom('multi_preco').selectAll().where('idproduto', '=', idproduto).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined)
+      ?? { idproduto, idempresa: emp };
+    const semPreco = mp.id_multi_preco == null;
     // empresas do OPERADOR com permissão nesta tela + saldo do produto (fiel a sqqEmpresa; o LEFT JOIN estoque do
     // legado degenera em INNER e ESCONDE a empresa sem linha de estoque — divergência CONSCIENTE: mantemos a empresa).
     const empresas = (await db.selectFrom('empresas as e')
@@ -302,9 +305,9 @@ export class PrecificacaoCustoService {
       ? ((await db.selectFrom('familias_prod').select('descricao').where('codfamilia', '=', num(prod.codgrupopreco)).executeTakeFirst()) as { descricao?: string } | undefined)?.descricao ?? null
       : null;
     return {
-      produto: { ...prod, grupo_preco: grupo }, preco: mp, empresas, painel, modo_lote_default: t.preconf === 'L', idempresa: emp,
-      // edtCodProdExit: a promoção acumulativa é a da loja do LOGIN (`PromocaoAcumulativa(dmPrincipal.EmpresaCODEMPRESA, …)`)
-      promocao_acumulativa: await this.emPromocaoAcumulativa(db, idproduto, prod.codgrupopreco, sessao),
+      produto: { ...prod, grupo_preco: grupo }, preco: mp, sem_preco: semPreco, empresas, painel, modo_lote_default: t.preconf === 'L', idempresa: emp,
+      // dtsEmpresaDataChange (:1767-1769): a promoção acumulativa é a da loja da LINHA (na abertura, a do login — AbreProduto posiciona nela)
+      promocao_acumulativa: await this.emPromocaoAcumulativa(db, idproduto, prod.codgrupopreco, emp),
       // o que a tela mostra ao lado (o ICM efetivo da alíquota, os % da empresa na escada)
       fiscal: { icm_efetivo: t.icmsEfetivo, despoperacional: t.despOperacional, imprenda: t.irpj, contsocial: t.csll, simples: t.simplesNacional },
       // FormShow (:2130-2240): os rótulos e o PMZ pelo TIPO_PRECIFICACAO; a promoção (PERMITE_ALTERAR_VALOR_PROMO) e o atacarejo
@@ -384,7 +387,8 @@ export class PrecificacaoCustoService {
     const precoMantido: Array<{ idempresa: number; motivo: string }> = [];
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nomeOp = (await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined;
-      const grupo = (await trx.selectFrom('produtos').select('codgrupopreco').where('idproduto', '=', dto.idproduto).executeTakeFirst()) as { codgrupopreco?: number } | undefined;
+      const grupo = (await trx.selectFrom('produtos').select(['codgrupopreco', 'idproduto_pai']).where('idproduto', '=', dto.idproduto).executeTakeFirst()) as { codgrupopreco?: number; idproduto_pai?: number | null } | undefined;
+      const ehFilho = num(grupo?.idproduto_pai) > 0;
       let lotes = 0;
       let historico = 0;
       let ativoMudou: { ativo: string; ativo_compra: string } | null = null;
@@ -392,9 +396,15 @@ export class PrecificacaoCustoService {
         // a empresa tem de ser visível ao operador nesta tela (RBAC por-empresa, fiel ao sqqEmpresa).
         const perm = await trx.selectFrom('permissoes').select('form').where('form', '=', 'FRMPRIFICACAOCUSTO').where('codempresa', '=', e).where('codoperador', '=', op).executeTakeFirst();
         if (!perm) throw new BusinessRuleError('SEM_PERMISSAO_EMPRESA', { idempresa: e });
-        const antes = (await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', dto.idproduto).where('idempresa', '=', e).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
-        if (!antes) continue; // sem linha de preço nessa empresa → nada a gravar (fiel: o UPDATE não casa)
+        let antes = (await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', dto.idproduto).where('idempresa', '=', e).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
         const naEditada = e === editada;
+        // a loja EDITADA sem linha de preço: o legado a inclui (o Append do dtsEmpresaDataChange + ApplyUpdates); as marcadas sem linha ficam
+        // de fora (a sincronização localiza a linha da loja — SetaMulti_Preco)
+        if (!antes && naEditada) {
+          await trx.insertInto('multi_preco').values({ idproduto: dto.idproduto, idempresa: e }).execute();
+          antes = {};
+        }
+        if (!antes) continue;
         // os campos da linha além dos componentes (o que vem da tela; o que ela não manda, ou a configuração trava, fica como está)
         const linha: Record<string, unknown> = {};
         const texto = (v: unknown) => String(v ?? '');
@@ -538,8 +548,10 @@ export class PrecificacaoCustoService {
             await hist(campo, de, para, 'Precificação do Custo');
           }
           if (pid === dto.idproduto && !dto.modoLote && vendaMudou) await hist('vrvenda', antesP.vrvenda, num(patchP.vrvenda), 'Precificação de Mercadorias');
-          // os FILHOS no on-line (`TAtualizacaoPrecoFilho.AtualizaPrecoFilho`, só com filho configurado — DIF e TPDIF, UAtualizacaoPrecoFilho.pas:322)
-          if (!dto.modoLote && vendaMudou) historico += await atualizarFilhosOnline(trx, pid, e, op);
+          // os FILHOS (`TAtualizacaoPrecoFilho.AtualizaPrecoFilho`, UPrificacaoCusto.pas:1176-1186 — só com filho configurado, DIF e TPDIF,
+          // UAtualizacaoPrecoFilho.pas:322): depois de gravar, SEMPRE — no lote também e quando só o custo muda (o filho leva custo, custo de
+          // reposição e venda do pai como estão no banco); não quando o produto da tela é ele mesmo um filho
+          if (!ehFilho) historico += await atualizarFilhosOnline(trx, pid, e, op);
           if (dto.modoLote && !emPromocao && precoInformado > 0 && precoInformado !== num(antes.vrvenda) && podePreco) {
             // fiel :855/:908 — só enfileira quando o preço REALMENTE mudou (e o operador pode alterá-lo).
             // MODO LOTE: o preço novo vai p/ a fila. OBS igual ao form do produto, ORIGEM NULL (fiel: esta tela não

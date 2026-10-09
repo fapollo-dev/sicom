@@ -70,6 +70,15 @@ Lucro Real**, :1401 — corrigido; latente aqui, porque o destino só aceita LR 
   "A data inicial é maior que a data final." (o legado não atualizava nada). Diferença consciente: a LOG guarda o custo, o período e
   quantas vendas mudaram (o legado não deixa rastro). Smoke §304.
 
+- ⛔→✅ **A loja sem linha de preço** abre vazia (`dtsEmpresaDataChange`, :1774-1779 — o Append com IDPRODUTO/IDEMPRESA) e o Gravar a
+  inclui; antes o Apollo recusava a abertura (PRECO_NAO_ENCONTRADO) — a loja 50 da produção tem 12.875 linhas contra 47.815 das outras.
+  Na sincronização a marcada sem linha fica de fora (o SetaMulti_Preco localiza a linha da loja). Smoke §305.
+- ⛔→✅ **Os filhos acompanham o pai em TODA gravação** (`AtualizaPrecoFilho`, :1176-1186 — chamado depois de gravar, sem condição de
+  modo nem de venda, quando o produto da tela não é filho): o Apollo só sincronizava no on-line e quando a venda mudava; no lote, ou
+  mudando só o custo, o filho ficava com o custo velho. Dormente na produção (nenhum filho com diferença configurada), como no legado.
+  Smoke §305.1.
+- **A promoção acumulativa é a da loja da LINHA** (o `dtsEmpresaDataChange` reavalia ao trocar de linha; na abertura a linha é a do login).
+
 ## Prova de uso do Sinc. Custo
 
 - "Sinc. Custo na venda" (Tag 1 — concedido aos 31 operadores da tela): `UPDATE VENDAS SET VRCUSTO = <custo da tela>` no período, no
@@ -78,8 +87,10 @@ Lucro Real**, :1401 — corrigido; latente aqui, porque o destino só aceita LR 
   (fonte + USER_SOURCE), e há vendas ANTERIORES à troca de custo da precificação já com o custo NOVO, em bloco contíguo até a troca:
   produto 846728 em 02/10/2026 (2,15 → 51,48: as 64 vendas desde 18/09 com 51,48), 846238 em 04/09/2026 (2,90 → 2,21: 123 vendas
   desde 01/09) e em 20/07/2026 (2,15 → 2,26: 363 desde 17/07).
-- Loja sem MULTI_PRECO: o legado inclui a linha ao gravar; o Apollo recusa (a loja 50 tem 12.875 linhas contra 47.815 das outras).
-- Filhos: o legado chama `AtualizaPrecoFilho` também no lote e quando só o custo muda.
-- Venda do pai ↔ do filho por FATOR_FILHO; a margem pela venda nos modos D/M (a produção é 'P').
+
+## Fica (a medir ou dormente na produção)
+
+- O "Venda do pai" (edtVrVendaPai = venda × FATOR_FILHO, só para filho): 202 filhos na produção e **nenhum** com FATOR_FILHO fora de
+  0/1 — o campo repetiria a venda (ou 0). A margem pela venda nos modos D/M (a produção é 'P').
 - A propagação da PROMOCAO ao grupo de preço (efeito do `SetaHistorico_Dinamico`) — a promoção está travada na produção.
 - 🪦 As faixas do atacarejo (MULTI_PRECO_ATACAREJO: 3 linhas, uma vazia; LOTEPRECOATACAREJO: 1) — só a flag ATACAREJO_ATIVO é usada.

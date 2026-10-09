@@ -46,7 +46,7 @@ interface Linha {
 interface Abertura {
   produto: { idproduto: number; codbarra?: string; descricao?: string; codgrupopreco?: number | null; grupo_preco?: string | null };
   preco: Record<string, unknown>; empresas: Array<{ idempresa: number; fantasia?: string; qtde?: number }>; painel: Painel; modo_lote_default: boolean;
-  idempresa: number; promocao_acumulativa?: boolean;
+  idempresa: number; promocao_acumulativa?: boolean; sem_preco?: boolean;
   fiscal: { icm_efetivo: number; despoperacional: number; imprenda: number; contsocial: number; simples: boolean };
   config: { tipo_precificacao: string; permite_promocao: boolean; habilita_atacarejo: boolean; sincroniza_empresas: boolean };
 }
@@ -200,6 +200,7 @@ export function PrecificacaoCustoPage() {
             <span><span className="text-fg-muted">Cód. barras </span>{ab.produto.codbarra ?? ''}</span>
             <span className="font-semibold">{ab.produto.descricao}</span>
             <span><span className="text-fg-muted">Grupo de Preço </span>{ab.produto.codgrupopreco ? `${ab.produto.codgrupopreco} - ${ab.produto.grupo_preco ?? ''}` : '—'}</span>
+            {ab.sem_preco && <span className="text-fg-muted">Sem preço na loja {ab.idempresa} — o Gravar inclui.</span>}
           </div>
         )}
       </div>

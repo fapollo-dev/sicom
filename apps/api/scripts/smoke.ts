@@ -19377,6 +19377,48 @@ async function main() {
         await pgSc.end();
       }
     }
+    // ══ §305 PRECIFICAÇÃO (corte 4): a loja sem linha de preço abre vazia e o Gravar a inclui (o Append do dtsEmpresaDataChange); na
+    // sincronização a marcada sem linha fica de fora
+    {
+      const pgSp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const J = { ...H, 'content-type': 'application/json' };
+      const tinha2 = Number((await pgSp.query(`SELECT count(*)::int n FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = 'FRMPRIFICACAOCUSTO' AND codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      try {
+        if (!tinha2) await pgSp.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPRIFICACAOCUSTO','FRMPRIFICACAOCUSTO',7,2)`);
+        await pgSp.query(`DELETE FROM multi_preco WHERE idproduto = 990760 AND idempresa = 2`);
+        const salvar = async (corpo: Record<string, unknown>) => {
+          const r = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990760, vrcusto: 8, vrvenda: 15, empresas: [1, 2], ...corpo }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const linha2 = async () => (await pgSp.query(`SELECT vrcusto::float AS c, ativo FROM multi_preco WHERE idproduto = 990760 AND idempresa = 2`)).rows[0] as any;
+        const ab = await fetch(`${base}/precificacao/custo/990760?idempresa=2`, { headers: H });
+        const abJ = (await ab.json().catch(() => ({}))) as any;
+        const sincr = await salvar({ empresaEditada: 1, opcao: 'sincronizar' });
+        const depoisSinc = await linha2();
+        const indiv = await salvar({ empresaEditada: 2, opcao: 'individual', ativo: 'S' });
+        const depoisIndiv = await linha2();
+        check('PRECIFICAÇÃO §305 [a loja sem linha de preço]: abre vazia (sem_preco, sem custo) em vez de recusar; sincronizar a partir da loja 1 não cria a linha da 2; gravar com a 2 editada a inclui com o custo 8',
+          ab.status === 200 && abJ.sem_preco === true && abJ.preco?.vrcusto == null && abJ.idempresa === 2
+          && sincr.status === 200 && depoisSinc === undefined
+          && indiv.status === 200 && depoisIndiv?.c === 8,
+          { ab: [ab.status, abJ.code, abJ.sem_preco, abJ.preco], sincr: [sincr.status, sincr.j.code], depoisSinc, indiv: [indiv.status, indiv.j.code, indiv.j.message], depoisIndiv });
+        // o FILHO configurado (DIF 'D' +10) acompanha o pai depois de TODA gravação (UPrificacaoCusto.pas:1176-1186): no LOTE e só com o custo
+        await pgSp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idproduto_pai, dif_preco_prod_filho_x_pai, tpdif_preco_prod_filho_x_pai)
+          VALUES (990763, '7899000990763', 'FILHO DA PRECIFICA', 'UN', 2, 'T01', 'S', 990760, 10, 'D') ON CONFLICT (idproduto) DO UPDATE SET idproduto_pai = 990760, dif_preco_prod_filho_x_pai = 10, tpdif_preco_prod_filho_x_pai = 'D'`);
+        await pgSp.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrcustorep, vrvenda) VALUES (990763, 1, 1, 1, 1)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto = 1, vrcustorep = 1, vrvenda = 1`);
+        const pai1 = (await pgSp.query(`SELECT vrvenda::float AS v FROM multi_preco WHERE idproduto = 990760 AND idempresa = 1`)).rows[0] as any;
+        const noLote = await salvar({ empresaEditada: 1, opcao: 'individual', vrcusto: 9.5, vrvenda: pai1.v, modoLote: true });
+        const filho = (await pgSp.query(`SELECT vrcusto::float AS c, vrvenda::float AS v FROM multi_preco WHERE idproduto = 990763 AND idempresa = 1`)).rows[0] as any;
+        check('PRECIFICAÇÃO §305.1 [o filho acompanha o pai em toda gravação]: no LOTE, mudando só o custo do pai (9,5), o filho configurado (DIF D +10) recebe o custo 9,5 e a venda do pai + 10 — antes só no on-line e só com a venda mudando',
+          noLote.status === 200 && filho?.c === 9.5 && filho?.v === Math.round((pai1.v + 10) * 10000) / 10000,
+          { noLote: [noLote.status, noLote.j.code], pai1, filho });
+      } finally {
+        if (!tinha2) await pgSp.query(`DELETE FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = 'FRMPRIFICACAOCUSTO' AND codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgSp.query(`UPDATE produtos SET idproduto_pai = NULL, dif_preco_prod_filho_x_pai = NULL, tpdif_preco_prod_filho_x_pai = NULL WHERE idproduto = 990763`).catch(() => undefined);
+        await pgSp.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
