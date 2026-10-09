@@ -5,7 +5,7 @@
 > muda — VRVENDASUG 7.118, VRCUSTOCSI 6.987, VRVENDA 4.438 (+1.574 com o título da tela), VRCUSTOAJUSTE 1.299, ICMST 764,
 > **ATACAREJO_ATIVO 400**, DESPACESSORIO 374, VRCUSTO 314, ICME 187, MARKUP 184, IPI 171, **ATIVO 152, ATIVO_COMPRA 107**, VRFCPST 91,
 > FRETE/SEGURO/FRETE2/BONIFICACAO, PROMOCAO 23, **MARKUPFIXO 6**, VRPROMO 3. Apollo: `precificacao/custo`, tela `/precificacao/custo`,
-> smoke §47l, §218.1, §301; jsdom `precificacaoCusto.spec.tsx`.
+> smoke §47l, §218.1, §301, §302, §303; jsdom `precificacaoCusto.spec.tsx`, `cadMasterHistorico.spec.tsx`.
 
 Inventário completo do legado × Apollo feito em 09/10/2026 (campo a campo, botão a botão, com as linhas do fonte). Abaixo, o que o
 corte 2 fez e o que fica.
@@ -42,11 +42,34 @@ Lucro Real**, :1401 — corrigido; latente aqui, porque o destino só aceita LR 
   promoção acumulativa, sem permissão) — antes dizia "Preço aplicado" mesmo sem aplicar.
 - O "Usar sugerido" e o "Custo real" da tela do Apollo saíram (o legado não tem).
 
-## Fica para o corte 3 (com prova de uso a medir)
+## Corte 3 (09/10/2026)
 
-- A busca do produto (F3 → GET_PRODUTOS com o filtro "Ativo venda/compra" e o inativo em vermelho) e o código de barras no campo.
-- "Sinc. Custo na venda" (Tag 1): `UPDATE VENDAS SET VRCUSTO` no período, na loja da linha.
-- Outros → "Multi-Preço" (o histórico dinâmico do produto) e "Atacarejo".
+- ⛔→✅ **O campo do produto é o CÓDIGO DE BARRAS**, não o código interno: `AbreProduto` chama `GetProduto(edtCodProd.Text, 0, …)`, que no
+  binário da produção (V$SQL `az81rkt8m2tc8`) procura `PRODUTOS.CODBARRA` e, sem ele, `CODAUXILIAR.CODAUXILIAR` (→ o produto pelo
+  CODBARRA do auxiliar); com fornecedor 0 a referência do fornecedor não entra. O Apollo tratava o texto como IDPRODUTO — digitar o
+  código de barras não achava nada e digitar um número abria o produto errado. `GET precificacao/custo/produto/:codigo`; não achou →
+  "Produto não encontrado. Verifique!".
+- **F3** (`btnBuscaProdutoClick`): a GET_PRODUTOS da loja com o " Ati&vo venda / compra" da TELA (Sim — o padrão —, Não, Todos) como
+  `((ATIVO = v) OR (ATIVO_COMPRA = v))`, aberta na descrição em qualquer lugar, o inativo em vermelho ("Produto Inativo"); o código de
+  barras volta ao campo. Pesquisa `precificacao/produtos` (gate da tela).
+- **A promoção acumulativa na abertura** (`edtCodProdExit`, :1852-1853): vigente na loja do LOGIN, a venda trava e aparece "Produto em
+  promoção acumulativa" (antes só o Gravar sabia, depois de gravar).
+- **Outros → Multi-Preço** (`MultiPreo1Click`): o histórico dinâmico do MULTI_PRECO do produto na loja da linha, aberto no VRVENDA, item
+  "código de barras-descrição" — o visualizador genérico `uHistoricoDinamico` (`GET cadastro/historico-dinamico/:tabela/:valor`, o
+  combo dos campos com histórico de qualquer loja, as linhas do campo NA LOJA com o nome do operador, na ordem do CODHISTORICO). O
+  mesmo visualizador é o "Histórico" do cadastro de produto (o `FGravaHistorico` do form-base: Outros → Histórico, aberto no VRVENDA,
+  item "código-descrição", na loja do login). Produção: 323.793 linhas de MULTI_PRECO em 2025-26 (226.601 sem origem, 94.792 da NF,
+  2.086 do cadastro, 314 desta tela).
+- 🪦 **Outros → Atacarejo** (o histórico do MULTI_PRECO_ATACAREJO): **1 linha** em toda a HISTORICO_DINAMICO da produção (08/06/2024).
+
+## Fica para o corte 4
+
+- "Sinc. Custo na venda" (Tag 1 — concedido aos 31 operadores da tela): `UPDATE VENDAS SET VRCUSTO = <custo da tela>` no período, no
+  produto e na loja da linha, depois do "Deseja retroagir o custo atual até a data de: …". Não deixa rastro (nem LOG nem histórico);
+  nem o V$SQL nem o AWR têm o UPDATE literal hoje. **É usado — prova pelo dado**: é o único escritor de VENDAS.VRCUSTO fora da venda
+  (fonte + USER_SOURCE), e há vendas ANTERIORES à troca de custo da precificação já com o custo NOVO, em bloco contíguo até a troca:
+  produto 846728 em 02/10/2026 (2,15 → 51,48: as 64 vendas desde 18/09 com 51,48), 846238 em 04/09/2026 (2,90 → 2,21: 123 vendas
+  desde 01/09) e em 20/07/2026 (2,15 → 2,26: 363 desde 17/07).
 - Loja sem MULTI_PRECO: o legado inclui a linha ao gravar; o Apollo recusa (a loja 50 tem 12.875 linhas contra 47.815 das outras).
 - Filhos: o legado chama `AtualizaPrecoFilho` também no lote e quando só o custo muda.
 - Venda do pai ↔ do filho por FATOR_FILHO; a margem pela venda nos modos D/M (a produção é 'P').

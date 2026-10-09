@@ -100,6 +100,8 @@ import { PerfilRelacaoController } from './perfil-relacao.controller';
 import { PerfilRelacaoService } from './perfil-relacao.service';
 import { PermissoesController } from './permissoes.controller';
 import { RegistrosLogController } from './registros-log.controller';
+import { HistoricoDinamicoController } from './historico-dinamico.controller';
+import { HistoricoDinamicoService } from './historico-dinamico.service';
 import { RegistrosLogService } from './registros-log.service';
 import { PermissoesService } from './permissoes.service';
 import { SenhaOperacaoController } from './senha-operacao.controller';
@@ -273,6 +275,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     PerfilAggregateController, // PERFIS (TfrmCadPerfilOperador): o tipo da tela + os operadores vinculados no Gravar
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
     RegistrosLogController, // o "Registros de Log" do legado (uRegistrosLog, mig 313)
+    HistoricoDinamicoController, // o "Histórico" campo a campo (uHistoricoDinamico) — MULTI_PRECO do produto
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
@@ -287,7 +290,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [PesquisaService, RegistrosLogService, HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [PesquisaService, RegistrosLogService, HistoricoDinamicoService, HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

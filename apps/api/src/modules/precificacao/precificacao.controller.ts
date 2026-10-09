@@ -33,6 +33,14 @@ export class PrecificacaoController {
 
   // ===== PRECIFICAÇÃO DE MERCADORIAS (FRMPRIFICACAOCUSTO) — painel por produto × empresa =====
   /** abre o painel: produto + preço da empresa + empresas do operador + painel calculado. */
+  /** o campo do produto (GetProduto): o código de barras ou o código auxiliar → o produto */
+  @Get('custo/produto/:codigo')
+  @UseGuards(AcessoGuard)
+  @RequerAcesso('FRMPRIFICACAOCUSTO', 'FRMPRIFICACAOCUSTO')
+  produtoPorCodigo(@Param('codigo') codigo: string) {
+    return this.custo.produtoPorCodigo(codigo);
+  }
+
   // ver não exige o Gravar: o legado abre a tela pelo gate dela e só o btnGravar (Tag 1) pede BTNGRAVAR
   @Get('custo/:idproduto')
   @UseGuards(AcessoGuard)

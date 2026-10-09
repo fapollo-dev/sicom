@@ -587,6 +587,17 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
     ],
     alternativa: { campo: 'codbarra', condicao: (valor) => sql<SqlBool>`${sql.ref('codbarra')} in (select c.codbarra from codauxiliar c where c.codauxiliar = ${valor.trim()})` },
     cores: CORES_PRODUTO, detalhes: DETALHES_PRODUTO, rotuloDetalhes: ROTULO_DETALHES_PRODUTO },
+  // o F3 da Precificação de Mercadorias (btnBuscaProdutoClick, UPrificacaoCusto.pas): a GET_PRODUTOS da loja com o " Ativo venda / compra"
+  // da tela (Sim — o padrão —, Não, Todos) como `((ATIVO = v) OR (ATIVO_COMPRA = v))`, aberta na descrição em qualquer lugar e o inativo
+  // em vermelho ("Produto Inativo" — a única cor que a tela pinta); a Pesquisa nasce sem controle de retorno
+  'precificacao/produtos': { view: 'get_produtos', relacao: 'rel_get_produtos', ocultas: OCULTAS_PRODUTO, form: 'FRMPRIFICACAOCUSTO', statusRetorno: '',
+    titulo: 'Produtos', retorno: 'idproduto', abertura: { campo: 'descricao', operacao: 'qualquer', ordenacao: 'descricao' }, extras: ['ativoVendaCompra'],
+    requer: { form: 'FRMPRIFICACAOCUSTO', opcao: 'FRMPRIFICACAOCUSTO' },
+    obrigatorios: (ctx) => {
+      const v = ctx.extras.ativoVendaCompra;
+      return [daLoja(ctx, 'idempresa'), ...(v === 'S' || v === 'N' ? [sql<SqlBool>`(${sql.ref('ativo')} = ${v} or ${sql.ref('ativo_compra')} = ${v})`] : [])];
+    },
+    cores: CORES_PRODUTO.filter((r) => r.coluna === 'ativo') },
   // B5/B6: a GET_PLC da produção (rel_get_plc, mig 413 — o DESCCODPLC com mais de 5 caracteres dentro da view); lancavel=S: só a conta
   // no tamanho da máscara da empresa, sobre o TEXTO da view (CHARACTER_LENGTH(CODIGO_EXTENSO) = Length(MASCARAPLC) — uAPagar.pas:777,
   // uCadAReceber.pas:553, UCadSituacaoNF.pas:352, uMovCaixa.pas:712-716, UCadFamiliaProd.pas:211); idsituacao_nf: os centros da

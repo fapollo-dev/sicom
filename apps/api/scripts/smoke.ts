@@ -19247,6 +19247,96 @@ async function main() {
         await pgPm.end();
       }
     }
+    // ══ §302 HISTÓRICO DINÂMICO (uHistoricoDinamico) — o "Histórico" do produto e o "Multi-Preço" da precificação: os campos do
+    // registro (de qualquer loja) e as linhas do campo NA LOJA, com o nome do operador, na ordem do CODHISTORICO
+    {
+      const pgHd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tinhaRel2Hd = Number((await pgHd.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      try {
+        if (!tinhaRel2Hd) await pgHd.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgHd.query(`DELETE FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave = '990762'`);
+        await pgHd.query(`INSERT INTO historico_dinamico (campo, valor_anterior, valor_atual, tabela, codoperador, chave, valor_chave, codempresa, historico, origem) VALUES
+          ('VRVENDA', '10', '11', 'MULTI_PRECO', 7, 'IDPRODUTO', '990762', 1, 'Precificação do Custo', 'frmPrificacaoCusto'),
+          ('VRVENDA', '11', '12.5', 'MULTI_PRECO', 7, 'IDPRODUTO', '990762', 1, 'Cadastro de Produtos', 'frmCadProduto'),
+          ('VRVENDA', '20', '21', 'MULTI_PRECO', 7, 'IDPRODUTO', '990762', 2, 'Precificação do Custo', 'frmPrificacaoCusto'),
+          ('VRCUSTO', '5', '6', 'MULTI_PRECO', 7, 'IDPRODUTO', '990762', 2, 'NF 123', 'frmNF')`);
+        const ver = async (tabela: string, q: string, h: Record<string, string> = H) => {
+          const r = await fetch(`${base}/cadastro/historico-dinamico/${tabela}/990762${q}`, { headers: h });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const loja1 = await ver('MULTI_PRECO', '?campo=VRVENDA');
+        const loja2 = await ver('MULTI_PRECO', '?campo=VRVENDA&empresa=2');
+        const soCampos = await ver('MULTI_PRECO', '');
+        const outra = await ver('PRODUTOS', '?campo=DESCRICAO');
+        const fora = await ver('MULTI_PRECO', '?campo=VRVENDA&empresa=99999');
+        const sem = await ver('MULTI_PRECO', '?campo=VRVENDA', H_SEM_ACESSO);
+        const nomeOp7 = (await pgHd.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0]?.nome ?? null;
+        check('HISTÓRICO DINÂMICO §302 [o "Histórico" do produto e o "Multi-Preço" da precificação]: os campos do registro de qualquer loja (VRCUSTO, VRVENDA); o VRVENDA na loja do login traz as 2 linhas da loja 1 na ordem (10→11, 11→12.5) com o nome do operador; na loja 2, só a dela; sem campo, só a lista; outra tabela → 422; loja fora do operador → 422; sem o gate do produto nem da precificação → 403',
+          loja1.status === 200 && JSON.stringify(loja1.j.campos) === JSON.stringify(['VRCUSTO', 'VRVENDA']) && loja1.j.empresa === 1
+          && loja1.j.linhas.length === 2 && loja1.j.linhas[0].valor_atual === '11' && loja1.j.linhas[1].valor_atual === '12.5' && loja1.j.linhas[0].nome === nomeOp7
+          && loja1.j.linhas.every((l: any) => l.codempresa === 1 && l.campo === 'VRVENDA' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(l.data))
+          && loja2.status === 200 && loja2.j.linhas.length === 1 && loja2.j.linhas[0].valor_atual === '21'
+          && soCampos.status === 200 && soCampos.j.campos.length === 2 && soCampos.j.linhas.length === 0
+          && outra.status === 422 && outra.j.code === 'HISTORICO_TABELA_INVALIDA'
+          && fora.status === 422 && fora.j.code === 'EMPRESA_FORA_DO_ESCOPO' && sem.status === 403,
+          { loja1: [loja1.status, loja1.j.code, loja1.j.campos, loja1.j.linhas], loja2: [loja2.status, loja2.j.code, loja2.j.linhas], soCampos: [soCampos.status, soCampos.j.campos, soCampos.j.linhas?.length],
+            outra: [outra.status, outra.j.code], fora: [fora.status, fora.j.code], sem: [sem.status, sem.j.code], nomeOp7 });
+      } finally {
+        await pgHd.query(`DELETE FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave = '990762'`).catch(() => undefined);
+        if (!tinhaRel2Hd) await pgHd.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgHd.end();
+      }
+    }
+    // ══ §303 PRECIFICAÇÃO DE MERCADORIAS (corte 3): o campo do produto é o CÓDIGO DE BARRAS (GetProduto: o do produto, depois o código
+    // auxiliar), o F3 com o " Ativo venda / compra" da tela e a venda travada pela promoção acumulativa da loja do login
+    {
+      const pgP3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgP3.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (990760, '7899000990760', '7899000990999', 6, 3) ON CONFLICT DO NOTHING`);
+        // o §301 deixou o 990760 inativo na loja 1 (ATIVO N, ATIVO_COMPRA S — que o OR do legado põe no Sim E no Não): aqui ele é o ativo
+        await pgP3.query(`UPDATE multi_preco SET ativo = 'S', ativo_compra = 'S' WHERE idproduto = 990760 AND idempresa = 1`);
+        await pgP3.query(`UPDATE produtos SET ativo = 'N', ativo_compra = 'N' WHERE idproduto = 990761`);
+        await pgP3.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo, ativo_compra) VALUES (990761, 1, 5, 9, 'N', 'N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET ativo = 'N', ativo_compra = 'N'`);
+        const cod = async (c: string, h: Record<string, string> = H) => {
+          const r = await fetch(`${base}/precificacao/custo/produto/${encodeURIComponent(c)}`, { headers: h });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const pelaBarra = await cod('7899000990760');
+        const peloAux = await cod('7899000990999');
+        const peloId = await cod('990760');
+        const semAcesso = await cod('7899000990760', H_SEM_ACESSO);
+        const f3 = async (v: string) => {
+          const r = await fetch(`${base}/cadastro/pesquisa?recurso=precificacao/produtos&campo=descricao&operacao=qualquer&valor=PRECIFICA&ativoVendaCompra=${v}&porPagina=50`, { headers: H });
+          const j = (await r.json().catch(() => ({}))) as any;
+          return { status: r.status, ids: ((j.linhas ?? []) as any[]).map((l) => Number(l.idproduto ?? l.codigo)).sort((a, b) => a - b), code: j.code };
+        };
+        const fSim = await f3('S');
+        const fNao = await f3('N');
+        const fTodos = await f3('');
+        const abrir = async () => (await (await fetch(`${base}/precificacao/custo/990760`, { headers: H })).json().catch(() => ({}))) as any;
+        const semPromo = await abrir();
+        await pgP3.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim)
+            VALUES (990303, 990760, 3, 1, ';1;', now() - interval '1 day', now() + interval '1 day')`);
+        const comPromo = await abrir();
+        check('PRECIFICAÇÃO §303 [corte 3 — o produto pelo código de barras, o F3 e a promoção acumulativa]: o campo acha pelo código de barras e pelo código auxiliar (o mesmo produto), o IDPRODUTO digitado NÃO é código de barras → "Produto não encontrado. Verifique!"; sem o gate da tela, 403; o F3 com Sim traz o ativo e não o inativo, com Não o inativo (ATIVO = N ou ATIVO_COMPRA = N), com Todos os dois; com promoção acumulativa vigente na loja do login a abertura avisa (a venda trava)',
+          pelaBarra.status === 200 && pelaBarra.j.idproduto === 990760 && peloAux.status === 200 && peloAux.j.idproduto === 990760
+          && peloId.status === 422 && peloId.j.code === 'PRECIFICACAO_PRODUTO_NAO_ENCONTRADO' && peloId.j.message === 'Produto não encontrado. Verifique!'
+          && semAcesso.status === 403
+          && fSim.status === 200 && fSim.ids.includes(990760) && !fSim.ids.includes(990761)
+          && fNao.status === 200 && fNao.ids.includes(990761) && !fNao.ids.includes(990760)
+          && fTodos.status === 200 && fTodos.ids.includes(990760) && fTodos.ids.includes(990761)
+          && semPromo.promocao_acumulativa === false && comPromo.promocao_acumulativa === true,
+          { pelaBarra: [pelaBarra.status, pelaBarra.j], peloAux: [peloAux.status, peloAux.j], peloId: [peloId.status, peloId.j.code, peloId.j.message], semAcesso: semAcesso.status,
+            fSim, fNao, fTodos, semPromo: semPromo.promocao_acumulativa, comPromo: comPromo.promocao_acumulativa });
+      } finally {
+        await pgP3.query(`DELETE FROM promocao_acumulativa WHERE idproacumulativa = 990303`).catch(() => undefined);
+        await pgP3.query(`DELETE FROM codauxiliar WHERE codauxiliar = '7899000990999'`).catch(() => undefined);
+        await pgP3.query(`DELETE FROM multi_preco WHERE idproduto = 990761 AND idempresa = 1`).catch(() => undefined);
+        await pgP3.query(`UPDATE produtos SET ativo = 'S', ativo_compra = 'S' WHERE idproduto = 990761`).catch(() => undefined);
+        await pgP3.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

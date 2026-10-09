@@ -11,6 +11,7 @@ import { useCadMaster } from './useCadMaster';
 import { CadMasterEmbutido } from './CadMasterEmbutido';
 import { Pesquisa, SITUACOES, type ColunaPesquisa, type Situacao } from './Pesquisa';
 import { RegistrosLogModal, type LogDaTela } from '../log/RegistrosLogModal';
+import { HistoricoDinamicoModal, type HistoricoDaTela } from '../log/HistoricoDinamicoModal';
 
 interface CamposCtx<T extends FieldValues> {
   form: UseFormReturn<T>;
@@ -49,6 +50,11 @@ interface Props<T extends FieldValues> {
    * abre o histórico da LOG daquele registro (o form-base grava uma linha a cada gravação — uCadMaster.pas:485).
    */
   log?: LogDaTela;
+  /**
+   * o "Histórico" do form-base (FGravaHistorico, uCadMaster.pas:1129): com um registro carregado, o menu Outros ganha a entrada, que abre
+   * o histórico campo a campo (HISTORICO_DINAMICO) do registro — o item é "chave-descrição" (FCampoDescHistorico) e a loja é a do login.
+   */
+  historico?: HistoricoDaTela & { campoDescricao?: string };
   /**
    * Largura máxima do container. Default '3xl' (cadastro simples, formulário estreito).
    * Telas densas/tabuladas (ex.: NOTA FISCAL, fiel ao form largo do legado) usam '6xl'/'full'.
@@ -102,6 +108,7 @@ export function CadMaster<T extends FieldValues>({
   pkGerada = true,
   outros,
   log,
+  historico,
   largura = '3xl',
   gerenciaEdicaoInterna = false,
   recusarRegistro,
@@ -120,11 +127,18 @@ export function CadMaster<T extends FieldValues>({
   const [situacao, setSituacao] = useState<Situacao>('ativos');
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [logAberto, setLogAberto] = useState(false);
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   // o rdgAtivo só aparece quando o registro tem o campo ATIVO (`rdgAtivo.Visible := cdsPrincipal.FindField(FCampoAtivo) <> nil`)
   const temCampoAtivo = 'ativo' in ((cad.registro as Record<string, unknown> | null) ?? (defaultValues as Record<string, unknown> | undefined) ?? {});
   const idCorrente = cad.registro ? Number((cad.registro as any)[pk] ?? (cad.registro as any)[colunaCodigo]) : null;
   const outrosComLog: AcaoOutros[] | undefined =
-    log && idCorrente ? [...(outros ?? []), { label: 'Registro de &log', onClick: () => setLogAberto(true) }] : outros;
+    idCorrente && (log || historico)
+      ? [
+          ...(outros ?? []),
+          ...(log ? [{ label: 'Registro de &log', onClick: () => setLogAberto(true) }] : []),
+          ...(historico ? [{ label: '&Histórico', onClick: () => setHistoricoAberto(true) }] : []),
+        ]
+      : outros;
   // chave natural: no insert o usuário DIGITA o código (que vira a PK)
   const codigoEditavelInsert = !pkGerada && cad.modo === 'insert';
 
@@ -287,10 +301,10 @@ export function CadMaster<T extends FieldValues>({
             (abas/ações navegáveis no browse) recebem só o `editavel` e NÃO são envolvidas no
             fieldset disabled — senão as abas/ações ficariam mortas na navegação. */}
         {gerenciaEdicaoInterna ? (
-          campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id), novo: cad.podeAdicionar && !pesquisaAberta && !logAberto && !confirmExcluir ? onNovo : undefined })
+          campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id), novo: cad.podeAdicionar && !pesquisaAberta && !logAberto && !historicoAberto && !confirmExcluir ? onNovo : undefined })
         ) : (
           <fieldset disabled={!cad.editavel} className="border-0 p-0 m-0">
-            {campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id), novo: cad.podeAdicionar && !pesquisaAberta && !logAberto && !confirmExcluir ? onNovo : undefined })}
+            {campos({ form, editavel: cad.editavel, carregar: (id: number) => cad.carregarPorCodigo(id), novo: cad.podeAdicionar && !pesquisaAberta && !logAberto && !historicoAberto && !confirmExcluir ? onNovo : undefined })}
           </fieldset>
         )}
 
@@ -306,6 +320,10 @@ export function CadMaster<T extends FieldValues>({
       </FormScope>
 
       {logAberto && log && <RegistrosLogModal log={log} valor={idCorrente} onFechar={() => setLogAberto(false)} />}
+      {historicoAberto && historico && idCorrente && (
+        <HistoricoDinamicoModal historico={historico} valor={idCorrente} titulo={titulo} onFechar={() => setHistoricoAberto(false)}
+          item={historico.campoDescricao ? `${idCorrente}-${String((cad.registro as Record<string, unknown> | null)?.[historico.campoDescricao] ?? '')}` : undefined} />
+      )}
 
       {/* Confirmação de exclusão — AlertModal do DS (substitui o confirm() nativo) */}
       <AlertModal

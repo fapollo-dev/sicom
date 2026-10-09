@@ -173,6 +173,8 @@ export function ProdutoCadMaster() {
       resourcePath="cadastro/produtos"
       pk="idproduto"
       log={{ form: 'FRMCADPRODUTO', chave: 'IDPRODUTO' }}
+      // FGravaHistorico do UCadProduto: o "Histórico" do MULTI_PRECO (VRVENDA/VRCUSTO/VRCUSTOREP), aberto no VRVENDA, item "código-descrição"
+      historico={{ tabela: 'MULTI_PRECO', campoDefault: 'VRVENDA', campoDescricao: 'descricao' }}
       schema={produtoSchema}
       defaultValues={defaultValues}
       colunasPesquisa={[

@@ -241,6 +241,35 @@ export class PrecificacaoCustoService {
     };
   }
 
+  /**
+   * GetProduto (FuncoesApollo — o SQL do binário da produção, V$SQL `az81rkt8m2tc8`): o campo do produto recebe o CÓDIGO DE BARRAS — o do
+   * produto e, sem ele, o código auxiliar (CODAUXILIAR.CODBARRA → o produto). O F3 devolve o código de barras ao campo.
+   */
+  async produtoPorCodigo(codigo: string): Promise<{ idproduto: number }> {
+    const c = String(codigo ?? '').trim();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = c
+      ? (await sql<{ idproduto: number }>`SELECT idproduto FROM (
+            SELECT p.idproduto, 1 AS ordem FROM produtos p WHERE p.codbarra = ${c}
+            UNION ALL
+            SELECT p.idproduto, 2 AS ordem FROM codauxiliar ca JOIN produtos p ON p.codbarra = ca.codbarra WHERE ca.codauxiliar = ${c}) x
+          ORDER BY ordem, idproduto LIMIT 1`.execute(db)).rows[0]
+      : undefined;
+    if (!r) throw new BusinessRuleError('PRECIFICACAO_PRODUTO_NAO_ENCONTRADO', { codigo: c });
+    return { idproduto: Number(r.idproduto) };
+  }
+
+  /**
+   * a promoção ACUMULATIVA vigente (`PromocaoAcumulativa`): a lista de lojas `;1;2;`, dtini ≤ agora ≤ dtfim, o produto ou o grupo de preço
+   * dele. Com ela o legado congela a venda (edtVRVENDA desabilitado + "Produto em promoção acumulativa", :1852-1853) e o Gravar a mantém.
+   */
+  private async emPromocaoAcumulativa(db: AnyDB, idproduto: number, codgrupopreco: unknown, emp: number): Promise<boolean> {
+    return (await sql`SELECT 1 FROM promocao_acumulativa pa
+        WHERE coalesce(pa.idempresa, '') LIKE ${`%;${emp};%`} AND pa.dtini <= now() AND pa.dtfim >= now()
+          AND (pa.idproduto = ${idproduto} OR (coalesce(pa.codgrupopreco, 0) <> 0 AND pa.codgrupopreco = ${num(codgrupopreco) || -1}))
+        LIMIT 1`.execute(db)).rows.length > 0;
+  }
+
   /** abre o painel: produto + preço da empresa + empresas do operador (com saldo) + o painel calculado. */
   async abrir(idproduto: number, idempresa?: number): Promise<Record<string, unknown>> {
     const emp = idempresa ?? this.emp();
@@ -273,6 +302,8 @@ export class PrecificacaoCustoService {
       : null;
     return {
       produto: { ...prod, grupo_preco: grupo }, preco: mp, empresas, painel, modo_lote_default: t.preconf === 'L', idempresa: emp,
+      // edtCodProdExit: a promoção acumulativa é a da loja do LOGIN (`PromocaoAcumulativa(dmPrincipal.EmpresaCODEMPRESA, …)`)
+      promocao_acumulativa: await this.emPromocaoAcumulativa(db, idproduto, prod.codgrupopreco, sessao),
       // o que a tela mostra ao lado (o ICM efetivo da alíquota, os % da empresa na escada)
       fiscal: { icm_efetivo: t.icmsEfetivo, despoperacional: t.despOperacional, imprenda: t.irpj, contsocial: t.csll, simples: t.simplesNacional },
       // FormShow (:2130-2240): os rótulos e o PMZ pelo TIPO_PRECIFICACAO; a promoção (PERMITE_ALTERAR_VALOR_PROMO) e o atacarejo
@@ -382,10 +413,7 @@ export class PrecificacaoCustoService {
         // o rótulo "Produto em promoção acumulativa") e grava o resto. ⚠️ Não é o MULTI_PRECO.PROMOCAO comum: por ele o Apollo
         // descartava em silêncio o preço de todo produto em promoção (38 alterações em 2025 e 19 em 2026 — auditoria g2).
         // A vigência: a lista de lojas `;1;2;`, dtini ≤ agora ≤ dtfim, o produto ou o grupo de preço dele.
-        const emPromocao = (await sql`SELECT 1 FROM promocao_acumulativa pa
-            WHERE coalesce(pa.idempresa, '') LIKE ${`%;${e};%`} AND pa.dtini <= now() AND pa.dtfim >= now()
-              AND (pa.idproduto = ${dto.idproduto} OR (coalesce(pa.codgrupopreco, 0) <> 0 AND pa.codgrupopreco = ${num(grupo?.codgrupopreco) || -1}))
-            LIMIT 1`.execute(trx)).rows.length > 0;
+        const emPromocao = await this.emPromocaoAcumulativa(trx, dto.idproduto, grupo?.codgrupopreco, e);
         // GRANT do preço (fold [MÉDIA]): sem EDTVRVENDA o operador salva custos mas NÃO altera o preço.
         const podePreco = await this.podeAlterarPreco(trx, e);
         // o FCP de saída: o da tela; sem ele, o da linha (o Apollo gravava 0 e tirava o FCP do PMZ e do débito de ICMS)

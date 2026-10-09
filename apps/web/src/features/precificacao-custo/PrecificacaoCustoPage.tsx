@@ -8,6 +8,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { HistoricoDinamicoModal } from '../../shared/log/HistoricoDinamicoModal';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -42,7 +44,7 @@ interface Linha {
 interface Abertura {
   produto: { idproduto: number; codbarra?: string; descricao?: string; codgrupopreco?: number | null; grupo_preco?: string | null };
   preco: Record<string, unknown>; empresas: Array<{ idempresa: number; fantasia?: string; qtde?: number }>; painel: Painel; modo_lote_default: boolean;
-  idempresa: number;
+  idempresa: number; promocao_acumulativa?: boolean;
   fiscal: { icm_efetivo: number; despoperacional: number; imprenda: number; contsocial: number; simples: boolean };
   config: { tipo_precificacao: string; permite_promocao: boolean; habilita_atacarejo: boolean; sincroniza_empresas: boolean };
 }
@@ -54,6 +56,9 @@ const sn = (v: unknown, padrao = 'S') => (v == null || v === '' ? padrao : Strin
  * custo, os impostos de entrada e de saída, as bases (reposição, C.S.I, P.M.Z), a margem, a venda sugerida e a praticada, a escada até o
  * lucro final, e os campos da linha (markup fixo, promoção, ativo, ativo compra, atacarejo, comissão, flex, força de vendas). Dossiê
  * `UPrificacaoCusto.md`.
+ *  - O campo do produto recebe o código de barras (o do produto ou o código auxiliar — GetProduto); F3 pesquisa a GET_PRODUTOS da loja
+ *    com o " Ativo venda / compra" da tela; com promoção acumulativa na loja do login a venda trava ("Produto em promoção acumulativa").
+ *  - Outros → Multi-Preço: o histórico do MULTI_PRECO do produto na loja da linha.
  *  - A grade de empresas escolhe a loja EDITADA (a linha) e marca as lojas da sincronização; "T" marca todas, Espaço marca a da linha.
  *  - " Opcao de atualização": Individual (o padrão — só a loja da linha) ou Sincronizar empresas marcadas; "Atualizar preços": On-line ou
  *    Gerar lote (o padrão da loja com PRECONF = L).
@@ -74,11 +79,14 @@ export function PrecificacaoCustoPage() {
   const [lote, setLote] = useState(false);
   const [opcao, setOpcao] = useState<'individual' | 'sincronizar'>('individual');
   const [busy, setBusy] = useState(false);
+  const [outrosAberto, setOutrosAberto] = useState(false);
+  // o rdgAtivo " Ati&vo venda / compra" (Sim — o padrão —, Não, Todos): o filtro da Pesquisa do F3
+  const [ativoVC, setAtivoVC] = useState<'S' | 'N' | 'T'>('S');
+  const [pesquisa, setPesquisa] = useState(false);
+  const [multiPreco, setMultiPreco] = useState(false);
 
   // AbreProduto (:386-460) e dtsEmpresaDataChange (:1749-1790): a linha de preço da loja escolhida
-  const abrir = async (idempresa?: number, manterSel = false) => {
-    const id = Number((ab && idempresa ? String(ab.produto.idproduto) : busca).trim());
-    if (!Number.isFinite(id) || id <= 0) { mensagem.erro(new Error('Produto não encontrado. Verifique!')); return; }
+  const abrir = async (id: number, idempresa?: number, manterSel = false) => {
     setBusy(true);
     try {
       const a = await req<Abertura>(`/precificacao/custo/${id}${idempresa ? `?idempresa=${idempresa}` : ''}`);
@@ -94,6 +102,16 @@ export function PrecificacaoCustoPage() {
       if (!manterSel) { setSel(new Set(a.empresas.map((e) => e.idempresa))); setLote(a.modo_lote_default); }
       if (a.config.sincroniza_empresas) setOpcao('sincronizar');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  // edtCodProdExit → AbreProduto: o campo recebe o código de barras (GetProduto: o do produto e, sem ele, o código auxiliar)
+  const buscarCodigo = async () => {
+    const codigo = busca.trim();
+    if (!codigo) return;
+    try {
+      const { idproduto } = await req<{ idproduto: number }>(`/precificacao/custo/produto/${encodeURIComponent(codigo)}`);
+      await abrir(idproduto);
+    } catch (e) { mensagem.erro(e); }
   };
 
   const recalcular = async (patch: Partial<Comp> = {}, mk = markup, vd = venda) => {
@@ -125,7 +143,7 @@ export function PrecificacaoCustoPage() {
       const motivo: Record<string, string> = { lote: 'o preço foi para o lote', promocao_acumulativa: 'produto em promoção acumulativa', sem_permissao: 'sem permissão para alterar a venda' };
       const notas = r.precoMantido.map((m) => `loja ${m.idempresa}: ${motivo[m.motivo] ?? m.motivo}`);
       mensagem.sucesso(['Alterações realizadas com sucesso.', ...(r.lotes ? [`${r.lotes} lote(s) de preço gerado(s).`] : []), ...notas].join(' '));
-      await abrir(ab.idempresa, true);
+      await abrir(ab.produto.idproduto, ab.idempresa, true);
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
@@ -149,7 +167,15 @@ export function PrecificacaoCustoPage() {
     <div className="flex flex-col gap-gp-md p-pad-md">
       <PageHeader title="Precificação de Mercadorias" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        <div className="w-48"><Field label="&Produto" value={busca} onChange={(e) => setBusca(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void abrir(); }} placeholder="código + Enter" /></div>
+        <div className="w-48"><Field label="&Produto" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="cód. barras + Enter · F3"
+          onKeyDown={(e) => { if (e.key === 'Enter') void buscarCodigo(); if (e.key === 'F3') { e.preventDefault(); setPesquisa(true); } }} /></div>
+        <Button label="Pesquisar [F3]" variant="ghost" onClick={() => setPesquisa(true)} />
+        <fieldset className="flex items-center gap-gp-sm text-body-sm">
+          <legend className="text-caption text-fg-muted">Ativo venda / compra</legend>
+          {([['S', 'Sim'], ['N', 'Não'], ['T', 'Todos']] as const).map(([v, r]) => (
+            <label key={v} className="flex items-center gap-1"><input type="radio" name="ativo-vc" checked={ativoVC === v} onChange={() => setAtivoVC(v)} /> {r}</label>
+          ))}
+        </fieldset>
         {ab && (
           <div className="flex flex-1 flex-wrap gap-gp-md text-body-sm">
             <span><span className="text-fg-muted">Código </span><b className="tabular-nums">{ab.produto.idproduto}</b></span>
@@ -168,7 +194,7 @@ export function PrecificacaoCustoPage() {
               <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs w-8" /><th className="p-pad-xs">Código</th><th className="p-pad-xs">Fantasia</th><th className="p-pad-xs text-right">Estoque</th></tr></thead>
               <tbody>
                 {ab.empresas.map((e) => (
-                  <tr key={e.idempresa} tabIndex={0} onKeyDown={(k) => teclasGrade(k, e.idempresa)} onClick={() => { if (e.idempresa !== ab.idempresa) void abrir(e.idempresa, true); }}
+                  <tr key={e.idempresa} tabIndex={0} onKeyDown={(k) => teclasGrade(k, e.idempresa)} onClick={() => { if (e.idempresa !== ab.idempresa) void abrir(ab.produto.idproduto, e.idempresa, true); }}
                     className={`cursor-pointer border-t border-border ${e.idempresa === ab.idempresa ? 'bg-bg-subtle font-semibold' : ''}`}>
                     <td className="p-pad-xs" onClick={(c) => c.stopPropagation()}>
                       {/* com a sincronização forçada (SINCRONIZA_PRECIFICACAO_EMPRESAS) a marca some e todas sincronizam (:1264-1275) */}
@@ -231,9 +257,10 @@ export function PrecificacaoCustoPage() {
             <div className="mt-2 grid grid-cols-2 gap-1">
               <div onKeyDown={margemEnter}><NumberField label="Margem %" value={markup} decimais={2} onChange={(v) => { setMarkup(v); void recalcular({}, v, venda); }} /></div>
               <div className="flex flex-col justify-end"><span className="text-caption text-fg-muted">Venda Sugestão:</span><b className="tabular-nums">{brl(painel.vrvendasug)}</b></div>
-              <NumberField label="&Venda praticada" value={venda} decimais={2} disabled={!pode('EDTVRVENDA')} onChange={(v) => { setVenda(v); void recalcular({}, markup, v); }} />
+              <NumberField label="&Venda praticada" value={venda} decimais={2} disabled={!pode('EDTVRVENDA') || !!ab.promocao_acumulativa} onChange={(v) => { setVenda(v); void recalcular({}, markup, v); }} />
               <NumberField label={`&${rotuloFixo}`} value={linha.markupfixo} decimais={2} disabled={!pode('EDTMARKUPFIXO')} onChange={(v) => editavelLinha('markupfixo', v ?? 0)} />
             </div>
+            {ab.promocao_acumulativa && <p className="mt-1 font-semibold text-fg-danger">Produto em promoção acumulativa</p>}
             {valor('Markdown', painel.markdown)}
             <div className="mt-2 grid grid-cols-2 items-end gap-1">
               <CheckboxField label="Vl. Promoção" value={linha.promocao} disabled={!ab.config.permite_promocao} onChange={(v) => editavelLinha('promocao', v)} />
@@ -252,11 +279,30 @@ export function PrecificacaoCustoPage() {
             {valorPct('Imp. Renda', ab.fiscal.imprenda, painel.imprend)}
             {valorPct('Cont. Social', ab.fiscal.contsocial, painel.contsocial)}
             {valorPct('Lucro Final', painel.margeml2, painel.margeml2v, 'font-semibold')}
-            <div className="mt-gp-md flex justify-end">
+            <div className="relative mt-gp-md flex justify-end gap-gp-sm">
+              {/* btnOutros / PopOutros: "Multi-Preço" (MultiPreo1Click). O "Atacarejo" (o histórico das faixas, MULTI_PRECO_ATACAREJO) fica
+                  de fora: as faixas não são usadas — 1 linha de histórico em toda a produção, de 2024. */}
+              <Button label="&Outros" variant="ghost" onClick={() => setOutrosAberto((v) => !v)} />
+              {outrosAberto && (
+                <div role="menu" aria-label="Outros" className="absolute bottom-full right-0 z-40 mb-gp-xs flex w-48 flex-col rounded-radius-base border border-border bg-bg-surface shadow-sh-md">
+                  <button type="button" role="menuitem" className="cursor-pointer border-0 bg-transparent px-pad-md py-gp-xs text-left text-body-sm text-fg-default hover:bg-bg-canvas"
+                    onClick={() => { setOutrosAberto(false); setMultiPreco(true); }}>Multi-Preço</button>
+                </div>
+              )}
               <Button label="&Gravar" disabled={busy || !pode('BTNGRAVAR')} onClick={() => void gravar()} />
             </div>
           </div>
         </div>
+      )}
+      {/* btnBuscaProdutoClick: a GET_PRODUTOS da loja com o filtro do rdgAtivo; o código de barras volta ao campo e o produto abre */}
+      {pesquisa && (
+        <Pesquisa resourcePath="precificacao/produtos" parametros={{ ativoVendaCompra: ativoVC === 'T' ? '' : ativoVC }} onFechar={() => setPesquisa(false)}
+          onSelecionar={(l) => { setPesquisa(false); setBusca(String(l.codbarra ?? '')); void abrir(Number(l.idproduto)); }} />
+      )}
+      {/* MultiPreo1Click: o histórico do MULTI_PRECO do produto, na loja da linha da grade, aberto no VRVENDA; item "código de barras-descrição" */}
+      {multiPreco && ab && (
+        <HistoricoDinamicoModal historico={{ tabela: 'MULTI_PRECO', campoDefault: 'VRVENDA' }} valor={ab.produto.idproduto} empresa={ab.idempresa}
+          titulo="Precificação de Mercadorias" item={`${ab.produto.codbarra ?? ''}-${ab.produto.descricao ?? ''}`} onFechar={() => setMultiPreco(false)} />
       )}
     </div>
   );
