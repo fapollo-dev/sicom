@@ -51,9 +51,9 @@ function codVersaoFiscal(dtini: string): string {
  * mento), C195/C197 (entrada-only, gated por EMPRESAS.COD_AJUS_*>0; NF_AJUSTES/CODIGO_AJUSTE = 0 linhas no golden),
  * C800/C850/C860 (SAT-CF-e mod 59 — sem código no legado; MG não usa SAT).
  *
- * BLOCO H (Inventário, fiel a GeraBlocoH Uspedfiscal.pas:1074-1168): H001 sempre (IND_MOV toggle) + por evento de
- * inventário no período (inventario_livro/inventario) H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por
- * item (COD_ITEM=idproduto gateado pelo 0200). Fonte: nossas tabelas do épico INVENTÁRIO (mig 090).
+ * BLOCO H (Inventário, fiel a GeraBlocoH Uspedfiscal.pas:1058-1170): H001 sempre; com a opção da tela ("Gerar H001 (Inventário)" +
+ * a data da FOLHA + o motivo + a correção tributária) o H005, um H010 por item (COD_CTA da conta do produto) e, com MOT_INV ≥ 02, o
+ * H020 (CST/ICM da DET_ALIQUOTA na UF). Sem a opção, IND_MOV 1.
  *
  * ESTRUTURA DE BLOCOS COMPLETA: 0/C/D/E/G/H/K/1/9 — todos com opener obrigatório. G/K/1 saem só com o opener
  * (IND_MOV=1 sem-dados). Bloco B (ISS) é OMITIDO (só p/ informante obrigado ao EFD-ISS municipal; N/A p/ este
@@ -65,7 +65,7 @@ function codVersaoFiscal(dtini: string): string {
  * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · CONTEÚDO dos
  * blocos G (CIAP) / K (produção/estoque — config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO vazio no
  * golden; K230+ = produção, ROI~0) / 1 (outras info) ·
- * H020 (só MOT_INV≥02 mudança-de-tributação — lookup DET_ALIQUOTA→CST/ICM) · E111/E113 (ajustes) · E200/E210 (ST)
+ * E111/E113 (ajustes) · E200/E210 (ST)
  * · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
  * demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/GRUPOTENSAO ausentes → ''). O C170 NÃO sai na NF-e 55
  * de emissão própria, entrada ou saída (ckbC170Saidas desmarcada, Uspedfiscal.pas:2707) e as regras do item/C190 são as do legado
