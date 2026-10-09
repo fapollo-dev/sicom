@@ -309,3 +309,14 @@ Formatação do ACBr (casas de QTD; CST_PIS de 1 dígito, já que o CAST para `N
 
 Decisões registradas (legado errado, não copiado): VL_RED_BC herdado do grupo anterior → 0. Copiado com nota: C100 VL_PIS/VL_COFINS
 com a alíquota de ENTRADA em qualquer tipo (dfm:2636-2646); item com CFOP que não gera SPED sai no C170 e não no C190.
+
+---
+
+## A tela (09/10/2026)
+
+O gerador não tinha tela no Apollo — só a rota `POST fiscal/sped/efd-icms-ipi`. Agora `/fiscal/sped-fiscal` ("SPED ICMS/IPI"): a
+competência, o **Pré-validador** (marcado por padrão — `TFrmPendenciasSPED`, dossiê `UPendenciasSPED.md`: as pendências aparecem e,
+ao sair, a geração segue), o `&Gerar` e o arquivo `SPED_<CNPJ>_<ddmmaaaa>.txt` (o nome do `ConfigGeracaoArquivoSPED`, :1468) em
+ISO-8859-1, com "Arquivo gerado com sucesso...". A tela mostra o aviso do gerador (o que ainda é parcial) e os erros do validador
+estrutural. As opções de geração do §1.1 (e Finalidade, NF Goiana, bloco 1/1700, E200/E500, K100/200…K280, inventário com data e
+motivo, "Ajustar base de dados", decimal de desconto, K200 por departamento) ainda não chegaram ao gerador: ele usa o padrão do `.dfm`.

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { gerarSpedSchema, type GerarSpedDto } from '@apollo/shared';
 import { SpedEfdContribuicoesService } from './sped-efd-contribuicoes.service';
@@ -6,6 +6,7 @@ import { SpedEfdIcmsIpiService } from './sped-efd-icms-ipi.service';
 import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
 import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
 import { SpedPendenciasService } from './sped-pendencias.service';
+import { SpedContasPcService } from './sped-contas-pc.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -17,6 +18,9 @@ const ajusteCreditoPcSchema = z.object({
   basecalculo: z.coerce.number(),
 });
 type AjusteCreditoPcDto = z.infer<typeof ajusteCreditoPcSchema>;
+const contaPc = z.coerce.number().int().nonnegative().nullable().optional();
+const contasPcSchema = z.object({ m400: contaPc, m410: contaPc, m800: contaPc, m810: contaPc });
+type ContasPcDto = z.infer<typeof contasPcSchema>;
 const configPcSchema = z.object({ cfop: z.string().trim().min(1).max(4), id_basecredito: z.coerce.number().int() });
 type ConfigPcDto = z.infer<typeof configPcSchema>;
 
@@ -33,7 +37,21 @@ export class SpedController {
     private readonly apuracao: SpedApuracaoPcService,
     private readonly apuracaoConsulta: ApuracaoPcConsultaService,
     private readonly pendencias: SpedPendenciasService,
+    private readonly contasPc: SpedContasPcService,
   ) {}
+
+  /** a "Configuração de contas" do SPED Contribuições (M400/M410/M800/M810 da loja) */
+  @Get('contas-pc')
+  @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
+  lerContasPc() {
+    return this.contasPc.ler();
+  }
+
+  @Put('contas-pc')
+  @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
+  gravarContasPc(@Body(new ZodValidationPipe(contasPcSchema)) dto: ContasPcDto) {
+    return this.contasPc.gravar(dto);
+  }
 
   /** o PRÉ-VALIDADOR (TFrmPendenciasSPED): as pendências do período na loja; a permissão é a do gerador pedido (fiscal / piscofins) */
   @Post('pendencias')
@@ -46,7 +64,7 @@ export class SpedController {
   @HttpCode(200)
   @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
   gerarEfdContribuicoes(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
-    return this.efd.gerar(dto.dtini, dto.dtfim);
+    return this.efd.gerar(dto.dtini, dto.dtfim, { exigirApuracao: !!dto.exigirApuracao });
   }
 
   /** EFD ICMS/IPI (SPED Fiscal) — corte-1: bloco 0 + C (entrada + C190) + E (apuração ICMS crédito) + 9. */

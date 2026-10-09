@@ -8,6 +8,8 @@ export const gerarSpedSchema = z
   .object({
     dtini: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Data inicial inválida (YYYY-MM-DD).'),
     dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Data final inválida (YYYY-MM-DD).'),
+    /** a tela do SPED Contribuições exige a apuração do período (PreparaGeracaoSPED: "Não existe apuração para o periodo informado!") */
+    exigirApuracao: z.boolean().optional(),
   })
   .superRefine((d, ctx) => {
     if (d.dtfim.slice(0, 10) < d.dtini.slice(0, 10)) {

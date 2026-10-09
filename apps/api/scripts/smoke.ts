@@ -19510,6 +19510,36 @@ async function main() {
         await pgPv.end();
       }
     }
+    // ══ §308 SPED CONTRIBUIÇÕES (FRMSPEDPISCOFINS) — a "Configuração de contas" do bloco M (CONFIGURACOES_SPED da loja), a apuração exigida
+    // pela tela e o nome do arquivo
+    {
+      const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const J = { ...H, 'content-type': 'application/json' };
+      const antes = (await pgSc.query(`SELECT * FROM configuracoes_sped WHERE idempresa = 1`)).rows[0] as any;
+      try {
+        const analitica = Number((await pgSc.query(`SELECT codigo FROM rel_get_plano_contas WHERE classe = 'ANALITICA' AND tipo = 'EMPRESA' ORDER BY codigo LIMIT 1`)).rows[0]?.codigo ?? 0);
+        const sintetica = Number((await pgSc.query(`SELECT codigo FROM rel_get_plano_contas WHERE classe = 'SINTETICA' ORDER BY codigo LIMIT 1`)).rows[0]?.codigo ?? 0);
+        const put = async (b: Record<string, unknown>) => { const r = await fetch(`${base}/fiscal/sped/contas-pc`, { method: 'PUT', headers: J, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const ok = await put({ m400: analitica, m810: analitica });
+        const lido = (await (await fetch(`${base}/fiscal/sped/contas-pc`, { headers: H })).json().catch(() => ({}))) as any;
+        const ruim = sintetica ? await put({ m410: sintetica }) : { status: 422, j: { code: 'SPED_CONTA_INVALIDA' } };
+        const semAcesso = (await fetch(`${base}/fiscal/sped/contas-pc`, { headers: H_SEM_ACESSO })).status;
+        const gerar = async (b: Record<string, unknown>) => { const r = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: J, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const semApuracao = await gerar({ dtini: '2045-02-01', dtfim: '2045-02-28', exigirApuracao: true });
+        const livre = await gerar({ dtini: '2045-02-01', dtfim: '2045-02-28' });
+        check('SPED CONTRIBUIÇÕES §308 [as contas do bloco M e a apuração exigida pela tela]: grava a conta analítica da empresa no M400/M810 da loja e a lê de volta com o código reduzido; a conta sintética é recusada; sem a tela, 403; a tela não gera sem a apuração do período ("Não existe apuração para o periodo informado!") — a rota sem a exigência segue gerando (IND_MOV 1); o arquivo se chama SPED_CONTRIBUICOES_<CNPJ>_<ddmmaaaa>.txt',
+          analitica > 0 && ok.status === 200 && lido.m400?.codplanocontas === analitica && lido.m810?.codplanocontas === analitica
+          && ruim.status === 422 && ruim.j.code === 'SPED_CONTA_INVALIDA' && semAcesso === 403
+          && semApuracao.status === 422 && semApuracao.j.code === 'SPED_SEM_APURACAO' && semApuracao.j.message === 'Não existe apuração para o periodo informado!'
+          && livre.status === 200 && /^SPED_CONTRIBUICOES_\d{14}_\d{8}\.txt$/.test(String(livre.j.nomeArquivo)),
+          { analitica, sintetica, ok: [ok.status, ok.j.code], lido, ruim: [ruim.status, ruim.j.code], semAcesso, semApuracao: [semApuracao.status, semApuracao.j.code, semApuracao.j.message], livre: [livre.status, livre.j.code, livre.j.nomeArquivo] });
+      } finally {
+        if (antes) await pgSc.query(`UPDATE configuracoes_sped SET codplc_m400_pc = $2, codplc_m410_pc = $3, codplc_m800_pc = $4, codplc_m810_pc = $5 WHERE idempresa = $1`,
+          [1, antes.codplc_m400_pc, antes.codplc_m410_pc, antes.codplc_m800_pc, antes.codplc_m810_pc]).catch(() => undefined);
+        else await pgSc.query(`DELETE FROM configuracoes_sped WHERE idempresa = 1`).catch(() => undefined);
+        await pgSc.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

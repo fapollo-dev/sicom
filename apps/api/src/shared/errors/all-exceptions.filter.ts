@@ -916,6 +916,8 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_LOJA_INVALIDA: 'Empresa participante inexistente.',
   PROMOCAO_FECHADA: 'A agenda está FECHADA: volte o status para ABERTA antes de aplicar os preços.',
   LOG_PARAMETROS: 'Informe a tela e a chave para consultar o registro de log.',
+  SPED_CONTA_INVALIDA: 'A conta informada não é uma conta analítica da empresa.',
+  SPED_SEM_APURACAO: 'Não existe apuração para o periodo informado!',
   SPED_PENDENCIAS_TIPO: 'Informe o SPED (fiscal ou PIS/COFINS) para conferir as pendências.',
   SPED_PERIODO_INVALIDO: 'Informe o período (data inicial e final, a inicial antes da final).',
   HISTORICO_TABELA_INVALIDA: 'Este registro não tem histórico de alterações para consultar.',

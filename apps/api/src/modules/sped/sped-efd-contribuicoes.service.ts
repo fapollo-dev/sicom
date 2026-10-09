@@ -2,6 +2,7 @@ import { pisCofinsDoItemC170, baseCofinsC170, icmsDoItemC170, pisCofinsDoCabecal
 import { cst3 } from './sped-c-legado';
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -37,7 +38,7 @@ export class SpedEfdContribuicoesService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string; validacao: ResultadoValidacao }> {
+  async gerar(dtini: string, dtfim: string, opcoes: { exigirApuracao?: boolean } = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string; validacao: ResultadoValidacao }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -50,6 +51,12 @@ export class SpedEfdContribuicoesService {
 
     const cnpj = soDigitos(empresa.cnpj);
     const raiz = cnpj.slice(0, 8);
+    // PreparaGeracaoSPED (UspedPisCofins.pas:2427-2432): a tela não gera sem uma apuração do período exato (o cdsApuracao —
+    // UdmSpedPisCofins.dfm:6204 — não filtra a loja)
+    if (opcoes.exigirApuracao) {
+      const ap = await db.selectFrom('apuracao_pc').select('codapuracao_pc').where('dataini', '=', dtini).where('datafim', '=', dtfim).executeTakeFirst();
+      if (!ap) throw new BusinessRuleError('SPED_SEM_APURACAO', { dtini, dtfim });
+    }
     const arq = new SpedArquivo();
 
     // 0000 — identificação: COD_VER|TIPO_ESCRIT(0=original)|IND_SIT_ESP|NUM_REC_ANTERIOR|DT_INI|DT_FIN|NOME|CNPJ|UF|COD_MUN|SUFRAMA|IND_NAT_PJ(00)|IND_ATIV
@@ -95,8 +102,11 @@ export class SpedEfdContribuicoesService {
     const temM = await this.gerarBlocoM(arq, db, emp, dtini, dtfim);
 
     const arquivo = arq.gerar();
+    // o nome do legado (UspedPisCofins.pas:2445): 'SPED_CONTRIBUICOES_' + CNPJ sem pontuação + '_' + a data de hoje (ddmmaaaa) + '.txt'
+    const [aa, mm, dd] = hojeNaLoja().split('-');
     return {
       arquivo,
+      nomeArquivo: `SPED_CONTRIBUICOES_${cnpj}_${dd}${mm}${aa}.txt`,
       linhas: arquivo.trimEnd().split('\r\n').length,
       estabelecimentos: estabs.length,
       documentos: docs.nfs.length + cupons.length,

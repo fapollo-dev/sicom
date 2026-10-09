@@ -180,7 +180,7 @@ export const ROTA_MODULO: Record<string, Destino> = {
   '/relatorios/extrato-fornecedores': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMEXTRATOFORNECEDORES · 38 acessos · Fornecedores
   '/relatorios/curva-abc-fornecedor': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMRELCURVAABCFORNECEDOR · 11 acessos · Fornecedores
 
-  /* ── fiscal (21) ─────────────────────────────── */
+  /* ── fiscal (22) ─────────────────────────────── */
   '/compras/conferencia-nota': { modulo: 'fiscal' }, // FRMCONFERENCIANOTA · 5549 acessos · Fiscal
   '/cadastro/fechamento-diario': { modulo: 'fiscal' }, // FRMFECHAMENTODIARIO · 741 acessos · Fiscal
   '/fiscal/nf-analise': { modulo: 'fiscal' }, // FRMNFANALISE · 727 acessos · Fiscal
@@ -192,6 +192,7 @@ export const ROTA_MODULO: Record<string, Destino> = {
   '/cadastro/cfop': { modulo: 'fiscal' }, // FRMCADCFOP · 349 acessos · Fiscal
   '/relatorios/faturamento': { modulo: 'fiscal' }, // FRMRELFATURAMENTO · 51 acessos · Fiscal
   '/fiscal/apuracao-piscofins': { modulo: 'fiscal' }, // FRMAPURACAOPISCOFINS · 39 acessos · Fiscal
+  '/fiscal/sped-contribuicoes': { modulo: 'fiscal' }, // FRMSPEDPISCOFINS · 13 acessos · Fiscal
   '/relatorios/analise-itens-nf': { modulo: 'fiscal' }, // FRMRELANALISEITENSNF · 33 acessos · Fiscal
   '/cadastro/aliquotas': { modulo: 'fiscal' }, // FRMCADALIQUOTA · 25 acessos · Fiscal
   '/cadastro/indexador-tributario': { modulo: 'fiscal' }, // FRMCADINDEXADORTRIBUTARIO · 21 acessos · Fiscal

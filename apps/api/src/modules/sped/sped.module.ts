@@ -13,6 +13,7 @@ import { ApuracaoIbsCbsService } from './apuracao-ibscbs.service';
 import { SplitPaymentController } from './split-payment.controller';
 import { SplitPaymentService } from './split-payment.service';
 import { SpedPendenciasService } from './sped-pendencias.service';
+import { SpedContasPcService } from './sped-contas-pc.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -21,6 +22,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  */
 @Module({
   controllers: [SpedController, ApuracaoIcmsController, RegistroEsController, ApuracaoIbsCbsController, SplitPaymentController],
-  providers: [SpedPendenciasService, ApuracaoIbsCbsService, SplitPaymentService, SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, RegistroEsService, DatabaseProvider],
+  providers: [SpedPendenciasService, SpedContasPcService, ApuracaoIbsCbsService, SplitPaymentService, SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, RegistroEsService, DatabaseProvider],
 })
 export class SpedModule {}
