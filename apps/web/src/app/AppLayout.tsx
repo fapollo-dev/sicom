@@ -97,6 +97,8 @@ const TELAS = [
   { href: '/financeiro/contas-correntes', name: 'Controle de Contas Correntes', icon: ArrowRightLeft },
   { href: '/financeiro/adiantamentos', name: 'Adiantamento a Fornecedor', icon: HandCoins },
   { href: '/vendas/historico', name: 'Histórico de Vendas', icon: Receipt },
+  // FRMSPEDFISCAL — o EFD ICMS/IPI com o pré-validador (896 acessos, 25 operadores).
+  { href: '/fiscal/sped-fiscal', name: 'SPED ICMS/IPI', icon: Receipt },
   { href: '/fiscal/apuracao-icms', name: 'Apuração de ICMS', icon: Receipt },
   { href: '/fiscal/registro-entradas', name: 'Registro de Entradas', icon: Receipt },
   { href: '/fiscal/registro-saidas', name: 'Registro de Saídas', icon: Receipt },

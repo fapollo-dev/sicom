@@ -44,6 +44,8 @@ import { useShortcut } from '../../shared/keyboard';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { campoComposicao, configDaTelaProduto } from './produtoHistoricoApi';
+import { ncmProdutosInvalidos, type PendenciaSped } from '../sped/spedApi';
+import { PendenciasSpedModal } from '../sped/PendenciasSpedModal';
 import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 type Linha = Record<string, any>;
@@ -109,6 +111,16 @@ export function ProdutoCadMaster() {
   // HABILITA_DUPLICAR_PRODUTO (o Enabled do item, FormShow :6717)
   const [cfgTela, setCfgTela] = useState<{ duplicar: boolean }>({ duplicar: false });
   useEffect(() => { void configDaTelaProduto().then(setCfgTela).catch(() => undefined); }, []);
+  const mensagemTela = useMensagem();
+  // "Verificar NCM dos produtos ativos" (MniVerificarNCMProdutosClick): sem pendência, a mensagem; com, a tela "Produtos com NCM incorretos"
+  const [ncmInvalidos, setNcmInvalidos] = useState<PendenciaSped[] | null>(null);
+  const verificarNcm = async () => {
+    try {
+      const { pendencias } = await ncmProdutosInvalidos();
+      if (!pendencias.length) mensagemTela.sucesso('Não foram encontrados produtos com NCM inválido.');
+      else setNcmInvalidos(pendencias);
+    } catch (e) { mensagemTela.erro(e); }
+  };
   // ── LOOKUPs do master (data-bound, espelham os combos do legado) ──
   // Unidade: guarda codunidade (FK) E unidade (sigla — o schema exige a sigla).
   const { data: unidadeOptions = [] } = useResourceOptions(
@@ -192,6 +204,7 @@ export function ProdutoCadMaster() {
   );
 
   return (
+    <>
     <CadMaster<CriarProdutoDto>
       titulo="Produtos"
       resourcePath="cadastro/produtos"
@@ -208,6 +221,7 @@ export function ProdutoCadMaster() {
         // PrecificaodoCusto1Click: a precificação abre no código de barras do produto
         { label: 'Precificação do Custo', requerRegistro: true, desabilitado: !acesso.tem('PRECIFICAODOCUSTO1'),
           onClick: ({ registro }) => { if (registro) navigate(`/estoque/precificacao?codbarra=${encodeURIComponent(String(registro.codbarra ?? ''))}`); } },
+        { label: 'Verificar NCM dos produtos ativos', onClick: () => void verificarNcm() },
         { label: 'Imprime Etiqueta', requerRegistro: true,
           onClick: ({ registro }) => { if (registro?.idproduto != null) abrirEtiquetasCom({ fonte: 'cadastro', itens: [{ idproduto: Number(registro.idproduto) }] }, navigate); } },
       ]}
@@ -273,6 +287,11 @@ export function ProdutoCadMaster() {
         </PodeCtx.Provider>
       )}
     />
+    {ncmInvalidos && (
+      <PendenciasSpedModal titulo="Produtos com NCM incorretos" pendencias={ncmInvalidos}
+        onReanalisar={async () => (await ncmProdutosInvalidos()).pendencias} onFechar={() => setNcmInvalidos(null)} />
+    )}
+    </>
   );
 }
 

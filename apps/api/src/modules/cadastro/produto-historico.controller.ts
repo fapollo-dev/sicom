@@ -44,6 +44,13 @@ export class ProdutoHistoricoController {
     return this.svc.impressao(id, aba(a), filtro(q));
   }
 
+  /** o "Verificar NCM dos produtos ativos" do Outros: os produtos ativos com NCM inválido */
+  @Get('ncm/invalidos')
+  @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')
+  ncmInvalidos() {
+    return this.svc.ncmInvalidos();
+  }
+
   /** o que a configuração liga no menu Outros (o Duplicar produto — HABILITA_DUPLICAR_PRODUTO) */
   @Get('tela/config')
   @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')

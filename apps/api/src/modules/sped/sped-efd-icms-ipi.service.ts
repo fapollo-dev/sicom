@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { cst3, icmsDoItem, gruposC190 } from './sped-c-legado';
 import { sql, type Kysely } from 'kysely';
+import { hojeNaLoja } from '../../shared/tempo/hoje';
 import { alteracoesParaSped } from './sped-alteracoes';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -87,7 +88,7 @@ export class SpedEfdIcmsIpiService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
+  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -234,8 +235,11 @@ export class SpedEfdIcmsIpiService {
     arq.fecharBloco('1990', '1');
 
     const arquivo = arq.gerar();
+    // o nome do ConfigGeracaoArquivoSPED (Uspedfiscal.pas:1468): 'SPED_' + CNPJ sem pontuação + '_' + a data de hoje (ddmmaaaa) + '.txt'
+    const [aa, mm, dd] = hojeNaLoja().split('-');
     return {
       arquivo,
+      nomeArquivo: `SPED_${cnpj}_${dd}${mm}${aa}.txt`,
       linhas: arquivo.trimEnd().split('\r\n').length,
       documentos: docs.nfs.length,
       parcial: true,

@@ -5,6 +5,7 @@ import { SpedEfdContribuicoesService } from './sped-efd-contribuicoes.service';
 import { SpedEfdIcmsIpiService } from './sped-efd-icms-ipi.service';
 import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
 import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
+import { SpedPendenciasService } from './sped-pendencias.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -31,7 +32,15 @@ export class SpedController {
     private readonly efdIcmsIpi: SpedEfdIcmsIpiService,
     private readonly apuracao: SpedApuracaoPcService,
     private readonly apuracaoConsulta: ApuracaoPcConsultaService,
+    private readonly pendencias: SpedPendenciasService,
   ) {}
+
+  /** o PRÉ-VALIDADOR (TFrmPendenciasSPED): as pendências do período na loja; a permissão é a do gerador pedido (fiscal / piscofins) */
+  @Post('pendencias')
+  @HttpCode(200)
+  analisarPendencias(@Body() dto: { dtini?: string; dtfim?: string; tipo?: string }) {
+    return this.pendencias.analisar(dto);
+  }
 
   @Post('efd-contribuicoes')
   @HttpCode(200)

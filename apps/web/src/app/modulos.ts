@@ -180,11 +180,12 @@ export const ROTA_MODULO: Record<string, Destino> = {
   '/relatorios/extrato-fornecedores': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMEXTRATOFORNECEDORES · 38 acessos · Fornecedores
   '/relatorios/curva-abc-fornecedor': { modulo: 'parceiros', grupo: 'Fornecedores' }, // FRMRELCURVAABCFORNECEDOR · 11 acessos · Fornecedores
 
-  /* ── fiscal (20) ─────────────────────────────── */
+  /* ── fiscal (21) ─────────────────────────────── */
   '/compras/conferencia-nota': { modulo: 'fiscal' }, // FRMCONFERENCIANOTA · 5549 acessos · Fiscal
   '/cadastro/fechamento-diario': { modulo: 'fiscal' }, // FRMFECHAMENTODIARIO · 741 acessos · Fiscal
   '/fiscal/nf-analise': { modulo: 'fiscal' }, // FRMNFANALISE · 727 acessos · Fiscal
   '/cadastro/situacao-documento': { modulo: 'fiscal' }, // FRMCADSITUACAONF · 543 acessos · Fiscal
+  '/fiscal/sped-fiscal': { modulo: 'fiscal' }, // FRMSPEDFISCAL · 896 acessos · Fiscal
   '/fiscal/apuracao-icms': { modulo: 'fiscal' }, // FRMRELREGISTROS_ES · 355 acessos · Fiscal
   '/fiscal/registro-entradas': { modulo: 'fiscal' }, // FRMRELREGISTROS_ES · 355 acessos · Fiscal
   '/fiscal/registro-saidas': { modulo: 'fiscal' }, // FRMRELREGISTROS_ES · 355 acessos · Fiscal

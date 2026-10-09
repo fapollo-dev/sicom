@@ -139,6 +139,7 @@ import { RegistroEsPage } from '../features/registro-es/RegistroEsPage';
 import { ExportaBalancaPage } from '../features/exporta-balanca/ExportaBalancaPage';
 import { AjustePrecosPage } from '../features/ajuste-precos/AjustePrecosPage';
 import { PrecificacaoCustoPage } from '../features/precificacao-custo/PrecificacaoCustoPage';
+import { SpedFiscalPage } from '../features/sped/SpedFiscalPage';
 import { RelVendasHubPage } from '../features/rel-vendas-hub/RelVendasHubPage';
 import { PreviaFornecedorPage } from '../features/previa-fornecedor/PreviaFornecedorPage';
 import { ConferenciaNotaPage } from '../features/conferencia-nota/ConferenciaNotaPage';
@@ -291,6 +292,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/conf-plano-contas', element: <ConfPlanoContasPage /> }, // FRMCADCONFPLANOCONTAS
       { path: '/relatorios/financeiro', element: <RelFinanceiroPage /> }, // FRMRELFINANCEIRO
       { path: '/relatorios/simulador-venda', element: <SimuladorVendaPage /> }, // FRMSIMULADORVENDA
+      { path: '/fiscal/sped-fiscal', element: <SpedFiscalPage /> }, // FRMSPEDFISCAL — o gerador do EFD ICMS/IPI + o pré-validador
       { path: '/fiscal/apuracao-piscofins', element: <ApuracaoPisCofinsPage /> }, // FRMAPURACAOPISCOFINS
       { path: '/relatorios/extrato-fornecedores', element: <ExtratoFornecedoresPage /> }, // FRMEXTRATOFORNECEDORES
       { path: '/relatorios/curva-abc-fornecedor', element: <RelCurvaAbcFornecedorPage /> }, // FRMRELCURVAABCFORNECEDOR

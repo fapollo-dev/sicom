@@ -5,6 +5,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { ncmProdutosInvalidos } from '../sped/sped-pendencias.service';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { colunasNumericas, dataBr, empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
@@ -60,6 +61,11 @@ export class ProdutoHistoricoService {
     const t = currentTenant();
     const v = await configNaTrx(this.dbp.forTenantRead() as never, 'HABILITA_DUPLICAR_PRODUTO', { empresaId: t.empresaId ?? undefined, operadorId: t.operadorId ?? undefined, modulo: 'Retaguarda' });
     return { duplicar: String(v ?? 'N').trim().toUpperCase() === 'S' };
+  }
+
+  /** "Verificar NCM dos produtos ativos" (MniVerificarNCMProdutosClick): os ativos com NCM inválido (GetNCMProdutosInvalidos) */
+  async ncmInvalidos() {
+    return { pendencias: await ncmProdutosInvalidos(this.dbp.forTenantRead()) };
   }
 
   async campoComposicao(): Promise<{ campo: string }> {

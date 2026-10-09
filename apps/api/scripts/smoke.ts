@@ -19440,6 +19440,76 @@ async function main() {
         await pgDp.end();
       }
     }
+    // ══ §307 PRÉ-VALIDADOR DO SPED (TFrmPendenciasSPED) — as pendências do SPED Fiscal e do SPED PIS/COFINS no período, e o "Verificar NCM"
+    // do cadastro de produto. Período isolado: mar/2045
+    {
+      const pgPv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const J = { ...H, 'content-type': 'application/json' };
+      const nfs: number[] = [];
+      try {
+        // o fornecedor sem CNPJ, numa cidade que não existe; a administradora de cartão sem CNPJ
+        await pgPv.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con) VALUES
+          (993071, 1, 'FORNECEDOR SEM DOC PV', 'FSD', 'J', 993071, 'N', 'S', 'N', 'N'), (993072, 1, 'ADM CARTAO PV', 'ACP', 'J', 993072, 'N', 'N', 'N', 'N')
+          ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgPv.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, endereco_padrao, ativado) VALUES
+          (993071, 993071, 'RUA X', 'CENTRO', 'CIDADE QUE NAO EXISTE', 'SP', 'S', 'S'), (993072, 993072, 'RUA Y', 'CENTRO', 'SAO PAULO', 'SP', 'S', 'S')
+          ON CONFLICT (codend) DO UPDATE SET cnpj_cpf = NULL, cidade = EXCLUDED.cidade, uf = 'SP', ativado = 'S'`);
+        await pgPv.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp, codadm) VALUES (99307, 'OPER PV', 0, 30, 993072)
+          ON CONFLICT (codoperadoras) DO UPDATE SET codadm = 993072`);
+        await pgPv.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado) VALUES (1, 99307, '2045-03-10 12:00:00-03', 50, 1, 'N')`);
+        // a nota de entrada modelo 1 do fornecedor (participante), a NF-e 55 sem chave
+        const end2 = Number((await pgPv.query(`SELECT codend FROM parceiros_end WHERE codparceiro = 2 ORDER BY codend LIMIT 1`)).rows[0]?.codend ?? 993071);
+        const nova = async (v: { tipo: string; modelo: number; nronf: string; parc: number; end: number; cfop: string; chave?: string | null }) => {
+          const id = Number((await pgPv.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop, chavenfe)
+            VALUES (1, $1, $2, '1', $3, '2045-03-05', '2045-03-05', $4, $5, 'S', 'N', 100, $6, $7) RETURNING codnf`, [v.tipo, v.modelo, v.nronf, v.parc, v.end, v.cfop, v.chave ?? null])).rows[0].codnf);
+          nfs.push(id);
+          return id;
+        };
+        const nfForn = await nova({ tipo: 'E', modelo: 1, nronf: '993071', parc: 993071, end: 993071, cfop: '1102' });
+        const nfSemChave = await nova({ tipo: 'E', modelo: 55, nronf: '993072', parc: 2, end: end2, cfop: '1102' });
+        // PIS/COFINS: a venda (NF de saída) de produto com CST 06 sem a base de crédito da isenção
+        await pgPv.query(`INSERT INTO piscofins (idpiscofins, descricao, cst_pis_sai, cst_cofins_sai) VALUES (99307, 'ALIQUOTA ZERO PV', 6, 6)
+          ON CONFLICT (idpiscofins) DO UPDATE SET cst_pis_sai = 6`);
+        await pgPv.query(`DELETE FROM pc_tipocreditoisento WHERE idpiscofins = 99307`);
+        await pgPv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idpiscofins) VALUES (990764, '7899000990764', 'PRODUTO PV', 'UN', 2, 'T01', 'S', 99307)
+          ON CONFLICT (idproduto) DO UPDATE SET idpiscofins = 99307`);
+        const nfSai = await nova({ tipo: 'S', modelo: 55, nronf: '993073', parc: 2, end: end2, cfop: '5102', chave: '35450399999999999999550010009930731000000000' });
+        await pgPv.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, aliquota, cfop) VALUES ($1, 1, 990764, 'PRODUTO PV', 1, 10, 5, 1, 0, 'T01', '5102')`, [nfSai]);
+        const pend = async (tipo: string, h: Record<string, string> = J) => {
+          const r = await fetch(`${base}/fiscal/sped/pendencias`, { method: 'POST', headers: h, body: JSON.stringify({ tipo, dtini: '2045-03-01', dtfim: '2045-03-31' }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const fiscal = await pend('fiscal');
+        const pc = await pend('piscofins');
+        const semAcesso = await pend('fiscal', { ...H_SEM_ACESSO, 'content-type': 'application/json' });
+        const tem = (r: any, tipo: string, codigo: string) => (r.j.pendencias ?? []).some((p: any) => p.tipo === tipo && p.codigo === codigo);
+        const tipos = (r: any) => new Set((r.j.pendencias ?? []).map((p: any) => p.tipo));
+        const cnpjForn = (fiscal.j.pendencias ?? []).find((p: any) => p.tipo === 'cnpj_cpf_invalido' && p.codigo === '993071');
+        check('PRÉ-VALIDADOR SPED §307 [as pendências do legado no período]: no Fiscal, a administradora do cartão sem CNPJ (o Corrigir abre o PARCEIRO), a NF-e 55 sem chave, o fornecedor da nota sem CNPJ ("…REF. NA NFE", "CodEnd : 993071 - Parc : …") e com a cidade fora da tabela; no PIS/COFINS sem as de cartão e com o produto CST 06 sem a base de crédito da isenção; sem o gate do gerador, 403',
+          fiscal.status === 200 && tem(fiscal, 'administradora_sem_cnpj', '993072') && tem(fiscal, 'nfe_sem_chave', String(nfSemChave))
+          && cnpjForn?.descricao === 'PARCEIRO COM CNPJ_CPF INVALIDO NO ENDEREÇO REF. NA NFE' && cnpjForn?.descricao_registro === 'CodEnd : 993071 - Parc : FORNECEDOR SEM DOC PV'
+          && tem(fiscal, 'cod_mun_invalido', '993071')
+          && (fiscal.j.pendencias ?? []).find((p: any) => p.tipo === 'administradora_sem_cnpj')?.abrir?.cadastro === 'parceiro'
+          && !tipos(fiscal).has('produto_sem_base_credito')
+          && pc.status === 200 && !tipos(pc).has('administradora_sem_cnpj') && tem(pc, 'produto_sem_base_credito', '990764') && tem(pc, 'nfe_sem_chave', String(nfSemChave))
+          && semAcesso.status === 403,
+          { fiscal: [fiscal.status, fiscal.j.code, fiscal.j.pendencias], pc: [pc.status, pc.j.code, pc.j.pendencias], semAcesso: semAcesso.status, nfForn });
+        // o "Verificar NCM dos produtos ativos": o produto ativo com NCM fora da tabela entra; com NCM válido, não
+        await pgPv.query(`UPDATE produtos SET ncmsh = '99999998', ativo = 'S' WHERE idproduto = 990764`);
+        // ativo nas duas leituras (ATIVO_PELA_MULTIPRECO = 'S' lê a linha de preço; 'N', o produto)
+        await pgPv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo) VALUES (990764, 1, 5, 10, 'S') ON CONFLICT (idproduto, idempresa) DO UPDATE SET ativo = 'S'`);
+        const ncm = await fetch(`${base}/cadastro/produtos/ncm/invalidos`, { headers: H });
+        const ncmJ = (await ncm.json().catch(() => ({}))) as any;
+        const linha = (ncmJ.pendencias ?? []).find((p: any) => p.codigo === '7899000990764');
+        check('PRÉ-VALIDADOR SPED §307.1 [Verificar NCM dos produtos ativos]: o produto ativo com NCM que não está na tabela aparece pelo código de barras, com o motivo e o NCM no complemento, e o Corrigir abre o produto',
+          ncm.status === 200 && linha?.descricao === 'NCM não encontrado no sistema ou inválido' && linha?.complemento === '99999998' && linha?.abrir?.id === 990764,
+          { status: ncm.status, linha, n: (ncmJ.pendencias ?? []).length });
+      } finally {
+        for (const id of nfs) { await pgPv.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgPv.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
+        await pgPv.query(`DELETE FROM cartao WHERE codoperadora = 99307`).catch(() => undefined);
+        await pgPv.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
