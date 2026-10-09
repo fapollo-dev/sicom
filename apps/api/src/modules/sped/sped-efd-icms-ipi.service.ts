@@ -78,6 +78,8 @@ interface NfceSped {
   c190: Array<{ cst: string; cfop: string; aliq: number; vlOpr: number; bc: number; icms: number; bcSt: number; icmsSt: number }>;
 }
 
+export interface OpcaoInventario { data: string; motivo?: number; correcao?: boolean }
+
 @Injectable()
 export class SpedEfdIcmsIpiService {
   constructor(private readonly dbp: DatabaseProvider) {}
@@ -88,7 +90,7 @@ export class SpedEfdIcmsIpiService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
+  async gerar(dtini: string, dtfim: string, opcoes: { inventario?: OpcaoInventario } = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -122,11 +124,11 @@ export class SpedEfdIcmsIpiService {
     const frete = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [7, 8, 9, 10, 11, 26, 27, 57], false);
     // e as de telecomunicação 21/22 (sqqNFtelecomunicacao: processadas, sem o filtro de CFOP do C100) — D500/D590
     const telecom = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [21, 22], true);
-    const inventario = await this.coletarInventario(db, emp, dtini, dtfim);
+    const inventario = await this.coletarInventario(db, emp, opcoes.inventario, String(empresa.uf ?? ''));
     // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
     // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
     // contagem COMPLETA e mantém integridade referencial, em vez de dropar itens sem movimento do período).
-    const invProdIds = [...new Set(inventario.itens.map((i) => Number(i.idproduto)).filter(Boolean))].filter((id) => !docs.produtos.has(id));
+    const invProdIds = [...new Set((inventario?.itens ?? []).map((i) => Number(i.idproduto)).filter(Boolean))].filter((id) => !docs.produtos.has(id));
     if (invProdIds.length) {
       const rows = (await db.selectFrom('produtos').select(['idproduto', 'descricao', 'codbarra', 'unidade', 'ncmsh', 'cest', 'aliquota']).where('idproduto', 'in', invProdIds).execute()) as Array<Record<string, any>>;
       for (const r of rows) { docs.produtos.set(Number(r.idproduto), r); const u = String(r.unidade ?? '').trim(); if (u) docs.unidades.add(u); }
@@ -244,7 +246,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 por IND_OPER + ${nfce.length} NFC-e (C100 65 + C190) + ${inutilizadas.length} faixa(s) inutilizada(s) + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco D (${frete.length} frete D100/D190 + ${telecom.length} telecom D500/D590) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 por IND_OPER + ${nfce.length} NFC-e (C100 65 + C190) + ${inutilizadas.length} faixa(s) inutilizada(s) + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco D (${frete.length} frete D100/D190 + ${telecom.length} telecom D500/D590) + bloco H (${inventario ? `inventário de ${inventario.data}, ${inventario.itens.length} item(ns)` : 'sem inventário'}; H005/H010/H020) + blocos G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
@@ -323,66 +325,59 @@ export class SpedEfdIcmsIpiService {
     return { nfs: nfs.map((n) => ({ ...n, itens: porNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades };
   }
 
-  /** Inventário do período (bloco H): cabeçalhos inventario_livro (DTINVENTARIO no período, não soft-deletado) +
-   *  itens inventario. Fonte fiel: INVENTARIO/INVENTARIO_LIVRO (sqqInventarioCons, UdmSpedFiscal.dfm). */
-  private async coletarInventario(db: AnyDB, emp: number, dtini: string, dtfim: string) {
-    const todos = (await db
-      .selectFrom('inventario_livro')
-      .select(['codinvent', 'dtinventario', 'tipoinventario', 'descricao'])
-      .where('idempresa', '=', emp)
-      .where(sql`coalesce(indr,'I')`, '<>', 'E') // soft-delete
-      .where('dtinventario', '>=', dtini)
-      .where('dtinventario', '<=', dtfim)
-      .orderBy('codinvent')
-      .execute()) as Array<Record<string, any>>;
-    // fold auditoria [ALTA]: o ETL pode ter salvo o MESMO inventário N vezes (mesma DATA+TIPO, codinvent distinto —
-    // visto no golden: 3 cópias idênticas do inventário 2026-05-07). Sem dedup, o bloco H triplica (H005/H010 e
-    // VL_INV inflados). Mantém só o MAIS RECENTE (MAX codinvent) por (data, tipo) — o `indr` não salva (dups vêm 'I').
-    const porChave = new Map<string, Record<string, any>>();
-    for (const l of todos) porChave.set(`${String(l.dtinventario)}|${l.tipoinventario ?? ''}`, l); // asc → último = maior codinvent
-    const livros = [...porChave.values()];
-    const ids = livros.map((l) => Number(l.codinvent));
-    const itens = ids.length
-      ? ((await db.selectFrom('inventario').select(['codinvent', 'idproduto', 'codbarra', 'descricao', 'unidade', 'qtde', 'vrcusto', 'vrvenda', 'tipo', 'aliquota'])
-          .where('codinvent', 'in', ids).where('idempresa', '=', emp)
-          .where('qtde', '>', 0) // fold auditoria [BAIXA]: só itens COM saldo (dropa dump-de-catálogo qtde=0; item sem estoque não tem valor no inventário)
-          .orderBy('codinvent').orderBy('idproduto').execute()) as Array<Record<string, any>>)
-      : [];
-    const porLivro = new Map<number, Array<Record<string, any>>>();
-    for (const it of itens) (porLivro.get(Number(it.codinvent)) ?? porLivro.set(Number(it.codinvent), []).get(Number(it.codinvent))!).push(it);
-    return { livros, itens, porLivro };
+  /**
+   * O inventário do BLOCO H como a tela do legado o escolhe (GeraBlocoH, Uspedfiscal.pas:1058-1170; sqqInventarioCons,
+   * UdmSpedFiscal.dfm:6505): só com "Gerar H001 (Inventário)" marcado, os itens da loja com a DATA DO ITEM (INVENTARIO.DATAINVENTARIO —
+   * o carimbo da folha; o livro 242 da produção tem 31/12/2025 e os itens 03/03/2026) igual à "Data Inventário"; com "Correção
+   * Tributária", só os de TIPO 'T'. A conta (COD_CTA) é a do plano de contas do produto (CODEXPINTEIRO). Com MOT_INV ≥ 02 vai o H020:
+   * o CST e o ICM da alíquota do item na UF da loja (DET_ALIQUOTA — GetInfoH020). Antes o Apollo pegava sozinho todo inventário cujo LIVRO
+   * caía no período: o de 31/12 saía na EFD de dezembro, e não na de fevereiro, onde o operador o informa.
+   */
+  private async coletarInventario(db: AnyDB, emp: number, op: OpcaoInventario | undefined, uf: string) {
+    if (!op) return null;
+    const rows = (await sql<Record<string, any>>`
+        SELECT i.codinvent, i.idproduto, i.codbarra, i.descricao, i.unidade, i.qtde, i.vrcusto, i.vrvenda, i.tipo, i.aliquota,
+               (i.datainventario AT TIME ZONE 'America/Sao_Paulo')::date::text AS datainventario, c.codexpinteiro,
+               d.cst AS cst_h020, d.icm AS icm_h020
+          FROM inventario i
+          JOIN produtos p ON p.idproduto = i.idproduto
+          LEFT JOIN plano_contas c ON c.codplanocontas = p.codplanocontas
+          LEFT JOIN det_aliquota d ON d.aliquota = i.aliquota AND d.uf = ${uf}
+         WHERE i.idempresa = ${emp} AND (i.datainventario AT TIME ZONE 'America/Sao_Paulo')::date = ${op.data}::date
+           ${op.correcao ? sql`AND i.tipo = 'T'` : sql``}
+           AND i.qtde > 0
+         ORDER BY i.idproduto, i.codinvent`.execute(db)).rows;
+    // o mesmo produto em duas folhas da mesma data (o ETL do golden salvou inventários em duplicata): fica a folha mais recente
+    const porProduto = new Map<number, Record<string, any>>();
+    for (const r of rows) porProduto.set(Number(r.idproduto), r);
+    return { ...op, itens: [...porProduto.values()] };
   }
 
-  /** BLOCO H — Inventário (fiel a GeraBlocoH, Uspedfiscal.pas:1074-1168). H001 sempre (IND_MOV 0=com dados / 1=sem);
-   *  por evento: H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por item. Gateado pela pertinência ao
-   *  0200 (COD_ITEM tem de existir no cadastro — integridade referencial do PVA). IND_PROP='0' (próprio, tipo='P').
-   *  VL_INV = Σ VL_ITEM do MESMO conjunto filtrado (reconcilia com o PVA). VL_UNIT em 2 casas (0/79190 linhas do
-   *  golden têm vrcusto >2 casas → sem perda; emitir na precisão de vrcusto é refino de cutover se surgir dado).
-   *  ADIADO: H020 (só p/ MOT_INV≥02 mudança-de-tributação — precisa o lookup DET_ALIQUOTA→CST/ICM; golden é MOT_INV=01);
-   *  TXT_COMPL (cdsOperacoesICMS TIPO='H1', config ausente) e COD_CTA (plano_contas via produto) → ''; certificação
-   *  campo-a-campo do H005/H010 depende do .txt real do PVA (caveat de cutover, comum a todo o SPED). */
-  private emitirBlocoH(arq: SpedArquivo, inventario: { livros: Array<Record<string, any>>; itens: Array<Record<string, any>>; porLivro: Map<number, Array<Record<string, any>>> }, docs: { produtos: Map<number, Record<string, any>> }): void {
-    const has = (id: unknown) => docs.produtos.has(Number(id));
-    const temInv = inventario.itens.some((i) => has(i.idproduto));
-    arq.add('H001', [temInv ? '0' : '1']); // IND_MOV
-    for (const livro of inventario.livros) {
-      const itens = (inventario.porLivro.get(Number(livro.codinvent)) ?? []).filter((it) => has(it.idproduto));
-      if (!itens.length) continue;
-      // MOT_INV: tipoinventario (1..5) → 01..05; default '01' (final do período).
-      const mot = Number(livro.tipoinventario);
-      const motInv = String(mot >= 1 && mot <= 5 ? mot : 1).padStart(2, '0');
-      const linhas = itens.map((it) => {
+  /** BLOCO H — Inventário (GeraBlocoH, Uspedfiscal.pas:1058-1170). H001 IND_MOV pela opção da tela ("Gerar H001 (Inventário)"); com ela, o
+   *  H005 (DT_INV = a data do inventário, VL_INV = Σ VL_ITEM, MOT_INV da tela) e um H010 por item que está no 0200 (COD_ITEM | UNID |
+   *  QTD | VL_UNIT | VL_ITEM = máx(0, qtde × custo) | IND_PROP 0 | COD_PART '' | TXT_COMPL '' | COD_CTA = CODEXPINTEIRO | VL_ITEM_IR) e,
+   *  com MOT_INV ≥ 02, o H020 (CST_ICMS | BC_ICMS = VL_ITEM | VL_ICMS = VL_ITEM × ICM / 100). Item sem saldo fica de fora (QTD ≤ 0). */
+  private emitirBlocoH(arq: SpedArquivo, inventario: (OpcaoInventario & { itens: Array<Record<string, any>> }) | null, docs: { produtos: Map<number, Record<string, any>> }): void {
+    arq.add('H001', [inventario ? '0' : '1']); // IND_MOV
+    if (inventario) {
+      const linhas = inventario.itens.filter((it) => docs.produtos.has(Number(it.idproduto))).map((it) => {
         const q = nn(it.qtde);
         const vu = nn(it.vrcusto);
         const total = r2(Math.max(0, q * vu)); // VL_ITEM = qtde×vrcusto, piso 0 (fiel: CASE WHEN <0 THEN 0)
         return { it, q, vu, total };
       });
       const vlInv = r2(linhas.reduce((s, l) => s + l.total, 0));
+      const motivo = Number(inventario.motivo ?? 1);
       // H005 (3): DT_INV|VL_INV|MOT_INV
-      arq.add('H005', [fmtData(livro.dtinventario as string), fmtNum(vlInv), motInv]);
+      arq.add('H005', [fmtData(inventario.data), fmtNum(vlInv), String(motivo).padStart(2, '0')]);
       for (const { it, q, vu, total } of linhas) {
         // H010 (10): COD_ITEM|UNID|QTD|VL_UNIT|VL_ITEM|IND_PROP|COD_PART|TXT_COMPL|COD_CTA|VL_ITEM_IR
-        arq.add('H010', [String(it.idproduto), String(it.unidade ?? '').trim(), fmtNum(q, 3), fmtNum(vu, 2), fmtNum(total), '0', '', '', '', fmtNum(total)]);
+        arq.add('H010', [String(it.idproduto), String(it.unidade ?? '').trim(), fmtNum(q, 3), fmtNum(vu, 2), fmtNum(total), '0', '', '', String(it.codexpinteiro ?? ''), fmtNum(total)]);
+        if (motivo >= 2) {
+          // H020 (3): CST_ICMS|BC_ICMS|VL_ICMS — o CST de DET_ALIQUOTA em 3 dígitos
+          const cst = it.cst_h020 == null ? '' : String(it.cst_h020).padStart(3, '0');
+          arq.add('H020', [cst, fmtNum(total), fmtNum(r2((total * nn(it.icm_h020)) / 100))]);
+        }
       }
     }
     arq.fecharBloco('H990', 'H');

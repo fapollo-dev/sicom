@@ -320,3 +320,15 @@ ao sair, a geração segue), o `&Gerar` e o arquivo `SPED_<CNPJ>_<ddmmaaaa>.txt`
 ISO-8859-1, com "Arquivo gerado com sucesso...". A tela mostra o aviso do gerador (o que ainda é parcial) e os erros do validador
 estrutural. As opções de geração do §1.1 (e Finalidade, NF Goiana, bloco 1/1700, E200/E500, K100/200…K280, inventário com data e
 motivo, "Ajustar base de dados", decimal de desconto, K200 por departamento) ainda não chegaram ao gerador: ele usa o padrão do `.dfm`.
+
+## Bloco H — o inventário como a tela escolhe (09/10/2026)
+
+⛔→✅ O Apollo gerava o bloco H sozinho com todo inventário cujo LIVRO caía no período (o de 31/12 saía na EFD de dezembro). O legado
+(`GeraBlocoH`, Uspedfiscal.pas:1058-1170) só gera com **"Gerar H001 (Inventário)"** marcado (desmarcado por padrão — o hint da tela
+lembra que o IND_MOV 0 é obrigatório em fevereiro e que o inventário de 31/12 informado em dezembro/janeiro se repete em fevereiro), e
+escolhe os itens pela **DATA DO ITEM** (`INVENTARIO.DATAINVENTARIO` = a "Data Inventário", padrão hoje — o carimbo da folha; na
+produção o livro 242 diz 31/12/2025 e os 3.527 itens dizem 03/03/2026), com o **"Mot. inventário - H005"** da tela (01–05) e a
+**"Correção Tributária"** (só TIPO 'T'). Com MOT_INV ≥ 02 sai o **H020** (o CST de 3 dígitos e o ICM da alíquota do item na UF da loja,
+DET_ALIQUOTA — `GetInfoH020`), que o Apollo não emitia; o **COD_CTA** do H010 é o CODEXPINTEIRO da conta do produto (ia vazio). O
+produto do inventário entra no 0200 (o UNION do sqqProdutos com `cbxInventario`). Diferença consciente mantida: item sem saldo (QTD ≤ 0)
+fica de fora. Smoke §90e; jsdom `spedFiscal.spec.tsx`.

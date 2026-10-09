@@ -43,6 +43,8 @@ describe('SPED ICMS/IPI (FRMSPEDFISCAL) — o gerador com o pré-validador', () 
 
     fireEvent.click(screen.getByRole('button', { name: /air/ }));
     await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
+    // sem "Gerar H001" o inventário não vai
+    expect(JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-icms-ipi'))![1]!.body)).inventario).toBeUndefined();
     expect(await screen.findByText('SPED_12345678000190_09102026.txt')).toBeTruthy();
     expect(await screen.findByText(/Arquivo gerado com sucesso/)).toBeTruthy();
     expect((URL as any).createObjectURL).toHaveBeenCalled();
@@ -56,6 +58,22 @@ describe('SPED ICMS/IPI (FRMSPEDFISCAL) — o gerador com o pré-validador', () 
     fireEvent.click(screen.getByRole('button', { name: /erar/ }));
     await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
     expect(chamadas().some(([u]) => String(u).endsWith('/pendencias'))).toBe(false);
+  });
+
+  it('o Bloco H: sem "Gerar H001" não manda inventário; marcado, manda a data, o motivo e a correção tributária', async () => {
+    render(<MemoryRouter><ShortcutScope><MensagemProvider><SpedFiscalPage /></MensagemProvider></ShortcutScope></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText(/Competência: de/), { target: { value: '2027-02-01' } });
+    fireEvent.change(screen.getByLabelText(/^até/), { target: { value: '2027-02-28' } });
+    fireEvent.click(screen.getByLabelText('Pré-validador'));
+    expect((screen.getByLabelText('Mot. inventário - H005') as HTMLSelectElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText('Gerar H001 (Inventário)'));
+    fireEvent.change(screen.getByLabelText('Data Inventário'), { target: { value: '2026-12-31' } });
+    fireEvent.change(screen.getByLabelText('Mot. inventário - H005'), { target: { value: '2' } });
+    fireEvent.click(screen.getByLabelText('Correção Tributária'));
+    fireEvent.click(screen.getByRole('button', { name: /erar/ }));
+    await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
+    const corpo = JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-icms-ipi'))![1]!.body));
+    expect(corpo).toEqual({ dtini: '2027-02-01', dtfim: '2027-02-28', inventario: { data: '2026-12-31', motivo: 2, correcao: true } });
   });
 
   it('o Corrigir da operadora de cartão abre a tela dela em outra aba', async () => {

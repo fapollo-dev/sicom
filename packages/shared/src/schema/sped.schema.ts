@@ -10,6 +10,17 @@ export const gerarSpedSchema = z
     dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Data final inválida (YYYY-MM-DD).'),
     /** a tela do SPED Contribuições exige a apuração do período (PreparaGeracaoSPED: "Não existe apuração para o periodo informado!") */
     exigirApuracao: z.boolean().optional(),
+    /**
+     * o Bloco H do SPED Fiscal ("Gerar H001 (Inventário)" + "Data Inventário" + "Mot. inventário - H005" + "Correção Tributária",
+     * Uspedfiscal.dfm): sem ele o H001 sai sem dados (o padrão da tela)
+     */
+    inventario: z
+      .object({
+        data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data do inventário.'),
+        motivo: z.coerce.number().int().min(1).max(5).default(1),
+        correcao: z.boolean().optional(),
+      })
+      .optional(),
   })
   .superRefine((d, ctx) => {
     if (d.dtfim.slice(0, 10) < d.dtini.slice(0, 10)) {

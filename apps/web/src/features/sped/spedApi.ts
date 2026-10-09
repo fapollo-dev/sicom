@@ -37,8 +37,9 @@ export interface ArquivoSped {
   aviso: string;
   validacao: { ok: boolean; erros: string[]; registros: number };
 }
-export const gerarSpedFiscal = (dtini: string, dtfim: string) =>
-  req<ArquivoSped>('/fiscal/sped/efd-icms-ipi', { method: 'POST', body: JSON.stringify({ dtini, dtfim }) });
+export interface OpcaoInventarioSped { data: string; motivo: number; correcao: boolean }
+export const gerarSpedFiscal = (dtini: string, dtfim: string, inventario?: OpcaoInventarioSped) =>
+  req<ArquivoSped>('/fiscal/sped/efd-icms-ipi', { method: 'POST', body: JSON.stringify({ dtini, dtfim, ...(inventario ? { inventario } : {}) }) });
 
 export interface ContaPc { codplanocontas: number; codireduzido: string | null; descricao: string | null; codiexpandido: string | null }
 export type ContasPc = Record<'m400' | 'm410' | 'm800' | 'm810', ContaPc | null>;

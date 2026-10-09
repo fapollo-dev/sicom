@@ -15301,60 +15301,57 @@ async function main() {
       }
     }
 
-    // ===== §90e: EFD ICMS/IPI Bloco H (Inventário) — H001/H005/H010 do inventário do período + produto no 0200 =====
+    // ===== §90e: EFD ICMS/IPI Bloco H (Inventário) — como a tela do legado (GeraBlocoH): só com "Gerar H001 (Inventário)", os itens da
+    // loja com a DATA DO ITEM igual à "Data Inventário", o motivo da tela, a correção tributária (TIPO 'T') e o H020 com MOT_INV ≥ 02 =====
     {
       const pgInv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ids: number[] = [];
       try {
-        // inventário no período 2027-02: 1 livro + 1 item (produto 1, qtde 10 × custo 5,00 → VL_ITEM 50,00).
-        const livRow = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-02-28',1,'Inventário smoke','I') RETURNING codinvent`);
+        // o livro de 31/12/2026 com a folha carimbada em 28/02/2027 (como o livro 242 da produção: a data do livro mudou depois)
+        const livRow = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2026-12-31',1,'Inventário smoke','I') RETURNING codinvent`);
         const codinvent = Number(livRow.rows[0].codinvent);
-        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',10,5,8,'P')`, [codinvent]);
-        const efdInv = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-02-01', dtfim: '2027-02-28' }) });
-        const efdInvJ = (await efdInv.json().catch(() => ({}))) as any;
-        const linInv = String(efdInvJ.arquivo ?? '').split('\r\n');
-        const h001 = linInv.find((l) => l.startsWith('|H001|')) ?? '';
-        const h005 = linInv.find((l) => l.startsWith('|H005|')) ?? '';
-        const h010 = linInv.find((l) => l.startsWith('|H010|')) ?? '';
-        const o200 = linInv.find((l) => l.startsWith('|0200|1|')) ?? ''; // produto do inventário mesclado no cadastro
+        ids.push(codinvent);
+        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo,aliquota,datainventario) VALUES ($1,1,1,'UN',10,5,8,'P','T01','2027-02-28 00:00:00-03')`, [codinvent]);
+        const efd = async (corpo: Record<string, unknown>) => {
+          const r = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          const l = String(j.arquivo ?? '').split('\r\n');
+          return { status: r.status, j, l, reg: (pre: string) => l.find((x) => x.startsWith(pre)) ?? '', n: (pre: string) => l.filter((x) => x.startsWith(pre)).length };
+        };
+        // sem a opção: H001 sem dados, mesmo com inventário no período (o padrão da tela: "Gerar H001" desmarcado)
+        const sem = await efd({ dtini: '2027-02-01', dtfim: '2027-02-28' });
+        // com a opção na data da folha: H005/H010 e o produto no 0200
+        const com = await efd({ dtini: '2027-02-01', dtfim: '2027-02-28', inventario: { data: '2027-02-28', motivo: 1 } });
+        // a data do LIVRO não acha a folha (o legado filtra a data do item)
+        const peloLivro = await efd({ dtini: '2027-02-01', dtfim: '2027-02-28', inventario: { data: '2026-12-31', motivo: 1 } });
         check(
-          'SPED §90e Bloco H (Inventário): H001 IND_MOV=0 + H005 (DT 28022027 / VL 50,00 / MOT 01) + H010 (COD_ITEM 1 / QTD 10 / VL_UNIT 5,00 / VL_ITEM 50,00 / IND_PROP 0) + produto no 0200, validação ok',
-          efdInv.status === 200
-          && h001 === '|H001|0|'
-          && h005 === '|H005|28022027|50,00|01|'
-          && h010.startsWith('|H010|1|UN|10,000|5,00|50,00|0|')
-          && o200 !== ''
-          && efdInvJ.validacao?.ok === true && Array.isArray(efdInvJ.validacao?.erros) && efdInvJ.validacao.erros.length === 0,
-          { h001, h005, h010: h010.slice(0, 60), o200: o200.slice(0, 30), val: efdInvJ.validacao },
+          'SPED §90e Bloco H (Inventário): sem "Gerar H001" o H001 sai sem dados (IND_MOV 1) mesmo com inventário no período; com a "Data Inventário" da FOLHA (28/02/2027) sai o H005 (DT 28022027 / VL 50,00 / MOT 01) + H010 (COD_ITEM 1 / QTD 10 / VL_UNIT 5,00 / VL_ITEM 50,00 / IND_PROP 0) + o produto no 0200; a data do LIVRO (31/12/2026) não acha a folha (H005 com VL 0); validação ok',
+          sem.status === 200 && sem.reg('|H001|') === '|H001|1|' && sem.n('|H005|') === 0
+          && com.status === 200 && com.reg('|H001|') === '|H001|0|' && com.reg('|H005|') === '|H005|28022027|50,00|01|'
+          && com.reg('|H010|').startsWith('|H010|1|UN|10,000|5,00|50,00|0|') && com.reg('|0200|1|') !== '' && com.n('|H020|') === 0
+          && com.j.validacao?.ok === true && com.j.validacao.erros.length === 0
+          && peloLivro.reg('|H005|') === '|H005|31122026|0,00|01|' && peloLivro.n('|H010|') === 0,
+          { sem: [sem.status, sem.reg('|H001|')], h005: com.reg('|H005|'), h010: com.reg('|H010|').slice(0, 60), val: com.j.validacao, peloLivro: peloLivro.reg('|H005|') },
         );
-        // fold auditoria [ALTA]: inventário salvo em DUPLICATA (mesma data/tipo, codinvent distinto) → 1 único H005
-        // (mantém o MAX codinvent), NÃO triplica o bloco H.
-        const livDup = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-02-28',1,'Inventário smoke DUP','I') RETURNING codinvent`);
+        // duas folhas da mesma data com o mesmo produto → um H010 só (a folha mais recente); MOT_INV 02 traz o H020 com o CST/ICM da
+        // alíquota na UF da loja; a correção tributária só pega os itens de TIPO 'T'
+        const livDup = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-02-28',2,'Inventário smoke DUP','I') RETURNING codinvent`);
         const codinventDup = Number(livDup.rows[0].codinvent);
-        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',10,5,8,'P')`, [codinventDup]);
-        const efdDup = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-02-01', dtfim: '2027-02-28' }) });
-        const efdDupJ = (await efdDup.json().catch(() => ({}))) as any;
-        const linDup = String(efdDupJ.arquivo ?? '').split('\r\n');
-        const nH005 = linDup.filter((l) => l.startsWith('|H005|')).length;
-        const nH010dup = linDup.filter((l) => l.startsWith('|H010|')).length;
-        const h005dup = linDup.find((l) => l.startsWith('|H005|')) ?? '';
+        ids.push(codinventDup);
+        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo,aliquota,datainventario) VALUES ($1,1,1,'UN',10,5,8,'T','T01','2027-02-28 00:00:00-03')`, [codinventDup]);
+        const uf = String((await pgInv.query(`SELECT uf FROM empresas WHERE idempresa = 1`)).rows[0]?.uf ?? '');
+        const det = (await pgInv.query(`SELECT cst, icm::float AS icm FROM det_aliquota WHERE aliquota = 'T01' AND uf = $1`, [uf])).rows[0] as any;
+        const mot2 = await efd({ dtini: '2027-02-01', dtfim: '2027-02-28', inventario: { data: '2027-02-28', motivo: 2, correcao: true } });
+        const h020 = mot2.reg('|H020|');
+        const esperado = det ? `|H020|${String(det.cst).padStart(3, '0')}|50,00|${(Math.round(50 * det.icm) / 100).toFixed(2).replace('.', ',')}|` : '';
         check(
-          'SPED §90e dedup [ALTA]: inventário duplicado (mesma data/tipo) → 1 único H005 + 1 H010 (mantém MAX codinvent, VL 50,00), não triplica + validação ok',
-          efdDup.status === 200 && nH005 === 1 && nH010dup === 1 && h005dup === '|H005|28022027|50,00|01|' && efdDupJ.validacao?.ok === true && efdDupJ.validacao.erros.length === 0,
-          { nH005, nH010dup, h005dup, val: efdDupJ.validacao },
+          'SPED §90e Bloco H (motivo 02 + correção tributária): a folha duplicada vira um H010 só; com MOT_INV 02 o H020 leva o CST (3 dígitos) e o ICMS da alíquota T01 na UF da loja sobre o VL_ITEM; a correção tributária pega só a folha de TIPO T; validação ok',
+          mot2.status === 200 && mot2.n('|H010|') === 1 && mot2.reg('|H005|') === '|H005|28022027|50,00|02|' && (!det || h020 === esperado)
+          && mot2.j.validacao?.ok === true && mot2.j.validacao.erros.length === 0,
+          { n010: mot2.n('|H010|'), h005: mot2.reg('|H005|'), h020, esperado, det, val: mot2.j.validacao },
         );
-        await pgInv.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [codinventDup]); // cleanup (cascade)
-
-        // sem-dados: período sem inventário → H001 IND_MOV=1 (bloco H sempre presente).
-        const efdNo = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-03-01', dtfim: '2027-03-31' }) });
-        const efdNoJ = (await efdNo.json().catch(() => ({}))) as any;
-        const h001no = (String(efdNoJ.arquivo ?? '').split('\r\n').find((l) => l.startsWith('|H001|')) ?? '');
-        check(
-          'SPED §90e Bloco H sem-dados: período sem inventário → H001 IND_MOV=1 (bloco H sempre presente) + validação ok',
-          efdNo.status === 200 && h001no === '|H001|1|' && efdNoJ.validacao?.ok === true && Array.isArray(efdNoJ.validacao?.erros) && efdNoJ.validacao.erros.length === 0,
-          { h001no, val: efdNoJ.validacao },
-        );
-        await pgInv.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [codinvent]); // cascade deleta itens
       } finally {
+        for (const id of ids) await pgInv.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [id]).catch(() => undefined); // cascade deleta itens
         await pgInv.end();
       }
     }
