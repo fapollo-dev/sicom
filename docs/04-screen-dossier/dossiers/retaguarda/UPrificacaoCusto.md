@@ -62,7 +62,15 @@ Lucro Real**, :1401 — corrigido; latente aqui, porque o destino só aceita LR 
   2.086 do cadastro, 314 desta tela).
 - 🪦 **Outros → Atacarejo** (o histórico do MULTI_PRECO_ATACAREJO): **1 linha** em toda a HISTORICO_DINAMICO da produção (08/06/2024).
 
-## Fica para o corte 4
+## Corte 4 (09/10/2026)
+
+- ✅ **"Sinc. Custo na venda"** (Tag 1 — BTNSINCCUSTONAVENDA): "Informe a data" (inicial e final) → "Deseja retroagir o custo atual até
+  a data de: dd/mm/aa" → `POST precificacao/custo/sinc-custo-venda` grava o custo DA TELA nas vendas do produto na loja da LINHA, no
+  período pelo dia da loja (o TRUNC do Oracle; a venda das 23h30 entra no dia dela). Loja sem a tela → recusa; período invertido →
+  "A data inicial é maior que a data final." (o legado não atualizava nada). Diferença consciente: a LOG guarda o custo, o período e
+  quantas vendas mudaram (o legado não deixa rastro). Smoke §304.
+
+## Prova de uso do Sinc. Custo
 
 - "Sinc. Custo na venda" (Tag 1 — concedido aos 31 operadores da tela): `UPDATE VENDAS SET VRCUSTO = <custo da tela>` no período, no
   produto e na loja da linha, depois do "Deseja retroagir o custo atual até a data de: …". Não deixa rastro (nem LOG nem histórico);

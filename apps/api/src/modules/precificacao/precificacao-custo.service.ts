@@ -9,6 +9,7 @@ import { ConfigService } from '../cadastro/config.service';
 import { gerarLotesFilhos } from './lote-filho';
 import { hashPaf } from '../shared/hash-paf';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { gravarLog } from '../../shared/log/registro-log';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -315,6 +316,35 @@ export class PrecificacaoCustoService {
         sincroniza_empresas: String((await cfg('SINCRONIZA_PRECIFICACAO_EMPRESAS')) ?? 'N').toUpperCase() === 'S',
       },
     };
+  }
+
+  /**
+   * SINC. CUSTO NA VENDA (`btnSincCustoNaVendaClick`, :462-482 — Tag 1, BTNSINCCUSTONAVENDA): depois do "Deseja retroagir o custo atual
+   * até a data de: …", o custo DA TELA (edtVRCUSTO, gravado ou não) vai às vendas do produto na loja da LINHA no período
+   * (`TRUNC(DTVENDA) BETWEEN …`) — o lucro dos relatórios de venda passa a usar este custo. É o único escritor de VENDAS.VRCUSTO fora da
+   * venda, e é usado (vendas anteriores à troca de custo já com o custo novo: 02/10, 04/09 e 20/07/2026). O legado não deixa rastro; aqui
+   * a LOG guarda quem, o custo, o período e quantas vendas mudaram.
+   */
+  async sincCustoNaVenda(dto: { idproduto: number; idempresa: number; vrcusto: number; dtini: string; dtfim: string }): Promise<{ vendas: number }> {
+    if (dto.dtini > dto.dtfim) throw new BusinessRuleError('PRECIFICACAO_PERIODO_INVALIDO', { dtini: dto.dtini, dtfim: dto.dtfim });
+    const custo = r4(num(dto.vrcusto));
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.exigirPermissaoEmpresa(trx, dto.idempresa);
+      const prod = await trx.selectFrom('produtos').select('idproduto').where('idproduto', '=', dto.idproduto).executeTakeFirst();
+      if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: dto.idproduto });
+      // o dia da venda é o da loja (TRUNC no Oracle); a faixa em timestamp usa o índice (idempresa, dtvenda)
+      const r = await sql`UPDATE vendas SET vrcusto = ${custo}
+          WHERE idempresa = ${dto.idempresa} AND codproduto = ${dto.idproduto}
+            AND dtvenda >= (${dto.dtini}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'
+            AND dtvenda < ((${dto.dtfim}::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')`.execute(trx);
+      const vendas = Number(r.numAffectedRows ?? 0);
+      const br = (d: string) => d.split('-').reverse().join('/');
+      await gravarLog(trx, {
+        acao: 'Alterou', formulario: 'Precificação de Mercadorias', tabela: 'VENDAS', chave: 'CODPRODUTO', valor: dto.idproduto, idempresa: dto.idempresa,
+        historico: `Sinc. Custo na venda: custo ${custo.toFixed(4).replace('.', ',')} nas vendas de ${br(dto.dtini)} a ${br(dto.dtfim)} da empresa ${dto.idempresa} (${vendas} venda(s))`,
+      });
+      return { vendas };
+    });
   }
 
   /** a configuração como o `dmPrincipal.Sessao.ValorConfiguracao` da tela: usuário > empresa da sessão > o módulo Retaguarda */

@@ -10,6 +10,8 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { HistoricoDinamicoModal } from '../../shared/log/HistoricoDinamicoModal';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { Modal } from '../../shared/ui/Modal';
+import { DateField } from '../../shared/ui/DateField';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,6 +61,7 @@ const sn = (v: unknown, padrao = 'S') => (v == null || v === '' ? padrao : Strin
  *  - O campo do produto recebe o código de barras (o do produto ou o código auxiliar — GetProduto); F3 pesquisa a GET_PRODUTOS da loja
  *    com o " Ativo venda / compra" da tela; com promoção acumulativa na loja do login a venda trava ("Produto em promoção acumulativa").
  *  - Outros → Multi-Preço: o histórico do MULTI_PRECO do produto na loja da linha.
+ *  - "Sinc. Custo na venda" (Tag 1): o custo da tela retroage às vendas do produto na loja da linha, no período informado.
  *  - A grade de empresas escolhe a loja EDITADA (a linha) e marca as lojas da sincronização; "T" marca todas, Espaço marca a da linha.
  *  - " Opcao de atualização": Individual (o padrão — só a loja da linha) ou Sincronizar empresas marcadas; "Atualizar preços": On-line ou
  *    Gerar lote (o padrão da loja com PRECONF = L).
@@ -83,6 +86,8 @@ export function PrecificacaoCustoPage() {
   // o rdgAtivo " Ati&vo venda / compra" (Sim — o padrão —, Não, Todos): o filtro da Pesquisa do F3
   const [ativoVC, setAtivoVC] = useState<'S' | 'N' | 'T'>('S');
   const [pesquisa, setPesquisa] = useState(false);
+  // "Sinc. Custo na venda": o frmRetornaInfo (data inicial e final) e a confirmação
+  const [sinc, setSinc] = useState<{ etapa: 'datas' | 'confirmar'; dtini?: string; dtfim?: string } | null>(null);
   const [multiPreco, setMultiPreco] = useState(false);
 
   // AbreProduto (:386-460) e dtsEmpresaDataChange (:1749-1790): a linha de preço da loja escolhida
@@ -146,6 +151,19 @@ export function PrecificacaoCustoPage() {
       await abrir(ab.produto.idproduto, ab.idempresa, true);
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+
+  // btnSincCustoNaVendaClick (:462-482): o custo da tela retroage às vendas do produto na loja da linha, no período
+  const sincronizarCusto = async () => {
+    if (!ab || !sinc?.dtini || !sinc.dtfim) return;
+    setBusy(true);
+    try {
+      const r = await req<{ vendas: number }>('/precificacao/custo/sinc-custo-venda', { method: 'POST',
+        body: JSON.stringify({ idproduto: ab.produto.idproduto, idempresa: ab.idempresa, vrcusto: comp.vrcusto, dtini: sinc.dtini, dtfim: sinc.dtfim }) });
+      setSinc(null);
+      mensagem.sucesso(`Custo sincronizado em ${r.vendas} venda(s).`);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const ddmmaa = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}` : '');
 
   const tipo = ab?.config.tipo_precificacao ?? 'P';
   const rotuloFixo = tipo === 'D' ? 'Markdown fixo %' : tipo === 'M' ? 'Margem fixa %' : 'Markup Fixo %';
@@ -282,6 +300,7 @@ export function PrecificacaoCustoPage() {
             <div className="relative mt-gp-md flex justify-end gap-gp-sm">
               {/* btnOutros / PopOutros: "Multi-Preço" (MultiPreo1Click). O "Atacarejo" (o histórico das faixas, MULTI_PRECO_ATACAREJO) fica
                   de fora: as faixas não são usadas — 1 linha de histórico em toda a produção, de 2024. */}
+              <Button label="Sinc. Custo na venda" variant="ghost" disabled={busy || !pode('BTNSINCCUSTONAVENDA')} onClick={() => setSinc({ etapa: 'datas' })} />
               <Button label="&Outros" variant="ghost" onClick={() => setOutrosAberto((v) => !v)} />
               {outrosAberto && (
                 <div role="menu" aria-label="Outros" className="absolute bottom-full right-0 z-40 mb-gp-xs flex w-48 flex-col rounded-radius-base border border-border bg-bg-surface shadow-sh-md">
@@ -298,6 +317,22 @@ export function PrecificacaoCustoPage() {
       {pesquisa && (
         <Pesquisa resourcePath="precificacao/produtos" parametros={{ ativoVendaCompra: ativoVC === 'T' ? '' : ativoVC }} onFechar={() => setPesquisa(false)}
           onSelecionar={(l) => { setPesquisa(false); setBusca(String(l.codbarra ?? '')); void abrir(Number(l.idproduto)); }} />
+      )}
+      {sinc?.etapa === 'datas' && (
+        <Modal open onClose={() => setSinc(null)} size="sm" title="Informe a data"
+          primaryAction={{ label: '&Confirma', onClick: () => { if (!sinc.dtini || !sinc.dtfim) { mensagem.erro(new Error('Informe a data inicial e a final.')); return; } setSinc({ ...sinc, etapa: 'confirmar' }); } }}
+          secondaryAction={{ label: '&Sair', onClick: () => setSinc(null) }}>
+          <div className="grid grid-cols-2 gap-gp-sm">
+            <DateField label="Data inicial" value={sinc.dtini} onChange={(v) => setSinc({ ...sinc, dtini: v })} />
+            <DateField label="Data final" value={sinc.dtfim} onChange={(v) => setSinc({ ...sinc, dtfim: v })} />
+          </div>
+        </Modal>
+      )}
+      {sinc?.etapa === 'confirmar' && (
+        <Modal open onClose={() => setSinc(null)} size="sm" title="Sinc. Custo na venda"
+          primaryAction={{ label: 'Sim', onClick: () => void sincronizarCusto() }} secondaryAction={{ label: 'Não', onClick: () => setSinc(null) }}>
+          <p className="text-body-sm">Deseja retroagir o custo atual até a data de: {ddmmaa(sinc.dtini)}</p>
+        </Modal>
       )}
       {/* MultiPreo1Click: o histórico do MULTI_PRECO do produto, na loja da linha da grade, aberto no VRVENDA; item "código de barras-descrição" */}
       {multiPreco && ab && (

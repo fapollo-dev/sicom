@@ -19337,6 +19337,46 @@ async function main() {
         await pgP3.end();
       }
     }
+    // ══ §304 PRECIFICAÇÃO (corte 4): "Sinc. Custo na venda" — o custo da tela retroage às vendas do produto na loja da linha, no período
+    // (o dia da venda é o da loja), com a LOG; Tag 1 BTNSINCCUSTONAVENDA
+    {
+      const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const J = { ...H, 'content-type': 'application/json' };
+      const ctl = (dar: boolean) => dar
+        ? pgSc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMPRIFICACAOCUSTO', 'BTNSINCCUSTONAVENDA', 7, 1 WHERE NOT EXISTS
+            (SELECT 1 FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = 'BTNSINCCUSTONAVENDA' AND codoperador = 7 AND codempresa = 1)`)
+        : pgSc.query(`DELETE FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = 'BTNSINCCUSTONAVENDA' AND codoperador = 7 AND codempresa = 1`);
+      try {
+        await pgSc.query(`DELETE FROM vendas WHERE codproduto = 990760 AND nropedido LIKE 'SC304%'`);
+        // 01/10 10h, 03/10 23h30 (já é 04/10 em UTC) e 05/10 na loja 1; 02/10 na loja 2
+        await pgSc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, cancelado) VALUES
+          (1, '2026-10-01 10:00:00-03', 'SC304A', 990760, 1, 20, 10, 'N'), (1, '2026-10-03 23:30:00-03', 'SC304B', 990760, 1, 20, 10, 'N'),
+          (1, '2026-10-05 09:00:00-03', 'SC304C', 990760, 1, 20, 10, 'N'), (2, '2026-10-02 09:00:00-03', 'SC304D', 990760, 1, 20, 10, 'N')`);
+        const sinc = async (corpo: Record<string, unknown>) => {
+          const r = await fetch(`${base}/precificacao/custo/sinc-custo-venda`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990760, idempresa: 1, vrcusto: 7.5, dtini: '2026-10-01', dtfim: '2026-10-03', ...corpo }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        await ctl(false);
+        const semTag = await sinc({});
+        await ctl(true);
+        const invertido = await sinc({ dtini: '2026-10-04' });
+        const outraLoja = await sinc({ idempresa: 99999 });
+        const ok = await sinc({});
+        const custos = Object.fromEntries(((await pgSc.query(`SELECT nropedido, vrcusto::float AS c FROM vendas WHERE codproduto = 990760 AND nropedido LIKE 'SC304%'`)).rows as any[]).map((r) => [r.nropedido, r.c]));
+        const log = (await pgSc.query(`SELECT historico, formulario, tabela FROM log WHERE tabela = 'VENDAS' AND chave = 'CODPRODUTO' AND valor = 990760 ORDER BY idlog DESC LIMIT 1`)).rows[0] as any;
+        check('PRECIFICAÇÃO §304 [Sinc. Custo na venda]: sem a Tag 1 (BTNSINCCUSTONAVENDA), 403; período invertido 422; loja sem a tela, 422; com ela, o custo 7,5 vai às 2 vendas do produto na loja 1 de 01/10 a 03/10 — a das 23h30 de 03/10 entra (o dia é o da loja) —, a de 05/10 e a da loja 2 ficam 10; a LOG guarda o custo, o período e as 2 vendas',
+          semTag.status === 403 && invertido.status === 422 && invertido.j.code === 'PRECIFICACAO_PERIODO_INVALIDO'
+          && outraLoja.status === 422 && outraLoja.j.code === 'SEM_PERMISSAO_EMPRESA'
+          && ok.status === 200 && ok.j.vendas === 2 && custos.SC304A === 7.5 && custos.SC304B === 7.5 && custos.SC304C === 10 && custos.SC304D === 10
+          && log?.formulario === 'Precificação de Mercadorias' && String(log?.historico).includes('7,5000') && String(log?.historico).includes('01/10/2026 A 03/10/2026')
+          && String(log?.historico).includes('(2 VENDA(S))'),
+          { semTag: semTag.status, invertido: [invertido.status, invertido.j.code], outraLoja: [outraLoja.status, outraLoja.j.code], ok: [ok.status, ok.j], custos, log });
+      } finally {
+        await pgSc.query(`DELETE FROM vendas WHERE codproduto = 990760 AND nropedido LIKE 'SC304%'`).catch(() => undefined);
+        await ctl(false).catch(() => undefined);
+        await pgSc.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

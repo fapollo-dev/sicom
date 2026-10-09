@@ -6,6 +6,8 @@ import {
   precificarProdutoSchema,
   calcularPrecificacaoSchema,
   salvarPrecificacaoSchema,
+  sincCustoVendaSchema,
+  type SincCustoVendaDto,
   type CalcularVendaDto,
   type CalcularMargemDto,
   type CalcularFiscalDto,
@@ -65,6 +67,15 @@ export class PrecificacaoController {
   @RequerAcesso('FRMPRIFICACAOCUSTO', 'BTNGRAVAR')
   salvarCusto(@Body(new ZodValidationPipe(salvarPrecificacaoSchema)) dto: SalvarPrecificacaoDto) {
     return this.custo.salvar(dto);
+  }
+
+  /** "Sinc. Custo na venda" (Tag 1 — BTNSINCCUSTONAVENDA): o custo da tela retroage às vendas do produto na loja da linha, no período */
+  @Post('custo/sinc-custo-venda')
+  @HttpCode(200)
+  @UseGuards(AcessoGuard)
+  @RequerAcesso('FRMPRIFICACAOCUSTO', 'BTNSINCCUSTONAVENDA')
+  sincCustoNaVenda(@Body(new ZodValidationPipe(sincCustoVendaSchema)) dto: SincCustoVendaDto) {
+    return this.custo.sincCustoNaVenda(dto);
   }
 
   @Post('calcular-venda')

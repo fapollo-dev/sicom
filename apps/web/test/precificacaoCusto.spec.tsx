@@ -24,10 +24,11 @@ beforeEach(() => {
   acumulativa = false;
   global.fetch = vi.fn().mockImplementation(async (url: string) => {
     const u = String(url);
-    if (u.includes('/cadastro/acesso/opcoes/')) return { ok: true, status: 200, json: async () => ({ opcoes: ['FRMPRIFICACAOCUSTO', 'BTNGRAVAR', 'EDTVRVENDA'] }) };
+    if (u.includes('/cadastro/acesso/opcoes/')) return { ok: true, status: 200, json: async () => ({ opcoes: ['FRMPRIFICACAOCUSTO', 'BTNGRAVAR', 'EDTVRVENDA', 'BTNSINCCUSTONAVENDA'] }) };
     if (u.includes('/cadastro/historico-dinamico/MULTI_PRECO/760')) return { ok: true, status: 200, json: async () => ({ campos: ['VRCUSTO', 'VRVENDA'], campo: 'VRVENDA',
       linhas: [{ codhistorico: 1, campo: 'VRVENDA', valor_anterior: '18', valor_atual: '20', data: '2026-10-08 14:05:09', codoperador: 7, nome: 'SMOKE', codempresa: 2, historico: 'Precificação do Custo' }] }) };
     if (u.endsWith('/precificacao/custo/produto/7899000990760')) return { ok: true, status: 200, json: async () => ({ idproduto: 760 }) };
+    if (u.includes('/precificacao/custo/sinc-custo-venda')) return { ok: true, status: 200, json: async () => ({ vendas: 3 }) };
     if (u.includes('/precificacao/custo/salvar')) return { ok: true, status: 200, json: async () => ({ lotes: 0, historico: 2, precoMantido: [] }) };
     if (u.includes('/precificacao/custo/calcular')) return { ok: true, status: 200, json: async () => painel };
     const m = u.match(/\/precificacao\/custo\/760(?:\?idempresa=(\d+))?$/);
@@ -105,5 +106,28 @@ describe('Precificação de Mercadorias (UPrificacaoCusto) — a tela do legado'
     fireEvent.keyDown(prod, { key: 'Enter' });
     expect(await screen.findByText('Produto em promoção acumulativa')).toBeTruthy();
     expect((screen.getByLabelText(/Venda praticada/) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('Sinc. Custo na venda: pede o período, confirma "Deseja retroagir o custo atual até a data de: …" e manda o custo da tela na loja da linha', async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><ShortcutScope><MensagemProvider><PrecificacaoCustoPage /></MensagemProvider></ShortcutScope></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const prod = screen.getByLabelText(/Produto/);
+    fireEvent.change(prod, { target: { value: '7899000990760' } });
+    fireEvent.keyDown(prod, { key: 'Enter' });
+    expect(await screen.findByText('5 - CAFES')).toBeTruthy();
+    const botao = await screen.findByRole('button', { name: 'Sinc. Custo na venda' });
+    await waitFor(() => expect((botao as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(botao);
+    fireEvent.change(screen.getByLabelText('Data inicial'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('Data final'), { target: { value: '2026-10-08' } });
+    fireEvent.click(screen.getByRole('button', { name: /onfirma/ }));
+    expect(await screen.findByText('Deseja retroagir o custo atual até a data de: 01/10/26')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sim' }));
+    expect(await screen.findByText(/Custo sincronizado em 3 venda\(s\)\./)).toBeTruthy();
+    const corpo = JSON.parse(String(chamadas().find(([u]) => String(u).includes('/sinc-custo-venda'))![1]!.body));
+    expect(corpo).toEqual({ idproduto: 760, idempresa: 1, vrcusto: 10, dtini: '2026-10-01', dtfim: '2026-10-08' });
   });
 });

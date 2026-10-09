@@ -48,3 +48,13 @@ export const salvarPrecificacaoSchema = componentesCustoSchema.extend({
   prod_exibe_forca_vendas: z.enum(['S', 'N']).optional(),
 });
 export type SalvarPrecificacaoDto = z.infer<typeof salvarPrecificacaoSchema>;
+
+/** "Sinc. Custo na venda" (btnSincCustoNaVendaClick): o custo da tela retroage às vendas do produto na loja da linha, no período */
+export const sincCustoVendaSchema = z.object({
+  idproduto: z.coerce.number().int().positive(),
+  idempresa: z.coerce.number().int().positive(),
+  vrcusto: z.coerce.number().min(0),
+  dtini: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data inicial.'),
+  dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data final.'),
+});
+export type SincCustoVendaDto = z.infer<typeof sincCustoVendaSchema>;

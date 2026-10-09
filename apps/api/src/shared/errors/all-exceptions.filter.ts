@@ -929,6 +929,7 @@ const CODE_PT: Record<string, string> = {
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
   PERFIL_INVALIDO: 'Informe um perfil válido.',
   PRECIFICACAO_PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado. Verifique!',
+  PRECIFICACAO_PERIODO_INVALIDO: 'A data inicial é maior que a data final.',
   PRECIFICACAO_PROMOCAO_SEM_VALOR: 'Valor promoção não poder ser Zero.',
   PRECIFICACAO_PRODUTO_EM_COMPOSICAO: 'Não é permitido desativar o produto!! O produto faz parte da composição de um item.',
   NF_RAPIDO_SITUACAO_INVALIDA: 'Situação de documento não definida!',
