@@ -8,6 +8,7 @@ import { FiscalPricingService } from './preco-fiscal.service';
 import { ConfigService } from '../cadastro/config.service';
 import { gerarLotesFilhos } from './lote-filho';
 import { hashPaf } from '../shared/hash-paf';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -50,11 +51,14 @@ async function atualizarFilhosOnline(trx: AnyDB, idpai: number, idempresa: numbe
   return n;
 }
 
+/** os 23 campos que o legado audita nesta tela, na ordem do `FCamposHistorico` (udmCadProduto.pas:2702-2724) */
 const CAMPOS_HISTORICO = [
-  'vrcusto', 'vrcustorep', 'vrvenda', 'ativo', 'ativo_compra', 'bonificacao', 'despacessorio', 'ipi', 'seguro',
-  'frete', 'frete2', 'icmst', 'icme', 'vrcustocsi', 'promocao', 'vrpromo', 'markupfixo', 'markup', 'vrfcpst',
+  'vrcusto', 'vrcustorep', 'vrvenda', 'atacarejo_ativo', 'ativo', 'ativo_compra', 'bonificacao', 'margem_comissao', 'despacessorio',
+  'ipi', 'seguro', 'frete', 'frete2', 'icmst', 'icme', 'vrcustocsi', 'promocao', 'vrpromo', 'markupfixo', 'markup', 'vrfcpst',
   'vrcustoajuste', 'vrvendasug',
 ] as const;
+/** os campos S/N da linha de preço que a tela edita (o histórico grava o texto, não o número) */
+const CAMPOS_TEXTO = new Set(['ativo', 'ativo_compra', 'promocao', 'atacarejo_ativo', 'usa_flex', 'prod_exibe_forca_vendas']);
 
 export interface ComponentesCusto {
   vrcusto: number;
@@ -138,6 +142,8 @@ export class PrecificacaoCustoService {
     const tributado = String(p.aliquota ?? '').toUpperCase().startsWith('T');
     return {
       simplesNacional: sn,
+      // o crédito de PIS/COFINS da entrada é só do Lucro Real (`CLASSFISCAL = 'LR'`, UPrificacaoCusto.pas:1401)
+      lucroReal: String(e.classfiscal ?? '').trim() === 'LR',
       tributado,
       icmsEfetivo: tributado ? num(al?.icm_efetivo) : 0,
       alqSimplesNac: num(e.alqsimplesnac),
@@ -154,7 +160,7 @@ export class PrecificacaoCustoService {
     const custo = num(c.vrcusto);
     // créditos de ENTRADA só p/ Lucro Real; ICMS só se a alíquota é tributada (:1384-1408).
     const creditoicm = !t.simplesNacional && t.tributado ? ln2((num(c.icme) * custo) / 100) : 0;
-    const creditopiscofins = !t.simplesNacional && t.pisEnt > 0 ? ln2(((t.pisEnt + t.cofinsEnt) * custo) / 100) : 0;
+    const creditopiscofins = t.lucroReal && t.pisEnt > 0 ? ln2(((t.pisEnt + t.cofinsEnt) * custo) / 100) : 0;
     // PERCENTUAIS do custo (:1411-1418)
     const ipi = ln2((custo * num(c.ipi)) / 100);
     const frete = ln2((custo * num(c.frete)) / 100);
@@ -185,7 +191,8 @@ export class PrecificacaoCustoService {
     // (fold auditoria [BAIXA]: :1477 divide o campo ligado a VRCUSTOCSI, independente do TIPO_PRECIFICACAO).
     const baseSugerido = tipo === 'D' || tipo === 'M' ? b.vrcustorep : b.vrcustocsi;
     // alíquota de saída: ICMS efetivo + FCP de saída; zero no SN (fiel :1462-1466).
-    const aliqSaidaGrossUp = t.simplesNacional ? 0 : t.icmsEfetivo + fcpSaida;
+    // o FCP só entra com a alíquota tributada, como o ICMS (AliqSaida, UPrificacaoCusto.pas:1460-1465)
+    const aliqSaidaGrossUp = t.simplesNacional || !t.tributado ? 0 : t.icmsEfetivo + fcpSaida;
     // no SN o legado ZERA o PIS/COFINS da ESCADA (:2315) — mas os mantém no PMZ (:1474).
     const pisEscada = t.simplesNacional ? 0 : t.pisSai;
     const cofinsEscada = t.simplesNacional ? 0 : t.cofinsSai;
@@ -212,7 +219,8 @@ export class PrecificacaoCustoService {
     const venda = num(dto.vrvenda);
     const icmsEscada = t.simplesNacional ? t.alqSimplesNac + fcpSaida : t.icmsEfetivo + fcpSaida;
     const debitoicm = venda > 0 && (t.simplesNacional || t.tributado) ? ln2((icmsEscada * venda) / 100) : 0;
-    const debitopiscofins = venda > 0 ? ln2(((pisEscada + cofinsEscada) * venda) / 100) : 0;
+    // o débito de PIS/COFINS só com PIS de saída (`if PIS_SAI > 0`, MargemPrecificacao :2318)
+    const debitopiscofins = venda > 0 && pisEscada > 0 ? ln2(((pisEscada + cofinsEscada) * venda) / 100) : 0;
     const vendaliq = venda > 0 ? ln2(venda - debitoicm - debitopiscofins) : 0;
     const lucrobrutov = venda > 0 ? ln2(vendaliq - b.vrcustocsi) : 0;
     const lucrobrutop = vendaliq > 0 ? ln2((lucrobrutov / vendaliq) * 100) : 0;
@@ -255,31 +263,121 @@ export class PrecificacaoCustoService {
       idproduto, idempresa: emp, vrcusto: num(mp.vrcusto), icme: num(mp.icme), ipi: num(mp.ipi), frete: num(mp.frete),
       frete2: num(mp.frete2), seguro: num(mp.seguro), icmst: num(mp.icmst), vrfcpst: num(mp.vrfcpst),
       despacessorio: num(mp.despacessorio), vrcustoajuste: num(mp.vrcustoajuste), bonificacao: num(mp.bonificacao),
-      markup: num(mp.markup), vrvenda: num(mp.vrvenda),
+      fcp_saida: num(mp.fcp_saida), markup: num(mp.markup), vrvenda: num(mp.vrvenda),
     });
     const t = await this.tributos(db, idproduto, emp);
-    return { produto: prod, preco: mp, empresas, painel, modo_lote_default: t.preconf === 'L' };
+    const sessao = this.emp();
+    const cfg = (codigo: string) => this.cfg(db, codigo, sessao);
+    const grupo = num(prod.codgrupopreco) > 0
+      ? ((await db.selectFrom('familias_prod').select('descricao').where('codfamilia', '=', num(prod.codgrupopreco)).executeTakeFirst()) as { descricao?: string } | undefined)?.descricao ?? null
+      : null;
+    return {
+      produto: { ...prod, grupo_preco: grupo }, preco: mp, empresas, painel, modo_lote_default: t.preconf === 'L', idempresa: emp,
+      // o que a tela mostra ao lado (o ICM efetivo da alíquota, os % da empresa na escada)
+      fiscal: { icm_efetivo: t.icmsEfetivo, despoperacional: t.despOperacional, imprenda: t.irpj, contsocial: t.csll, simples: t.simplesNacional },
+      // FormShow (:2130-2240): os rótulos e o PMZ pelo TIPO_PRECIFICACAO; a promoção (PERMITE_ALTERAR_VALOR_PROMO) e o atacarejo
+      // (HABILITA_ATACAREJO) habilitados pela configuração; SINCRONIZA_PRECIFICACAO_EMPRESAS força o "Sincronizar"
+      config: {
+        tipo_precificacao: String((await cfg('TIPO_PRECIFICACAO')) ?? 'P').toUpperCase(),
+        permite_promocao: String((await cfg('PERMITE_ALTERAR_VALOR_PROMO')) ?? 'N').toUpperCase() === 'S',
+        habilita_atacarejo: String((await cfg('HABILITA_ATACAREJO')) ?? 'N').toUpperCase() === 'S',
+        sincroniza_empresas: String((await cfg('SINCRONIZA_PRECIFICACAO_EMPRESAS')) ?? 'N').toUpperCase() === 'S',
+      },
+    };
+  }
+
+  /** a configuração como o `dmPrincipal.Sessao.ValorConfiguracao` da tela: usuário > empresa da sessão > o módulo Retaguarda */
+  private cfg(db: AnyDB, codigo: string, emp: number): Promise<string | null> {
+    return configNaTrx(db, codigo, { empresaId: emp, operadorId: this.op(), modulo: 'Retaguarda' });
   }
 
   /**
-   * grava o painel nas empresas selecionadas (+ grupo de preço) e audita. `modoLote` → enfileira lote_preco e
-   * REVERTE só o vrvenda (o resto do painel grava) — fiel a :943-967.
+   * GRAVAR (`btnGravarClick`, UPrificacaoCusto.pas:736-1205). A " Opcao de atualização" decide onde: **Individual** (o padrão — só a
+   * empresa da linha da grade, a que a tela edita) ou **Sincronizar empresas marcadas** (a editada + as marcadas; o
+   * SINCRONIZA_PRECIFICACAO_EMPRESAS = 'S' força). Produção 2026: 364 gravações numa loja, 1.545 em duas, 209 em três ou mais.
+   * Além dos componentes, a linha leva o que a tela edita: ATIVO / ATIVO_COMPRA (Tag 1 — CHATIVO/CHATIVOCOMPRA; desativar o componente
+   * de um kit é recusado), MARKUPFIXO (Tag 1 — EDTMARKUPFIXO), a promoção (só com PERMITE_ALTERAR_VALOR_PROMO; "Valor promoção não
+   * poder ser Zero."), o ATACAREJO_ATIVO (só com HABILITA_ATACAREJO), a comissão, o flex, o força de vendas e o FCP de saída. Na
+   * sincronização, o MARKUP zerado não passa às outras lojas e, com ATIVA_PRODUTO_EMPRESA_ATUAL, o ativo de cada loja fica. Com
+   * SINCRONIZA_ATIVO_TODAS_EMPRESAS, o ativo mudado vai a todas as lojas. `modoLote` → enfileira lote_preco e REVERTE só o vrvenda.
    */
-  async salvar(dto: ComponentesCusto & { idproduto: number; empresas: number[]; markup?: number; vrvenda: number; modoLote?: boolean }): Promise<{ idproduto: number; empresas: number[]; lotes: number; historico: number }> {
+  async salvar(dto: ComponentesCusto & {
+    idproduto: number; empresas: number[]; markup?: number; vrvenda: number; modoLote?: boolean;
+    opcao?: 'individual' | 'sincronizar'; empresaEditada?: number; markupfixo?: number; ativo?: string; ativo_compra?: string;
+    promocao?: string; vrpromo?: number; atacarejo_ativo?: string; margem_comissao?: number; comissao?: number; usa_flex?: string;
+    prod_exibe_forca_vendas?: string;
+  }): Promise<{ idproduto: number; empresas: number[]; lotes: number; historico: number; precoMantido: Array<{ idempresa: number; motivo: string }> }> {
     const emp = this.emp();
     const op = this.op();
-    const alvosEmp = Array.from(new Set((dto.empresas?.length ? dto.empresas : [emp]).map(Number)));
+    const dbr = this.dbp.forTenantRead() as AnyDB;
+    const ligado = async (codigo: string) => String((await this.cfg(dbr, codigo, emp)) ?? 'N').toUpperCase() === 'S';
+    const editada = Number(dto.empresaEditada ?? emp);
+    const opcao = (await ligado('SINCRONIZA_PRECIFICACAO_EMPRESAS')) ? 'sincronizar' : (dto.opcao ?? 'individual');
+    const alvosEmp = opcao === 'individual' ? [editada] : Array.from(new Set([editada, ...(dto.empresas ?? []).map(Number)]));
+    const permitePromo = await ligado('PERMITE_ALTERAR_VALOR_PROMO');
+    const habilitaAtacarejo = await ligado('HABILITA_ATACAREJO');
+    const ativoPorLoja = await ligado('ATIVA_PRODUTO_EMPRESA_ATUAL');
+    const ativoEmTodas = await ligado('SINCRONIZA_ATIVO_TODAS_EMPRESAS');
+    // "Valor promoção não poder ser Zero." (:821)
+    if (permitePromo && dto.promocao === 'S' && !(num(dto.vrpromo) > 0)) throw new BusinessRuleError('PRECIFICACAO_PROMOCAO_SEM_VALOR', {});
+    const precoMantido: Array<{ idempresa: number; motivo: string }> = [];
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nomeOp = (await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined;
       const grupo = (await trx.selectFrom('produtos').select('codgrupopreco').where('idproduto', '=', dto.idproduto).executeTakeFirst()) as { codgrupopreco?: number } | undefined;
       let lotes = 0;
       let historico = 0;
+      let ativoMudou: { ativo: string; ativo_compra: string } | null = null;
       for (const e of alvosEmp) {
         // a empresa tem de ser visível ao operador nesta tela (RBAC por-empresa, fiel ao sqqEmpresa).
         const perm = await trx.selectFrom('permissoes').select('form').where('form', '=', 'FRMPRIFICACAOCUSTO').where('codempresa', '=', e).where('codoperador', '=', op).executeTakeFirst();
         if (!perm) throw new BusinessRuleError('SEM_PERMISSAO_EMPRESA', { idempresa: e });
         const antes = (await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', dto.idproduto).where('idempresa', '=', e).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
         if (!antes) continue; // sem linha de preço nessa empresa → nada a gravar (fiel: o UPDATE não casa)
+        const naEditada = e === editada;
+        // os campos da linha além dos componentes (o que vem da tela; o que ela não manda, ou a configuração trava, fica como está)
+        const linha: Record<string, unknown> = {};
+        const texto = (v: unknown) => String(v ?? '');
+        // o controle com Tag 1 (chAtivo, chAtivoCompra, edtMarkupFixo) vale pela permissão da sessão (uMaster.SetStateOfControlsMaster) — a
+        // sincronização copia o valor às outras lojas sem conferir de novo
+        const controle = async (opcaoCtl: string, rotulo: string) => {
+          if (!(await opcaoConcedidaNaEmpresa(trx, 'FRMPRIFICACAOCUSTO', opcaoCtl, emp))) {
+            throw new BusinessRuleError('SEM_PERMISSAO_CONTROLE', { form: 'FRMPRIFICACAOCUSTO', opcao: opcaoCtl, idempresa: emp }, `Você não tem permissão para ${rotulo}.`);
+          }
+        };
+        const levaAtivo = naEditada || !ativoPorLoja;
+        if (levaAtivo && dto.ativo !== undefined && dto.ativo !== texto(antes.ativo ?? 'S')) {
+          await controle('CHATIVO', 'alterar o ativo');
+          // chAtivoClick (:1624-1654): desativar o componente de um kit (a composição vigente — GetSQLComposicao)
+          if (dto.ativo === 'N' && texto(antes.ativo ?? 'S') === 'S') {
+            const kit = (await sql<{ codbarra: string | null; descricao: string | null }>`
+              SELECT p2.codbarra, p2.descricao FROM composicao c
+                JOIN produtos p2 ON p2.idproduto = c.idproduto AND p2.chavecomposicao IS NOT DISTINCT FROM c.chavecomposicao
+               WHERE c.idproduto_01 = ${dto.idproduto} LIMIT 1`.execute(trx)).rows[0];
+            if (kit) {
+              throw new BusinessRuleError('PRECIFICACAO_PRODUTO_EM_COMPOSICAO', { idproduto: dto.idproduto },
+                `Não é permitido desativar o produto!! \nO produto faz parte da composição do item : ${texto(kit.codbarra)} - ${texto(kit.descricao)}.`);
+            }
+          }
+          linha.ativo = dto.ativo;
+        }
+        if (levaAtivo && dto.ativo_compra !== undefined && dto.ativo_compra !== texto(antes.ativo_compra ?? 'S')) {
+          await controle('CHATIVOCOMPRA', 'alterar o ativo para compra');
+          linha.ativo_compra = dto.ativo_compra;
+        }
+        if (naEditada && (linha.ativo !== undefined || linha.ativo_compra !== undefined)) {
+          ativoMudou = { ativo: texto(linha.ativo ?? antes.ativo ?? 'S'), ativo_compra: texto(linha.ativo_compra ?? antes.ativo_compra ?? 'S') };
+        }
+        if (dto.markupfixo !== undefined && r4(num(dto.markupfixo)) !== r4(num(antes.markupfixo))) {
+          await controle('EDTMARKUPFIXO', 'alterar o markup fixo');
+          linha.markupfixo = r4(num(dto.markupfixo));
+        }
+        if (permitePromo && dto.promocao !== undefined) {
+          linha.promocao = dto.promocao;
+          linha.vrpromo = r4(num(dto.vrpromo));
+        }
+        if (habilitaAtacarejo && dto.atacarejo_ativo !== undefined) linha.atacarejo_ativo = dto.atacarejo_ativo;
+        for (const c of ['margem_comissao', 'comissao'] as const) if (dto[c] !== undefined) linha[c] = r4(num(dto[c]));
+        for (const c of ['usa_flex', 'prod_exibe_forca_vendas'] as const) if (dto[c] !== undefined) linha[c] = dto[c];
         // PROMO ACUMULATIVA: o legado CONGELA o preço do produto em promoção ACUMULATIVA vigente (`PromocaoAcumulativa`, :603/:943 —
         // o rótulo "Produto em promoção acumulativa") e grava o resto. ⚠️ Não é o MULTI_PRECO.PROMOCAO comum: por ele o Apollo
         // descartava em silêncio o preço de todo produto em promoção (38 alterações em 2025 e 19 em 2026 — auditoria g2).
@@ -290,17 +388,25 @@ export class PrecificacaoCustoService {
             LIMIT 1`.execute(trx)).rows.length > 0;
         // GRANT do preço (fold [MÉDIA]): sem EDTVRVENDA o operador salva custos mas NÃO altera o preço.
         const podePreco = await this.podeAlterarPreco(trx, e);
-        const painel = await this.calcular({ ...dto, idempresa: e });
+        // o FCP de saída: o da tela; sem ele, o da linha (o Apollo gravava 0 e tirava o FCP do PMZ e do débito de ICMS)
+        const fcpSaida = dto.fcp_saida !== undefined ? num(dto.fcp_saida) : num(antes.fcp_saida);
+        const painel = await this.calcular({ ...dto, fcp_saida: fcpSaida, idempresa: e });
         // preço a gravar: modo lote → mantém o atual (reversão); promoção/sem-grant → mantém; vrvenda<=0 → mantém
         // (fold [BAIXA]: o legado re-lê o preço do banco quando o campo vem 0, :947-952).
         const precoInformado = r4(num(dto.vrvenda));
         const manterPreco = dto.modoLote || emPromocao || !podePreco || precoInformado <= 0;
         const vendaGravada = manterPreco ? num(antes.vrvenda) : precoInformado;
+        if (manterPreco && precoInformado > 0 && precoInformado !== r4(num(antes.vrvenda))) {
+          precoMantido.push({ idempresa: e, motivo: dto.modoLote ? 'lote' : emPromocao ? 'promocao_acumulativa' : 'sem_permissao' });
+        }
+        // na sincronização a margem zerada não passa às outras lojas (o clone desconsidera MARKUP = 0, udmCadProduto.pas:2782)
+        const markupGravado = !naEditada && r4(num(dto.markup)) === 0 ? num(antes.markup) : r4(num(dto.markup));
         const patch: Record<string, unknown> = {
+          ...linha,
           vrcusto: r4(num(dto.vrcusto)), icme: r4(num(dto.icme)), ipi: r4(num(dto.ipi)), frete: r4(num(dto.frete)),
           frete2: r4(num(dto.frete2)), seguro: r4(num(dto.seguro)), icmst: r4(num(dto.icmst)), vrfcpst: r4(num(dto.vrfcpst)),
           despacessorio: r4(num(dto.despacessorio)), vrcustoajuste: r4(num(dto.vrcustoajuste)), bonificacao: r4(num(dto.bonificacao)),
-          fcp_saida: r4(num(dto.fcp_saida)), markup: r4(num(dto.markup)), vrvenda: vendaGravada,
+          fcp_saida: r4(fcpSaida), markup: markupGravado, vrvenda: vendaGravada,
           vrcustoreal: painel.vrcustoreal, vrcustorep: painel.vrcustorep, vrcustocsi: painel.vrcustocsi,
           creditoicm: painel.creditoicm, creditopiscofins: painel.creditopiscofins, pmz: painel.pmz, vrvendasug: painel.vrvendasug,
           debitoicm: painel.debitoicm, debitopiscofins: painel.debitopiscofins, vendaliq: painel.vendaliq,
@@ -369,7 +475,7 @@ export class PrecificacaoCustoService {
             if (!(campo in patchP)) continue;
             const de = antesP[campo];
             const para = (patchP as Record<string, unknown>)[campo];
-            const mudou = typeof para === 'number' ? num(de) !== para : String(de ?? '') !== String(para ?? '');
+            const mudou = CAMPOS_TEXTO.has(campo) || typeof para !== 'number' ? String(de ?? '') !== String(para ?? '') : num(de) !== para;
             if (!mudou) continue;
             await hist(campo, de, para, 'Precificação do Custo');
           }
@@ -394,7 +500,13 @@ export class PrecificacaoCustoService {
           }
         }
       }
-      return { idproduto: dto.idproduto, empresas: alvosEmp, lotes, historico };
+      // SINCRONIZA_ATIVO_TODAS_EMPRESAS (:1189-1196, :1222-1240): o ativo mudado vai a todas as lojas do produto
+      if (ativoEmTodas && ativoMudou) {
+        const a = ativoMudou as { ativo: string; ativo_compra: string };
+        await sql`UPDATE multi_preco SET ativo = ${a.ativo}, ativo_compra = ${a.ativo_compra}
+                   WHERE idproduto = ${dto.idproduto} AND (coalesce(ativo, 'S') <> ${a.ativo} OR coalesce(ativo_compra, 'S') <> ${a.ativo_compra})`.execute(trx);
+      }
+      return { idproduto: dto.idproduto, empresas: alvosEmp, lotes, historico, precoMantido };
     });
   }
 }

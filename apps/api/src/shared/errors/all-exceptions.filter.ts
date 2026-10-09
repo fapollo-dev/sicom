@@ -927,6 +927,8 @@ const CODE_PT: Record<string, string> = {
   // Perfis & Permissões (FRMCADPERFILOPERADOR)
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
   PERFIL_INVALIDO: 'Informe um perfil válido.',
+  PRECIFICACAO_PROMOCAO_SEM_VALOR: 'Valor promoção não poder ser Zero.',
+  PRECIFICACAO_PRODUTO_EM_COMPOSICAO: 'Não é permitido desativar o produto!! O produto faz parte da composição de um item.',
   NF_RAPIDO_SITUACAO_INVALIDA: 'Situação de documento não definida!',
   NF_RAPIDO_SEM_SITUACAO: 'Necessário definir a situação de documento! Selecione a situação de documento antes de prosseguir!',
   NF_RAPIDO_SEM_LANCAMENTOS: 'A integração está configurada para ser utilizada obrigatoriamente.\nNecessário efetuar os lançamentos contábeis.',

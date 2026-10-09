@@ -5796,6 +5796,9 @@ async function main() {
         await pgPc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990600,1,100,200,'N')
           ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=100, vrvenda=200, promocao='N', vrpromo=NULL`);
         await pgPc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPRIFICACAOCUSTO','BTNGRAVAR',7,1) ON CONFLICT DO NOTHING`);
+        // o gate da tela (abrir e calcular — o legado abre pela tela; só o Gravar pede o BTNGRAVAR)
+        await pgPc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMPRIFICACAOCUSTO','FRMPRIFICACAOCUSTO',7,1
+          WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = 'FRMPRIFICACAOCUSTO' AND codoperador = 7 AND codempresa = 1)`);
 
         const comp = { idproduto: 990600, idempresa: 1, vrcusto: 100, icme: 18, ipi: 10, frete: 5, icmst: 12, despacessorio: 3, bonificacao: 7 };
         // 47l.1) as 3 BASES de custo + créditos, número a número.
@@ -19161,6 +19164,87 @@ async function main() {
         if (nfs.length) await pgCa.query(`DELETE FROM nf WHERE codnf = ANY($1::integer[])`, [nfs]).catch(() => undefined);
         await pgCa.query(`UPDATE empresas SET pc_curva_abc_a = $1, pc_curva_abc_b = $2, pc_curva_abc_c = $3 WHERE idempresa = 1`, [faixasAntes?.a ?? null, faixasAntes?.b ?? null, faixasAntes?.c ?? null]).catch(() => undefined);
         await pgCa.end();
+      }
+    }
+
+    // ══ §301 PRECIFICAÇÃO DE MERCADORIAS — a tela do legado (corte 2): o FCP de saída, Individual × Sincronizar, o ativo (Tag 1 + a
+    // composição), o markup fixo (Tag 1) e a promoção pela configuração
+    {
+      const pgPm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const J = { ...H, 'content-type': 'application/json' };
+      const tinha2 = Number((await pgPm.query(`SELECT count(*)::int n FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const ctl = (opcao: string, dar: boolean) => dar
+        ? pgPm.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMPRIFICACAOCUSTO', $1::varchar, 7, 1 WHERE NOT EXISTS
+            (SELECT 1 FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = $1::varchar AND codoperador = 7 AND codempresa = 1)`, [opcao])
+        : pgPm.query(`DELETE FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND opcao = $1 AND codoperador = 7 AND codempresa = 1`, [opcao]);
+      const promoCfg = (await pgPm.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'PERMITE_ALTERAR_VALOR_PROMO'`)).rows[0] as any;
+      try {
+        if (!tinha2) await pgPm.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPRIFICACAOCUSTO','FRMPRIFICACAOCUSTO',7,2)`);
+        await ctl('FRMPRIFICACAOCUSTO', true);
+        await ctl('BTNGRAVAR', true);
+        await pgPm.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idpiscofins) VALUES
+          (990760,'7899000990760','PRECIFICA TELA','UN',2,'T01','S',990), (990761,'7899000990761','KIT DA PRECIFICA','UN',2,'T01','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET aliquota = 'T01'`);
+        for (const e of [1, 2]) {
+          await pgPm.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao, fcp_saida, ativo, ativo_compra, markupfixo) VALUES (990760, $1, 10, 20, 'N', 2, 'S', 'S', 0)
+            ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto = 10, vrvenda = 20, promocao = 'N', vrpromo = NULL, fcp_saida = 2, ativo = 'S', ativo_compra = 'S', markupfixo = 0`, [e]);
+        }
+        await pgPm.query(`INSERT INTO composicao (idproduto, idproduto_01, qtde) VALUES (990761, 990760, 1)`);
+        const salvar = async (corpo: Record<string, unknown>) => {
+          const r = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990760, vrcusto: 10, vrvenda: 20, empresas: [1, 2], ...corpo }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const linha = async (e: number) => (await pgPm.query(`SELECT vrcusto::float AS vrcusto, fcp_saida::float AS fcp, ativo, ativo_compra, markupfixo::float AS mf, promocao, vrpromo::float AS vrpromo
+                                                                 FROM multi_preco WHERE idproduto = 990760 AND idempresa = $1`, [e])).rows[0] as any;
+        // o FCP de saída: sem ele no corpo, o da linha fica; com ele, grava
+        const s0 = await salvar({ vrcusto: 11 });
+        const l0 = await linha(1);
+        const s1 = await salvar({ vrcusto: 11, fcp_saida: 3 });
+        const l1 = await linha(1);
+        // Individual (o padrão) grava só a loja editada; Sincronizar, a editada + as marcadas
+        const l2antes = await linha(2);
+        const s2 = await salvar({ vrcusto: 12, opcao: 'sincronizar' });
+        const l2depois = await linha(2);
+        // o ativo: sem CHATIVO → recusa; com ele, desativar o componente do kit → recusa com o kit; fora do kit → grava + histórico
+        await ctl('CHATIVO', false);
+        const a0 = await salvar({ ativo: 'N' });
+        await ctl('CHATIVO', true);
+        const a1 = await salvar({ ativo: 'N' });
+        await pgPm.query(`DELETE FROM composicao WHERE idproduto = 990761 AND idproduto_01 = 990760`);
+        const a2 = await salvar({ ativo: 'N' });
+        const la = await linha(1);
+        const la2 = await linha(2);
+        const hAtivo = (await pgPm.query(`SELECT valor_anterior, valor_atual, historico FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave = '990760' AND campo = 'ATIVO' ORDER BY codhistorico`)).rows as any[];
+        // o markup fixo: sem EDTMARKUPFIXO → recusa; com ele, grava
+        await ctl('EDTMARKUPFIXO', false);
+        const m0 = await salvar({ markupfixo: 15 });
+        await ctl('EDTMARKUPFIXO', true);
+        const m1 = await salvar({ markupfixo: 15 });
+        const lm = await linha(1);
+        // a promoção: com PERMITE_ALTERAR_VALOR_PROMO = N (a produção) o que vem é ignorado; com S, sem valor → recusa; com valor → grava
+        const p0 = await salvar({ promocao: 'S', vrpromo: 9 });
+        const lp0 = await linha(1);
+        if (promoCfg) await pgPm.query(`UPDATE configuracoes SET valor = 'S' WHERE id = $1`, [promoCfg.id]);
+        else await pgPm.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao) VALUES (99301, 'PERMITE_ALTERAR_VALOR_PROMO', 'S', 'String', 'Permite alterar valor promoção')`);
+        const p1 = await salvar({ promocao: 'S', vrpromo: 0 });
+        const p2 = await salvar({ promocao: 'S', vrpromo: 9 });
+        const lp2 = await linha(1);
+        check('PRECIFICAÇÃO §301 [a tela do legado]: o FCP de saída da linha não é mais zerado ao salvar sem ele (fica 2) e grava o informado (3); Individual grava só a loja editada (a 2 segue 10) e Sincronizar leva às marcadas (a 2 vai a 12); o ativo sem CHATIVO é recusado, desativar o componente de um kit é recusado com o kit ("…composição do item : 7899000990761 - KIT DA PRECIFICA."), fora do kit grava com o histórico S→N (só na loja editada — Individual); o markup fixo sem EDTMARKUPFIXO é recusado e com ele grava 15; a promoção com PERMITE_ALTERAR_VALOR_PROMO = N é ignorada, com S e valor 0 → "Valor promoção não poder ser Zero.", com 9 grava',
+          s0.status === 200 && l0?.fcp === 2 && s1.status === 200 && l1?.fcp === 3 && l1?.vrcusto === 11 && l2antes?.vrcusto === 10
+          && s2.status === 200 && l2depois?.vrcusto === 12
+          && a0.status === 422 && a0.j.code === 'SEM_PERMISSAO_CONTROLE'
+          && a1.status === 422 && a1.j.code === 'PRECIFICACAO_PRODUTO_EM_COMPOSICAO' && String(a1.j.message).includes('7899000990761 - KIT DA PRECIFICA')
+          && a2.status === 200 && la?.ativo === 'N' && la2?.ativo === 'S' && hAtivo.some((h) => h.valor_anterior === 'S' && h.valor_atual === 'N' && h.historico === 'Precificação do Custo')
+          && m0.status === 422 && m0.j.code === 'SEM_PERMISSAO_CONTROLE' && m1.status === 200 && lm?.mf === 15
+          && p0.status === 200 && lp0?.promocao === 'N' && p1.status === 422 && p1.j.code === 'PRECIFICACAO_PROMOCAO_SEM_VALOR' && p2.status === 200 && lp2?.promocao === 'S' && lp2?.vrpromo === 9,
+          { s0: [s0.status, s0.j.code], l0, s1: s1.status, l1, l2antes, s2: [s2.status, s2.j.code], l2depois, a0: [a0.status, a0.j.code], a1: [a1.status, a1.j.code, a1.j.message],
+            a2: [a2.status, a2.j.code, a2.j.message], la, la2, hAtivo, m0: [m0.status, m0.j.code], m1: [m1.status, m1.j.code], lm, p0: p0.status, lp0, p1: [p1.status, p1.j.code], p2: [p2.status, p2.j.code], lp2 });
+      } finally {
+        await pgPm.query(`DELETE FROM composicao WHERE idproduto = 990761`).catch(() => undefined);
+        if (promoCfg) await pgPm.query(`UPDATE configuracoes SET valor = $2 WHERE id = $1`, [promoCfg.id, promoCfg.valor]).catch(() => undefined);
+        else await pgPm.query(`DELETE FROM configuracoes WHERE id = 99301`).catch(() => undefined);
+        if (!tinha2) await pgPm.query(`DELETE FROM permissoes WHERE form = 'FRMPRIFICACAOCUSTO' AND codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgPm.end();
       }
     }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════

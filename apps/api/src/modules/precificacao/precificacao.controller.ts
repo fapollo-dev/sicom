@@ -33,9 +33,10 @@ export class PrecificacaoController {
 
   // ===== PRECIFICAÇÃO DE MERCADORIAS (FRMPRIFICACAOCUSTO) — painel por produto × empresa =====
   /** abre o painel: produto + preço da empresa + empresas do operador + painel calculado. */
+  // ver não exige o Gravar: o legado abre a tela pelo gate dela e só o btnGravar (Tag 1) pede BTNGRAVAR
   @Get('custo/:idproduto')
   @UseGuards(AcessoGuard)
-  @RequerAcesso('FRMPRIFICACAOCUSTO', 'BTNGRAVAR')
+  @RequerAcesso('FRMPRIFICACAOCUSTO', 'FRMPRIFICACAOCUSTO')
   abrirCusto(@Param('idproduto', ParseIntPipe) idproduto: number, @Query('idempresa') idempresa?: string) {
     return this.custo.abrir(idproduto, idempresa ? Number(idempresa) : undefined);
   }
@@ -44,7 +45,7 @@ export class PrecificacaoController {
   @Post('custo/calcular')
   @HttpCode(200)
   @UseGuards(AcessoGuard)
-  @RequerAcesso('FRMPRIFICACAOCUSTO', 'BTNGRAVAR')
+  @RequerAcesso('FRMPRIFICACAOCUSTO', 'FRMPRIFICACAOCUSTO')
   calcularCusto(@Body(new ZodValidationPipe(calcularPrecificacaoSchema)) dto: CalcularPrecificacaoDto) {
     return this.custo.calcular(dto);
   }

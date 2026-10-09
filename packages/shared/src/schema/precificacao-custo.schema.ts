@@ -13,6 +13,8 @@ export const componentesCustoSchema = z.object({
   icme: dec(), ipi: dec(), frete: dec(), frete2: dec(), seguro: dec(),
   // VALORES
   icmst: dec(), vrfcpst: dec(), despacessorio: dec(), vrcustoajuste: z.coerce.number().optional(), bonificacao: dec(),
+  // o "FCP Saida" da tela (MULTI_PRECO.FCP_SAIDA, editável — entra no PMZ e no débito de ICMS)
+  fcp_saida: dec(),
 });
 
 export const calcularPrecificacaoSchema = componentesCustoSchema.extend({
@@ -29,5 +31,20 @@ export const salvarPrecificacaoSchema = componentesCustoSchema.extend({
   markup: dec(),
   vrvenda: z.coerce.number().min(0),
   modoLote: z.boolean().optional(),
+  /** a " Opcao de atualização" (rgopcao): 'individual' (o padrão do legado — só a empresa da linha) ou 'sincronizar' (as marcadas) */
+  opcao: z.enum(['individual', 'sincronizar']).optional(),
+  /** a empresa da linha da grade, a que a tela edita (dtsEmpresa); ausente = a da sessão */
+  empresaEditada: z.coerce.number().int().positive().optional(),
+  // os campos da linha de preço que a tela edita além dos componentes (todos de MULTI_PRECO)
+  markupfixo: dec(),
+  ativo: z.enum(['S', 'N']).optional(),
+  ativo_compra: z.enum(['S', 'N']).optional(),
+  promocao: z.enum(['S', 'N']).optional(),
+  vrpromo: dec(),
+  atacarejo_ativo: z.enum(['S', 'N']).optional(),
+  margem_comissao: z.coerce.number().optional(),
+  comissao: z.coerce.number().min(0).max(100, 'A comissão não pode passar de 100%.').optional(),
+  usa_flex: z.enum(['S', 'N']).optional(),
+  prod_exibe_forca_vendas: z.enum(['S', 'N']).optional(),
 });
 export type SalvarPrecificacaoDto = z.infer<typeof salvarPrecificacaoSchema>;
