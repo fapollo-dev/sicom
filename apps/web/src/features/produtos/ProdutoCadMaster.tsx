@@ -43,7 +43,7 @@ import { getSessao } from '../../shared/auth/session';
 import { useShortcut } from '../../shared/keyboard';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
-import { campoComposicao } from './produtoHistoricoApi';
+import { campoComposicao, configDaTelaProduto } from './produtoHistoricoApi';
 import { useLinhasDosCodigos as useNomesDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 
 type Linha = Record<string, any>;
@@ -83,8 +83,32 @@ const empresaF2 = (): number => getSessao()?.empresa ?? 1;
  */
 const PodeCtx = createContext<(opcao: string) => boolean>(() => true);
 
+/**
+ * DUPLICAR PRODUTO (`mniDuplicarProdutoClick`, UCadProduto.pas:7103-7166): a inclusão nasce com o produto corrente — menos IDPRODUTO,
+ * CODOPERADOR, USULTALTERACAO, DTULTIMALTERACAO e DTCADASTRO — e a linha de preço da loja menos a promoção (PROMOCAO/VRPROMO); o código de
+ * barras fica em branco (e o "já informado no produto origem" o servidor recusa como código existente). Os detalhes (códigos auxiliares,
+ * composição, receita…) não vão: o clone é da linha do produto e da linha de preço.
+ */
+export function produtoDuplicado(r: Record<string, unknown>, idempresa: number): Record<string, unknown> {
+  const { idproduto: _id, codoperador: _op, usultalteracao: _u, dtultimalteracao: _d, dtcadastro: _c, codbarra: _cb, ...resto } = r;
+  const precos = Array.isArray(r.precos) ? (r.precos as Array<Record<string, unknown>>) : [];
+  const linha = precos.find((p) => Number(p.idempresa) === idempresa) ?? precos[0] ?? { idempresa };
+  const { id_multi_preco: _mp, idproduto: _pp, vrpromo: _vp, ...preco } = linha;
+  return {
+    ...resto,
+    codbarra: '',
+    precos: [{ ...preco, idempresa, promocao: 'N' }],
+    estoques: [{ idempresa, qtde: 0, minimo: 0, maximo: 0 }],
+    codauxiliares: [], composicoes: [], decomposicoes: [], receitas: [], fatoresConversao: [],
+  };
+}
+
 export function ProdutoCadMaster() {
   const acesso = useOpcoesDoForm('FRMCADPRODUTO');
+  const navigate = useNavigate();
+  // HABILITA_DUPLICAR_PRODUTO (o Enabled do item, FormShow :6717)
+  const [cfgTela, setCfgTela] = useState<{ duplicar: boolean }>({ duplicar: false });
+  useEffect(() => { void configDaTelaProduto().then(setCfgTela).catch(() => undefined); }, []);
   // ── LOOKUPs do master (data-bound, espelham os combos do legado) ──
   // Unidade: guarda codunidade (FK) E unidade (sigla — o schema exige a sigla).
   const { data: unidadeOptions = [] } = useResourceOptions(
@@ -175,6 +199,18 @@ export function ProdutoCadMaster() {
       log={{ form: 'FRMCADPRODUTO', chave: 'IDPRODUTO' }}
       // FGravaHistorico do UCadProduto: o "Histórico" do MULTI_PRECO (VRVENDA/VRCUSTO/VRCUSTOREP), aberto no VRVENDA, item "código-descrição"
       historico={{ tabela: 'MULTI_PRECO', campoDefault: 'VRVENDA', campoDescricao: 'descricao' }}
+      // o btnOutros do UCadProduto (ppmBotaoOutros): Duplicar produto e Precificação do Custo (Tag 1), Imprime Etiqueta; o Registro de log e o
+      // Histórico vêm do form-base. Fora: "Preço Multi-Loja" (🪦 — 8 operadores com a tela e nenhum histórico dela em 2024-26), "Atualizar
+      // Produto" (item sem OnClick no .dfm), "Integracao FGF" / "Alterações FGF" (🪦 — a integração parou em 05/2025, FILA item 69)
+      outros={[
+        { label: 'Duplicar produto', requerRegistro: true, desabilitado: !(acesso.tem('MNIDUPLICARPRODUTO') && cfgTela.duplicar),
+          onClick: ({ registro, novoCom }) => { if (registro) novoCom(produtoDuplicado(registro, empresaF2())); } },
+        // PrecificaodoCusto1Click: a precificação abre no código de barras do produto
+        { label: 'Precificação do Custo', requerRegistro: true, desabilitado: !acesso.tem('PRECIFICAODOCUSTO1'),
+          onClick: ({ registro }) => { if (registro) navigate(`/estoque/precificacao?codbarra=${encodeURIComponent(String(registro.codbarra ?? ''))}`); } },
+        { label: 'Imprime Etiqueta', requerRegistro: true,
+          onClick: ({ registro }) => { if (registro?.idproduto != null) abrirEtiquetasCom({ fonte: 'cadastro', itens: [{ idproduto: Number(registro.idproduto) }] }, navigate); } },
+      ]}
       schema={produtoSchema}
       defaultValues={defaultValues}
       colunasPesquisa={[

@@ -60,3 +60,11 @@ export function rotaDoDetalhe(d: DetalheKardex): string {
     case 'ajuste': return `/estoque/ajuste?idproduto=${d.idproduto}&data=${d.data}`;
   }
 }
+
+/** o que a configuração liga no menu Outros do cadastro (o Duplicar produto — HABILITA_DUPLICAR_PRODUTO) */
+export async function configDaTelaProduto(): Promise<{ duplicar: boolean }> {
+  const res = await fetch(`${BASE}/cadastro/produtos/tela/config`, { headers: apiHeaders() });
+  handle401(res);
+  if (!res.ok) return { duplicar: false };
+  return (await res.json()) as { duplicar: boolean };
+}

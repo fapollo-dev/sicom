@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -118,6 +118,17 @@ export function PrecificacaoCustoPage() {
       await abrir(idproduto);
     } catch (e) { mensagem.erro(e); }
   };
+
+  // aberta pelo cadastro de produto (PrecificaodoCusto1Click: `edtCodProd.Text := CODBARRA`) — `?codbarra=`
+  useEffect(() => {
+    const cb = new URLSearchParams(window.location.search).get('codbarra');
+    if (!cb) return;
+    setBusca(cb);
+    void (async () => {
+      try { const { idproduto } = await req<{ idproduto: number }>(`/precificacao/custo/produto/${encodeURIComponent(cb)}`); await abrir(idproduto); } catch (e) { mensagem.erro(e); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const recalcular = async (patch: Partial<Comp> = {}, mk = markup, vd = venda) => {
     if (!ab) return;

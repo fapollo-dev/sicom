@@ -84,10 +84,22 @@ const LARGURA_CLS: Record<NonNullable<Props<FieldValues>['largura']>, string> = 
   full: 'max-w-full',
 };
 
+/** o que a ação do menu "Outros" recebe: o registro corrente, o "incluir com estes valores" (o Duplicar) e o recarregar */
+export interface ContextoOutros {
+  registro: Record<string, unknown> | null;
+  /** entra em inclusão com o formulário preenchido (o `Inserir` + `CloneDataSetRow` do Duplicar produto) */
+  novoCom: (valores: Record<string, unknown>) => void;
+  recarregar: () => void;
+}
+
 /** uma ação do menu "Outros" (relatório, tela relacionada, rotina). */
 export interface AcaoOutros {
   label: string; // pode conter & (mnemônico próprio dentro do menu)
-  onClick: () => void;
+  onClick: (ctx: ContextoOutros) => void;
+  /** o item cinza (o `Enabled := False` do legado — a permissão do Tag 1, a configuração) */
+  desabilitado?: boolean;
+  /** só com um registro carregado (a ação é sobre ele) */
+  requerRegistro?: boolean;
 }
 
 /**
@@ -131,6 +143,11 @@ export function CadMaster<T extends FieldValues>({
   // o rdgAtivo só aparece quando o registro tem o campo ATIVO (`rdgAtivo.Visible := cdsPrincipal.FindField(FCampoAtivo) <> nil`)
   const temCampoAtivo = 'ativo' in ((cad.registro as Record<string, unknown> | null) ?? (defaultValues as Record<string, unknown> | undefined) ?? {});
   const idCorrente = cad.registro ? Number((cad.registro as any)[pk] ?? (cad.registro as any)[colunaCodigo]) : null;
+  const ctxOutros: ContextoOutros = {
+    registro: (cad.registro as Record<string, unknown> | null) ?? null,
+    novoCom: (valores) => { form.reset(valores as unknown as T); setCodigo(''); cad.novo(); },
+    recarregar: () => { if (idCorrente) void cad.carregarPorCodigo(idCorrente).catch((e) => mensagem.erro(e)); },
+  };
   const outrosComLog: AcaoOutros[] | undefined =
     idCorrente && (log || historico)
       ? [
@@ -139,6 +156,11 @@ export function CadMaster<T extends FieldValues>({
           ...(historico ? [{ label: '&Histórico', onClick: () => setHistoricoAberto(true) }] : []),
         ]
       : outros;
+  const itensOutros = outrosComLog?.map((a) => ({
+    label: a.label,
+    desabilitado: !!a.desabilitado || (!!a.requerRegistro && !idCorrente),
+    onClick: () => a.onClick(ctxOutros),
+  }));
   // chave natural: no insert o usuário DIGITA o código (que vira a PK)
   const codigoEditavelInsert = !pkGerada && cad.modo === 'insert';
 
@@ -315,7 +337,7 @@ export function CadMaster<T extends FieldValues>({
           onEditar={onEditar}
           onExcluir={onExcluir}
           onCancelar={onCancelar}
-          outros={outrosComLog}
+          outros={itensOutros}
         />
       </FormScope>
 
@@ -383,16 +405,17 @@ function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
           aria-label="Outros"
           className="absolute bottom-full right-0 mb-gp-xs z-40 flex w-56 flex-col rounded-radius-base border border-border bg-bg-surface shadow-sh-md"
         >
-          {outros.map((a: { label: string; onClick: () => void }, i: number) => (
+          {outros.map((a: { label: string; onClick: () => void; desabilitado?: boolean }, i: number) => (
             <button
               key={i}
               role="menuitem"
               type="button"
+              disabled={a.desabilitado}
               onClick={() => {
                 setOutrosAberto(false);
                 a.onClick();
               }}
-              className="cursor-pointer border-0 bg-transparent px-pad-md py-gp-xs text-left text-body-sm text-fg-default hover:bg-bg-canvas"
+              className="cursor-pointer border-0 bg-transparent px-pad-md py-gp-xs text-left text-body-sm text-fg-default hover:bg-bg-canvas disabled:cursor-default disabled:text-fg-muted disabled:hover:bg-transparent"
             >
               {a.label.replace('&', '')}
             </button>

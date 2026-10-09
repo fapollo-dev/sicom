@@ -44,6 +44,13 @@ export class ProdutoHistoricoController {
     return this.svc.impressao(id, aba(a), filtro(q));
   }
 
+  /** o que a configuração liga no menu Outros (o Duplicar produto — HABILITA_DUPLICAR_PRODUTO) */
+  @Get('tela/config')
+  @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')
+  configDaTela() {
+    return this.svc.configDaTela();
+  }
+
   /** o "Imprimir" da composição (Rel_ComposicaoProduto.fr3) */
   /** o campo do valor do componente (EMPRESAS.CAMPOCOMPOSICAO) — o Adicionar componente em lote o usa */
   @Get('composicao/campo')

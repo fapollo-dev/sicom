@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { configNaTrx } from '../compras/pedido-heranca';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { colunasNumericas, dataBr, empresaParaRelatorio, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
@@ -51,6 +52,16 @@ export class ProdutoHistoricoService {
    * o campo do VALOR do componente da composição (EMPRESAS.CAMPOCOMPOSICAO — a coluna da GET_PRODUTOS_ESTOQUE cujo valor entra no item;
    * VRCUSTO nas 5 lojas da produção). Sem ele, o legado recusa o Adicionar com a mensagem do btnAddItemClick (UCadProduto.pas:1966-1970)
    */
+  /**
+   * o que a configuração liga no menu Outros do cadastro (FormShow do UCadProduto): o "Duplicar produto" só com HABILITA_DUPLICAR_PRODUTO
+   * = 'S' (`mniDuplicarProduto.Enabled`, :6717 — 'S' na produção). A permissão do item (Tag 1, MNIDUPLICARPRODUTO) é a da tela.
+   */
+  async configDaTela(): Promise<{ duplicar: boolean }> {
+    const t = currentTenant();
+    const v = await configNaTrx(this.dbp.forTenantRead() as never, 'HABILITA_DUPLICAR_PRODUTO', { empresaId: t.empresaId ?? undefined, operadorId: t.operadorId ?? undefined, modulo: 'Retaguarda' });
+    return { duplicar: String(v ?? 'N').trim().toUpperCase() === 'S' };
+  }
+
   async campoComposicao(): Promise<{ campo: string }> {
     const r = (await sql<{ c: string | null }>`SELECT campocomposicao AS c FROM empresas WHERE idempresa = ${this.emp()}`
       .execute(this.dbp.forTenantRead() as never)).rows[0];

@@ -510,3 +510,22 @@ As telas abertas assim não têm o gate próprio no legado (`TfrmX.Create` de de
 (cupom e pedido) e a do ajuste aceitam também o acesso ao FRMCADPRODUTO (`@RequerAcessoDeAlgum`). A NF abre pelo `?codigo=` — o
 CadMaster passou a carregar o registro da URL (o `edtCodigo.Text := …` + `ExecutarOnExitEdtCodigo`); o atalho da Precificação NF para a
 nota usava `?codnf=`, que nada lia, e passou a abrir. Smoke §285 (4º check).
+
+## Corte "Outros" (09/10/2026) — o menu do btnOutros
+
+O `ppmBotaoOutros` do UCadProduto (`.dfm` :16980-17025) + o "Histórico" que o form-base cria quando `FGravaHistorico` (uCadMaster.pas:1129).
+O Apollo não tinha o menu além do Registro de log.
+
+| Item do legado | Regra | Apollo |
+|---|---|---|
+| Duplicar produto (Tag 1 `MNIDUPLICARPRODUTO`, 162 permissões) | `Enabled` só com HABILITA_DUPLICAR_PRODUTO = 'S' (:6717 — 'S' na produção); `Inserir` + `CloneDataSetRow` do produto (menos IDPRODUTO, CODOPERADOR, USULTALTERACAO, DTULTIMALTERACAO, DTCADASTRO) e da linha de preço (menos PROMOCAO, VRPROMO); código de barras em branco | ✅ `ContextoOutros.novoCom` do CadMaster + `produtoDuplicado`; `GET cadastro/produtos/tela/config`. O "Código de barras já informado no produto origem da duplicação" o servidor recusa como código existente |
+| Precificação do Custo (Tag 1 `PRECIFICAODOCUSTO1`, 160) | abre a precificação com o código de barras do produto | ✅ `/estoque/precificacao?codbarra=` (a tela resolve pelo GetProduto) |
+| Verificar NCM dos produtos ativos | `TFrmPendenciasSPED.GetNCMProdutosInvalidos`: sem pendência, "Não foram encontrados produtos com NCM inválido."; com, fecha o cadastro e abre a tela de pendências "Produtos com NCM incorretos" | ⏳ depende do pré-validador do SPED (`TFrmPendenciasSPED`, 1.218 linhas) — **não convertido**: é também o "Pré-validador" (marcado por padrão) do SPED Fiscal e do SPED PIS/COFINS |
+| Preço Multi-Loja (`TfrmMultipreco`, "Preço para outras lojas") | grade das lojas com permissão FRMMULTIPRECO: venda/promoção editáveis, "Limpar Preço" apaga a linha, histórico com o título da tela | 🪦 **com prova**: 8 operadores com a permissão e **nenhuma** linha de HISTORICO_DINAMICO com o título dela em 2024-26 (o Confirma grava o VRVENDA alterado) |
+| Registro de log | `ChamaTelaRegistrosLog` | ✅ (já existia) |
+| Atualizar Produto | item sem `OnClick` no `.dfm` | 🪦 não faz nada |
+| Integracao FGF / Alterações FGF | a integração FGF | 🪦 FILA item 69 (parou em 13/05/2025) |
+| Imprime Etiqueta | `ImprimeEtiqueta1Click` | ✅ (o botão da seção de preço já existia; agora também no Outros) |
+| Histórico (form-base) | `TfrmHistoricoDinamico` do MULTI_PRECO, aberto no VRVENDA, item "código-descrição" | ✅ (`historico` do CadMaster) |
+
+Smoke §302, §306; jsdom `cadMasterHistorico.spec.tsx`, `cadMasterOutrosCtx.spec.tsx`.

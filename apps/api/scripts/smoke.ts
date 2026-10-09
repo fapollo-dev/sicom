@@ -19419,6 +19419,27 @@ async function main() {
         await pgSp.end();
       }
     }
+    // ══ §306 CADASTRO DE PRODUTO — o menu Outros: o "Duplicar produto" só com HABILITA_DUPLICAR_PRODUTO = 'S' (o Enabled do FormShow)
+    {
+      const pgDp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cfg = (await pgDp.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'HABILITA_DUPLICAR_PRODUTO'`)).rows[0] as any;
+      try {
+        const ler = async (h: Record<string, string> = H) => { const r = await fetch(`${base}/cadastro/produtos/tela/config`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        if (cfg) await pgDp.query(`UPDATE configuracoes SET valor = 'N' WHERE id = $1`, [cfg.id]);
+        const comN = await ler();
+        if (cfg) await pgDp.query(`UPDATE configuracoes SET valor = 'S' WHERE id = $1`, [cfg.id]);
+        else await pgDp.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao) VALUES (99306, 'HABILITA_DUPLICAR_PRODUTO', 'S', 'String', 'Habilita duplicar produto')`);
+        const comS = await ler();
+        const sem = await ler(H_SEM_ACESSO);
+        check('PRODUTO §306 [o Outros do cadastro: o Duplicar produto pela configuração]: HABILITA_DUPLICAR_PRODUTO = N deixa o item cinza, = S o libera (a produção tem S); sem a tela, 403',
+          comN.status === 200 && comN.j.duplicar === false && comS.status === 200 && comS.j.duplicar === true && sem.status === 403,
+          { comN: [comN.status, comN.j], comS: [comS.status, comS.j], sem: sem.status, cfg });
+      } finally {
+        if (cfg) await pgDp.query(`UPDATE configuracoes SET valor = $2 WHERE id = $1`, [cfg.id, cfg.valor]).catch(() => undefined);
+        else await pgDp.query(`DELETE FROM configuracoes WHERE id = 99306`).catch(() => undefined);
+        await pgDp.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
