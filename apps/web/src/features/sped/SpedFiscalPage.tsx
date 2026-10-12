@@ -47,12 +47,17 @@ export function SpedFiscalPage() {
   const [dtInventario, setDtInventario] = useState<string | undefined>(hojeNaLoja());
   const [motivo, setMotivo] = useState(1);
   const [correcao, setCorrecao] = useState<'S' | 'N'>('N');
+  // Bloco C: o "C113 / 114" vem marcado (chkGerarC113C114, Uspedfiscal.dfm)
+  const [c113, setC113] = useState<'S' | 'N'>('S');
 
   const gerarArquivo = async () => {
     if (!dtini || !dtfim) return;
     setOcupado(true);
     try {
-      const r = await gerarSpedFiscal(dtini, dtfim, gerarH === 'S' && dtInventario ? { data: dtInventario, motivo, correcao: correcao === 'S' } : undefined);
+      const r = await gerarSpedFiscal(dtini, dtfim, {
+        ...(gerarH === 'S' && dtInventario ? { inventario: { data: dtInventario, motivo, correcao: correcao === 'S' } } : {}),
+        ...(c113 === 'N' ? { c113c114: false } : {}),
+      });
       baixarArquivoSped(r.nomeArquivo, r.arquivo);
       setResultado(r);
       mensagem.sucesso('Arquivo gerado com sucesso...');
@@ -82,6 +87,10 @@ export function SpedFiscalPage() {
           <legend className="text-body-sm font-semibold text-fg-muted">Parâmetros obrigatórios de geração</legend>
           <div className="w-44"><DateField label="Competência: de" value={dtini} onChange={setDtini} /></div>
           <div className="w-44"><DateField label="até" value={dtfim} onChange={setDtfim} /></div>
+        </fieldset>
+        <fieldset className="flex flex-wrap items-center gap-gp-sm">
+          <legend className="text-body-sm font-semibold text-fg-muted">Bloco C</legend>
+          <CheckboxField label="C113 / 114" value={c113} onChange={(v) => setC113(v === 'S' ? 'S' : 'N')} />
         </fieldset>
         <fieldset className="flex flex-wrap items-end gap-gp-sm">
           <legend className="text-body-sm font-semibold text-fg-muted">Bloco H</legend>

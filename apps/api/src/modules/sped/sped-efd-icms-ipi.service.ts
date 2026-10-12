@@ -79,6 +79,19 @@ interface NfceSped {
 }
 
 export interface OpcaoInventario { data: string; motivo?: number; correcao?: boolean }
+/** as opções da tela do SPED Fiscal que o gerador conhece (padrão do .dfm quando ausentes) */
+export interface OpcoesSpedFiscal { inventario?: OpcaoInventario; c113c114?: boolean }
+
+/** o COD_INF do 0450/C110: os 6 últimos caracteres do CODNF com zeros à esquerda (`Get6UltimosCaracteres(FormatFloat('000000', …))`) */
+const codInf = (codnf: unknown) => String(Math.trunc(Number(codnf) || 0)).padStart(6, '0').slice(-6);
+/** o texto livre do SPED: sem as quebras CR+LF e sem o pipe, aparado e cortado em 105 (`Copy(….Replace(#13#10,'').Replace('|','').Trim, 1, 105)`) */
+const txtSped = (v: unknown) => String(v ?? '').replace(/\r\n/g, '').replace(/\|/g, '').trim().slice(0, 105);
+/** um número como o Oracle/Delphi o converte em texto na sessão pt-BR: vírgula decimal, sem zeros à direita e sem o zero antes da vírgula */
+const numTexto = (v: unknown) => {
+  const n = Number(v) || 0;
+  const t = String(Math.round(n * 100) / 100).replace('.', ',');
+  return t.replace(/^(-?)0,/, '$1,');
+};
 
 @Injectable()
 export class SpedEfdIcmsIpiService {
@@ -90,7 +103,7 @@ export class SpedEfdIcmsIpiService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string, opcoes: { inventario?: OpcaoInventario } = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
+  async gerar(dtini: string, dtfim: string, opcoes: OpcoesSpedFiscal = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -125,6 +138,9 @@ export class SpedEfdIcmsIpiService {
     // e as de telecomunicação 21/22 (sqqNFtelecomunicacao: processadas, sem o filtro de CFOP do C100) — D500/D590
     const telecom = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [21, 22], true);
     const inventario = await this.coletarInventario(db, emp, opcoes.inventario, String(empresa.uf ?? ''));
+    // 0450/C110 (as observações das notas) e o C113 (os documentos referenciados — "C113 / 114", marcado por padrão)
+    const informacoes = await this.coletarInformacoes(db, emp, dtini, dtfim);
+    const referenciados = opcoes.c113c114 === false ? new Map<number, Array<Record<string, any>>>() : await this.coletarReferenciados(db, docs);
     // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
     // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
     // contagem COMPLETA e mantém integridade referencial, em vez de dropar itens sem movimento do período).
@@ -137,6 +153,8 @@ export class SpedEfdIcmsIpiService {
     const alt0175 = await alteracoesParaSped(db, '0175', [...docs.parceiros.keys()], dtini, dtfim);
     const alt0205 = await alteracoesParaSped(db, '0205', [...docs.produtos.keys()], dtini, dtfim);
     this.emitirCadastros(arq, docs, { alt0175, alt0205, dtini, dtfim });
+    // 0450 (2): COD_INF|TXT — uma por nota com observação (cdsObsNF_Reg0450)
+    for (const i of informacoes.values()) arq.add('0450', [codInf(i.codnf), txtSped(i.txt0450)]);
     arq.fecharBloco('0990', '0');
     // o SPED marca como informadas as alterações que leu (REG_INFORMADO 'S'); regerar o mesmo período as traz de novo
     const lidas = [...alt0175, ...alt0205].filter((r) => r.reg_informado === 'N').map((r) => Number(r.cod_speed_aux));
@@ -146,7 +164,7 @@ export class SpedEfdIcmsIpiService {
     // GeraNFC, Uspedfiscal.pas:4118-4120)
     const inutilizadas = await this.coletarInutilizadas(db, emp, dtini, dtfim);
     const nfce = await this.coletarNfce(db, emp, dtini, dtfim);
-    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini);
+    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini, informacoes, referenciados);
 
     // BLOCO D — frete (D100/D190) e telecomunicação (D500/D590), como o GeraBlocoD
     this.emitirBlocoD(arq, frete, telecom, empresa.idcidade);
@@ -261,6 +279,7 @@ export class SpedEfdIcmsIpiService {
       .leftJoin('parceiros as px', 'px.codparceiro', 'nf.codparceiro')
       .select(['nf.codnf', 'nf.tipo', 'nf.modelo', 'nf.nronf', 'nf.serie', 'nf.chavenfe', 'nf.dtemissao', 'nf.dtcontabil', 'nf.tipoemissao', 'nf.codparceiro', 'nf.codparceiro_end',
         'nf.cfop', 'nf.totalnf', 'nf.totaldesc', 'nf.totaldescfinal', 'nf.totalprod', 'nf.totalfrete', 'nf.totalseguro', 'nf.totalacessorias', 'nf.totalipi', 'nf.tipofrete', 'nf.stexterno',
+        'nf.obs', 'nf.totalicm_st',
         'px.classfiscal as classfiscal_parceiro', sql`coalesce(nf.cancelada,'N')`.as('cancelada'), sql`coalesce(nf.statusnfe,'')`.as('statusnfe')])
       .where('nf.idempresa', '=', emp)
       .where('nf.tipo', 'in', ['E', 'S']) // corte-2: ENTRADA (crédito) + SAÍDA (débito) — destrava a apuração ICMS
@@ -323,6 +342,78 @@ export class SpedEfdIcmsIpiService {
     const unidades = new Set<string>();
     for (const p of produtos.values()) { const u = String(p.unidade ?? '').trim(); if (u) unidades.add(u); }
     return { nfs: nfs.map((n) => ({ ...n, itens: porNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades };
+  }
+
+  /**
+   * As notas com observação (o 0450 e o C110 — `sqqObsNF_Reg0450`, UdmSpedFiscal.dfm:4134): a nota do período da loja com endereço (a
+   * NFAUXSPED) e CFOP que gera SPED, processada, não cancelada, não denegada, não inutilizada, com OBS (nem vazia, nem um espaço, nem
+   * começando por quebra de linha), dos modelos do C100 (55 com chave; os demais fora de 2/3/6/7/8/21/22/28/29/57). O texto do 0450:
+   * a entrada com ICMS-ST de terceiro vira "VALOR DE ST: … LANCADO EM OUTRAS"; a OBS em branco do 5929/6929, "NF REFERENTE A CUPOM";
+   * as outras, a OBS. Produção set/2026: 462 notas na loja 1, 308 na loja 2.
+   */
+  private async coletarInformacoes(db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<Map<number, Record<string, any>>> {
+    const rows = (await sql<Record<string, any>>`
+        SELECT n.codnf, n.obs, n.totalicm_st, n.tipo, n.stexterno, n.cfop
+          FROM nf n
+          JOIN parceiros_end pe ON pe.codend = n.codparceiro_end
+          JOIN cfop c ON c.codcfop = n.cfop AND coalesce(c.nao_gera_sped, 'N') = 'N'
+         WHERE n.idempresa = ${emp} AND n.dtcontabil BETWEEN ${dtini}::date AND ${dtfim}::date
+           AND n.obs IS NOT NULL AND n.obs <> ' ' AND n.obs NOT LIKE chr(13) || '%'
+           AND ((n.modelo = 55 AND n.chavenfe IS NOT NULL AND coalesce(n.statusnfe, 'P') <> 'I') OR (n.modelo = 55 AND n.statusnfe = 'I')
+                OR n.modelo NOT IN (22, 21, 6, 2, 8, 7, 28, 29, 3, 57, 55))
+           AND n.proc = 'S' AND coalesce(n.statusnfe, 'Null') <> 'D' AND n.cancelada = 'N' AND n.nronf NOT IN ('000000')
+           AND coalesce(n.statusnfe, 'P') <> 'I'
+         ORDER BY n.codnf`.execute(db)).rows;
+    for (const r of rows) {
+      r.txt0450 = (Number(r.totalicm_st) || 0) > 0 && String(r.tipo) === 'E' && String(r.stexterno ?? 'N') === 'N'
+        ? `VALOR DE ST: ${numTexto(r.totalicm_st)} LANCADO EM OUTRAS`
+        : String(r.obs ?? '').trim() === '' && ['5929', '6929'].includes(String(r.cfop ?? '')) ? 'NF REFERENTE A CUPOM' : String(r.obs ?? '').trim();
+    }
+    return new Map(rows.map((r) => [Number(r.codnf), r]));
+  }
+
+  /**
+   * Os documentos referenciados das notas do período (o C113 — `sqqRegistroC113`, UdmSpedFiscal.dfm:7877-7967): a NOTA referenciada
+   * (NF_REFERENCIA.CODNF_REF, fora o modelo 65) com o tipo, a emissão, o modelo, a série, o número, a data e a chave dela; e a NFC-e
+   * referenciada (o modelo 65 — a NFC do legado, aqui pela venda carimbada com o CODNFC dela), saída de emissão própria com o participante
+   * da nota. O participante da nota referenciada entra no 0150 (o C113 aponta para ele). Produção 2026: 774 notas e 619 NFC-e
+   * referenciadas; set/2026, 55 notas com observação e referência na loja 1.
+   */
+  private async coletarReferenciados(db: AnyDB, docs: { nfs: Array<Record<string, any>>; parceiros: Map<number, Record<string, any>> }): Promise<Map<number, Array<Record<string, any>>>> {
+    const ids = docs.nfs.map((n) => Number(n.codnf));
+    if (!ids.length) return new Map();
+    const rows = (await sql<Record<string, any>>`
+        SELECT r.codnf, n.tipo, n.tipoemissao::text AS tipoemissao, n.modelo::text AS modelo, n.serie, n.nronf, n.dtemissao::text AS dtemissao,
+               n.codparceiro, n.codparceiro_end, n.chavenfe, 1 AS parte, r.codnfreferencia
+          FROM nf_referencia r JOIN nf n ON n.codnf = r.codnf_ref
+         WHERE r.codnf = ANY(${ids}::int[]) AND coalesce(r.modelo, n.modelo) <> 65
+        UNION ALL
+        SELECT r.codnf, 'S', '0', '65', v.nroserie::text, v.nrocupom::text, (v.dtvenda AT TIME ZONE 'America/Sao_Paulo')::date::text,
+               n.codparceiro, n.codparceiro_end, v.chavenfe, 2, r.codnfreferencia
+          FROM nf_referencia r
+          JOIN nf n ON n.codnf = r.codnf
+          JOIN LATERAL (SELECT x.nroserie, x.nrocupom, x.dtvenda, x.chavenfe FROM vendas x WHERE x.codnfc = r.codnf_ref ORDER BY x.codvendas LIMIT 1) v ON true
+         WHERE r.codnf = ANY(${ids}::int[]) AND coalesce(r.modelo, n.modelo) = 65
+         ORDER BY 1, 11, 12`.execute(db)).rows;
+    const out = new Map<number, Array<Record<string, any>>>();
+    for (const r of rows) out.set(Number(r.codnf), [...(out.get(Number(r.codnf)) ?? []), r]);
+    // o participante da nota referenciada no 0150, pelo endereço DA NOTA (como o 0150 das notas do período)
+    const faltam = new Map<number, number | null>();
+    for (const r of rows) {
+      const cod = Number(r.codparceiro);
+      if (cod && !docs.parceiros.has(cod) && !faltam.has(cod)) faltam.set(cod, r.codparceiro_end != null ? Number(r.codparceiro_end) : null);
+    }
+    if (faltam.size) {
+      const ps = (await db.selectFrom('parceiros as p').leftJoin('parceiros_end as pe', 'pe.codparceiro', 'p.codparceiro')
+        .select(['p.codparceiro as codparceiro', 'p.razao as razao', 'pe.codend as codend', 'pe.cnpj_cpf as cnpj_cpf', 'pe.endereco as endereco', 'pe.bairro as bairro', 'pe.idcidade as idcidade'])
+        .where('p.codparceiro', 'in', [...faltam.keys()]).orderBy('pe.codend').execute()) as Array<Record<string, any>>;
+      for (const p of ps) {
+        const cod = Number(p.codparceiro);
+        const daNota = faltam.get(cod);
+        if (!docs.parceiros.has(cod) || (daNota != null && Number(p.codend) === daNota)) docs.parceiros.set(cod, p);
+      }
+    }
+    return out;
   }
 
   /**
@@ -443,7 +534,8 @@ export class SpedEfdIcmsIpiService {
   /** BLOCO C: C001 + por NF de ENTRADA/SAÍDA C100/C170 + C190 (analítico por CST_ICMS+CFOP+ALIQ_ICMS) + C990.
    *  IND_OPER por sentido (0=entrada/1=saída). Retorna o ICMS de ENTRADA (crédito) e de SAÍDA (débito) p/ o E110. */
   private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> },
-    inutilizadas: Array<Record<string, any>> = [], nfce: NfceSped[] = [], dtini = ''): { creditoIcms: number; debitoIcms: number } {
+    inutilizadas: Array<Record<string, any>> = [], nfce: NfceSped[] = [], dtini = '', informacoes: Map<number, Record<string, any>> = new Map(),
+    referenciados: Map<number, Array<Record<string, any>>> = new Map()): { creditoIcms: number; debitoIcms: number } {
     const temDocs = docs.nfs.length > 0 || inutilizadas.length > 0 || nfce.length > 0;
     arq.add('C001', [temDocs ? '0' : '1']);
     let creditoIcms = 0;
@@ -506,6 +598,25 @@ export class SpedEfdIcmsIpiService {
         fmtNum(nn(nf.totalnf)), indPgto, fmtNum(r2(nn(nf.totaldesc) + Math.abs(nn(nf.totaldescfinal)))), fmtNum(0), fmtNum(vlMerc),
         ['0', '1', '2', '3', '4', '9'].includes(tipofrete) ? tipofrete : '9', fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)),
         fmtNum(bcC100), fmtNum(vlC100), fmtNum(0), fmtNum(0), fmtNum(nn(nf.totalipi)), fmtNum(pisCofins('aliq_pis_ent')), fmtNum(pisCofins('aliq_cofins_ent')), fmtNum(0), fmtNum(0)]);
+      // C110 (a nota com observação — `cdsObsNF_Reg0450.Locate`, Uspedfiscal.pas:2553-2567): COD_INF e o texto da observação da nota; o
+      // "ST LANCADO" vira o valor da ST "LANCADO EM ICMS RETIDO POR ST" (a opção de somar a ST em outras despesas vem desmarcada). Os
+      // documentos referenciados (C113) são filhos dele: sem observação, não há C113
+      const info = informacoes.get(Number(nf.codnf));
+      if (info) {
+        const obs = String(nf.obs ?? '').trim();
+        // o valor pelo `AsString` do Delphi (vírgula, sem zeros à direita, com o zero antes da vírgula)
+        const st = String(Math.round((Number(nf.totalicm_st) || 0) * 100) / 100).replace('.', ',');
+        const txt = obs.includes('ST LANCADO') ? `VALOR DE ST: ${st} LANCADO EM ICMS RETIDO POR ST` : obs;
+        // C110 (2): COD_INF|TXT_COMPL
+        arq.add('C110', [codInf(nf.codnf), txtSped(txt)]);
+        for (const r of referenciados.get(Number(nf.codnf)) ?? []) {
+          const mod = String(r.modelo ?? '');
+          // C113 (9): IND_OPER|IND_EMIT|COD_PART|COD_MOD|SER|SUB|NUM_DOC|DT_DOC|CHV_DOCe — a série em 4 com zeros à esquerda, SUB '000'
+          arq.add('C113', [String(r.tipo) === 'E' ? '0' : '1', String(r.tipoemissao) === '0' ? '0' : '1', r.codparceiro != null ? String(r.codparceiro) : '',
+            mod === '90' ? '1B' : mod.padStart(2, '0'), String(r.serie ?? '').trim().padStart(4, '0'), '000', String(r.nronf ?? ''),
+            r.dtemissao ? fmtData(String(r.dtemissao)) : '', String(r.chavenfe ?? '')]);
+        }
+      }
       // C170: não sai na NF-e 55 de EMISSÃO PRÓPRIA, entrada ou saída (a opção "Gerar C170 notas de emissão própria" vem desmarcada,
       // Uspedfiscal.pas:2707-2709)
       const comC170 = !(String(nf.modelo ?? '') === '55' && String(nf.tipoemissao ?? '0') === '0');

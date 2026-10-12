@@ -74,7 +74,7 @@ export class SpedController {
   @HttpCode(200)
   @RequerAcesso('FRMSPEDFISCAL', 'FRMSPEDFISCAL')
   gerarEfdIcmsIpi(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
-    return this.efdIcmsIpi.gerar(dto.dtini, dto.dtfim, { inventario: dto.inventario });
+    return this.efdIcmsIpi.gerar(dto.dtini, dto.dtfim, { inventario: dto.inventario, c113c114: dto.c113c114 });
   }
 
   /** as "Apurações Realizadas" da tela `FRMAPURACAOPISCOFINS`. */

@@ -332,3 +332,24 @@ produção o livro 242 diz 31/12/2025 e os 3.527 itens dizem 03/03/2026), com o 
 DET_ALIQUOTA — `GetInfoH020`), que o Apollo não emitia; o **COD_CTA** do H010 é o CODEXPINTEIRO da conta do produto (ia vazio). O
 produto do inventário entra no 0200 (o UNION do sqqProdutos com `cbxInventario`). Diferença consciente mantida: item sem saldo (QTD ≤ 0)
 fica de fora. Smoke §90e; jsdom `spedFiscal.spec.tsx`.
+
+## 0450/C110 e C113 — o que o padrão da tela já gerava (12/10/2026)
+
+⛔→✅ O Apollo não emitia o **0450** nem o **C110** (a observação da nota) nem o **C113** (o documento referenciado — "C113 / 114",
+**marcado por padrão**). Produção set/2026: 462 notas com observação na loja 1 e 308 na loja 2; 55 delas com referência na loja 1; em
+2026, 774 notas e 619 NFC-e referenciadas.
+- **0450** (`sqqObsNF_Reg0450`, UdmSpedFiscal.dfm:4134): a nota do período da loja com endereço e CFOP que gera SPED, processada, não
+  cancelada/denegada/inutilizada, com OBS; COD_INF = os 6 últimos dígitos do CODNF; o texto: a entrada com ICMS-ST de terceiro vira
+  "VALOR DE ST: <valor> LANCADO EM OUTRAS" (o número como o Oracle o escreve na sessão pt-BR), a OBS em branco do 5929/6929 "NF
+  REFERENTE A CUPOM", senão a OBS — sem a quebra CR+LF e sem o pipe, em 105.
+- **C110** logo depois do C100 da nota que está no 0450: a OBS da nota; com "ST LANCADO", "VALOR DE ST: <valor> LANCADO EM ICMS RETIDO
+  POR ST" (a soma da ST em outras despesas vem desmarcada).
+- **C113** (filho do C110 — sem observação não há C113): a nota referenciada (NF_REFERENCIA.CODNF_REF, fora o 65) com tipo, emissão,
+  modelo (90 → 1B), série em 4 com zeros à esquerda, SUB 000, número, data e chave; e a NFC-e referenciada (a NFC do legado; aqui pela
+  venda com o CODNFC dela), saída própria modelo 65 com o participante da nota. O participante da nota referenciada entra no 0150
+  (COD_PART pelo código do parceiro, como o resto do arquivo do Apollo).
+- 🪦 **C114** (cupom de ECF referenciado): 0 vendas de ECF ligadas a nota (PEDIDO_NF tipo V, VENDA_NFC ≠ S) em 2025-26; a devolução por
+  cupom (NF_CUPONS_REFERENCIA) tem 5 linhas na vida. No legado o ramo da devolução gera só os cupons que já estavam no passo 1 (o teste
+  do `Locate` está invertido).
+
+Smoke §309; jsdom `spedFiscal.spec.tsx`.

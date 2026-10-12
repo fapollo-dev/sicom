@@ -14,6 +14,8 @@ export const gerarSpedSchema = z
      * o Bloco H do SPED Fiscal ("Gerar H001 (Inventário)" + "Data Inventário" + "Mot. inventário - H005" + "Correção Tributária",
      * Uspedfiscal.dfm): sem ele o H001 sai sem dados (o padrão da tela)
      */
+    /** o "C113 / 114" do SPED Fiscal (marcado por padrão na tela do legado): false tira os documentos referenciados */
+    c113c114: z.boolean().optional(),
     inventario: z
       .object({
         data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data do inventário.'),

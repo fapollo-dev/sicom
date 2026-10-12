@@ -76,6 +76,18 @@ describe('SPED ICMS/IPI (FRMSPEDFISCAL) — o gerador com o pré-validador', () 
     expect(corpo).toEqual({ dtini: '2027-02-01', dtfim: '2027-02-28', inventario: { data: '2026-12-31', motivo: 2, correcao: true } });
   });
 
+  it('o "C113 / 114" vem marcado (não manda nada); desmarcado, manda c113c114 false', async () => {
+    render(<MemoryRouter><ShortcutScope><MensagemProvider><SpedFiscalPage /></MensagemProvider></ShortcutScope></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText(/Competência: de/), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText(/^até/), { target: { value: '2026-09-30' } });
+    fireEvent.click(screen.getByLabelText('Pré-validador'));
+    fireEvent.click(screen.getByLabelText('C113 / 114'));
+    fireEvent.click(screen.getByRole('button', { name: /erar/ }));
+    await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
+    const corpo = JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-icms-ipi'))![1]!.body));
+    expect(corpo).toEqual({ dtini: '2026-09-01', dtfim: '2026-09-30', c113c114: false });
+  });
+
   it('o Corrigir da operadora de cartão abre a tela dela em outra aba', async () => {
     const abrir = vi.fn();
     (window as any).open = abrir;

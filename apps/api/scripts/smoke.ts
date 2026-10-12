@@ -19537,6 +19537,67 @@ async function main() {
         await pgSc.end();
       }
     }
+    // ══ §309 SPED FISCAL — o 0450/C110 (a observação da nota) e o C113 (o documento referenciado, "C113 / 114" marcado por padrão):
+    // a devolução que referencia uma nota de entrada de OUTRO período (o participante dela entra no 0150) e uma NFC-e; a entrada com ST
+    {
+      const pgRf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const nfs: number[] = [];
+      try {
+        await pgRf.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con) VALUES
+          (993091, 1, 'FORNECEDOR REF', 'FR', 'J', 993091, 'N', 'S', 'N', 'N'), (993092, 1, 'FORNECEDOR DA ORIGEM', 'FO', 'J', 993092, 'N', 'S', 'N', 'N')
+          ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgRf.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, endereco_padrao, ativado, cnpj_cpf) VALUES
+          (993091, 993091, 'RUA R', 'CENTRO', 'SAO PAULO', 'SP', 'S', 'S', '11222333000181'), (993092, 993092, 'RUA O', 'CENTRO', 'SAO PAULO', 'SP', 'S', 'S', '44555666000181')
+          ON CONFLICT (codend) DO NOTHING`);
+        const nova = async (v: { tipo: string; dt: string; nronf: string; parc: number; cfop: string; emissao: number; chave: string; obs?: string | null; st?: number }) => {
+          const id = Number((await pgRf.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop, chavenfe, tipoemissao, obs, totalicm_st, stexterno)
+            VALUES (1, $1, 55, '1', $2, $3, $3, $4, $4, 'S', 'N', 100, $5, $6, $7, $8, $9, 'N') RETURNING codnf`,
+            [v.tipo, v.nronf, v.dt, v.parc, v.cfop, v.chave, v.emissao, v.obs ?? null, v.st ?? 0])).rows[0].codnf);
+          await pgRf.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, aliquota, cfop) VALUES ($1, 1, 1, 'ITEM REF', 1, 100, 100, 1, 0, 'T01', $2)`, [id, v.cfop]);
+          nfs.push(id);
+          return id;
+        };
+        // a entrada de março (outro período) de outro fornecedor, a devolução de abril que a referencia, a entrada de abril com ST e uma sem OBS
+        const origem = await nova({ tipo: 'E', dt: '2045-03-10', nronf: '993090', parc: 993092, cfop: '1102', emissao: 1, chave: '35450311222333000181550010009930901000000001' });
+        const dev = await nova({ tipo: 'S', dt: '2045-04-05', nronf: '993091', parc: 993091, cfop: '5102', emissao: 0, chave: '35450411222333000181550010009930911000000002', obs: 'DEVOLUCAO|REF NF 993090\r\nITEM AVARIADO' });
+        const comSt = await nova({ tipo: 'E', dt: '2045-04-06', nronf: '993092', parc: 993091, cfop: '1102', emissao: 1, chave: '35450411222333000181550010009930921000000003', obs: 'ST LANCADO NO TITULO', st: 12.5 });
+        const semObs = await nova({ tipo: 'E', dt: '2045-04-07', nronf: '993093', parc: 993091, cfop: '1102', emissao: 1, chave: '35450411222333000181550010009930931000000004' });
+        await pgRf.query(`INSERT INTO nf_referencia (codnf, codnf_ref, modelo) VALUES ($1, $2, 55)`, [dev, origem]);
+        // a NFC-e referenciada (o CODNFC carimbado na venda)
+        await pgRf.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cancelado, venda_nfc, statusnfe, chavenfe, codnfc, cfop, icms_cst) VALUES
+          (1, '2045-04-01 10:00:00-03', 'RF3091', 9, 3091, 1, 1, 1, 10, 'N', 'S', 'P', '35450411222333000181650090000030911000000005', 99309, '5102', 0)`);
+        await pgRf.query(`INSERT INTO nf_referencia (codnf, codnf_ref, modelo) VALUES ($1, 99309, 65)`, [dev]);
+        const efd = async (extra: Record<string, unknown> = {}) => {
+          const r = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2045-04-01', dtfim: '2045-04-30', ...extra }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          const l = String(j.arquivo ?? '').split('\r\n');
+          return { status: r.status, j, l };
+        };
+        const ci = (id: number) => String(id).padStart(6, '0').slice(-6);
+        const padrao = await efd();
+        const semC113 = await efd({ c113c114: false });
+        const iDev = padrao.l.findIndex((x) => x.startsWith('|C100|1|0|993091|55|00|001|993091|'));
+        check('SPED FISCAL §309 [0450/C110 e C113 — marcado por padrão]: o 0450 de cada nota com observação (sem o pipe e sem a quebra de linha) e o texto da ST da entrada ("VALOR DE ST: 12,5 LANCADO EM OUTRAS"); logo depois do C100 da devolução o C110 e os dois C113 — a nota de entrada de março (IND_OPER 0, de terceiro, o fornecedor da ORIGEM, série 0001, SUB 000) e a NFC-e (saída própria, modelo 65, série 0009); o fornecedor da origem entra no 0150; o C110 da entrada com "ST LANCADO" leva "…LANCADO EM ICMS RETIDO POR ST"; a nota sem OBS não tem C110; desmarcado, o C110 fica e o C113 sai; validação ok',
+          padrao.status === 200
+          && padrao.l.includes(`|0450|${ci(dev)}|DEVOLUCAOREF NF 993090ITEM AVARIADO|`)
+          && padrao.l.includes(`|0450|${ci(comSt)}|VALOR DE ST: 12,5 LANCADO EM OUTRAS|`)
+          && !padrao.l.some((x) => x.startsWith(`|0450|${ci(semObs)}|`))
+          && iDev > 0 && padrao.l[iDev + 1] === `|C110|${ci(dev)}|DEVOLUCAOREF NF 993090ITEM AVARIADO|`
+          && padrao.l[iDev + 2] === '|C113|0|1|993092|55|0001|000|993090|10032045|35450311222333000181550010009930901000000001|'
+          && padrao.l[iDev + 3] === '|C113|1|0|993091|65|0009|000|3091|01042045|35450411222333000181650090000030911000000005|'
+          && padrao.l.some((x) => x.startsWith('|0150|993092|FORNECEDOR DA ORIGEM|'))
+          && padrao.l.includes(`|C110|${ci(comSt)}|VALOR DE ST: 12,5 LANCADO EM ICMS RETIDO POR ST|`)
+          && !padrao.l.some((x) => x.startsWith(`|C110|${ci(semObs)}|`))
+          && padrao.j.validacao?.ok === true && padrao.j.validacao.erros.length === 0
+          && semC113.status === 200 && semC113.l.some((x) => x.startsWith(`|C110|${ci(dev)}|`)) && !semC113.l.some((x) => x.startsWith('|C113|')),
+          { iDev, trecho: padrao.l.slice(Math.max(0, iDev), iDev + 4), o450: padrao.l.filter((x) => x.startsWith('|0450|')), c110: padrao.l.filter((x) => x.startsWith('|C110|')),
+            p0150: padrao.l.filter((x) => x.startsWith('|0150|99309')), val: padrao.j.validacao, semC113: semC113.l.filter((x) => x.startsWith('|C113|')).length });
+      } finally {
+        for (const id of nfs) { await pgRf.query(`DELETE FROM nf_referencia WHERE codnf = $1`, [id]).catch(() => undefined); await pgRf.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgRf.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
+        await pgRf.query(`DELETE FROM vendas WHERE nropedido = 'RF3091'`).catch(() => undefined);
+        await pgRf.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
