@@ -129,6 +129,8 @@ export class ConsHistVendasService {
         nropedido: primeira.nropedido ?? null, nrocupom: 0, idempresa: Number(primeira.idempresa), dtvenda: primeira.dtvenda ?? null,
         cliente: primeira.cliente ?? null, vendedor: primeira.vendedor ?? null, operador: primeira.nome ?? null,
         desc_acre: primeira.desc_acre == null ? null : r2(num(primeira.desc_acre)), venda_nfc: null,
+        // a "Observação" (memObs, ligado ao cdsConsHistVendas — só o modo pedido a preenche)
+        obs: primeira.obs == null || String(primeira.obs).trim() === '' ? null : String(primeira.obs),
         // o modo pedido (FlagImpressao := False) imprime o Rel_Consulta_historico_vendas; o vale troca fica desabilitado (Enabled = False no dfm)
         permite_ticket: false, titulo: 'PEDIDO',
       },

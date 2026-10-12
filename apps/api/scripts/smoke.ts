@@ -29420,9 +29420,9 @@ async function main() {
             (992855, 1, '2052-05-12 12:00:00-03', '285E', '285', 28505, 1, ${P}, NULL, 8, 1, 'A', 'N', 'S', 2, NULL)`);
         // pedidos: o do tipo P (o total soma o desconto/acréscimo do item) e um orçamento
         await pgHm.query(`DELETE FROM pedidos WHERE nropedido IN ('285P', '285O')`);
-        await pgHm.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro) VALUES
-            ('285P', 1, 1, ${P}, 'HIST285 KIT', 'UN', 3, 4, 1, 1, '2052-04-10 09:00', 'N', 'P', 2),
-            ('285O', 1, 1, ${P}, 'HIST285 KIT', 'UN', 5, 4, 0, 1, '2052-04-10 09:00', 'N', 'O', 2)`);
+        await pgHm.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro, obs) VALUES
+            ('285P', 1, 1, ${P}, 'HIST285 KIT', 'UN', 3, 4, 1, 1, '2052-04-10 09:00', 'N', 'P', 2, 'ENTREGAR 285'),
+            ('285O', 1, 1, ${P}, 'HIST285 KIT', 'UN', 5, 4, 0, 1, '2052-04-10 09:00', 'N', 'O', 2, NULL)`);
         // notas: entrada processada (2 cx de 6), entrada não processada, entrada CANCELADA (mais nova), devolução e uma saída
         const nf = async (parc: number, nro: string, tipo: string, proc: string, canc: string, dt: string, fin: string, qt: number, fat: number) => {
           const id = Number((await pgHm.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, finalidade, cfop)
@@ -29530,7 +29530,7 @@ async function main() {
           && dtN.j.destino === 'nf' && dtN.j.codnf === e1 && dtN.j.tipo === 'E' && dtR.j.destino === 'nf' && dtR.j.codnf === e1 && dtR.j.tipo === 'E'
           && dtA.status === 422 && dtA.j.message === 'Não foi possível detalhar esta movimentação.'
           && balcao.status === 200 && balcaoJ.encontrado === true && balcaoJ.itens?.length === 1 && balcaoJ.itens[0].total_item === 15
-          && balcaoJ.finalizadores?.[0]?.operacao === 'DINHEIRO' && balcaoJ.total_finalizadores === 15 && balcaoJ.cabecalho?.titulo === 'PEDIDO'
+          && balcaoJ.finalizadores?.[0]?.operacao === 'DINHEIRO' && balcaoJ.total_finalizadores === 15 && balcaoJ.cabecalho?.titulo === 'PEDIDO' && balcaoJ.cabecalho?.obs === 'ENTREGAR 285'
           && ajC.status === 200 && ajCJ.length === 1 && ajCJ[0].obs === 'AJUSTE 285' && String(ajCJ[0].data).startsWith('2052-04-21')
           && ajInv.status === 422 && ajInvJ.message === 'A data inicial não pode ser maior que a final.',
           { dtV: dtV.j, dtN: dtN.j, dtR: dtR.j, dtA: [dtA.status, dtA.j.message], venda: [venda.encontrado, venda.code], balcao: [balcao.status, balcaoJ], ajC: [ajC.status, ajCJ], ajInv: [ajInv.status, ajInvJ.message] });

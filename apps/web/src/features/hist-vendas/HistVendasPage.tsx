@@ -3,6 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { NumberField } from '../../shared/ui/NumberField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
+import { Modal } from '../../shared/ui/Modal';
 import { useMensagem } from '../../shared/mensagem';
 import { DateField } from '../../shared/ui/DateField';
 import { consultarCupom, consultarPedidoBalcao, listarVendas, rotaImpressao, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
@@ -22,13 +23,19 @@ const dataHora = (s: unknown) => {
 /**
  * CONSULTA DE HISTÓRICO DE VENDAS (FRMCONSHISTVENDAS). Informe **cupom e PDV** (os dois obrigatórios, como no
  * legado) e a venda abre: cabeçalho, itens com o total de cada um, rodapé (subtotal − cancelados) e como foi paga.
- * O PDV é o prefixo de 2 dígitos do número do pedido, então basta o número do caixa.
+ * O PDV é o prefixo de 2 dígitos do número do pedido, então basta o número do caixa. O "Visualizar" pergunta, como o
+ * legado (`TfrmOpcoes` do `btnPesquisarClick`), se a venda é de NFC-e ou de ECF; a Empresa vazia é a da sessão.
  */
 export function HistVendasPage() {
   const mensagem = useMensagem();
   const [cupom, setCupom] = useState<number | undefined>();
   const [pdv, setPdv] = useState<number | undefined>();
   const [pedido, setPedido] = useState('');
+  // a Empresa (edtEmpresa): vazia, a da sessão; a consulta preenche com a loja da venda achada
+  const [empresa, setEmpresa] = useState<number | undefined>();
+  // a janela "Trazer pesquisa de vendas" (Com vendas de NFC / Com vendas de ECF — o padrão é a primeira)
+  const [perguntaNfc, setPerguntaNfc] = useState(false);
+  const [ramoNfc, setRamoNfc] = useState<'S' | 'N'>('S');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ConsultaCupom | null>(null);
   // a consulta que abriu a venda (o `FlagImpressao` do legado: cupom → Rel_Consulta_vendas_cupom; pedido de balcão → Rel_Consulta_historico_vendas)
@@ -37,6 +44,7 @@ export function HistVendasPage() {
   const [troca, setTroca] = useState<Record<number, { marcado: boolean; qtd?: number }>>({});
   const abrir = (r: ConsultaCupom, modo: 'cupom' | 'pedido', corpo: Record<string, unknown>) => {
     setRes(r); setTroca({}); setOrigem(r.encontrado ? { modo, corpo } : null);
+    if (r.encontrado && modo === 'cupom' && r.cabecalho?.idempresa) setEmpresa(Number(r.cabecalho.idempresa));
   };
   // a LISTA (o botão de pesquisa do legado): recorte de datas obrigatório + filtros opcionais.
   const hojeIso = hojeNaLoja();
@@ -48,13 +56,23 @@ export function HistVendasPage() {
   const [lista, setLista] = useState<LinhaVenda[] | null>(null);
   const [truncado, setTruncado] = useState(false);
 
-  const consultar = async () => {
+  const consultar = () => {
     if (busy) return;
     if (cupom == null) { window.alert('Informe o número do cupom'); return; }
     if (pdv == null) { window.alert('Informe o número do PDV'); return; }
+    setRamoNfc('S');
+    setPerguntaNfc(true);
+  };
+  const cancelarPergunta = () => {
+    setPerguntaNfc(false);
+    window.alert('Seleção de pesquisa de vendas cancelada.');
+  };
+  const visualizar = async () => {
+    setPerguntaNfc(false);
+    if (cupom == null || pdv == null) return;
     setBusy(true);
     try {
-      const corpo = { nrocupom: cupom, pdv, nropedido: pedido || undefined };
+      const corpo = { nrocupom: cupom, pdv, nropedido: pedido || undefined, venda_nfc: ramoNfc, ...(empresa ? { idempresa: empresa } : {}) };
       const r = await consultarCupom(corpo);
       abrir(r, 'cupom', corpo);
       if (!r.encontrado) {
@@ -159,8 +177,20 @@ export function HistVendasPage() {
         <div className="w-40"><NumberField label="&Cupom" value={cupom} decimais={0} min={0} onChange={setCupom} /></div>
         <div className="w-28"><NumberField label="PDV" value={pdv} decimais={0} min={0} max={99} onChange={setPdv} /></div>
         <div className="w-64"><Field label="Nro. Pedido (opcional)" value={pedido} onChange={(e) => setPedido(e.target.value)} placeholder="ex. 01280526112745" /></div>
-        <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <div className="w-28"><NumberField label="Empresa" value={empresa} decimais={0} min={1} onChange={setEmpresa} /></div>
+        <Button label="&Visualizar" variant="soft" disabled={busy} onClick={consultar} />
       </div>
+
+      <Modal open={perguntaNfc} onClose={cancelarPergunta} title="Trazer pesquisa de vendas"
+        primaryAction={{ label: '&OK', onClick: () => void visualizar() }} secondaryAction={{ label: '&Cancelar', onClick: cancelarPergunta }}>
+        <div role="radiogroup" aria-label="Trazer pesquisa de vendas" className="flex flex-col gap-gp-xs text-body-sm">
+          {([['S', 'Com vendas de NFC'], ['N', 'Com vendas de ECF']] as const).map(([v, rotulo]) => (
+            <label key={v} className="flex items-center gap-gp-xs">
+              <input type="radio" name="ramo-nfc" checked={ramoNfc === v} onChange={() => setRamoNfc(v)} /> {rotulo}
+            </label>
+          ))}
+        </div>
+      </Modal>
 
       <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="text-body-sm font-semibold text-fg-muted">Não tem o cupom? Pesquise a venda pelo período</div>
@@ -216,6 +246,7 @@ export function HistVendasPage() {
             <div><div className="text-fg-muted">Operador</div><div className="font-semibold">{cab.operador ?? '—'}</div></div>
             {res?.cupom_cancelado && <div className="text-danger font-semibold">CUPOM CANCELADO</div>}
           </div>
+          {cab.obs && <div className="text-body-sm"><div className="text-fg-muted">Observação</div><div className="whitespace-pre-wrap">{cab.obs}</div></div>}
           {res?.encontrado && (
             <div className="flex flex-wrap gap-gp-sm">
               <Button label="&Imprimir" variant="soft" onClick={imprimir} />

@@ -124,8 +124,8 @@ primeiros caracteres. Quem chama: `uCadAReceber.pas:499`, `uCadCheque.pas:308/31
   TIPOCANC='C'`, mesmos filtros) e, se achar, avisa *"O cupom informado está cancelado."* — é a diferença entre
   "não existe" e "existe e foi cancelado", e ela importa para quem atende o cliente no balcão.
 - **filtro NFC-e**: um diálogo (`frmOpcoes`) escolhe entre venda NFC-e e não-NFC-e →
-  `COALESCE(V.VENDA_NFC,'N') = :VENDA_NFC`. Com 100% `'S'` no golden, o ramo "não-NFC-e" é
-  **cópia-fiel-negativa** neste tenant.
+  `COALESCE(V.VENDA_NFC,'N') = :VENDA_NFC`. ⚠️ Com 100% `'S'` no golden, o ramo "não-NFC-e" foi dado como
+  **cópia-fiel-negativa** — errado: a produção tem 3,79 milhões de linhas de ECF. Convertido em 12/10 (seção final).
 - **ticket** só habilita quando o cupom **não** está cancelado (`CANC = ''`).
 - ordenação por `NROITEM`; contador "Qtd. Itens" no rodapé.
 
@@ -235,4 +235,29 @@ produção (948/949/950):
 - **fora, registrado**: a DANFE da NFC-e (`BtnImprimirDANFEClick` → `TFrmNFCe.ImprimirNFCe`, fiscal/SEFAZ). O logo (`logorel.jpg` do
   diretório da aplicação) não existe no servidor — o Picture1 sai vazio, como numa instalação sem o arquivo.
 Smoke §292; renderização dos 3 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
+
+## A auditoria controle a controle (12/10/2026)
+
+O fonte (`uConsHistVendas.pas`, 670 linhas) e o `.dfm` revistos contra a tela do Apollo. Convertido agora:
+
+- ⛔→✅ **"Trazer pesquisa de vendas"** (`TfrmOpcoes` no `btnPesquisarClick`, :366-385): o `&Visualizar` pergunta **"Com vendas de NFC"**
+  (o padrão, `ItemIndex` 0) ou **"Com vendas de ECF"** antes de cada consulta; cancelar avisa "Seleção de pesquisa de vendas cancelada." e
+  não consulta. O Apollo consultava sempre NFC-e calado — o §6 chamava o ramo ECF de "cópia-fiel-negativa" porque o golden (homolog)
+  tinha 100% NFC-e, mas **a produção tem 3.791.057 linhas de ECF (jan/2018 a mar/2022)**: por cupom e PDV, nenhuma venda de ECF abria.
+  Entrando pelo pedido (kardex, lista) o ramo segue vindo da própria venda (o legado pergunta também ali; o Apollo não precisa).
+- ✅ **Empresa** (`edtEmpresa`, :339/:409-412): vazia = a loja da sessão; digitada vai na consulta (com o grant dela no servidor, como já
+  era); achada a venda, o campo mostra a loja dela (`edtEmpresa.Text := cdsConsVendasCupomIDEMPRESA`).
+- ✅ **Observação** (`memObs`, ligado ao `cdsConsHistVendas`): só o modo pedido de balcão a preenche — o Apollo devolvia o `OBS` na
+  consulta e não o mostrava.
+- o botão chama-se `&Visualizar`, como no legado.
+
+Fora, com motivo:
+- ⛔ **"Imprimir DANFE"** (`BtnImprimirDANFEClick`, :269-288: "Informe a venda." / "A venda não é uma NFC-e." → `TFrmNFCe.ImprimirNFCe`)
+  reimprime a NFC-e pelo XML da tabela `NFC` — tabela do PDV, fora da carga por instrução do usuário (plano: "nada de PDV").
+- a coluna **Vlr.Custo** da grade (`VRCUSTO`) está ligada a um campo que o `cdsConsVendasCupom` não tem (os campos persistentes não o
+  trazem): no modo cupom a coluna sai sempre vazia no legado. Não reproduzida.
+- o `CX_VENDAS` do legado não filtra a loja (§5) — mantido o filtro do Apollo.
+
+Smoke §285 (a Observação do balcão), jsdom `histVendas.spec.tsx` (4 testes: as mensagens, a pergunta NFC/ECF, o cancelar, a Empresa, a
+Observação).
 

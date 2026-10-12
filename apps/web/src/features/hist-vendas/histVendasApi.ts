@@ -44,6 +44,8 @@ export interface ConsultaCupom {
     desc_acre: number | null; venda_nfc: string | null; permite_ticket: boolean;
     /** 'PEDIDO' no modo balcão (o TituloRel do legado) */
     titulo?: string | null;
+    /** a "Observação" do pedido de balcão */
+    obs?: string | null;
   } | null;
   itens: ItemCupom[];
   totais: { qtd_itens: number; subtotal: number; cancelados: number; total: number };

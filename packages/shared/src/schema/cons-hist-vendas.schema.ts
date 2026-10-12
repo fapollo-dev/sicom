@@ -14,7 +14,8 @@ export const consHistVendasSchema = z
     pdv: z.coerce.number({ required_error: 'Informe o número do PDV' }).int().min(0).max(99, { message: 'O PDV tem 2 dígitos (00 a 99).' }).optional(),
     /** empresa alternativa (o legado deixa digitar; exige o grant DELA no servidor). */
     idempresa: z.coerce.number().int().positive().optional(),
-    /** ramo do filtro NFC-e (`COALESCE(VENDA_NFC,'N') = :VENDA_NFC`); default 'S' — 100% do golden. */
+    /** ramo do filtro NFC-e (`COALESCE(VENDA_NFC,'N') = :VENDA_NFC`) — o "Trazer pesquisa de vendas" da tela (Com vendas de NFC = 'S',
+     *  o padrão; Com vendas de ECF = 'N'). A produção tem 3.791.057 linhas de ECF (jan/2018 a mar/2022) — o homolog não tinha nenhuma. */
     venda_nfc: z.enum(['S', 'N']).optional(),
     /** o número do pedido: filtro exato quando há cupom/PDV, ou a porta de entrada sozinho. */
     nropedido: z.string().trim().max(20).optional(),
