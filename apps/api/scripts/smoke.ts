@@ -5591,6 +5591,59 @@ async function main() {
           && gNJ.nutricional?.linhas === 1 && gNJ.nutricional?.pulados === 1,
           { linhas: nutri.length, l300, len: l300.length, nutricional: gNJ.nutricional });
 
+        // 47i.7) a grade de TODAS as lojas do operador e o Exportar em lote (MostrarEmpresas / btnExportarClick): a config da loja 2 aparece
+        // com a razão social; nada marcado → a mensagem do legado; a loja sem produto avisa e a outra segue; cada loja com o preço DELA
+        // (multi_preco da loja da config); duas lojas → um .zip com uma pasta por loja; a LOG com a loja da sessão; o configurador grava
+        // para a loja 2 e recusa loja fora do operador.
+        const tinhaRel2Ba = Number((await pgBa.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+        if (!tinhaRel2Ba) await pgBa.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgBa.query(`DELETE FROM config_balanca WHERE id IN (993470)`);
+        await pgBa.query(`INSERT INTO config_balanca (id, idempresa, dir_bal, tipo_bal, mod_bal, campo_setor, export_nutricional, export_receita, exporta_tara, exporta_rdc429)
+          VALUES (993470, 2, 'D:\\Dados\\Balanca\\LJ2', 'TOLEDO', 'PRIX4-N', 'Código da Balança', 'N', 'N', 'N', 'N')`);
+        await pgBa.query(`DELETE FROM multi_preco WHERE idempresa = 2 AND idproduto IN (990300,990301,990302,990303,990304,990305)`);
+        let cfgLoja2: number | null = null;
+        try {
+          const lote = async (ids: number[]) => { const r = await fetch(`${base}/${BA}/gerar-lote`, { method: 'POST', headers: H, body: JSON.stringify({ ids }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+          const lista = (await (await fetch(`${base}/${BA}/configs`, { headers: H })).json().catch(() => [])) as any[];
+          const vazio = await lote([]);
+          const semProduto = await lote([993470]);
+          await pgBa.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrpromo, promocao, ativo) VALUES (990300, 2, 50.00, 0, 'N', 'S')`);
+          const logAntes = Number((await pgBa.query(`SELECT count(*)::int n FROM log WHERE formulario = 'Exportar para balança'`)).rows[0].n);
+          const dois = await lote([993470, 321]);
+          const logs = (await pgBa.query(`SELECT idempresa FROM log WHERE formulario = 'Exportar para balança' ORDER BY idlog DESC LIMIT 2`)).rows.map((r: any) => Number(r.idempresa));
+          const logDepois = Number((await pgBa.query(`SELECT count(*)::int n FROM log WHERE formulario = 'Exportar para balança'`)).rows[0].n);
+          const { unzipSync, strFromU8 } = await import('fflate');
+          const zip = dois.j.zip ? unzipSync(new Uint8Array(Buffer.from(String(dois.j.zip), 'base64'))) : {};
+          const nomes = Object.keys(zip).sort();
+          const tx2 = zip['LJ2/TXITENS.TXT'] ? strFromU8(zip['LJ2/TXITENS.TXT']) : '';
+          const l1 = (dois.j.lotes ?? []).find((l: any) => Number(l.config) === 321);
+          const tx1 = String((l1?.arquivos ?? []).find((a: any) => a.nome === 'TXITENS.TXT')?.conteudo ?? '');
+          const cfgPost = (b: Record<string, unknown>) => fetch(`${base}/${BA}/configs`, { method: 'POST', headers: H, body: JSON.stringify({ tipo_bal: 'TOLEDO', mod_bal: 'PRIX4-N', campo_setor: 'Código da Balança', ...b }) });
+          const c2 = await cfgPost({ idempresa: 2, dir_bal: 'D:\\SMOKE\\LJ2X' });
+          cfgLoja2 = Number(((await c2.json().catch(() => ({}))) as any).id) || null;
+          const loja2 = cfgLoja2 ? (await pgBa.query(`SELECT idempresa FROM config_balanca WHERE id = $1`, [cfgLoja2])).rows[0] : null;
+          const fora = await cfgPost({ idempresa: 99, dir_bal: 'D:\\SMOKE\\FORA' });
+          check('BALANÇA §47i.7 [todas as lojas do operador + o Exportar em lote]: a grade traz a config da loja 2 com a razão social; nada marcado → "Selecione os registros na grade á exportar e tente novamente!"; a loja 2 sem produto → aviso "Não foi encontrado produto para balança." sem arquivo; com as duas, cada uma com o preço DELA (loja 2 a 50,00 = 005000; loja 1 na promoção 39,90 = 003990), na ordem da loja, num .zip com uma pasta por loja (LJ2/…); uma LOG por loja, com a loja da sessão (1); o configurador grava para a loja 2 e recusa loja fora do operador; o INFNUTRI só com o "Ex.Tabela Nutricional" da config',
+            lista.some((c) => Number(c.id) === 993470 && Number(c.idempresa) === 2 && String(c.razao_social ?? '') !== '')
+            && vazio.status === 422 && vazio.j.code === 'BALANCA_SEM_SELECAO' && vazio.j.message === 'Selecione os registros na grade á exportar e tente novamente!'
+            && semProduto.status === 200 && semProduto.j.lotes?.[0]?.aviso === 'Não foi encontrado produto para balança.' && semProduto.j.lotes?.[0]?.arquivos?.length === 0 && semProduto.j.zip === null
+            && dois.status === 200 && dois.j.lotes?.map((l: any) => Number(l.idempresa)).join(',') === '1,2'
+            && nomes.includes('LJ2/TXITENS.TXT') && nomes.filter((n) => n.endsWith('/TXITENS.TXT')).length === 2
+            // a config da loja 2 está sem "Ex.Tabela Nutricional": o INFNUTRI não sai para ela (o da loja 1, com S, sai)
+            && !nomes.includes('LJ2/INFNUTRI.TXT') && nomes.includes('BAL/INFNUTRI.TXT')
+            && tx2.split('\r\n')[0].startsWith('0101' + '0' + '020101' + '005000') && tx1.includes('020101' + '003990')
+            && logDepois - logAntes === 2 && logs.every((e) => e === 1)
+            && c2.status === 200 && Number(loja2?.idempresa) === 2 && fora.status === 422,
+            { lista: lista.map((c) => [c.id, c.idempresa, c.razao_social]), vazio: [vazio.status, vazio.j.code], semProduto: [semProduto.status, semProduto.j.lotes], dois: [dois.status, dois.j.code, dois.j.lotes?.map((l: any) => [l.config, l.idempresa, l.pasta, l.produtos, l.aviso])],
+              nomes, tx2: tx2.slice(0, 20), logs: [logAntes, logDepois, logs], c2: [c2.status, loja2], fora: fora.status });
+        } finally {
+          // a última exportação da seção volta a ser a da config 321 (o §192 confere a LOG dela)
+          await fetch(`${base}/${BA}/gerar/321`, { method: 'POST', headers: H }).catch(() => undefined);
+          await pgBa.query(`DELETE FROM config_balanca WHERE id = 993470 OR id = $1`, [cfgLoja2 ?? -1]);
+          await pgBa.query(`DELETE FROM multi_preco WHERE idempresa = 2 AND idproduto = 990300`);
+          if (!tinhaRel2Ba) await pgBa.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        }
+
         // cleanup: tira os produtos da balança p/ não interferir noutras seções.
         await pgBa.query(`UPDATE produtos SET balanca='N', expdadosnutricionais=NULL WHERE idproduto IN (990300,990301,990302,990303,990304,990305)`);
       } finally {

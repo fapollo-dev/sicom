@@ -295,6 +295,8 @@ const CODE_PT: Record<string, string> = {
   CONFIG_BALANCA_SETOR: 'Informe o campo do setor.',
   CONFIG_BALANCA_FILIZOLA_TARA: 'A balança Filizola não pode exportar tara.',
   CONFIG_BALANCA_DIRETORIO_MODELO: 'NÃO PERMITIDO!! Empresa com mesmo diretório para modelo diferentes...!',
+  BALANCA_SEM_SELECAO: 'Selecione os registros na grade á exportar e tente novamente!',
+  BALANCA_SEM_PRODUTOS: 'Não foi encontrado produto para balança.',
   OFX_DESCRICAO_OBRIGATORIA: 'Informe a descrição do extrato.',
   CONTABILISTA_NOME_OBRIGATORIO: 'Informe o nome do contabilista.',
   MANIFESTO_SEM_SELECAO: 'Selecione pelo menos uma nota fiscal para realizar a manifestação.',

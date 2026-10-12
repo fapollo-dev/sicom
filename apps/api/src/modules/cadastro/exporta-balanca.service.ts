@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
 import { gravarLog } from '../../shared/log/registro-log';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { zipSync, strToU8 } from 'fflate';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -64,11 +66,24 @@ export class ExportaBalancaService {
     return e;
   }
 
-  /** configs de balança da empresa. */
+  /**
+   * A "Lista de empresas configuradas para exportação" (MostrarEmpresas, UexportaBalanca.pas): o legado lista a CONFIG_BALANCA de TODAS
+   * as lojas com a razão social (`JOIN EMPRESAS`), por IDEMPRESA — o operador da loja 1 exporta a da loja 2 junto (227 vezes em 2026, duas
+   * linhas da LOG no mesmo segundo). O Apollo não passa das lojas que o operador alcança.
+   */
   async configs(): Promise<Record<string, unknown>[]> {
-    const emp = this.emp();
-    return (await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('config_balanca').selectAll().where('idempresa', '=', emp).orderBy('id').execute()) as Record<string, unknown>[];
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const lojas = await todasAsEmpresasDoOperador(db);
+    return (await db.selectFrom('config_balanca as cb').leftJoin('empresas as e', 'e.idempresa', 'cb.idempresa')
+      .selectAll('cb').select('e.razao_social').where('cb.idempresa', 'in', lojas).orderBy('cb.idempresa').orderBy('cb.id').execute()) as Record<string, unknown>[];
+  }
+
+  /** a config de uma das lojas do operador */
+  private async configDoOperador(db: AnyDB, id: number): Promise<Record<string, unknown>> {
+    const lojas = await todasAsEmpresasDoOperador(db);
+    const cfg = (await db.selectFrom('config_balanca').selectAll().where('id', '=', id).where('idempresa', 'in', lojas).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!cfg) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id });
+    return cfg;
   }
 
   /**
@@ -80,10 +95,13 @@ export class ExportaBalancaService {
    * linha é alterada no lugar — o ID é só a chave.
    */
   async gravarConfig(dto: {
-    id?: number | null; dir_bal?: string; tipo_bal?: string; mod_bal?: string; campo_setor?: string;
+    id?: number | null; idempresa?: number | null; dir_bal?: string; tipo_bal?: string; mod_bal?: string; campo_setor?: string;
     export_nutricional?: boolean; export_receita?: boolean; exporta_tara?: boolean; exporta_rdc429?: boolean;
   }) {
-    const emp = this.emp();
+    // a Empresa do configurador (edtCODEMPRESA + a pesquisa): qualquer loja que o operador alcance; vazia, a da sessão
+    const lojas = await todasAsEmpresasDoOperador(this.dbp.forTenantRead() as AnyDB);
+    const emp = dto.idempresa == null ? this.emp() : Number(dto.idempresa);
+    if (!lojas.includes(emp)) throw new BusinessRuleError('CONFIG_BALANCA_DIRETORIO', {}, 'Empresa/Diretório invalido!Tente novamente!');
     const dir = String(dto.dir_bal ?? '').trim();
     if (!dir) throw new BusinessRuleError('CONFIG_BALANCA_DIRETORIO', {}, 'Empresa/Diretório invalido!Tente novamente!');
     const tipo = String(dto.tipo_bal ?? '').toUpperCase();
@@ -104,7 +122,8 @@ export class ExportaBalancaService {
         exporta_tara: dto.exporta_tara ? 'S' : 'N', exporta_rdc429: dto.exporta_rdc429 ? 'S' : 'N',
       };
       if (dto.id != null) {
-        const r = await trx.updateTable('config_balanca').set(valores).where('id', '=', Number(dto.id)).where('idempresa', '=', emp).executeTakeFirst();
+        // o legado apaga e insere (a loja pode mudar); aqui a linha muda no lugar, dentro das lojas do operador
+        const r = await trx.updateTable('config_balanca').set({ idempresa: emp, ...valores }).where('id', '=', Number(dto.id)).where('idempresa', 'in', lojas).executeTakeFirst();
         if (!Number((r as any)?.numUpdatedRows ?? 0)) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id: dto.id });
         return { id: Number(dto.id) };
       }
@@ -116,21 +135,58 @@ export class ExportaBalancaService {
 
   /** "Excluir item" do configurador (DMConfExportaBalanca.Deletar) */
   async excluirConfig(id: number) {
-    const emp = this.emp();
-    const r = await (this.dbp.forTenant() as AnyDB).deleteFrom('config_balanca').where('id', '=', id).where('idempresa', '=', emp).executeTakeFirst();
+    const lojas = await todasAsEmpresasDoOperador(this.dbp.forTenantRead() as AnyDB);
+    const r = await (this.dbp.forTenant() as AnyDB).deleteFrom('config_balanca').where('id', '=', id).where('idempresa', 'in', lojas).executeTakeFirst();
     if (!Number((r as any)?.numDeletedRows ?? 0)) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id });
     return { id, removida: true };
   }
 
-  /** gera os arquivos TOLEDO da config. Devolve os .txt (nome+conteúdo) p/ o front baixar. */
-  async gerar(configId: number): Promise<{ config: number; modelo: string; produtos: number; arquivos: ArquivoBalanca[]; nutricional: { linhas: number; pulados: number } }> {
-    const emp = this.emp();
+  /**
+   * O "Exportar" com as linhas marcadas (btnExportarClick): nenhuma → "Selecione os registros na grade á exportar e tente novamente!";
+   * cada config gera os arquivos da LOJA DELA (`cdsBusca.Params[0] := CodEmpresa`), na ordem da grade (IDEMPRESA); a loja sem produto
+   * avisa "Não foi encontrado produto para balança." e as outras seguem (o `Exit` sai só do GerarArquivosBalanca). O legado grava cada
+   * loja no diretório dela; aqui, com mais de uma, sai um .zip com uma pasta por loja (a última pasta do diretório configurado).
+   */
+  async gerarLote(ids: number[]) {
+    const lista = [...new Set(ids.filter((i) => Number.isInteger(i) && i > 0))];
+    if (!lista.length) throw new BusinessRuleError('BALANCA_SEM_SELECAO', {}, 'Selecione os registros na grade á exportar e tente novamente!');
     const db = this.dbp.forTenantRead() as AnyDB;
-    const cfg = (await db.selectFrom('config_balanca').selectAll().where('id', '=', configId).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
-    if (!cfg) throw new BusinessRuleError('CONFIG_BALANCA_NAO_ENCONTRADA', { id: configId });
+    const cfgs = await Promise.all(lista.map((id) => this.configDoOperador(db, id)));
+    cfgs.sort((a, b) => Number(a.idempresa) - Number(b.idempresa) || Number(a.id) - Number(b.id));
+    const lotes: Array<{ config: number; idempresa: number; pasta: string; modelo: string | null; produtos: number; arquivos: ArquivoBalanca[]; aviso: string | null }> = [];
+    const pastas = new Set<string>();
+    for (const cfg of cfgs) {
+      const dir = String(cfg.dir_bal ?? '').replace(/[\\/]+$/, '');
+      let pasta = (dir.split(/[\\/]/).pop() ?? '').replace(/[^\w.-]+/g, '_') || `LOJA${cfg.idempresa}`;
+      if (pastas.has(pasta)) pasta = `${pasta}_${cfg.id}`;
+      pastas.add(pasta);
+      try {
+        const r = await this.gerar(Number(cfg.id));
+        lotes.push({ config: Number(cfg.id), idempresa: Number(cfg.idempresa), pasta, modelo: r.modelo, produtos: r.produtos, arquivos: r.arquivos, aviso: null });
+      } catch (e) {
+        const code = (e as { code?: string })?.code;
+        if (code !== 'BALANCA_SEM_PRODUTOS' && code !== 'BALANCA_TIPO_NAO_SUPORTADO') throw e;
+        const aviso = code === 'BALANCA_SEM_PRODUTOS' ? 'Não foi encontrado produto para balança.' : `A balança ${String(cfg.tipo_bal)} ainda não é gerada pelo Apollo.`;
+        lotes.push({ config: Number(cfg.id), idempresa: Number(cfg.idempresa), pasta, modelo: null, produtos: 0, arquivos: [], aviso });
+      }
+    }
+    const comArquivos = lotes.filter((l) => l.arquivos.length);
+    const zip = comArquivos.length > 1
+      ? Buffer.from(zipSync(Object.fromEntries(comArquivos.flatMap((l) => l.arquivos.map((a) => [`${l.pasta}/${a.nome}`, strToU8(a.conteudo)]))))).toString('base64')
+      : null;
+    return { lotes, zip, nomeZip: zip ? 'Balanca.zip' : null };
+  }
+
+  /** gera os arquivos TOLEDO da config — da loja DELA (o `CodEmpresa` da linha). Devolve os .txt (nome+conteúdo) p/ o front baixar. */
+  async gerar(configId: number): Promise<{ config: number; modelo: string; produtos: number; arquivos: ArquivoBalanca[]; nutricional: { linhas: number; pulados: number } }> {
+    const sessao = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cfg = await this.configDoOperador(db, configId);
+    const emp = Number(cfg.idempresa);
     if (String(cfg.tipo_bal).toUpperCase() !== 'TOLEDO') throw new BusinessRuleError('BALANCA_TIPO_NAO_SUPORTADO', { tipo: cfg.tipo_bal }); // Filizola = corte-2
     const modelo = String(cfg.mod_bal ?? 'PRIX5-N').toUpperCase();
     const setorDeDpto = String(cfg.campo_setor ?? 'BALANCA').toUpperCase().includes('DEPART'); // 0=coddpto / 1=codbalanca
+    const exportaTabela = String(cfg.export_nutricional ?? 'N').toUpperCase() === 'S';
 
     // ramo do filtro ATIVO (fold auditoria [ALTA]): a config viva resolve 'S' → o legado filtra por MULTI_PRECO.ATIVO
     // (1196 produtos), não PRODUTOS.ATIVO (2278 = 1091 preços desativados voltariam à balança). Fiel a /*ATIVO*/
@@ -189,7 +245,8 @@ export class ExportaBalancaService {
       // INFNUTRI.TXT (corte-2, mig 274): só quem tem `expdadosnutricionais='S'` (UexportaBalanca.pas:130-152).
       // 'N' + PLU(6) + reservado '0' + qtde(3) + un.porção(1) + medida caseira (2+1+2) + energético(4) +
       // carboidrato(4) + proteína(3) + gord.total(3) + saturada(3) + trans(3) + fibra(3) + sódio(5).
-      if (String(r.expnutri) === 'S') {
+      // só com o "Ex.Tabela Nutricional" da config (`if (ExportaTabela) and (...)`, :130) — antes saía sempre
+      if (exportaTabela && String(r.expnutri) === 'S') {
         const corpo =
           '0'
           + padL(String(Math.trunc(num(r.qtde_porcao))), 3, '0')
@@ -233,7 +290,8 @@ export class ExportaBalancaService {
     // com a config TOLEDO / PRIX4-N / "Código da Balança") — o texto fica igual ao dele.
     const sn = (v: unknown) => (String(v ?? '').toUpperCase() === 'S' ? 'S' : String(v ?? '').toUpperCase() === 'N' ? 'N' : '');
     await (this.dbp.forTenant() as AnyDB).transaction().execute((trx: AnyDB) => gravarLog(trx, {
-      acao: 'Inseriu', formulario: 'Exportar para balança', tabela: 'EXPBALANCA', chave: 'BALANCA', valor: 0, idempresa: emp,
+      // a LOG leva a loja da SESSÃO (na produção os pares do mesmo segundo repetem a loja do login: "1,1" 213 vezes)
+      acao: 'Inseriu', formulario: 'Exportar para balança', tabela: 'EXPBALANCA', chave: 'BALANCA', valor: 0, idempresa: sessao,
       historico: [' - TIPO: 0', ' - MODELO: 0', ' - SETOR: 0', ` - EXPORTA TABELA NUTRICIONAL: ${sn(cfg.export_nutricional)}`,
         ` - EXPORTA RECEITA: ${sn(cfg.export_receita)}`, ` - EXPORTA TARA: ${sn(cfg.exporta_tara)}`].join('\r\n'),
     }));

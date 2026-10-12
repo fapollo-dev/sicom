@@ -25,7 +25,8 @@ export class ExportaBalancaController {
   gravarConfig(@Body() body: Record<string, unknown>) {
     const b = (k: string) => body?.[k] === true || body?.[k] === 'S';
     return this.svc.gravarConfig({
-      id: body?.id == null || body.id === '' ? null : Number(body.id), dir_bal: String(body?.dir_bal ?? ''), tipo_bal: String(body?.tipo_bal ?? ''),
+      id: body?.id == null || body.id === '' ? null : Number(body.id),
+      idempresa: body?.idempresa == null || body.idempresa === '' ? null : Number(body.idempresa), dir_bal: String(body?.dir_bal ?? ''), tipo_bal: String(body?.tipo_bal ?? ''),
       mod_bal: String(body?.mod_bal ?? ''), campo_setor: String(body?.campo_setor ?? ''),
       export_nutricional: b('export_nutricional'), export_receita: b('export_receita'), exporta_tara: b('exporta_tara'), exporta_rdc429: b('exporta_rdc429'),
     });
@@ -35,6 +36,14 @@ export class ExportaBalancaController {
   @RequerAcesso('FRMEXPORTABALANCA', 'BTNCONFIGURABAL')
   excluirConfig(@Param('id', ParseIntPipe) id: number) {
     return this.svc.excluirConfig(id);
+  }
+
+  /** o "Exportar" com as linhas marcadas da grade (Tag 1 — BTNEXPORTAR): uma geração por config, um .zip por loja quando são várias */
+  @Post('gerar-lote')
+  @HttpCode(200)
+  @RequerAcesso('FRMEXPORTABALANCA', 'BTNEXPORTAR')
+  gerarLote(@Body() body: { ids?: unknown }) {
+    return this.svc.gerarLote(Array.isArray(body?.ids) ? body.ids.map((i) => Number(i)) : []);
   }
 
   /** gera os arquivos da config (TXITENS/CADASTRO/ITENSMGV) e devolve p/ download — o botão "Exportar" (Tag 1). */
