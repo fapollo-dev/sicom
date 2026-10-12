@@ -33,6 +33,16 @@ export const gerarSpedSchema = z
     c140: z.boolean().optional(),
     c140TodosModelos: z.boolean().optional(),
     c191: z.boolean().optional(),
+    // as opções da tela do SPED Contribuições (ausente = o padrão do .dfm)
+    numReciboAnterior: z.string().trim().max(41).optional(),
+    formaApuracao: z.enum(['analitica', 'sintetica']).optional(),
+    gerarM: z.boolean().optional(),
+    gera5929: z.boolean().optional(),
+    aliqPis: z.coerce.number().min(0).max(100).optional(),
+    aliqCofins: z.coerce.number().min(0).max(100).optional(),
+    incidencia: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+    metodoApropriacao: z.union([z.literal(1), z.literal(2)]).optional(),
+    tipoContribuicao: z.union([z.literal(1), z.literal(2)]).optional(),
     inventario: z
       .object({
         data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data do inventário.'),

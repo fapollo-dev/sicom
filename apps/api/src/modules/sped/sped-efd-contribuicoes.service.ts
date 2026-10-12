@@ -11,6 +11,27 @@ import { validarSped, type ResultadoValidacao } from './sped-validator';
 
 type AnyDB = Kysely<any>;
 
+/**
+ * As opções da tela do SPED Contribuições (UspedPisCofins.dfm; ausente = o padrão do .dfm): "Finalidade do Arquivo" (0000.TIPO_ESCRIT),
+ * "Apurar registros de forma" (C010.IND_ESCRI — Analítica = 2, Sintético = 1; não muda os registros, como no legado), "Gerar M100/810"
+ * (desmarcado, o bloco M sai sem dados), "Gerar CFOP 5929" (desmarcado, as notas e os itens 5929/6929 ficam fora), as "Alíquotas" de PIS e
+ * COFINS (0,65 / 3,00: o grupo do C175 com CST 05 sai sem base e sem valor, com a alíquota da tela) e os três "Indicadores" do 0110
+ * (incidência — o LP abre no cumulativo —, método de apropriação — o padrão é o rateio proporcional —, tipo de contribuição).
+ */
+export interface OpcoesContribuicoes {
+  exigirApuracao?: boolean;
+  finalidade?: 0 | 1;
+  numReciboAnterior?: string;
+  formaApuracao?: 'analitica' | 'sintetica';
+  gerarM?: boolean;
+  gera5929?: boolean;
+  aliqPis?: number;
+  aliqCofins?: number;
+  incidencia?: 1 | 2 | 3;
+  metodoApropriacao?: 1 | 2;
+  tipoContribuicao?: 1 | 2;
+}
+
 /** COD_VER (versão do leiaute) por período — aproximado (o fisco mantém a tabela oficial; refinar por período).
  *  Fiel ao GetVersaoLeiaute do legado (deriva do ano de DT_INI). 2020+ = layout mais recente do EFD-Contribuições. */
 function codVersao(dtini: string): string {
@@ -38,7 +59,7 @@ export class SpedEfdContribuicoesService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string, opcoes: { exigirApuracao?: boolean } = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string; validacao: ResultadoValidacao }> {
+  async gerar(dtini: string, dtfim: string, opcoes: OpcoesContribuicoes = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string; validacao: ResultadoValidacao }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -51,6 +72,21 @@ export class SpedEfdContribuicoesService {
 
     const cnpj = soDigitos(empresa.cnpj);
     const raiz = cnpj.slice(0, 8);
+    // as opções da tela, com o padrão do .dfm; o LP abre a incidência no cumulativo (FormShow, UspedPisCofins.pas:375-376)
+    const lp = String(empresa.classfiscal ?? '').trim().toUpperCase() === 'LP';
+    const op = {
+      finalidade: opcoes.finalidade === 1 ? 1 : 0,
+      numRecibo: String(opcoes.numReciboAnterior ?? '').trim(),
+      indEscri: opcoes.formaApuracao === 'sintetica' ? '1' : '2',
+      gerarM: opcoes.gerarM !== false,
+      gera5929: !!opcoes.gera5929,
+      aliqPis: opcoes.aliqPis ?? 0.65,
+      aliqCofins: opcoes.aliqCofins ?? 3,
+      incidencia: opcoes.incidencia ?? (lp ? 2 : 1),
+      metodo: opcoes.metodoApropriacao ?? 2,
+      tipoCont: opcoes.tipoContribuicao ?? 1,
+    };
+    if (op.finalidade === 1 && !op.numRecibo) throw new BusinessRuleError('SPED_RECIBO_ANTERIOR_OBRIGATORIO', {});
     // PreparaGeracaoSPED (UspedPisCofins.pas:2427-2432): a tela não gera sem uma apuração do período exato (o cdsApuracao —
     // UdmSpedPisCofins.dfm:6204 — não filtra a loja)
     if (opcoes.exigirApuracao) {
@@ -61,7 +97,8 @@ export class SpedEfdContribuicoesService {
 
     // 0000 — identificação: COD_VER|TIPO_ESCRIT(0=original)|IND_SIT_ESP|NUM_REC_ANTERIOR|DT_INI|DT_FIN|NOME|CNPJ|UF|COD_MUN|SUFRAMA|IND_NAT_PJ(00)|IND_ATIV
     // IND_ATIV='2' (Atividade de comércio) — fiel ao indAtivComercio do legado (supermercado = comércio; fold cutover ALTA).
-    arq.add('0000', [codVersao(dtini), '0', '', '', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, empresa.uf ?? '', empresa.idcidade != null ? String(empresa.idcidade) : '', '', '00', '2']);
+    // TIPO_ESCRIT pela "Finalidade do Arquivo"; na retificadora o recibo da anterior (o legado o deixava vazio — o PVA recusa)
+    arq.add('0000', [codVersao(dtini), String(op.finalidade), '', op.finalidade === 1 ? op.numRecibo : '', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, empresa.uf ?? '', empresa.idcidade != null ? String(empresa.idcidade) : '', '', '00', '2']);
     // 0001 — abertura do bloco 0 (0=com dados).
     arq.add('0001', ['0']);
     // 0100 (13 campos) — o contabilista da empresa (uSpedPisCofins.pas:416, `SELECT * FROM CONTABILISTA WHERE CODEMPRESA`): CPF, CNPJ
@@ -74,8 +111,10 @@ export class SpedEfdContribuicoesService {
     // senão cumulativo (COD_INC_TRIB=2 + IND_REG_CUM=1 caixa). fold cutover ALTA: COD_TIPO_CONT era '0' (fora do
     // domínio {1,2} → PVA rejeita) e IND_REG_CUM era vazio no cumulativo (obrigatório p/ COD_INC_TRIB=2).
     // 0110: COD_INC_TRIB|IND_APRO_CRED|COD_TIPO_CONT|IND_REG_CUM (APRO_CRED/TIPO_CONT exigidos só p/ COD_INC_TRIB∈{1,3}).
-    const naoCumulativo = String(empresa.classfiscal ?? '') === 'LR';
-    arq.add('0110', naoCumulativo ? ['1', '1', '1', ''] : ['2', '', '', '1']);
+    // pelos "Indicadores" da tela (GetCodIndTrib/GetIndAproCred/GetCodTipoCont, :1965-1993, :2192-2198): o método de apropriação e o tipo de
+    // contribuição só existem com incidência não-cumulativa (1) ou nos dois regimes (3); o IND_REG_CUM é o regime de competência detalhado
+    // (9 — o legado o põe só no LP) com incidência cumulativa
+    arq.add('0110', [String(op.incidencia), op.incidencia === 2 ? '' : String(op.metodo), op.incidencia === 2 ? '' : String(op.tipoCont), op.incidencia === 1 ? '' : '9']);
     // 0140 — estabelecimentos que compartilham a RAIZ do CNPJ (fiel ao loop por SubStr(CNPJ,1,x) do legado).
     const estabs = (await db
       .selectFrom('empresas')
@@ -88,18 +127,18 @@ export class SpedEfdContribuicoesService {
       arq.add('0140', [String(e.idempresa), e.razao_social ?? '', soDigitos(e.cnpj), e.uf ?? '', e.insc ?? '', e.idcidade != null ? String(e.idcidade) : '', e.im ?? '', '']);
     }
     // corte-2b: cadastros (0150 participantes / 0190 unidades / 0200 itens) referenciados pelo bloco C — ANTES do 0990.
-    const docs = await this.coletarDocumentosEntrada(db, emp, dtini, dtfim);
+    const docs = await this.coletarDocumentosEntrada(db, emp, dtini, dtfim, op.gera5929);
     const saida = await this.coletarVendasSaida(db, emp, dtini, dtfim); // corte-2: NFC-e de saída (C100 mod 65 + C175)
     const cupons = saida.cupons;
     this.emitirCadastros(arq, docs);
     arq.fecharBloco('0990', '0');
 
     // BLOCO C: documentos fiscais de ENTRADA (C100/C170) + SAÍDA NFC-e mod 65 (C100/C175 — corte-2 do PDV).
-    this.emitirBlocoC(arq, docs, cupons, cnpj);
+    this.emitirBlocoC(arq, docs, cupons, cnpj, op);
 
     // BLOCO M: apuração de PIS/COFINS — CRÉDITO de entrada (M100/M105/M500/M505) + DÉBITO de saída do PDV
     // (M200/M210/M600/M610, corte-1 VENDAS), com o crédito descontado e o valor a recolher (débito − crédito).
-    const temM = await this.gerarBlocoM(arq, db, emp, dtini, dtfim);
+    const temM = await this.gerarBlocoM(arq, db, emp, dtini, dtfim, op);
 
     const arquivo = arq.gerar();
     // o nome do legado (UspedPisCofins.pas:2445): 'SPED_CONTRIBUICOES_' + CNPJ sem pontuação + '_' + a data de hoje (ddmmaaaa) + '.txt'
@@ -122,7 +161,13 @@ export class SpedEfdContribuicoesService {
    * contra o débito — fill-first) + M200 (consolidação: contribuição − crédito descontado = a recolher) + M210
    * (débito por alíquota). COFINS espelha (M500/M505/M600/M610). Sem apuração → M001 IND_MOV=1. Retorna true se houve dado.
    */
-  private async gerarBlocoM(arq: SpedArquivo, db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<boolean> {
+  private async gerarBlocoM(arq: SpedArquivo, db: AnyDB, emp: number, dtini: string, dtfim: string, op: { gerarM: boolean; incidencia: number } = { gerarM: true, incidencia: 1 }): Promise<boolean> {
+    // "Gerar M100/810" desmarcado: o legado não escrevia o bloco M (sem o M001 o arquivo nem abre no PVA) — aqui ele sai sem dados
+    if (!op.gerarM) {
+      arq.add('M001', ['1']);
+      arq.fecharBloco('M990', 'M');
+      return false;
+    }
     // a apuração do período EXATO (`UdmSpedPisCofins.dfm:6204-6206`): a do escopo da raiz do CNPJ tem IDEMPRESA nulo (as 18 do legado); se
     // houver mais de uma, vale a primeira
     const cab = (await db.selectFrom('apuracao_pc').select('codapuracao_pc').where((eb: any) => eb.or([eb('idempresa', '=', emp), eb('idempresa', 'is', null)]))
@@ -130,7 +175,8 @@ export class SpedEfdContribuicoesService {
     const det = cab
       ? ((await db.selectFrom('apuracao_pc_det').selectAll().where('codapuracao_pc', '=', Number(cab.codapuracao_pc)).orderBy('codapuracao_pc_det').execute()) as Array<Record<string, unknown>>)
       : [];
-    const detC = det.filter((d) => d.tipo === 'C');
+    // na incidência cumulativa não há crédito: o legado pula o M100 e o M500 e não desconta crédito no M200/M600 (:1443, :1717, :1540)
+    const detC = op.incidencia === 2 ? [] : det.filter((d) => d.tipo === 'C');
     const detD = det.filter((d) => d.tipo === 'D');
     const detI = det.filter((d) => d.tipo === 'I'); // receita NÃO-tributada (isenta/alíq-zero/monofásica) → M400/M800
 
@@ -287,6 +333,7 @@ export class SpedEfdContribuicoesService {
     emp: number,
     dtini: string,
     dtfim: string,
+    gera5929 = false,
   ): Promise<{ nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; parceiros: Map<string, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string>; pcConfig: Set<number>; abaterIcms: boolean }> {
     const nfs = (await db
       .selectFrom('nf as n')
@@ -303,7 +350,8 @@ export class SpedEfdContribuicoesService {
       .where(sql`n.dtcontabil`, '<=', dtfim)
       .where('n.nronf', 'is not', null)
       .where('n.nronf', 'not in', ['0', '000000'])
-      .where(sql<boolean>`EXISTS (SELECT 1 FROM nf_prod x WHERE x.codnf = n.codnf AND coalesce(x.cfop::text, '') NOT IN ('5929', '6929'))`)
+      // "Gerar CFOP 5929" desmarcado (o padrão): a nota só com itens 5929/6929 fica fora (o `/*CFOP*/` do FDqNF, :710-711)
+      .where(sql<boolean>`EXISTS (SELECT 1 FROM nf_prod x WHERE x.codnf = n.codnf AND (${gera5929} OR coalesce(x.cfop::text, '') NOT IN ('5929', '6929')))`)
       .orderBy('n.tipo').orderBy('n.modelo').orderBy('n.dtemissao').orderBy('n.nronf')
       .limit(5000)
       .execute()) as Array<Record<string, unknown>>;
@@ -345,7 +393,7 @@ export class SpedEfdContribuicoesService {
     }
     // o 0150 (sqqParceiros): quem está nas notas não canceladas, cliente/fornecedor/transportadora, com o endereço da nota
     const parceiros = new Map<string, Record<string, unknown>>();
-    const ends = [...new Set(nfs.filter((n) => String(n.cancelada) !== 'S' && ![5929, 6929].includes(Number(n.cfop))).map((n) => Number(n.codparceiro_end)).filter(Boolean))];
+    const ends = [...new Set(nfs.filter((n) => String(n.cancelada) !== 'S' && (gera5929 || ![5929, 6929].includes(Number(n.cfop)))).map((n) => Number(n.codparceiro_end)).filter(Boolean))];
     if (ends.length) {
       const rows = (await db.selectFrom('parceiros_end as pe').innerJoin('parceiros as p', 'p.codparceiro', 'pe.codparceiro')
         .select(['p.codparceiro', 'p.razao', 'p.tipofj', 'pe.codend', 'pe.cnpj_cpf', 'pe.rg_insc', 'pe.endereco', 'pe.bairro', 'pe.idcidade'])
@@ -446,6 +494,7 @@ export class SpedEfdContribuicoesService {
     docs: { nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; produtos: Map<number, Record<string, unknown>>; pcConfig: Set<number>; abaterIcms: boolean },
     cupons: Array<{ nroserie: string; nrocupom: string; chavenfe: string; statusnfe: string; dtemissao: string; itens: Array<Record<string, unknown>> }>,
     cnpjEstab: string,
+    op: { indEscri: string; gera5929: boolean; aliqPis: number; aliqCofins: number } = { indEscri: '2', gera5929: false, aliqPis: 0.65, aliqCofins: 3 },
   ): void {
     const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -457,7 +506,8 @@ export class SpedEfdContribuicoesService {
       arq.fecharBloco('C990', 'C');
       return;
     }
-    arq.add('C010', [cnpjEstab, '1']); // IND_ESCRI=1 (individualizada)
+    // IND_ESCRI pela "Apurar registros de forma": Analítica (individualizada) = 2, Sintético (consolidada) = 1 (GetIndEscrituracao, :2210-2213)
+    arq.add('C010', [cnpjEstab, op.indEscri]);
     for (const nf of docs.nfs) {
       const tipoNota = String(nf.tipo);
       const indOper = tipoNota === 'E' ? '0' : '1';
@@ -479,7 +529,7 @@ export class SpedEfdContribuicoesService {
       const x929 = String(primeiro?.cfop ?? '').includes('929');
       const icmsItens = itens.map((it) => icmsDoItemC170(it, String(it.proc_cupom ?? '') === 'S'));
       const cab = pisCofinsDoCabecalho(itens.map((it) => ({ it, pc: pc(it) })), tipoNota, String(nf.tipoemissao ?? ''), nf.tipofj, docs.pcConfig, docs.abaterIcms);
-      const vlMerc = r2(itens.filter((it) => !['5929', '6929'].includes(String(it.cfop ?? ''))).reduce((a, it) => a + r2(nn(it.vrcusto) * nn(it.quantidade)), 0));
+      const vlMerc = r2(itens.filter((it) => op.gera5929 || !['5929', '6929'].includes(String(it.cfop ?? ''))).reduce((a, it) => a + r2(nn(it.vrcusto) * nn(it.quantidade)), 0));
       const codSit = x929 || String(nf.fisco_emit_cnpj ?? '').trim() !== '' ? '08' : '00';
       // C100 (28 campos): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO(1)|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
       arq.add('C100', [indOper, indEmit, String(nf.cnpj_cpf ?? '').trim(), codMod, codSit, ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string),
@@ -524,10 +574,15 @@ export class SpedEfdContribuicoesService {
         const bcCof = r2(g.reduce((s, it) => s + nn(it.cofins_bcalculo), 0));
         const pisAliq = nn(g[0].pis_aliquota);
         const cofAliq = nn(g[0].cofins_aliquota);
+        const vlOpr = r2(g.reduce((s, it) => s + nn(it.qtde) * nn(it.vrvenda), 0));
+        // as "Alíquotas" da tela (0,65 / 3,00): o grupo com CST de COFINS 05 sai sem base e sem valor, com a alíquota da tela — as duas
+        // têm de estar preenchidas (:1005-1017)
+        if (Math.trunc(nn(g[0].cofins_cst)) === 5 && op.aliqPis > 0 && op.aliqCofins > 0) {
+          return { cfop: nn(g[0].cfop), pisCst: cst2(g[0].pis_cst), cofCst: cst2(g[0].cofins_cst), vlOpr, bcPis: 0, bcCof: 0, pisAliq: op.aliqPis, cofAliq: op.aliqCofins, vPis: 0, vCof: 0 };
+        }
         return {
           cfop: nn(g[0].cfop), pisCst: cst2(g[0].pis_cst), cofCst: cst2(g[0].cofins_cst),
-          vlOpr: r2(g.reduce((s, it) => s + nn(it.qtde) * nn(it.vrvenda), 0)),
-          bcPis, bcCof, pisAliq, cofAliq, vPis: r2((bcPis * pisAliq) / 100), vCof: r2((bcCof * cofAliq) / 100),
+          vlOpr, bcPis, bcCof, pisAliq, cofAliq, vPis: r2((bcPis * pisAliq) / 100), vCof: r2((bcCof * cofAliq) / 100),
         };
       });
       const vlMerc = r2(c175.reduce((s, g) => s + g.vlOpr, 0));

@@ -52,5 +52,9 @@ export type ContasPc = Record<'m400' | 'm410' | 'm800' | 'm810', ContaPc | null>
 export const lerContasPc = () => req<ContasPc>('/fiscal/sped/contas-pc');
 export const gravarContasPc = (dto: Partial<Record<'m400' | 'm410' | 'm800' | 'm810', number | null>>) =>
   req<ContasPc>('/fiscal/sped/contas-pc', { method: 'PUT', body: JSON.stringify(dto) });
-export const gerarSpedContribuicoes = (dtini: string, dtfim: string) =>
-  req<ArquivoSped>('/fiscal/sped/efd-contribuicoes', { method: 'POST', body: JSON.stringify({ dtini, dtfim, exigirApuracao: true }) });
+export interface OpcoesContribuicoesTela {
+  finalidade?: 0 | 1; numReciboAnterior?: string; formaApuracao?: 'analitica' | 'sintetica'; gerarM?: boolean; gera5929?: boolean;
+  aliqPis?: number; aliqCofins?: number; incidencia?: 1 | 2 | 3; metodoApropriacao?: 1 | 2; tipoContribuicao?: 1 | 2;
+}
+export const gerarSpedContribuicoes = (dtini: string, dtfim: string, opcoes: OpcoesContribuicoesTela = {}) =>
+  req<ArquivoSped>('/fiscal/sped/efd-contribuicoes', { method: 'POST', body: JSON.stringify({ dtini, dtfim, exigirApuracao: true, ...opcoes }) });

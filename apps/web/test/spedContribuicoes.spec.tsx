@@ -58,4 +58,25 @@ describe('SPED Contribuições (FRMSPEDPISCOFINS) — as contas do bloco M, o pr
     expect(await screen.findByText('SPED_CONTRIBUICOES_12345678000190_09102026.txt')).toBeTruthy();
     expect(await screen.findByText(/Arquivo Gerado com Sucesso/)).toBeTruthy();
   });
+
+  it('as opções da tela: só vai o que mudou do padrão (retificação com o recibo, sintético, sem M, CFOP 5929, alíquota de PIS 0, cumulativo, apropriação direta)', async () => {
+    contas = { ...contas, m810: conta };
+    montar();
+    await waitFor(() => expect(screen.getAllByDisplayValue('183').length).toBe(4));
+    periodo();
+    fireEvent.click(screen.getByLabelText('Pré-Validador'));
+    fireEvent.click(screen.getByLabelText(/Retificação/));
+    fireEvent.change(screen.getByLabelText('Recibo da escrituração anterior'), { target: { value: '99887766' } });
+    fireEvent.click(screen.getByLabelText(/Sintético/));
+    fireEvent.click(screen.getByLabelText('Gerar M100/810'));
+    fireEvent.click(screen.getByLabelText('Gerar CFOP 5929'));
+    fireEvent.change(screen.getByLabelText('Indicador de método de apropriação de créditos'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Indicador da incidência tributario no periodo'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /erar/ }));
+    await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-contribuicoes'))).toBe(true));
+    expect(JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-contribuicoes'))![1]!.body))).toEqual({
+      dtini: '2026-09-01', dtfim: '2026-09-30', exigirApuracao: true, finalidade: 1, numReciboAnterior: '99887766', formaApuracao: 'sintetica', gerarM: false,
+      gera5929: true, incidencia: 2, metodoApropriacao: 1,
+    });
+  });
 });

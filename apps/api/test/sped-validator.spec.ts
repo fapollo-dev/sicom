@@ -77,6 +77,13 @@ describe('validarSped (validador estrutural PVA-style)', () => {
     expect(r.erros.some((e) => e.includes('0110'))).toBe(false);
   });
 
+  it('0110 rateio proporcional (IND_APRO_CRED 2) sem o 0111 → erro; cumulativo com o regime de competência detalhado (9) → ok', () => {
+    const r = validarSped(arquivoCom0110(['1', '2', '1', '']));
+    expect(r.erros.some((e) => e.includes('0111'))).toBe(true);
+    const c = validarSped(arquivoCom0110(['2', '', '', '9']));
+    expect(c.erros.some((e) => e.includes('0110'))).toBe(false);
+  });
+
   it('0110 cumulativo (COD_INC_TRIB=2) sem IND_REG_CUM → erro (obrigatório)', () => {
     const r = validarSped(arquivoCom0110(['2', '', '', '']));
     expect(r.ok).toBe(false);

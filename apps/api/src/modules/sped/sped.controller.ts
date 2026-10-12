@@ -64,7 +64,11 @@ export class SpedController {
   @HttpCode(200)
   @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
   gerarEfdContribuicoes(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
-    return this.efd.gerar(dto.dtini, dto.dtfim, { exigirApuracao: !!dto.exigirApuracao });
+    return this.efd.gerar(dto.dtini, dto.dtfim, {
+      exigirApuracao: !!dto.exigirApuracao, finalidade: dto.finalidade, numReciboAnterior: dto.numReciboAnterior, formaApuracao: dto.formaApuracao,
+      gerarM: dto.gerarM, gera5929: dto.gera5929, aliqPis: dto.aliqPis, aliqCofins: dto.aliqCofins, incidencia: dto.incidencia,
+      metodoApropriacao: dto.metodoApropriacao, tipoContribuicao: dto.tipoContribuicao,
+    });
   }
 
   /** EFD ICMS/IPI (SPED Fiscal) — corte-1: bloco 0 + C (entrada + C190) + E (apuração ICMS crédito) + 9. */

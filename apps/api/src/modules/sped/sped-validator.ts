@@ -143,8 +143,12 @@ export function validarSped(arquivo: string): ResultadoValidacao {
       if (!emDominio(r.campos[1], ['1', '2'])) erros.push(`0110 (linha ${r.linha}): IND_APRO_CRED '${r.campos[1]}' fora do domínio {1,2} (exigido p/ COD_INC_TRIB ${inc})`);
       if (!emDominio(r.campos[2], ['1', '2'])) erros.push(`0110 (linha ${r.linha}): COD_TIPO_CONT '${r.campos[2]}' fora do domínio {1,2} (exigido p/ COD_INC_TRIB ${inc})`);
     }
-    // IND_REG_CUM exigido (domínio {1,2,3}) quando COD_INC_TRIB=2 (cumulativo).
-    if (inc === '2' && !emDominio(r.campos[3], ['1', '2', '3'])) erros.push(`0110 (linha ${r.linha}): IND_REG_CUM '${r.campos[3]}' fora do domínio {1,2,3} (exigido p/ COD_INC_TRIB=2)`);
+    // IND_REG_CUM exigido quando COD_INC_TRIB=2 (cumulativo): 1 caixa (F500), 2 competência consolidada (F550), 9 competência detalhada
+    if (inc === '2' && !emDominio(r.campos[3], ['1', '2', '9'])) erros.push(`0110 (linha ${r.linha}): IND_REG_CUM '${r.campos[3]}' fora do domínio {1,2,9} (exigido p/ COD_INC_TRIB=2)`);
+    // o rateio proporcional (IND_APRO_CRED 2) exige o 0111 (a receita bruta do rateio) — que o legado nunca gerou
+    if ((inc === '1' || inc === '3') && r.campos[1] === '2' && !regs.some((x) => x.reg === '0111')) {
+      erros.push(`0110 (linha ${r.linha}): IND_APRO_CRED 2 (rateio proporcional) exige o registro 0111, que não foi gerado — escolha a apropriação direta (1)`);
+    }
   }
   for (const r of regs.filter((x) => x.reg === 'M100' || x.reg === 'M500')) {
     // IND_CRED_ORI ∈ {0=operações próprias, 1=incorporação/cisão/fusão}.

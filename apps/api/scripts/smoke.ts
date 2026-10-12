@@ -15059,7 +15059,8 @@ async function main() {
 
         // 88.6) VALIDAÇÃO estrutural PVA-style do arquivo gerado (totalizador 9900/9990/9999 + derivações
         // M100/M200/M205 + coerência C100↔C175 + contagem de campos). erros=[] ⇒ estruturalmente válido.
-        const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30' }) })).json().catch(() => ({}))) as any;
+        // a apropriação direta (1) — o padrão da tela é o rateio (2), que exige o 0111 que o gerador (como o legado) não faz
+        const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30', metodoApropriacao: 1 }) })).json().catch(() => ({}))) as any;
         check('SPED §88.6: validação estrutural do arquivo (bloco 9 + derivações M + C100↔C175 + DOMÍNIOS PVA) → SEM erros',
           efdSJ.validacao && efdSJ.validacao.ok === true && Array.isArray(efdSJ.validacao.erros) && efdSJ.validacao.erros.length === 0 && efdSJ.validacao.registros > 0,
           { validacao: efdSJ.validacao });
@@ -15067,8 +15068,8 @@ async function main() {
         // (comércio), 0110 LR [1|1|1|] (COD_TIPO_CONT=1, era '0' inválido), M100 IND_CRED_ORI=0 (era '01' inválido).
         const r0000 = linS.find((l) => l.startsWith('|0000|')) ?? '';
         const r0110 = linS.find((l) => l.startsWith('|0110|')) ?? '';
-        check('SPED §88.7 cutover golden: 0000 IND_ATIV=2 + 0110 LR |1|1|1| (COD_TIPO_CONT=1) + M100 IND_CRED_ORI=0 (domínios PVA)',
-          r0000.endsWith('|00|2|') && r0110 === '|0110|1|1|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
+        check('SPED §88.7 cutover golden: 0000 IND_ATIV=2 + 0110 LR no padrão da tela |1|2|1| (não-cumulativo, rateio proporcional, alíquota básica) + M100 IND_CRED_ORI=0 (domínios PVA)',
+          r0000.endsWith('|00|2|') && r0110 === '|0110|1|2|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
           { r0000: r0000.slice(-16), r0110, m100: m100S.slice(0, 18) });
         // 88.8) RECEITA NÃO-TRIBUTADA (M400/M410 PIS + M800/M810 COFINS) — supermercado: cesta básica (CST 06 alíq 0)
         // + monofásico (CST 04) + CST 08 sem natureza. Período 2035-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90
@@ -15106,7 +15107,7 @@ async function main() {
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIsenta]);
         const apurI = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-10-01', dtfim: '2035-10-31' }) });
         const apurIJ = (await apurI.json().catch(() => ({}))) as any;
-        const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-10-01', dtfim: '2035-10-31' }) });
+        const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-10-01', dtfim: '2035-10-31', metodoApropriacao: 1 }) });
         const efdIJ = (await efdI.json().catch(() => ({}))) as any;
         const linI = String(efdIJ.arquivo ?? '').split('\r\n');
         const m400_06 = linI.find((l) => l.startsWith('|M400|06|')) ?? '';
@@ -15396,7 +15397,7 @@ async function main() {
           apurSc.status === 200 && Number(apurScJ.total_debito_pis) === 1.65 && Number(apurScJ.total_debito_cofins) === 7.6 && Number(apurScJ.total_credito_pis) === 0.66,
           { apur: apurScJ },
         );
-        const efdSc = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-31' }) });
+        const efdSc = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-31', metodoApropriacao: 1 }) });
         const efdScJ = (await efdSc.json().catch(() => ({}))) as any;
         const linSc = String(efdScJ.arquivo ?? '').split('\r\n');
         const c100SaiSc = linSc.find((l) => l.startsWith('|C100|1|') && l.includes('|55|')) ?? '';
@@ -19676,6 +19677,43 @@ async function main() {
         for (const id of nfs) { await pgOp.query(`DELETE FROM faturamento WHERE idnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
         if (!tinha5929) await pgOp.query(`DELETE FROM cfop WHERE codcfop = '5929'`).catch(() => undefined);
         await pgOp.end();
+      }
+    }
+    // ══ §311 SPED CONTRIBUIÇÕES — as opções da tela do legado (o padrão do .dfm e cada opção mudada): finalidade, forma de apuração, M100/810,
+    // CFOP 5929, as alíquotas do CST 05 no C175 e os indicadores do 0110
+    {
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // uma NFC-e de out/2045 com um item CST 05 (monofásico) e um CST 01
+        await pgCt.query(`DELETE FROM vendas WHERE nropedido = 'CT3110'`);
+        await pgCt.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe,
+            pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
+          (1, '2045-10-05 10:00:00-03', 'CT3110', 7, 3110, 1, 1, 1, 100, '5405', 'S', 'N', 'P', '35451011222333000181650070000031101000000001', '05', 100, 1.65, 1.65, '05', 100, 7.6, 7.6),
+          (1, '2045-10-05 10:00:00-03', 'CT3110', 7, 3110, 2, 2, 1, 50, '5102', 'S', 'N', 'P', '35451011222333000181650070000031101000000001', '01', 50, 1.65, 0.83, '01', 50, 7.6, 3.8)`);
+        const gerar = async (op: Record<string, unknown> = {}) => {
+          const r = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2045-10-01', dtfim: '2045-10-31', ...op }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          return { status: r.status, j, l: String(j.arquivo ?? '').split('\r\n') };
+        };
+        const pad = await gerar();
+        const reg = (x: { l: string[] }, pre: string) => x.l.find((y) => y.startsWith(pre)) ?? '';
+        const mud = await gerar({ finalidade: 1, numReciboAnterior: '1234567890', formaApuracao: 'sintetica', gerarM: false, incidencia: 2, aliqPis: 0, aliqCofins: 3 });
+        const semRecibo = await gerar({ finalidade: 1 });
+        const c175 = pad.l.filter((y) => y.startsWith('|C175|'));
+        const c175m = mud.l.filter((y) => y.startsWith('|C175|'));
+        check('SPED CONTRIBUIÇÕES §311 [as opções da tela]: no padrão do .dfm 0000 original, C010 IND_ESCRI 2 (analítica), 0110 |1|2|1| e o C175 do CST 05 sem base e sem valor com as alíquotas da tela (0,65 / 3,00), o CST 01 normal; mudando: retificadora com o recibo, C010 1 (sintético), 0110 cumulativo |2|||9|, o bloco M sem dados, e com a alíquota de PIS zerada o CST 05 volta ao valor real; retificação sem o recibo → 422',
+          pad.status === 200 && reg(pad, '|0000|').split('|')[3] === '0' && reg(pad, '|C010|').endsWith('|2|') && reg(pad, '|0110|') === '|0110|1|2|1||'
+          && c175.includes('|C175|5405|100,00|0,00|05|0,00|0,6500|||0,00|05|0,00|3,0000|||0,00|||')
+          && c175.includes('|C175|5102|50,00|0,00|01|50,00|1,6500|||0,83|01|50,00|7,6000|||3,80|||')
+          && mud.status === 200 && reg(mud, '|0000|').split('|')[3] === '1' && reg(mud, '|0000|').split('|')[5] === '1234567890'
+          && reg(mud, '|C010|').endsWith('|1|') && reg(mud, '|0110|') === '|0110|2|||9|' && reg(mud, '|M001|') === '|M001|1|' && !mud.l.some((y) => y.startsWith('|M200|'))
+          && c175m.includes('|C175|5405|100,00|0,00|05|100,00|1,6500|||1,65|05|100,00|7,6000|||7,60|||')
+          && semRecibo.status === 422 && semRecibo.j.code === 'SPED_RECIBO_ANTERIOR_OBRIGATORIO',
+          { pad: [pad.status, reg(pad, '|0000|').slice(0, 30), reg(pad, '|C010|'), reg(pad, '|0110|'), c175], mud: [mud.status, mud.j.code, reg(mud, '|0000|').slice(0, 30), reg(mud, '|C010|'), reg(mud, '|0110|'), reg(mud, '|M001|'), c175m],
+            semRecibo: [semRecibo.status, semRecibo.j.code] });
+      } finally {
+        await pgCt.query(`DELETE FROM vendas WHERE nropedido = 'CT3110'`).catch(() => undefined);
+        await pgCt.end();
       }
     }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
