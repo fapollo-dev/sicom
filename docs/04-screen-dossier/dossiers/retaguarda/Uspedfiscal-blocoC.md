@@ -371,7 +371,9 @@ Recon completo das opções da tela (`Uspedfiscal.pas`/`.dfm`) por agente; conve
 | Gerar ICMS ST C100/C170/C190 | desmarcada | VL_ICMS_ST com o valor (C100 TOTALICM_ST, C170 VRICMST, C190 Σ sem a ST externa); VL_BC_ICMS_ST segue 0 |
 | Gerar C170 com IPI e ICMS-ST no total do item | desmarcada | só entrada: VL_MERC = mercadoria + ST + IPI, VL_ITEM = valor + VRICMST + IPI%, e ST/IPI 0 no C100/C170/C190 (vence as outras de ST/IPI) |
 
+| C140 / Gerar todos modelos de nota C140 | desmarcadas | C140 (IND_EMIT, IND_TIT pelo TIPODOC do a receber — 00/01/02/03/99, DESC_TIT só no 99, NUM_TIT = o número da nota, QTD_PARC, VL_TIT = o total) e uma C141 por fatura (NUM_PARC, vencimento, valor); só o modelo 1 sem o "todos modelos". Diferenças conscientes: a nota sem faturamento fica sem C140 (o legado o escrevia com o título vazio — o PVA recusa) e a parcela sai uma vez mesmo com dois títulos a receber na nota (o LEFT JOIN do legado a repetia) |
+
 Mortas no legado (a tela mostra, o código não lê): E200/210/250, K270/275, K280 (escondidas), Decimal Desconto (o `/*CASAS*/` não existe na
-consulta); C176 desmarca sozinho no clique. Ainda por converter: C140/C141 (+ todos os modelos), C191 (quebra depois de 2020 no fonte),
-E500 (APURACAO_IPI), bloco K (OPTANTE_BLOCOK = N na produção), 1700/1710 (marcado por padrão, mas com modelo 02, série D e NUM_AUT fixos
+consulta); C176 desmarca sozinho no clique. 🪦 E500: APURACAO_IPI e IPI_CFOP com **0 linhas** na produção. Ainda por converter: C191
+(quebra depois de 2020 no fonte), bloco K (OPTANTE_BLOCOK = N na produção), 1700/1710 (marcado por padrão, mas com modelo 02, série D e NUM_AUT fixos
 no fonte — conferir no binário antes), NF Goiana (C460/C470 de ECF), NFC-e com itens e com participante, CST 041 do C490 (ECF). Smoke §310.

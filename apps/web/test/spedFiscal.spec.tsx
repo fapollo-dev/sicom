@@ -105,6 +105,19 @@ describe('SPED ICMS/IPI (FRMSPEDFISCAL) — o gerador com o pré-validador', () 
     expect(corpo).toEqual({ dtini: '2026-09-01', dtfim: '2026-09-30', finalidade: 1, codigoProduto: 'ean', entradas: false, somarIcmsStOutras: true, cst49: true, c170Proprias: true });
   });
 
+  it('o C140 e o "todos modelos" vão quando marcados', async () => {
+    render(<MemoryRouter><ShortcutScope><MensagemProvider><SpedFiscalPage /></MensagemProvider></ShortcutScope></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText(/Competência: de/), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText(/^até/), { target: { value: '2026-09-30' } });
+    fireEvent.click(screen.getByLabelText('Pré-validador'));
+    fireEvent.click(screen.getByLabelText('C140'));
+    fireEvent.click(screen.getByLabelText('Gerar todos modelos de nota C140'));
+    fireEvent.click(screen.getByRole('button', { name: /erar/ }));
+    await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
+    const corpo = JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-icms-ipi'))![1]!.body));
+    expect(corpo).toEqual({ dtini: '2026-09-01', dtfim: '2026-09-30', c140: true, c140TodosModelos: true });
+  });
+
   it('o Corrigir da operadora de cartão abre a tela dela em outra aba', async () => {
     const abrir = vi.fn();
     (window as any).open = abrir;

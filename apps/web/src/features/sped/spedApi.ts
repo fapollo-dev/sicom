@@ -42,6 +42,7 @@ export interface OpcoesSpedFiscalTela {
   inventario?: OpcaoInventarioSped; c113c114?: boolean; finalidade?: 0 | 1; codigoProduto?: 'ean' | 'plu';
   entradas?: boolean; saidas?: boolean; somarIcmsStOutras?: boolean; somarFcpStOutras?: boolean; somarIpiOutras?: boolean;
   zerado5929C170?: boolean; zerado5929Documento?: boolean; cst49?: boolean; c170Proprias?: boolean; gerarIcmsSt?: boolean; destacarIpiStItem?: boolean;
+  c140?: boolean; c140TodosModelos?: boolean;
 }
 export const gerarSpedFiscal = (dtini: string, dtfim: string, opcoes: OpcoesSpedFiscalTela = {}) =>
   req<ArquivoSped>('/fiscal/sped/efd-icms-ipi', { method: 'POST', body: JSON.stringify({ dtini, dtfim, ...opcoes }) });

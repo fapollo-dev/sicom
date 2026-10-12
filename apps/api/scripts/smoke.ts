@@ -19616,7 +19616,8 @@ async function main() {
           nfs.push(id);
           return id;
         };
-        await nova({ tipo: 'E', nronf: '993101', cfop: '1102', emissao: 1, chave: '35450577888999000181550010009931011000000001' });
+        const nfE = await nova({ tipo: 'E', nronf: '993101', cfop: '1102', emissao: 1, chave: '35450577888999000181550010009931011000000001' });
+        await pgOp.query(`INSERT INTO faturamento (data, idnf, modalidade, valor, nrofatura, totalparcelasfatura) VALUES ('2045-06-10', $1, 'A PAGAR', 59, 1, 2), ('2045-07-10', $1, 'A PAGAR', 59, 2, 2)`, [nfE]);
         await nova({ tipo: 'S', nronf: '993102', cfop: '5929', emissao: 0, chave: '35450577888999000181550010009931021000000002' });
         const codbarra1 = String((await pgOp.query(`SELECT codbarra FROM produtos WHERE idproduto = 1`)).rows[0]?.codbarra ?? '').trim();
         const efd = async (op: Record<string, unknown> = {}) => {
@@ -19647,7 +19648,11 @@ async function main() {
         const soS = await efd({ entradas: false });
         const z = await efd({ zerado5929Documento: true, zerado5929C170: true, c170Proprias: true });
         const zS = z.nota('993102');
-        check('SPED FISCAL §310 [as opções de geração do bloco C]: no padrão do .dfm a entrada tem VL_OUT_DA 1,00, ST 0 e IPI 5,00 (C100/C170/C190) e a saída própria não tem C170; com ICMS ST + somas em outras despesas + C170 próprias + CST 049 + EAN + Retificação: COD_FIN 1, VL_OUT_DA 18,00 (1 + IPI 5 + ST 10 + FCP-ST 2), VL_ICMS_ST 10,00 e VL_IPI 0 nos três, C170 com o código de barras e CST 049, a saída própria com C170, o 0200 pelo código de barras; com o destaque no item, VL_MERC e VL_ITEM 115,00 e ST/IPI 0; Entradas/Saídas filtram as notas; com o 5929 zerado, o C100 da saída x929 todo zero, o VL_OPR do grupo 0 e o C170 sem ICMS',
+        // o C140/C141: só o modelo 1 — a NF-e 55 só com "Gerar todos modelos de nota C140"
+        const c140So = await efd({ c140: true });
+        const c140Todos = await efd({ c140: true, c140TodosModelos: true });
+        const iC140 = c140Todos.l.findIndex((x) => x.startsWith('|C140|'));
+        check('SPED FISCAL §310 [as opções de geração do bloco C + C140]: o C140/C141 só com "C140" e, na NF-e, com "todos modelos" (o título é a nota, o tipo 99 OUTROS sem a receber, uma C141 por fatura); no padrão do .dfm a entrada tem VL_OUT_DA 1,00, ST 0 e IPI 5,00 (C100/C170/C190) e a saída própria não tem C170; com ICMS ST + somas em outras despesas + C170 próprias + CST 049 + EAN + Retificação: COD_FIN 1, VL_OUT_DA 18,00 (1 + IPI 5 + ST 10 + FCP-ST 2), VL_ICMS_ST 10,00 e VL_IPI 0 nos três, C170 com o código de barras e CST 049, a saída própria com C170, o 0200 pelo código de barras; com o destaque no item, VL_MERC e VL_ITEM 115,00 e ST/IPI 0; Entradas/Saídas filtram as notas; com o 5929 zerado, o C100 da saída x929 todo zero, o VL_OPR do grupo 0 e o C170 sem ICMS',
           pad.status === 200 && !!pE && !!pS && pE.c100[18] === '1,00' && pE.c100[22] === '0,00' && pE.c100[23] === '5,00' && pE.c170[0]?.[16] === '0,00' && pE.c170[0]?.[22] === '5,00'
           && pE.c190[0]?.[7] === '0,00' && pE.c190[0]?.[9] === '5,00' && pS.c170.length === 0 && pad.l.some((x) => x.startsWith('|0000|') && x.split('|')[3] === '0')
           && mud.status === 200 && mud.l.some((x) => x.startsWith('|0000|') && x.split('|')[3] === '1') && !!mE && !!mS
@@ -19657,11 +19662,13 @@ async function main() {
           && !!dE && dE.c100[14] === '115,00' && dE.c100[22] === '0,00' && dE.c100[23] === '0,00' && dE.c170[0]?.[5] === '115,00' && dE.c170[0]?.[22] === '0,00' && dE.c190[0]?.[9] === '0,00'
           && !!soE.nota('993101') && !soE.nota('993102') && !soS.nota('993101') && !!soS.nota('993102')
           && !!zS && zS.c100[10] === '0,00' && zS.c100[14] === '0,00' && zS.c100[18] === '0,00' && zS.c190[0]?.[3] === '0,00' && zS.c170[0]?.[11] === '0,00' && zS.c170[0]?.[13] === '0,00'
-          && [pad, mud, des, z].every((x) => x.j.validacao?.ok === true),
-          { pE, pS: pS && { c170: pS.c170.length }, mE, mS: mS && { c170: mS.c170.length }, dE, zS, codbarra1,
+          && !c140So.l.some((x) => x.startsWith('|C140|')) && !pad.l.some((x) => x.startsWith('|C140|'))
+          && iC140 > 0 && c140Todos.l[iC140] === '|C140|1|99|OUTROS|993101|2|118,00|' && c140Todos.l[iC140 + 1] === '|C141|1|10062045|59,00|' && c140Todos.l[iC140 + 2] === '|C141|2|10072045|59,00|'
+          && [pad, mud, des, z, c140Todos].every((x) => x.j.validacao?.ok === true),
+          { pE, pS: pS && { c170: pS.c170.length }, mE, mS: mS && { c170: mS.c170.length }, dE, zS, codbarra1, c140: c140Todos.l.slice(Math.max(0, iC140), iC140 + 3),
             vals: [pad, mud, des, z].map((x) => x.j.validacao?.erros?.slice(0, 3)) });
       } finally {
-        for (const id of nfs) { await pgOp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
+        for (const id of nfs) { await pgOp.query(`DELETE FROM faturamento WHERE idnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
         if (!tinha5929) await pgOp.query(`DELETE FROM cfop WHERE codcfop = '5929'`).catch(() => undefined);
         await pgOp.end();
       }

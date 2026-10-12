@@ -32,13 +32,13 @@ export function baixarArquivoSped(nome: string, texto: string): void {
  * login. As opções da tela com o padrão do `.dfm`: a "Finalidade do Arquivo", "Gerar com os registros de" (Entradas/Saidas), o "Codigo
  * Produto" (EAN/PLU), o "C113 / 114" (marcado), "Somar em Outras despesas" (ICMS ST, FCP ST, IPI), as "Outras opções de geração" do bloco
  * C (5929 zerado no C170 e no C190, CST 049, C170 das notas de emissão própria, ICMS ST, IPI e ICMS-ST no total do item) e o Bloco H
- * ("Gerar H001 (Inventário)", a data da FOLHA, o motivo e a correção tributária). Ainda fora (dossiê `Uspedfiscal-blocoC.md`): C140,
- * C191, E500, bloco K, 1700, NF Goiana, as NFC-e com itens/participante e o CST 041 do C490.
+ * ("Gerar H001 (Inventário)", a data da FOLHA, o motivo e a correção tributária), e o C140/C141 (com "todos modelos"). Ainda fora (dossiê
+ * `Uspedfiscal-blocoC.md`): C191, bloco K, 1700, NF Goiana, as NFC-e com itens/participante e o CST 041 do C490; o E500 não tem apuração.
  */
 /** as opções booleanas da tela e o padrão do `.dfm` — o pedido só leva o que o operador mudou */
 const PADRAO = {
   entradas: true, saidas: true, somarIcmsStOutras: false, somarFcpStOutras: false, somarIpiOutras: false, zerado5929C170: false,
-  zerado5929Documento: false, cst49: false, c170Proprias: false, gerarIcmsSt: false, destacarIpiStItem: false,
+  zerado5929Documento: false, cst49: false, c170Proprias: false, gerarIcmsSt: false, destacarIpiStItem: false, c140: false, c140TodosModelos: false,
 };
 type OpcaoBool = keyof typeof PADRAO;
 export function SpedFiscalPage() {
@@ -106,6 +106,7 @@ export function SpedFiscalPage() {
         </fieldset>
         <fieldset className="flex flex-wrap items-center gap-gp-sm">
           <legend className="text-body-sm font-semibold text-fg-muted">Bloco C</legend>
+          {caixa('c140', 'C140')}
           <CheckboxField label="C113 / 114" value={c113} onChange={(v) => setC113(v === 'S' ? 'S' : 'N')} />
         </fieldset>
         <div className="grid grid-cols-1 gap-gp-sm md:grid-cols-2">
@@ -136,6 +137,7 @@ export function SpedFiscalPage() {
           {caixa('zerado5929C170', 'Gerar 5929 Zerado C170')}
           {caixa('zerado5929Documento', 'Gerar 5929 Zerado C190')}
           {caixa('cst49', 'Gerar CST 049')}
+          {caixa('c140TodosModelos', 'Gerar todos modelos de nota C140')}
           {caixa('c170Proprias', 'Gerar C170 notas de emissão própria')}
           {caixa('gerarIcmsSt', 'Gerar ICMS ST C100/C170/C190')}
           {caixa('destacarIpiStItem', 'Gerar C170 com IPI e ICMS-ST no total do item')}

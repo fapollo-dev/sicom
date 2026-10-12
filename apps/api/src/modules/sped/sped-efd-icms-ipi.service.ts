@@ -100,13 +100,16 @@ export interface OpcoesSpedFiscal {
   c170Proprias?: boolean;
   gerarIcmsSt?: boolean;
   destacarIpiStItem?: boolean;
+  c140?: boolean;
+  c140TodosModelos?: boolean;
 }
 type OpcoesC = Required<Omit<OpcoesSpedFiscal, 'inventario'>>;
 const opcoesPadrao = (o: OpcoesSpedFiscal): OpcoesC => ({
   c113c114: o.c113c114 !== false, finalidade: o.finalidade === 1 ? 1 : 0, entradas: o.entradas !== false, saidas: o.saidas !== false,
   codigoProduto: o.codigoProduto === 'ean' ? 'ean' : 'plu', somarIcmsStOutras: !!o.somarIcmsStOutras, somarFcpStOutras: !!o.somarFcpStOutras,
   somarIpiOutras: !!o.somarIpiOutras, zerado5929C170: !!o.zerado5929C170, zerado5929Documento: !!o.zerado5929Documento, cst49: !!o.cst49,
-  c170Proprias: !!o.c170Proprias, gerarIcmsSt: !!o.gerarIcmsSt, destacarIpiStItem: !!o.destacarIpiStItem,
+  c170Proprias: !!o.c170Proprias, gerarIcmsSt: !!o.gerarIcmsSt, destacarIpiStItem: !!o.destacarIpiStItem, c140: !!o.c140,
+  c140TodosModelos: !!o.c140TodosModelos,
 });
 
 /** o COD_INF do 0450/C110: os 6 últimos caracteres do CODNF com zeros à esquerda (`Get6UltimosCaracteres(FormatFloat('000000', …))`) */
@@ -172,6 +175,7 @@ export class SpedEfdIcmsIpiService {
     // 0450/C110 (as observações das notas) e o C113 (os documentos referenciados — "C113 / 114", marcado por padrão)
     const informacoes = await this.coletarInformacoes(db, emp, dtini, dtfim, tipos);
     const referenciados = op.c113c114 ? await this.coletarReferenciados(db, docs) : new Map<number, Array<Record<string, any>>>();
+    const faturamento = op.c140 ? await this.coletarFaturamento(db, docs) : new Map<number, Array<Record<string, any>>>();
     // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
     // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
     // contagem COMPLETA e mantém integridade referencial, em vez de dropar itens sem movimento do período).
@@ -195,7 +199,7 @@ export class SpedEfdIcmsIpiService {
     // GeraNFC, Uspedfiscal.pas:4118-4120)
     const inutilizadas = await this.coletarInutilizadas(db, emp, dtini, dtfim);
     const nfce = op.saidas ? await this.coletarNfce(db, emp, dtini, dtfim) : [];
-    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini, informacoes, referenciados, op);
+    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini, informacoes, referenciados, op, faturamento);
 
     // BLOCO D — frete (D100/D190) e telecomunicação (D500/D590), como o GeraBlocoD
     this.emitirBlocoD(arq, frete, telecom, empresa.idcidade);
@@ -449,6 +453,28 @@ export class SpedEfdIcmsIpiService {
   }
 
   /**
+   * O faturamento das notas do período (`adqFaturamento`, UdmSpedFiscal.dfm:3852): FATURAMENTO da nota, ordenado pela fatura, com o tipo do
+   * título pelo TIPODOC do a receber dela (DUPLICATA 00, CHEQUE 01, PROMISSORIA 02, RECIBO 03, senão 99). O LEFT JOIN do legado com o
+   * ARECEBER repete a parcela quando a nota tem mais de um título — aqui o tipo vem do primeiro título e a parcela sai uma vez; e a nota
+   * sem faturamento fica sem C140 (o legado o escrevia com o título vazio, que o PVA recusa). Produção: 47.685 parcelas.
+   */
+  private async coletarFaturamento(db: AnyDB, docs: { nfs: Array<Record<string, any>> }): Promise<Map<number, Array<Record<string, any>>>> {
+    const ids = docs.nfs.map((n) => Number(n.codnf));
+    if (!ids.length) return new Map();
+    const rows = (await sql<Record<string, any>>`
+        SELECT f.idnf, f.nrofatura AS num_parc, f.valor AS valor_parc, f.totalparcelasfatura AS qtd_parc, f.data::text AS data_venc,
+               (SELECT CASE r.tipodoc WHEN 'DUPLICATA' THEN '00' WHEN 'CHEQUE' THEN '01' WHEN 'PROMISSORIA' THEN '02' WHEN 'RECIBO' THEN '03' ELSE '99' END
+                  FROM areceber r WHERE r.idnf = f.idnf ORDER BY r.codrcb LIMIT 1) AS ind_tit,
+               (SELECT r.tipodoc FROM areceber r WHERE r.idnf = f.idnf ORDER BY r.codrcb LIMIT 1) AS desc_tit
+          FROM faturamento f
+         WHERE f.idnf = ANY(${ids}::int[])
+         ORDER BY f.idnf, f.nrofatura`.execute(db)).rows;
+    const out = new Map<number, Array<Record<string, any>>>();
+    for (const r of rows) out.set(Number(r.idnf), [...(out.get(Number(r.idnf)) ?? []), r]);
+    return out;
+  }
+
+  /**
    * O inventário do BLOCO H como a tela do legado o escolhe (GeraBlocoH, Uspedfiscal.pas:1058-1170; sqqInventarioCons,
    * UdmSpedFiscal.dfm:6505): só com "Gerar H001 (Inventário)" marcado, os itens da loja com a DATA DO ITEM (INVENTARIO.DATAINVENTARIO —
    * o carimbo da folha; o livro 242 da produção tem 31/12/2025 e os itens 03/03/2026) igual à "Data Inventário"; com "Correção
@@ -570,7 +596,8 @@ export class SpedEfdIcmsIpiService {
    *  IND_OPER por sentido (0=entrada/1=saída). Retorna o ICMS de ENTRADA (crédito) e de SAÍDA (débito) p/ o E110. */
   private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> },
     inutilizadas: Array<Record<string, any>> = [], nfce: NfceSped[] = [], dtini = '', informacoes: Map<number, Record<string, any>> = new Map(),
-    referenciados: Map<number, Array<Record<string, any>>> = new Map(), op: OpcoesC = opcoesPadrao({})): { creditoIcms: number; debitoIcms: number } {
+    referenciados: Map<number, Array<Record<string, any>>> = new Map(), op: OpcoesC = opcoesPadrao({}),
+    faturamento: Map<number, Array<Record<string, any>>> = new Map()): { creditoIcms: number; debitoIcms: number } {
     const temDocs = docs.nfs.length > 0 || inutilizadas.length > 0 || nfce.length > 0;
     arq.add('C001', [temDocs ? '0' : '1']);
     let creditoIcms = 0;
@@ -665,6 +692,16 @@ export class SpedEfdIcmsIpiService {
             mod === '90' ? '1B' : mod.padStart(2, '0'), String(r.serie ?? '').trim().padStart(4, '0'), '000', String(r.nronf ?? ''),
             r.dtemissao ? fmtData(String(r.dtemissao)) : '', String(r.chavenfe ?? '')]);
         }
+      }
+      // C140/C141 (o faturamento — "C140", desmarcado; :2667-2697): só o modelo 1, ou todos com "Gerar todos modelos de nota C140"; o título
+      // é a nota (NUM_TIT = o número, VL_TIT = o total), o tipo pelo TIPODOC do a receber da nota e uma parcela por fatura
+      const fat = faturamento.get(Number(nf.codnf)) ?? [];
+      if (op.c140 && fat.length && (Number(nf.modelo) === 1 || op.c140TodosModelos)) {
+        const indTit = String(fat[0].ind_tit ?? '99');
+        // C140 (6): IND_EMIT|IND_TIT|DESC_TIT|NUM_TIT|QTD_PARC|VL_TIT
+        arq.add('C140', [indEmit, indTit, indTit === '99' ? String(fat[0].desc_tit ?? '').trim() || 'OUTROS' : '', String(nf.nronf ?? ''), String(Math.trunc(nn(fat[0].qtd_parc))), fmtNum(nn(nf.totalnf))]);
+        // C141 (3): NUM_PARC|DT_VCTO|VL_PARC
+        for (const f of fat) arq.add('C141', [String(f.num_parc ?? ''), f.data_venc ? fmtData(String(f.data_venc)) : '', fmtNum(nn(f.valor_parc))]);
       }
       // C170: não sai na NF-e 55 de EMISSÃO PRÓPRIA, entrada ou saída (a opção "Gerar C170 notas de emissão própria" vem desmarcada,
       // Uspedfiscal.pas:2707-2709)
