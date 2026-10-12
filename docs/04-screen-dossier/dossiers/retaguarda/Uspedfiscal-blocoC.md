@@ -381,3 +381,22 @@ itens com FCP-ST e 3.660 com FCP retido. Ainda por converter: bloco K (OPTANTE_B
 no fonte — conferir no binário antes), NF Goiana (C460/C470 de ECF), NFC-e com itens e com participante, CST 041 do C490 (ECF). Smoke §310.
 "Gerar itens para NFC-e" — o próprio legado avisa ao marcar: "vários erros serão exibidos no validador pois os itens não devem ser
 informados para notas fiscais modelo 65 (NFC-e)" (:4199-4207); fica para quando houver pedido de uso.
+
+## "Ajustar base de dados" — não convertido, com prova (12/10/2026)
+
+`ckbAjustaBaseDeDados` (desmarcado no `.dfm`; Uspedfiscal.pas:4312-4320) chama `AjustaBaseDeDadosSPED` + `ValidaIND_PGTO` antes de gerar.
+A rotina viva está em `FuncoesApollo.pas` — **ausente dos 5 repositórios**; a versão anterior ficou em `udmPrincipal.pas:1126-1490`
+(`TdmPrincipal.AjustaBaseDeDados`, "Procedimento movido para FuncoesApollo.pas"), e o hint da tela lista as mesmas regras. Não é uma
+opção de geração: são **UPDATEs em massa em NF/NF_PROD do período**, gravados no banco (com o script salvo num `.txt` no disco da
+estação): CFOP do modelo 22 → 1949; 1402/1404/1405 → 1403; 2402/2404/2405 → 2403; 1929 → 1949; 1104 → 1102 (item e cabeçalho); TIPOFRETE
+nulo → 1; DTCONTABIL = DTEMISSAO quando a emissão é posterior; CST 060 em todo item `S%` fora de 010/060, 000 em `T%` com BCR 100, 020
+em `T%` com base reduzida, 090 em x929 (com ZeraICMS), 040 em `I%`; OBS sem `|`. O `ValidaIND_PGTO` grava o IND_PGTO da NFC pela forma
+de pagamento.
+
+**Prova de que não é usada** (produção, só leitura): de jan/2025 a set/2026, nas lojas 1 e 2, **nenhum mês** passou por ela — todo mês
+tem centenas de itens que ela teria reescrito (ex.: set/2026 loja 1: 607 itens `S%` com CST fora de 010/060, 112 `I%` com CST ≠ 040; em
+2026, 7.677 entradas STB com CST 70). O SPED Fiscal é gerado todo mês (operador 84: 720 acessos, o último em 08/10/2026) com a opção
+desmarcada. As CFOPs 1402/1404/1405/1929/1104 não aparecem em nenhuma nota processada da história — quem as evita é a entrada
+(`uItensNF.pas:1637`), não esta rotina. Além de morta, a rotina reescreve o dado fiscal de um período já escriturado sem trilha no
+banco; o gerador do Apollo **não altera dado** — o que o SPED precisa corrigir, corrige no texto do arquivo (os cortes A–K acima).
+

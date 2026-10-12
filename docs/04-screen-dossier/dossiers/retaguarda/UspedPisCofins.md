@@ -66,3 +66,11 @@ com CFOP do Sintegra** — o legado escreve o D100 sem D101/D105 e o Apollo tamb
 CFOP do frete que decide). Modelos 9/10/11/26/27: 0 notas. O bloco C já excluía 7/8/57. Validador: exige as 10 aberturas/fechamentos
 na ordem e conta os campos de A010/D010/D100/D101/D105. Smoke §312, `sped-validator.spec.ts`.
 
+## O ajuste da base antes de gerar (12/10/2026)
+
+No fonte de 2020 o `&Gerar` do Contribuições chama `AjustaBaseDeDadosSPED` **sempre** (UspedPisCofins.pas:2459, sem checkbox) — os
+UPDATEs em massa de CFOP/CST/datas em NF e NF_PROD do período descritos em `Uspedfiscal-blocoC.md` ("Ajustar base de dados"). A rotina
+viva (`FuncoesApollo.pas`) não está no repositório, e **nenhum mês de 2025-26 tem o dado que ela deixaria** (centenas de itens por mês
+com o CST que ela reescreveria). A tela tem 25 acessos, todos do operador 1 (suporte). Não convertida: o gerador do Apollo não altera
+o dado fiscal.
+
