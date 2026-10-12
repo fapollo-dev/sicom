@@ -35,6 +35,8 @@ export interface ItemSpedLegado {
   frete?: unknown;
   vricmst?: unknown;
   fcp_valor_st?: unknown;
+  fcp_valor_st_ret?: unknown;
+  vfcpufdest?: unknown;
   proc_cupom?: unknown;
   gera_sped?: unknown;
 }
@@ -74,6 +76,10 @@ export interface GrupoC190 {
   vlIpi: number;
   /** Σ ICMS-ST dos itens (0 com ST externa — o ICMSST do adqAnaliticoNF); só sai no C190 com "Gerar ICMS ST C100/C170/C190" */
   vlIcmsSt: number;
+  /** o C191 (adqAnaliticoNF): FCP da operação = Σ VFCPUFDEST, FCP-ST = Σ FCP_VALOR_ST, FCP retido = Σ FCP_VALOR_ST_RET */
+  fcpOp: number;
+  fcpSt: number;
+  fcpRet: number;
 }
 
 /**
@@ -102,6 +108,9 @@ export function gruposC190(itens: ItemSpedLegado[], stExterno: boolean, forneced
     let basered = 0;
     let bcrSoma = 0;
     let st = 0;
+    let fcpOp = 0;
+    let fcpSt = 0;
+    let fcpRet = 0;
     for (const it of s.itens) {
       const b = baseComDesconto(it);
       valor += b + n(it.depsacess) + (r3(n(it.ipi)) * b) / 100 + (r3(n(it.frete)) * r2(b)) / 100 + r2(stExterno ? 0 : n(it.vricmst)) + n(it.fcp_valor_st);
@@ -111,11 +120,17 @@ export function gruposC190(itens: ItemSpedLegado[], stExterno: boolean, forneced
       basered += n(it.vrbasecalculo);
       bcrSoma += n(it.bcr);
       st += stExterno ? 0 : n(it.vricmst);
+      fcpOp += n(it.vfcpufdest);
+      fcpSt += n(it.fcp_valor_st);
+      fcpRet += n(it.fcp_valor_st_ret);
     }
     const k = `${s.cst}|${s.cfop}|${s.icme.toFixed(2)}`;
-    const acc = grupos.get(k) ?? { g: { cst: s.cst, cfop: s.cfop, aliq: s.icme, vlOpr: 0, bc: 0, vl: 0, vlRedBc: 0, vlIpi: 0, vlIcmsSt: 0 }, valor: 0, bcrs: [], basered: 0 };
+    const acc = grupos.get(k) ?? { g: { cst: s.cst, cfop: s.cfop, aliq: s.icme, vlOpr: 0, bc: 0, vl: 0, vlRedBc: 0, vlIpi: 0, vlIcmsSt: 0, fcpOp: 0, fcpSt: 0, fcpRet: 0 }, valor: 0, bcrs: [], basered: 0 };
     acc.valor += valor;
     acc.g.vlIcmsSt = r2(acc.g.vlIcmsSt + st);
+    acc.g.fcpOp = r2(acc.g.fcpOp + fcpOp);
+    acc.g.fcpSt = r2(acc.g.fcpSt + fcpSt);
+    acc.g.fcpRet = r2(acc.g.fcpRet + fcpRet);
     acc.g.vlIpi = r2(acc.g.vlIpi + r2(ipi));
     acc.g.bc = r2(acc.g.bc + (zeraTudo ? 0 : r2(bc)));
     acc.g.vl = r2(acc.g.vl + (zeraTudo ? 0 : r2(vl)));

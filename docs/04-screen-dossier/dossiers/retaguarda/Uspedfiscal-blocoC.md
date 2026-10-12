@@ -374,6 +374,10 @@ Recon completo das opções da tela (`Uspedfiscal.pas`/`.dfm`) por agente; conve
 | C140 / Gerar todos modelos de nota C140 | desmarcadas | C140 (IND_EMIT, IND_TIT pelo TIPODOC do a receber — 00/01/02/03/99, DESC_TIT só no 99, NUM_TIT = o número da nota, QTD_PARC, VL_TIT = o total) e uma C141 por fatura (NUM_PARC, vencimento, valor); só o modelo 1 sem o "todos modelos". Diferenças conscientes: a nota sem faturamento fica sem C140 (o legado o escrevia com o título vazio — o PVA recusa) e a parcela sai uma vez mesmo com dois títulos a receber na nota (o LEFT JOIN do legado a repetia) |
 
 Mortas no legado (a tela mostra, o código não lê): E200/210/250, K270/275, K280 (escondidas), Decimal Desconto (o `/*CASAS*/` não existe na
-consulta); C176 desmarca sozinho no clique. 🪦 E500: APURACAO_IPI e IPI_CFOP com **0 linhas** na produção. Ainda por converter: C191
-(quebra depois de 2020 no fonte), bloco K (OPTANTE_BLOCOK = N na produção), 1700/1710 (marcado por padrão, mas com modelo 02, série D e NUM_AUT fixos
+consulta); C176 desmarca sozinho no clique. 🪦 E500: APURACAO_IPI e IPI_CFOP com **0 linhas** na produção. ✅ **C191** (desmarcado): depois
+de cada C190, VL_FCP_OP = Σ VFCPUFDEST, VL_FCP_ST = Σ FCP_VALOR_ST, VL_FCP_RET = Σ FCP_VALOR_ST_RET do grupo (adqAnaliticoNF; o fonte de
+2020 quebra depois de 2020 no `StrToInt` da versão — o binário da produção gera o 0000 de 2026, então a versão existe lá); 2026: 4.851
+itens com FCP-ST e 3.660 com FCP retido. Ainda por converter: bloco K (OPTANTE_BLOCOK = N na produção), 1700/1710 (marcado por padrão, mas com modelo 02, série D e NUM_AUT fixos
 no fonte — conferir no binário antes), NF Goiana (C460/C470 de ECF), NFC-e com itens e com participante, CST 041 do C490 (ECF). Smoke §310.
+"Gerar itens para NFC-e" — o próprio legado avisa ao marcar: "vários erros serão exibidos no validador pois os itens não devem ser
+informados para notas fiscais modelo 65 (NFC-e)" (:4199-4207); fica para quando houver pedido de uso.

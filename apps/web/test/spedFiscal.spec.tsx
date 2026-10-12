@@ -112,10 +112,11 @@ describe('SPED ICMS/IPI (FRMSPEDFISCAL) — o gerador com o pré-validador', () 
     fireEvent.click(screen.getByLabelText('Pré-validador'));
     fireEvent.click(screen.getByLabelText('C140'));
     fireEvent.click(screen.getByLabelText('Gerar todos modelos de nota C140'));
+    fireEvent.click(screen.getByLabelText('C191'));
     fireEvent.click(screen.getByRole('button', { name: /erar/ }));
     await waitFor(() => expect(chamadas().some(([u]) => String(u).endsWith('/efd-icms-ipi'))).toBe(true));
     const corpo = JSON.parse(String(chamadas().find(([u]) => String(u).endsWith('/efd-icms-ipi'))![1]!.body));
-    expect(corpo).toEqual({ dtini: '2026-09-01', dtfim: '2026-09-30', c140: true, c140TodosModelos: true });
+    expect(corpo).toEqual({ dtini: '2026-09-01', dtfim: '2026-09-30', c140: true, c140TodosModelos: true, c191: true });
   });
 
   it('o Corrigir da operadora de cartão abre a tela dela em outra aba', async () => {

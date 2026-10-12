@@ -102,6 +102,7 @@ export interface OpcoesSpedFiscal {
   destacarIpiStItem?: boolean;
   c140?: boolean;
   c140TodosModelos?: boolean;
+  c191?: boolean;
 }
 type OpcoesC = Required<Omit<OpcoesSpedFiscal, 'inventario'>>;
 const opcoesPadrao = (o: OpcoesSpedFiscal): OpcoesC => ({
@@ -109,7 +110,7 @@ const opcoesPadrao = (o: OpcoesSpedFiscal): OpcoesC => ({
   codigoProduto: o.codigoProduto === 'ean' ? 'ean' : 'plu', somarIcmsStOutras: !!o.somarIcmsStOutras, somarFcpStOutras: !!o.somarFcpStOutras,
   somarIpiOutras: !!o.somarIpiOutras, zerado5929C170: !!o.zerado5929C170, zerado5929Documento: !!o.zerado5929Documento, cst49: !!o.cst49,
   c170Proprias: !!o.c170Proprias, gerarIcmsSt: !!o.gerarIcmsSt, destacarIpiStItem: !!o.destacarIpiStItem, c140: !!o.c140,
-  c140TodosModelos: !!o.c140TodosModelos,
+  c140TodosModelos: !!o.c140TodosModelos, c191: !!o.c191,
 });
 
 /** o COD_INF do 0450/C110: os 6 últimos caracteres do CODNF com zeros à esquerda (`Get6UltimosCaracteres(FormatFloat('000000', …))`) */
@@ -339,7 +340,7 @@ export class SpedEfdIcmsIpiService {
           .leftJoin('piscofins as pc', 'pc.idpiscofins', 'p.idpiscofins')
           .select(['np.codnf', 'np.nroitem', 'np.codproduto', 'np.quantidade', 'np.fatorembal', 'np.vrcusto', 'np.desconto', 'np.vrdescprod', 'np.vrbasecalculo', 'np.icms',
             'np.icme', 'np.vricm', 'np.vripi', 'np.ipi', 'np.cst', 'np.origem_estoque', 'np.cfop', 'np.aliquota', 'np.bcr', 'np.depsacess', 'np.frete', 'np.vricmst',
-            'np.fcp_valor_st', 'np.descricao', 'np.bcpiscofinse', 'np.vrpise', 'np.vrcofinse', 'np.aliqpise', 'np.aliqcofinse', 'np.cstpiscofins',
+            'np.fcp_valor_st', 'np.fcp_valor_st_ret', 'np.vfcpufdest', 'np.descricao', 'np.bcpiscofinse', 'np.vrpise', 'np.vrcofinse', 'np.aliqpise', 'np.aliqcofinse', 'np.cstpiscofins',
             'c.proc_cupom', sql`coalesce(c.nao_gera_sped,'N')`.as('nao_gera_sped'),
             'pc.cst_pis_ent', 'pc.cst_pis_sai', 'pc.cst_cofins_ent', 'pc.cst_cofins_sai', 'pc.aliq_pis_ent', 'pc.aliq_cofins_ent'])
           .where('np.codnf', 'in', nfIds)
@@ -743,6 +744,8 @@ export class SpedEfdIcmsIpiService {
         // C190 (11): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|COD_OBS
         arq.add('C190', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(op.zerado5929Documento && x929 ? 0 : g.vlOpr), fmtNum(g.bc), fmtNum(g.vl), fmtNum(0),
           fmtNum(destacar || !op.gerarIcmsSt ? 0 : g.vlIcmsSt), fmtNum(g.vlRedBc), fmtNum(destacar || op.somarIpiOutras ? 0 : g.vlIpi), '']);
+        // C191 (3) com "C191" (:3181-3189): VL_FCP_OP|VL_FCP_ST|VL_FCP_RET do grupo — o FCP da operação é o da UF de destino (VFCPUFDEST)
+        if (op.c191) arq.add('C191', [fmtNum(g.fcpOp), fmtNum(g.fcpSt), fmtNum(g.fcpRet)]);
         if (saida) debitoIcms = r2(debitoIcms + g.vl); // SAÍDA → débito de ICMS
         else creditoIcms = r2(creditoIcms + g.vl); // ENTRADA → crédito de ICMS
       }

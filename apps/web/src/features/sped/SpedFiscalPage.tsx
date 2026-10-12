@@ -32,13 +32,13 @@ export function baixarArquivoSped(nome: string, texto: string): void {
  * login. As opções da tela com o padrão do `.dfm`: a "Finalidade do Arquivo", "Gerar com os registros de" (Entradas/Saidas), o "Codigo
  * Produto" (EAN/PLU), o "C113 / 114" (marcado), "Somar em Outras despesas" (ICMS ST, FCP ST, IPI), as "Outras opções de geração" do bloco
  * C (5929 zerado no C170 e no C190, CST 049, C170 das notas de emissão própria, ICMS ST, IPI e ICMS-ST no total do item) e o Bloco H
- * ("Gerar H001 (Inventário)", a data da FOLHA, o motivo e a correção tributária), e o C140/C141 (com "todos modelos"). Ainda fora (dossiê
- * `Uspedfiscal-blocoC.md`): C191, bloco K, 1700, NF Goiana, as NFC-e com itens/participante e o CST 041 do C490; o E500 não tem apuração.
+ * ("Gerar H001 (Inventário)", a data da FOLHA, o motivo e a correção tributária), o C140/C141 (com "todos modelos") e o C191. Ainda fora (dossiê
+ * `Uspedfiscal-blocoC.md`): bloco K, 1700, NF Goiana, as NFC-e com itens/participante e o CST 041 do C490; o E500 não tem apuração.
  */
 /** as opções booleanas da tela e o padrão do `.dfm` — o pedido só leva o que o operador mudou */
 const PADRAO = {
   entradas: true, saidas: true, somarIcmsStOutras: false, somarFcpStOutras: false, somarIpiOutras: false, zerado5929C170: false,
-  zerado5929Documento: false, cst49: false, c170Proprias: false, gerarIcmsSt: false, destacarIpiStItem: false, c140: false, c140TodosModelos: false,
+  zerado5929Documento: false, cst49: false, c170Proprias: false, gerarIcmsSt: false, destacarIpiStItem: false, c140: false, c140TodosModelos: false, c191: false,
 };
 type OpcaoBool = keyof typeof PADRAO;
 export function SpedFiscalPage() {
@@ -107,6 +107,7 @@ export function SpedFiscalPage() {
         <fieldset className="flex flex-wrap items-center gap-gp-sm">
           <legend className="text-body-sm font-semibold text-fg-muted">Bloco C</legend>
           {caixa('c140', 'C140')}
+          {caixa('c191', 'C191')}
           <CheckboxField label="C113 / 114" value={c113} onChange={(v) => setC113(v === 'S' ? 'S' : 'N')} />
         </fieldset>
         <div className="grid grid-cols-1 gap-gp-sm md:grid-cols-2">

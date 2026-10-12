@@ -32,6 +32,7 @@ export const gerarSpedSchema = z
     destacarIpiStItem: z.boolean().optional(),
     c140: z.boolean().optional(),
     c140TodosModelos: z.boolean().optional(),
+    c191: z.boolean().optional(),
     inventario: z
       .object({
         data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data do inventário.'),
