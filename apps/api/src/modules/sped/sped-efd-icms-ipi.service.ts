@@ -79,8 +79,35 @@ interface NfceSped {
 }
 
 export interface OpcaoInventario { data: string; motivo?: number; correcao?: boolean }
-/** as opções da tela do SPED Fiscal que o gerador conhece (padrão do .dfm quando ausentes) */
-export interface OpcoesSpedFiscal { inventario?: OpcaoInventario; c113c114?: boolean }
+/**
+ * as opções da tela do SPED Fiscal que o gerador conhece (Uspedfiscal.dfm; ausente = o padrão do .dfm): "Finalidade do Arquivo", "Gerar
+ * com os registros de" (Entradas/Saídas), "Codigo Produto" (EAN/PLU), o "C113 / 114", "Somar em Outras despesas" (ICMS ST, FCP ST, IPI) e
+ * as "Outras opções de geração" do bloco C, além do Bloco H
+ */
+export interface OpcoesSpedFiscal {
+  inventario?: OpcaoInventario;
+  c113c114?: boolean;
+  finalidade?: 0 | 1;
+  entradas?: boolean;
+  saidas?: boolean;
+  codigoProduto?: 'ean' | 'plu';
+  somarIcmsStOutras?: boolean;
+  somarFcpStOutras?: boolean;
+  somarIpiOutras?: boolean;
+  zerado5929C170?: boolean;
+  zerado5929Documento?: boolean;
+  cst49?: boolean;
+  c170Proprias?: boolean;
+  gerarIcmsSt?: boolean;
+  destacarIpiStItem?: boolean;
+}
+type OpcoesC = Required<Omit<OpcoesSpedFiscal, 'inventario'>>;
+const opcoesPadrao = (o: OpcoesSpedFiscal): OpcoesC => ({
+  c113c114: o.c113c114 !== false, finalidade: o.finalidade === 1 ? 1 : 0, entradas: o.entradas !== false, saidas: o.saidas !== false,
+  codigoProduto: o.codigoProduto === 'ean' ? 'ean' : 'plu', somarIcmsStOutras: !!o.somarIcmsStOutras, somarFcpStOutras: !!o.somarFcpStOutras,
+  somarIpiOutras: !!o.somarIpiOutras, zerado5929C170: !!o.zerado5929C170, zerado5929Documento: !!o.zerado5929Documento, cst49: !!o.cst49,
+  c170Proprias: !!o.c170Proprias, gerarIcmsSt: !!o.gerarIcmsSt, destacarIpiStItem: !!o.destacarIpiStItem,
+});
 
 /** o COD_INF do 0450/C110: os 6 últimos caracteres do CODNF com zeros à esquerda (`Get6UltimosCaracteres(FormatFloat('000000', …))`) */
 const codInf = (codnf: unknown) => String(Math.trunc(Number(codnf) || 0)).padStart(6, '0').slice(-6);
@@ -106,6 +133,9 @@ export class SpedEfdIcmsIpiService {
   async gerar(dtini: string, dtfim: string, opcoes: OpcoesSpedFiscal = {}): Promise<{ arquivo: string; nomeArquivo: string; linhas: number; documentos: number; parcial: boolean; validacao: ResultadoValidacao; aviso: string }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
+    const op = opcoesPadrao(opcoes);
+    // "Gerar com os registros de": as notas de entrada e/ou de saída (Uspedfiscal.pas:2333, 561, 623, 3478, 4055); as NFC-e só com Saídas (:3218)
+    const tipos = [...(op.entradas ? ['E'] : []), ...(op.saidas ? ['S'] : [])];
 
     const empresa = (await db
       .selectFrom('empresas')
@@ -121,7 +151,8 @@ export class SpedEfdIcmsIpiService {
     // 0000 (layout EFD ICMS/IPI, 14 campos): COD_VER|COD_FIN(0)|DT_INI|DT_FIN|NOME|CNPJ|CPF|UF|IE|COD_MUN|IM|SUFRAMA|IND_PERFIL|IND_ATIV
     // IND_PERFIL='A' e IND_ATIV='1'(outros) default — o legado lê de EMPRESA.PERFILSPED/INDICE_ATIV (ausentes no
     // monorepo → default documentado; refinável por config/coluna).
-    arq.add('0000', [codVersaoFiscal(dtini), '0', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, '', empresa.uf ?? '', ie, empresa.idcidade != null ? String(empresa.idcidade) : '', empresa.im ?? '', '', 'A', '1']);
+    // COD_FIN pela "Finalidade do Arquivo" (0 original, 1 retificação — Uspedfiscal.pas:1631)
+    arq.add('0000', [codVersaoFiscal(dtini), String(op.finalidade), fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, '', empresa.uf ?? '', ie, empresa.idcidade != null ? String(empresa.idcidade) : '', empresa.im ?? '', '', 'A', '1']);
     arq.add('0001', ['0']);
     // 0005 (9 campos): FANTASIA|CEP|ENDERECO|NUM|COMPL|BAIRRO|FONE|FAX|EMAIL
     arq.add('0005', [empresa.fantasia ?? empresa.razao_social ?? '', soDigitos(empresa.cep), empresa.endereco ?? '', empresa.numero ?? 'S/N', '', empresa.bairro ?? '', soDigitos(empresa.fone1), soDigitos(empresa.fone2), '']);
@@ -132,15 +163,15 @@ export class SpedEfdIcmsIpiService {
     arq.add('0100', [txt(ct.nome), soDigitos(ct.cpf as string), txt(ct.crc), soDigitos(ct.cnpj as string), soDigitos(ct.cep as string), txt(ct.endereco),
       txt(ct.num), txt(ct.complemento), txt(ct.bairro), soDigitos(ct.fone as string), soDigitos(ct.fax as string), txt(ct.email), ct.cod_mun != null ? String(ct.cod_mun) : '']);
 
-    const docs = await this.coletarEntrada(db, emp, dtini, dtfim);
+    const docs = await this.coletarEntrada(db, emp, dtini, dtfim, tipos);
     // o BLOCO D (GeraBlocoD, Uspedfiscal.pas:516-672): as notas de frete (D100/D190) — os participantes delas entram no 0150
-    const frete = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [7, 8, 9, 10, 11, 26, 27, 57], false);
+    const frete = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [7, 8, 9, 10, 11, 26, 27, 57], false, tipos);
     // e as de telecomunicação 21/22 (sqqNFtelecomunicacao: processadas, sem o filtro de CFOP do C100) — D500/D590
-    const telecom = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [21, 22], true);
+    const telecom = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [21, 22], true, tipos);
     const inventario = await this.coletarInventario(db, emp, opcoes.inventario, String(empresa.uf ?? ''));
     // 0450/C110 (as observações das notas) e o C113 (os documentos referenciados — "C113 / 114", marcado por padrão)
-    const informacoes = await this.coletarInformacoes(db, emp, dtini, dtfim);
-    const referenciados = opcoes.c113c114 === false ? new Map<number, Array<Record<string, any>>>() : await this.coletarReferenciados(db, docs);
+    const informacoes = await this.coletarInformacoes(db, emp, dtini, dtfim, tipos);
+    const referenciados = op.c113c114 ? await this.coletarReferenciados(db, docs) : new Map<number, Array<Record<string, any>>>();
     // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
     // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
     // contagem COMPLETA e mantém integridade referencial, em vez de dropar itens sem movimento do período).
@@ -152,7 +183,7 @@ export class SpedEfdIcmsIpiService {
     // 0175/0205 — as alterações de cadastro do participante e do item (TB_SPEED_AUX; Uspedfiscal.pas:1548-1600, :1725-1750)
     const alt0175 = await alteracoesParaSped(db, '0175', [...docs.parceiros.keys()], dtini, dtfim);
     const alt0205 = await alteracoesParaSped(db, '0205', [...docs.produtos.keys()], dtini, dtfim);
-    this.emitirCadastros(arq, docs, { alt0175, alt0205, dtini, dtfim });
+    this.emitirCadastros(arq, docs, { alt0175, alt0205, dtini, dtfim }, op.codigoProduto);
     // 0450 (2): COD_INF|TXT — uma por nota com observação (cdsObsNF_Reg0450)
     for (const i of informacoes.values()) arq.add('0450', [codInf(i.codnf), txtSped(i.txt0450)]);
     arq.fecharBloco('0990', '0');
@@ -163,8 +194,8 @@ export class SpedEfdIcmsIpiService {
     // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito), as numerações INUTILIZADAS e as NFC-e (GeraNFInutilizadas / GeraNF /
     // GeraNFC, Uspedfiscal.pas:4118-4120)
     const inutilizadas = await this.coletarInutilizadas(db, emp, dtini, dtfim);
-    const nfce = await this.coletarNfce(db, emp, dtini, dtfim);
-    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini, informacoes, referenciados);
+    const nfce = op.saidas ? await this.coletarNfce(db, emp, dtini, dtfim) : [];
+    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini, informacoes, referenciados, op);
 
     // BLOCO D — frete (D100/D190) e telecomunicação (D500/D590), como o GeraBlocoD
     this.emitirBlocoD(arq, frete, telecom, empresa.idcidade);
@@ -243,7 +274,7 @@ export class SpedEfdIcmsIpiService {
 
     // BLOCO H — Inventário (ordem 0→C→D→E→G→H→K→1→9). H001 sempre (IND_MOV toggle); H005/H010 por evento de
     // inventário com data no período.
-    this.emitirBlocoH(arq, inventario, docs);
+    this.emitirBlocoH(arq, inventario, docs, op.codigoProduto);
 
     // BLOCO K — controle da produção e do estoque: sem dados (ADIADO — config-gated OPTANTE_BLOCOK + fonte vazia) —
     // opener obrigatório.
@@ -273,16 +304,16 @@ export class SpedEfdIcmsIpiService {
    * UdmSpedFiscal.dfm:2604-2685): fora os modelos 02/03/07/08/57 (o 07/08 é do bloco D) e a NF-e 55 sem chave que não é inutilizada;
    * a nota entra se ao menos um ITEM tem CFOP que gera SPED (o JOIN é pelo item, não pelo cabeçalho).
    */
-  private async coletarEntrada(db: AnyDB, emp: number, dtini: string, dtfim: string) {
+  private async coletarEntrada(db: AnyDB, emp: number, dtini: string, dtfim: string, tipos: string[] = ['E', 'S']) {
     const nfs = (await db
       .selectFrom('nf')
       .leftJoin('parceiros as px', 'px.codparceiro', 'nf.codparceiro')
       .select(['nf.codnf', 'nf.tipo', 'nf.modelo', 'nf.nronf', 'nf.serie', 'nf.chavenfe', 'nf.dtemissao', 'nf.dtcontabil', 'nf.tipoemissao', 'nf.codparceiro', 'nf.codparceiro_end',
         'nf.cfop', 'nf.totalnf', 'nf.totaldesc', 'nf.totaldescfinal', 'nf.totalprod', 'nf.totalfrete', 'nf.totalseguro', 'nf.totalacessorias', 'nf.totalipi', 'nf.tipofrete', 'nf.stexterno',
-        'nf.obs', 'nf.totalicm_st',
+        'nf.obs', 'nf.totalicm_st', 'nf.total_fcp_valor_st',
         'px.classfiscal as classfiscal_parceiro', sql`coalesce(nf.cancelada,'N')`.as('cancelada'), sql`coalesce(nf.statusnfe,'')`.as('statusnfe')])
       .where('nf.idempresa', '=', emp)
-      .where('nf.tipo', 'in', ['E', 'S']) // corte-2: ENTRADA (crédito) + SAÍDA (débito) — destrava a apuração ICMS
+      .where('nf.tipo', 'in', tipos.length ? tipos : ['-']) // as Entradas e/ou as Saídas da tela (as duas por padrão)
       .where('nf.proc', '=', 'S')
       .where('nf.dtcontabil', '>=', dtini)
       .where('nf.dtcontabil', '<=', dtfim)
@@ -351,7 +382,7 @@ export class SpedEfdIcmsIpiService {
    * a entrada com ICMS-ST de terceiro vira "VALOR DE ST: … LANCADO EM OUTRAS"; a OBS em branco do 5929/6929, "NF REFERENTE A CUPOM";
    * as outras, a OBS. Produção set/2026: 462 notas na loja 1, 308 na loja 2.
    */
-  private async coletarInformacoes(db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<Map<number, Record<string, any>>> {
+  private async coletarInformacoes(db: AnyDB, emp: number, dtini: string, dtfim: string, tipos: string[] = ['E', 'S']): Promise<Map<number, Record<string, any>>> {
     const rows = (await sql<Record<string, any>>`
         SELECT n.codnf, n.obs, n.totalicm_st, n.tipo, n.stexterno, n.cfop
           FROM nf n
@@ -363,6 +394,7 @@ export class SpedEfdIcmsIpiService {
                 OR n.modelo NOT IN (22, 21, 6, 2, 8, 7, 28, 29, 3, 57, 55))
            AND n.proc = 'S' AND coalesce(n.statusnfe, 'Null') <> 'D' AND n.cancelada = 'N' AND n.nronf NOT IN ('000000')
            AND coalesce(n.statusnfe, 'P') <> 'I'
+           AND n.tipo = ANY(${tipos.length ? tipos : ['-']}::text[])
          ORDER BY n.codnf`.execute(db)).rows;
     for (const r of rows) {
       r.txt0450 = (Number(r.totalicm_st) || 0) > 0 && String(r.tipo) === 'E' && String(r.stexterno ?? 'N') === 'N'
@@ -448,7 +480,8 @@ export class SpedEfdIcmsIpiService {
    *  H005 (DT_INV = a data do inventário, VL_INV = Σ VL_ITEM, MOT_INV da tela) e um H010 por item que está no 0200 (COD_ITEM | UNID |
    *  QTD | VL_UNIT | VL_ITEM = máx(0, qtde × custo) | IND_PROP 0 | COD_PART '' | TXT_COMPL '' | COD_CTA = CODEXPINTEIRO | VL_ITEM_IR) e,
    *  com MOT_INV ≥ 02, o H020 (CST_ICMS | BC_ICMS = VL_ITEM | VL_ICMS = VL_ITEM × ICM / 100). Item sem saldo fica de fora (QTD ≤ 0). */
-  private emitirBlocoH(arq: SpedArquivo, inventario: (OpcaoInventario & { itens: Array<Record<string, any>> }) | null, docs: { produtos: Map<number, Record<string, any>> }): void {
+  private emitirBlocoH(arq: SpedArquivo, inventario: (OpcaoInventario & { itens: Array<Record<string, any>> }) | null, docs: { produtos: Map<number, Record<string, any>> },
+    codigoProduto: 'ean' | 'plu' = 'plu'): void {
     arq.add('H001', [inventario ? '0' : '1']); // IND_MOV
     if (inventario) {
       const linhas = inventario.itens.filter((it) => docs.produtos.has(Number(it.idproduto))).map((it) => {
@@ -463,7 +496,7 @@ export class SpedEfdIcmsIpiService {
       arq.add('H005', [fmtData(inventario.data), fmtNum(vlInv), String(motivo).padStart(2, '0')]);
       for (const { it, q, vu, total } of linhas) {
         // H010 (10): COD_ITEM|UNID|QTD|VL_UNIT|VL_ITEM|IND_PROP|COD_PART|TXT_COMPL|COD_CTA|VL_ITEM_IR
-        arq.add('H010', [String(it.idproduto), String(it.unidade ?? '').trim(), fmtNum(q, 3), fmtNum(vu, 2), fmtNum(total), '0', '', '', String(it.codexpinteiro ?? ''), fmtNum(total)]);
+        arq.add('H010', [codigoProduto === 'ean' ? String(it.codbarra ?? '').trim() : String(it.idproduto), String(it.unidade ?? '').trim(), fmtNum(q, 3), fmtNum(vu, 2), fmtNum(total), '0', '', '', String(it.codexpinteiro ?? ''), fmtNum(total)]);
         if (motivo >= 2) {
           // H020 (3): CST_ICMS|BC_ICMS|VL_ICMS — o CST de DET_ALIQUOTA em 3 dígitos
           const cst = it.cst_h020 == null ? '' : String(it.cst_h020).padStart(3, '0');
@@ -478,6 +511,7 @@ export class SpedEfdIcmsIpiService {
   private emitirCadastros(
     arq: SpedArquivo, docs: { parceiros: Map<number, Record<string, any>>; produtos: Map<number, Record<string, any>>; unidades: Set<string> },
     alt: { alt0175: Array<Record<string, unknown>>; alt0205: Array<Record<string, unknown>>; dtini: string; dtfim: string } = { alt0175: [], alt0205: [], dtini: '', dtfim: '' },
+    codigoProduto: 'ean' | 'plu' = 'plu',
   ): void {
     // DT_FIM fora do período vira o penúltimo dia dele (`GetDtFim0205`); DT_INI não passa do DT_FIM (`GetDtIni0205`)
     const dtFimSped = (d: string) => {
@@ -508,7 +542,8 @@ export class SpedEfdIcmsIpiService {
     for (const p of docs.produtos.values()) {
       const ncm = String(p.ncmsh ?? '').replace(/\D/g, '');
       // 0200 (12): COD_ITEM|DESCR_ITEM|COD_BARRA|COD_ANT_ITEM|UNID_INV|TIPO_ITEM(00)|COD_NCM|EX_IPI|COD_GEN|COD_LST|ALIQ_ICMS|CEST
-      arq.add('0200', [String(p.idproduto), String(p.descricao ?? '').trim(), String(p.codbarra ?? '').trim(), '', String(p.unidade ?? '').trim(), '00', ncm ? ncm.padStart(8, '0') : '', '', ncm.slice(0, 2), '', '', String(p.cest ?? '').trim()]);
+      // COD_ITEM pelo "Codigo Produto" da tela: PLU (o código interno — o padrão) ou EAN (o código de barras) — Uspedfiscal.pas:1922
+      arq.add('0200', [codigoProduto === 'ean' ? String(p.codbarra ?? '').trim() : String(p.idproduto), String(p.descricao ?? '').trim(), String(p.codbarra ?? '').trim(), '', String(p.unidade ?? '').trim(), '00', ncm ? ncm.padStart(8, '0') : '', '', ncm.slice(0, 2), '', '', String(p.cest ?? '').trim()]);
       // 0205 (4): DESCR_ANT_ITEM|DT_INI|DT_FIM|COD_ANT_ITEM — primeiro as descrições, depois os códigos; períodos
       // sobrepostos do mesmo campo são pulados (`InsereRegistro0205`: o DT_INI tem de passar do DT_FIM anterior)
       const rows = a0205.get(Number(p.idproduto)) ?? [];
@@ -535,7 +570,7 @@ export class SpedEfdIcmsIpiService {
    *  IND_OPER por sentido (0=entrada/1=saída). Retorna o ICMS de ENTRADA (crédito) e de SAÍDA (débito) p/ o E110. */
   private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> },
     inutilizadas: Array<Record<string, any>> = [], nfce: NfceSped[] = [], dtini = '', informacoes: Map<number, Record<string, any>> = new Map(),
-    referenciados: Map<number, Array<Record<string, any>>> = new Map()): { creditoIcms: number; debitoIcms: number } {
+    referenciados: Map<number, Array<Record<string, any>>> = new Map(), op: OpcoesC = opcoesPadrao({})): { creditoIcms: number; debitoIcms: number } {
     const temDocs = docs.nfs.length > 0 || inutilizadas.length > 0 || nfce.length > 0;
     arq.add('C001', [temDocs ? '0' : '1']);
     let creditoIcms = 0;
@@ -593,11 +628,25 @@ export class SpedEfdIcmsIpiService {
         return a + r2(((bruto - (bruto * nn(it.desconto)) / 100) * nn(it[campo])) / 100);
       }, 0));
       const tipofrete = String(nf.tipofrete ?? '').trim();
-      // C100 (28): IND_OPER(0=entrada)|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
-      arq.add('C100', [indOper, indEmit, String(nf.codparceiro ?? ''), codMod, codSit, ser.padStart(3, '0'), String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string),
-        fmtNum(nn(nf.totalnf)), indPgto, fmtNum(r2(nn(nf.totaldesc) + Math.abs(nn(nf.totaldescfinal)))), fmtNum(0), fmtNum(vlMerc),
-        ['0', '1', '2', '3', '4', '9'].includes(tipofrete) ? tipofrete : '9', fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)),
-        fmtNum(bcC100), fmtNum(vlC100), fmtNum(0), fmtNum(0), fmtNum(nn(nf.totalipi)), fmtNum(pisCofins('aliq_pis_ent')), fmtNum(pisCofins('aliq_cofins_ent')), fmtNum(0), fmtNum(0)]);
+      const entradaNf = String(nf.tipo) === 'E';
+      // "Gerar C170 com IPI e ICMS-ST no total do item" (só entrada): a ST e o IPI vão para o valor da mercadoria e saem dos campos deles
+      const destacar = op.destacarIpiStItem && entradaNf;
+      // VL_OUT_DA = as despesas acessórias + o que a tela manda "Somar em Outras despesas" (Uspedfiscal.pas:2431-2445)
+      const outrasDesp = r2(nn(nf.totalacessorias) + (op.somarIpiOutras ? nn(nf.totalipi) : 0) + (op.somarIcmsStOutras ? nn(nf.totalicm_st) : 0)
+        + (op.somarFcpStOutras ? nn(nf.total_fcp_valor_st) : 0));
+      const vlIcmsStC100 = destacar ? 0 : op.gerarIcmsSt ? nn(nf.totalicm_st) : 0;
+      const vlIpiC100 = destacar || op.somarIpiOutras ? 0 : nn(nf.totalipi);
+      if (op.zerado5929Documento && String(nf.cfop ?? '').slice(1, 4) === '929') {
+        // "Gerar 5929 Zerado C190" com o CFOP x929 no cabeçalho: o C100 sai todo zerado, sem frete (Uspedfiscal.pas:2447-2480)
+        arq.add('C100', [indOper, indEmit, String(nf.codparceiro ?? ''), codMod, codSit, ser.padStart(3, '0'), String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string),
+          fmtNum(0), indPgto, fmtNum(0), fmtNum(0), fmtNum(0), '9', fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0)]);
+      } else {
+        // C100 (28): IND_OPER(0=entrada)|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
+        arq.add('C100', [indOper, indEmit, String(nf.codparceiro ?? ''), codMod, codSit, ser.padStart(3, '0'), String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string),
+          fmtNum(nn(nf.totalnf)), indPgto, fmtNum(r2(nn(nf.totaldesc) + Math.abs(nn(nf.totaldescfinal)))), fmtNum(0), fmtNum(destacar ? r2(vlMerc + nn(nf.totalicm_st) + nn(nf.totalipi)) : vlMerc),
+          ['0', '1', '2', '3', '4', '9'].includes(tipofrete) ? tipofrete : '9', fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(outrasDesp),
+          fmtNum(bcC100), fmtNum(vlC100), fmtNum(0), fmtNum(vlIcmsStC100), fmtNum(vlIpiC100), fmtNum(pisCofins('aliq_pis_ent')), fmtNum(pisCofins('aliq_cofins_ent')), fmtNum(0), fmtNum(0)]);
+      }
       // C110 (a nota com observação — `cdsObsNF_Reg0450.Locate`, Uspedfiscal.pas:2553-2567): COD_INF e o texto da observação da nota; o
       // "ST LANCADO" vira o valor da ST "LANCADO EM ICMS RETIDO POR ST" (a opção de somar a ST em outras despesas vem desmarcada). Os
       // documentos referenciados (C113) são filhos dele: sem observação, não há C113
@@ -606,7 +655,7 @@ export class SpedEfdIcmsIpiService {
         const obs = String(nf.obs ?? '').trim();
         // o valor pelo `AsString` do Delphi (vírgula, sem zeros à direita, com o zero antes da vírgula)
         const st = String(Math.round((Number(nf.totalicm_st) || 0) * 100) / 100).replace('.', ',');
-        const txt = obs.includes('ST LANCADO') ? `VALOR DE ST: ${st} LANCADO EM ICMS RETIDO POR ST` : obs;
+        const txt = obs.includes('ST LANCADO') ? `VALOR DE ST: ${st} LANCADO EM ${op.somarIcmsStOutras ? 'OUTRAS DESPESAS' : 'ICMS RETIDO POR ST'}` : obs;
         // C110 (2): COD_INF|TXT_COMPL
         arq.add('C110', [codInf(nf.codnf), txtSped(txt)]);
         for (const r of referenciados.get(Number(nf.codnf)) ?? []) {
@@ -619,34 +668,44 @@ export class SpedEfdIcmsIpiService {
       }
       // C170: não sai na NF-e 55 de EMISSÃO PRÓPRIA, entrada ou saída (a opção "Gerar C170 notas de emissão própria" vem desmarcada,
       // Uspedfiscal.pas:2707-2709)
-      const comC170 = !(String(nf.modelo ?? '') === '55' && String(nf.tipoemissao ?? '0') === '0');
+      const comC170 = op.c170Proprias || !(String(nf.modelo ?? '') === '55' && String(nf.tipoemissao ?? '0') === '0');
       if (comC170) {
         let nro = 0;
         const entrada = String(nf.tipo) === 'E';
         for (const it of itens) {
           const prod = docs.produtos.get(Number(it.codproduto));
-          const icms = icmsDoItem(it, simples);
-          const vlItem = r2(nn(it.vrcusto) * nn(it.quantidade));
+          // "Gerar 5929 Zerado C170": o item x929 sem base, alíquota e ICMS (Uspedfiscal.pas:2711-2717)
+          const icms = op.zerado5929C170 && String(it.cfop ?? '').slice(1, 4) === '929' ? { bc: 0, aliq: 0, vl: 0 } : icmsDoItem(it, simples);
+          const vlItemBase = r2(nn(it.vrcusto) * nn(it.quantidade));
+          const ipiItem = r2((vlItemBase * nn(it.ipi)) / 100);
+          // com o destaque, a ST e o IPI do item entram no valor dele (VRCUSTO + VRICMST + IPI%, :2778)
+          const vlItem = destacar ? r2(vlItemBase + nn(it.vricmst) + ipiItem) : vlItemBase;
           // PIS/COFINS pelo PISCOFINS do produto (dfm:2985-2991): entrada — CST de entrada (98 sem cadastro), base = valor − desconto,
           // alíquota de entrada; saída — CST de saída (04 sem cadastro) e o resto 0 (pas:2733-2745)
           const cstPis = String(Math.trunc(nn(entrada ? it.cst_pis_ent ?? 98 : it.cst_pis_sai ?? 4))).padStart(2, '0');
           const cstCofins = String(Math.trunc(nn(entrada ? it.cst_cofins_ent ?? 98 : it.cst_cofins_sai ?? 4))).padStart(2, '0');
-          const basePc = entrada ? r2(vlItem - nn(it.vrdescprod)) : 0;
+          const basePc = entrada ? r2(vlItemBase - nn(it.vrdescprod)) : 0;
           const aliqPis = entrada ? nn(it.aliq_pis_ent) : 0;
           const aliqCofins = entrada ? nn(it.aliq_cofins_ent) : 0;
           // C170 (37): NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|COD_NAT|VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|IND_APUR|CST_IPI|COD_ENQ|VL_BC_IPI|ALIQ_IPI|VL_IPI|CST_PIS|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|CST_COFINS|VL_BC_COFINS|ALIQ_COFINS|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|VL_ABAT_NT
           // QTD na unidade do produto (QUANTIDADE × FATOREMBAL, dfm:2910); a descrição é a da nota (dfm:2909); CST_IPI vazio (pas:2798);
           // VL_IPI = valor × IPI% (pas:2810)
-          arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(it.descricao ?? prod?.descricao ?? '').trim(), fmtNum(r3(nn(it.quantidade) * (nn(it.fatorembal) || 1)), 3),
-            String(prod?.unidade ?? '').trim(), fmtNum(vlItem), fmtNum(nn(it.vrdescprod)), '0', cst3(it.cst), String(it.cfop ?? ''), '', fmtNum(icms.bc), fmtNum(icms.aliq), fmtNum(icms.vl),
-            fmtNum(0), fmtNum(0), fmtNum(0), '0', '', '', fmtNum(0), fmtNum(0), fmtNum(r2((vlItem * nn(it.ipi)) / 100)),
+          // COD_ITEM pelo "Codigo Produto"; CST 049 fixo com "Gerar CST 049" (:2789); VL_ICMS_ST com "Gerar ICMS ST" (:2814); VL_IPI 0 com o IPI
+          // somado em outras despesas ou destacado no item (:2803-2812)
+          arq.add('C170', [String(++nro), op.codigoProduto === 'ean' ? String(prod?.codbarra ?? '').trim() : String(it.codproduto ?? ''), String(it.descricao ?? prod?.descricao ?? '').trim(), fmtNum(r3(nn(it.quantidade) * (nn(it.fatorembal) || 1)), 3),
+            String(prod?.unidade ?? '').trim(), fmtNum(vlItem), fmtNum(nn(it.vrdescprod)), '0', op.cst49 ? '049' : cst3(it.cst), String(it.cfop ?? ''), '', fmtNum(icms.bc), fmtNum(icms.aliq), fmtNum(icms.vl),
+            fmtNum(0), fmtNum(0), fmtNum(destacar || !op.gerarIcmsSt ? 0 : nn(it.vricmst)), '0', '', '', fmtNum(0), fmtNum(0), fmtNum(destacar || op.somarIpiOutras ? 0 : ipiItem),
             cstPis, fmtNum(basePc), fmtNum(aliqPis, 4), '', '', fmtNum(r2((basePc * aliqPis) / 100)),
             cstCofins, fmtNum(basePc), fmtNum(aliqCofins, 4), '', '', fmtNum(r2((basePc * aliqCofins) / 100)), '', fmtNum(0)]);
         }
       }
       for (const g of gruposC190(itens, stExterno, simples)) {
+        // "Gerar 5929 Zerado C190": o grupo x929 com VL_OPR 0 (:3118-3121); VL_ICMS_ST com "Gerar ICMS ST"; VL_IPI 0 com o IPI somado em outras
+        // despesas; com o destaque no item (entrada), os dois 0 (:3166-3175)
+        const x929 = g.cfop.slice(1, 4) === '929';
         // C190 (11): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|COD_OBS
-        arq.add('C190', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bc), fmtNum(g.vl), fmtNum(0), fmtNum(0), fmtNum(g.vlRedBc), fmtNum(g.vlIpi), '']);
+        arq.add('C190', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(op.zerado5929Documento && x929 ? 0 : g.vlOpr), fmtNum(g.bc), fmtNum(g.vl), fmtNum(0),
+          fmtNum(destacar || !op.gerarIcmsSt ? 0 : g.vlIcmsSt), fmtNum(g.vlRedBc), fmtNum(destacar || op.somarIpiOutras ? 0 : g.vlIpi), '']);
         if (saida) debitoIcms = r2(debitoIcms + g.vl); // SAÍDA → débito de ICMS
         else creditoIcms = r2(creditoIcms + g.vl); // ENTRADA → crédito de ICMS
       }
@@ -792,13 +851,15 @@ export class SpedEfdIcmsIpiService {
    * de 000000, sem filtro de processada nem de cancelada) e TELECOMUNICAÇÃO (sqqNFtelecomunicacao, :5268 — 21/22 processadas), com os itens
    * (o analítico) e o endereço da nota
    */
-  private async coletarFrete(db: AnyDB, emp: number, dtini: string, dtfim: string, parceiros: Map<number, Record<string, any>>, modelos: number[], soProcessadas: boolean):
+  private async coletarFrete(db: AnyDB, emp: number, dtini: string, dtfim: string, parceiros: Map<number, Record<string, any>>, modelos: number[], soProcessadas: boolean,
+    tipos: string[] = ['E', 'S']):
     Promise<Array<Record<string, any> & { itens: Array<Record<string, any>> }>> {
     let q = db.selectFrom('nf').leftJoin('parceiros_end as pe', 'pe.codend', 'nf.codparceiro_end')
       .select(['nf.codnf', 'nf.tipo', 'nf.modelo', 'nf.nronf', 'nf.serie', 'nf.chavenfe', 'nf.dtemissao', 'nf.dtcontabil', 'nf.codparceiro', 'nf.codparceiro_end', 'nf.totalnf',
         'nf.totaldesc', 'nf.totalprod', 'nf.totalacessorias', 'nf.totalbaseicm', 'nf.totalicm', 'nf.tipofrete', 'pe.idcidade'])
       .where('nf.idempresa', '=', emp)
       .where(sql`coalesce(nf.modelo, 0)`, 'in', modelos)
+      .where('nf.tipo', 'in', tipos.length ? tipos : ['-'])
       .where('nf.dtcontabil', '>=', dtini)
       .where('nf.dtcontabil', '<=', dtfim);
     // o frete não filtra o número nem a processada além do 000000; a telecomunicação só a processada

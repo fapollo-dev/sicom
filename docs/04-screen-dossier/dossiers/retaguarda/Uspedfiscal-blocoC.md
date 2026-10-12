@@ -353,3 +353,25 @@ fica de fora. Smoke §90e; jsdom `spedFiscal.spec.tsx`.
   do `Locate` está invertido).
 
 Smoke §309; jsdom `spedFiscal.spec.tsx`.
+
+## As opções de geração do bloco C (12/10/2026)
+
+Recon completo das opções da tela (`Uspedfiscal.pas`/`.dfm`) por agente; convertidas, com o padrão do `.dfm` quando ausentes:
+
+| Opção da tela | Padrão | O que muda |
+|---|---|---|
+| Finalidade do Arquivo (Original/Retificação) | Original | 0000.COD_FIN 0/1 (:1631) |
+| Gerar com os registros de: Entradas / Saidas | as duas | as notas do C100/C500/D100/D500 e o 0450 pelo TIPO; as NFC-e só com Saídas (:2333, :561, :623, :3218). ⚠️ O efeito colateral do legado no 0200 (desmarcar Entradas tira do 0200 os produtos de TODA nota, até as de saída — o `AND 1 = 0` no ramo do NF_PROD, :1883) não se copia: deixaria C170 apontando item fora do 0200 |
+| Codigo Produto (EAN/PLU) | PLU | COD_ITEM do 0200, C170 e H010 (código interno × código de barras) |
+| Somar em Outras despesas: ICMS ST / FCP ST / IPI | desmarcadas | C100.VL_OUT_DA soma a ST, o FCP-ST e o IPI; o IPI somado zera o VL_IPI do C100/C170/C190; a ST somada muda o texto do C110 ("…LANCADO EM OUTRAS DESPESAS") (:2431-2445) |
+| Gerar 5929 Zerado C170 | desmarcada | o item x929 sem base, alíquota e ICMS no C170 (:2711-2717) |
+| Gerar 5929 Zerado C190 | desmarcada | cabeçalho x929: o C100 todo zerado; o grupo x929 com VL_OPR 0 (:2447-2480, :3118-3121) |
+| Gerar CST 049 | desmarcada | CST_ICMS 049 em todo C170 (o C190 fica com o CST real, como no legado) |
+| Gerar C170 notas de emissão própria | desmarcada | o C170 da NF-e 55 própria (:2707-2709) |
+| Gerar ICMS ST C100/C170/C190 | desmarcada | VL_ICMS_ST com o valor (C100 TOTALICM_ST, C170 VRICMST, C190 Σ sem a ST externa); VL_BC_ICMS_ST segue 0 |
+| Gerar C170 com IPI e ICMS-ST no total do item | desmarcada | só entrada: VL_MERC = mercadoria + ST + IPI, VL_ITEM = valor + VRICMST + IPI%, e ST/IPI 0 no C100/C170/C190 (vence as outras de ST/IPI) |
+
+Mortas no legado (a tela mostra, o código não lê): E200/210/250, K270/275, K280 (escondidas), Decimal Desconto (o `/*CASAS*/` não existe na
+consulta); C176 desmarca sozinho no clique. Ainda por converter: C140/C141 (+ todos os modelos), C191 (quebra depois de 2020 no fonte),
+E500 (APURACAO_IPI), bloco K (OPTANTE_BLOCOK = N na produção), 1700/1710 (marcado por padrão, mas com modelo 02, série D e NUM_AUT fixos
+no fonte — conferir no binário antes), NF Goiana (C460/C470 de ECF), NFC-e com itens e com participante, CST 041 do C490 (ECF). Smoke §310.

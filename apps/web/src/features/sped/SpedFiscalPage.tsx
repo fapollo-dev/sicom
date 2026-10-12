@@ -29,11 +29,18 @@ export function baixarArquivoSped(nome: string, texto: string): void {
  * GERADOR SPED FISCAL — EFD ICMS/IPI (`FRMSPEDFISCAL`, Uspedfiscal.pas — "SPED ICMS/IPI"; 896 acessos, 25 operadores). O `&Gerar` do
  * legado (`btnOkClick`): o pré-processamento, o PRÉ-VALIDADOR (marcado por padrão — as pendências aparecem e, ao sair delas, a geração
  * segue: não bloqueia), a geração dos blocos e o arquivo `SPED_<CNPJ>_<ddmmaaaa>.txt` ("Arquivo gerado com sucesso..."). A loja é a do
- * login. O Bloco H como a tela: "Gerar H001 (Inventário)" (desmarcado por padrão), a "Data Inventário" (a da FOLHA do inventário), o
- * motivo do H005 e a "Correção Tributária". As outras opções de geração da tela do legado (entradas/saídas, código do produto,
- * C140/C113/C176/C191, E200/E500, bloco K, as somas em outras despesas, CST 049/041, 5929 zerado, ICMS ST…) ainda não chegaram ao
- * gerador do Apollo — dossiê `Uspedfiscal-blocoC.md`; o gerador usa o padrão do `.dfm`.
+ * login. As opções da tela com o padrão do `.dfm`: a "Finalidade do Arquivo", "Gerar com os registros de" (Entradas/Saidas), o "Codigo
+ * Produto" (EAN/PLU), o "C113 / 114" (marcado), "Somar em Outras despesas" (ICMS ST, FCP ST, IPI), as "Outras opções de geração" do bloco
+ * C (5929 zerado no C170 e no C190, CST 049, C170 das notas de emissão própria, ICMS ST, IPI e ICMS-ST no total do item) e o Bloco H
+ * ("Gerar H001 (Inventário)", a data da FOLHA, o motivo e a correção tributária). Ainda fora (dossiê `Uspedfiscal-blocoC.md`): C140,
+ * C191, E500, bloco K, 1700, NF Goiana, as NFC-e com itens/participante e o CST 041 do C490.
  */
+/** as opções booleanas da tela e o padrão do `.dfm` — o pedido só leva o que o operador mudou */
+const PADRAO = {
+  entradas: true, saidas: true, somarIcmsStOutras: false, somarFcpStOutras: false, somarIpiOutras: false, zerado5929C170: false,
+  zerado5929Documento: false, cst49: false, c170Proprias: false, gerarIcmsSt: false, destacarIpiStItem: false,
+};
+type OpcaoBool = keyof typeof PADRAO;
 export function SpedFiscalPage() {
   const mensagem = useMensagem();
   const [dtini, setDtini] = useState<string | undefined>();
@@ -49,6 +56,12 @@ export function SpedFiscalPage() {
   const [correcao, setCorrecao] = useState<'S' | 'N'>('N');
   // Bloco C: o "C113 / 114" vem marcado (chkGerarC113C114, Uspedfiscal.dfm)
   const [c113, setC113] = useState<'S' | 'N'>('S');
+  const [opc, setOpc] = useState(PADRAO);
+  const [finalidade, setFinalidade] = useState<0 | 1>(0);
+  const [codigoProduto, setCodigoProduto] = useState<'ean' | 'plu'>('plu');
+  const caixa = (k: OpcaoBool, rotulo: string) => (
+    <CheckboxField label={rotulo} value={opc[k] ? 'S' : 'N'} onChange={(v) => setOpc((o) => ({ ...o, [k]: v === 'S' }))} />
+  );
 
   const gerarArquivo = async () => {
     if (!dtini || !dtfim) return;
@@ -57,6 +70,9 @@ export function SpedFiscalPage() {
       const r = await gerarSpedFiscal(dtini, dtfim, {
         ...(gerarH === 'S' && dtInventario ? { inventario: { data: dtInventario, motivo, correcao: correcao === 'S' } } : {}),
         ...(c113 === 'N' ? { c113c114: false } : {}),
+        ...(finalidade === 1 ? { finalidade: 1 as const } : {}),
+        ...(codigoProduto === 'ean' ? { codigoProduto: 'ean' as const } : {}),
+        ...Object.fromEntries((Object.keys(PADRAO) as OpcaoBool[]).filter((k) => opc[k] !== PADRAO[k]).map((k) => [k, opc[k]])),
       });
       baixarArquivoSped(r.nomeArquivo, r.arquivo);
       setResultado(r);
@@ -91,6 +107,38 @@ export function SpedFiscalPage() {
         <fieldset className="flex flex-wrap items-center gap-gp-sm">
           <legend className="text-body-sm font-semibold text-fg-muted">Bloco C</legend>
           <CheckboxField label="C113 / 114" value={c113} onChange={(v) => setC113(v === 'S' ? 'S' : 'N')} />
+        </fieldset>
+        <div className="grid grid-cols-1 gap-gp-sm md:grid-cols-2">
+          <fieldset className="flex flex-wrap items-center gap-gp-sm">
+            <legend className="text-body-sm font-semibold text-fg-muted">Finalidade do Arquivo</legend>
+            <label className="flex items-center gap-1 text-body-sm"><input type="radio" name="finalidade" checked={finalidade === 0} onChange={() => setFinalidade(0)} /> Original</label>
+            <label className="flex items-center gap-1 text-body-sm"><input type="radio" name="finalidade" checked={finalidade === 1} onChange={() => setFinalidade(1)} /> Retificação</label>
+          </fieldset>
+          <fieldset className="flex flex-wrap items-center gap-gp-sm">
+            <legend className="text-body-sm font-semibold text-fg-muted">Gerar com os registros de</legend>
+            {caixa('entradas', 'Entradas')}
+            {caixa('saidas', 'Saidas')}
+          </fieldset>
+          <fieldset className="flex flex-wrap items-center gap-gp-sm">
+            <legend className="text-body-sm font-semibold text-fg-muted">Codigo Produto</legend>
+            <label className="flex items-center gap-1 text-body-sm"><input type="radio" name="codigo-produto" checked={codigoProduto === 'ean'} onChange={() => setCodigoProduto('ean')} /> EAN</label>
+            <label className="flex items-center gap-1 text-body-sm"><input type="radio" name="codigo-produto" checked={codigoProduto === 'plu'} onChange={() => setCodigoProduto('plu')} /> PLU</label>
+          </fieldset>
+          <fieldset className="flex flex-wrap items-center gap-gp-sm">
+            <legend className="text-body-sm font-semibold text-fg-muted">Somar em Outras despesas</legend>
+            {caixa('somarIcmsStOutras', 'ICMS ST')}
+            {caixa('somarFcpStOutras', 'FCP ST')}
+            {caixa('somarIpiOutras', 'IPI')}
+          </fieldset>
+        </div>
+        <fieldset className="grid grid-cols-1 gap-gp-xs md:grid-cols-2">
+          <legend className="text-body-sm font-semibold text-fg-muted">Outras opções de geração</legend>
+          {caixa('zerado5929C170', 'Gerar 5929 Zerado C170')}
+          {caixa('zerado5929Documento', 'Gerar 5929 Zerado C190')}
+          {caixa('cst49', 'Gerar CST 049')}
+          {caixa('c170Proprias', 'Gerar C170 notas de emissão própria')}
+          {caixa('gerarIcmsSt', 'Gerar ICMS ST C100/C170/C190')}
+          {caixa('destacarIpiStItem', 'Gerar C170 com IPI e ICMS-ST no total do item')}
         </fieldset>
         <fieldset className="flex flex-wrap items-end gap-gp-sm">
           <legend className="text-body-sm font-semibold text-fg-muted">Bloco H</legend>

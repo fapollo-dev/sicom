@@ -38,7 +38,12 @@ export interface ArquivoSped {
   validacao: { ok: boolean; erros: string[]; registros: number };
 }
 export interface OpcaoInventarioSped { data: string; motivo: number; correcao: boolean }
-export const gerarSpedFiscal = (dtini: string, dtfim: string, opcoes: { inventario?: OpcaoInventarioSped; c113c114?: boolean } = {}) =>
+export interface OpcoesSpedFiscalTela {
+  inventario?: OpcaoInventarioSped; c113c114?: boolean; finalidade?: 0 | 1; codigoProduto?: 'ean' | 'plu';
+  entradas?: boolean; saidas?: boolean; somarIcmsStOutras?: boolean; somarFcpStOutras?: boolean; somarIpiOutras?: boolean;
+  zerado5929C170?: boolean; zerado5929Documento?: boolean; cst49?: boolean; c170Proprias?: boolean; gerarIcmsSt?: boolean; destacarIpiStItem?: boolean;
+}
+export const gerarSpedFiscal = (dtini: string, dtfim: string, opcoes: OpcoesSpedFiscalTela = {}) =>
   req<ArquivoSped>('/fiscal/sped/efd-icms-ipi', { method: 'POST', body: JSON.stringify({ dtini, dtfim, ...opcoes }) });
 
 export interface ContaPc { codplanocontas: number; codireduzido: string | null; descricao: string | null; codiexpandido: string | null }

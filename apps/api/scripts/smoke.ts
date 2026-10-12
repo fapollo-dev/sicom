@@ -19598,6 +19598,74 @@ async function main() {
         await pgRf.end();
       }
     }
+    // ══ §310 SPED FISCAL — as opções de geração do bloco C da tela do legado (o padrão do .dfm e cada opção mudada)
+    {
+      const pgOp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const nfs: number[] = [];
+      const tinha5929 = Number((await pgOp.query(`SELECT count(*)::int n FROM cfop WHERE codcfop = '5929'`)).rows[0].n) > 0;
+      try {
+        if (!tinha5929) await pgOp.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('5929', 'LANCAMENTO EM DECORRENCIA DE DOCUMENTO TAMBEM REGISTRADO EM ECF')`);
+        await pgOp.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con) VALUES (993101, 1, 'FORNECEDOR OPCOES', 'FOP', 'J', 993101, 'S', 'S', 'N', 'N') ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgOp.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, endereco_padrao, ativado, cnpj_cpf) VALUES (993101, 993101, 'RUA OP', 'CENTRO', 'SAO PAULO', 'SP', 'S', 'S', '77888999000181') ON CONFLICT (codend) DO NOTHING`);
+        const nova = async (v: { tipo: string; nronf: string; cfop: string; emissao: number; chave: string }) => {
+          const id = Number((await pgOp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, totalprod, cfop, chavenfe, tipoemissao,
+              totalicm_st, totalipi, total_fcp_valor_st, totalacessorias, stexterno)
+            VALUES (1, $1, 55, '1', $2, '2045-05-10', '2045-05-10', 993101, 993101, 'S', 'N', 118, 100, $3, $4, $5, 10, 5, 2, 1, 'N') RETURNING codnf`, [v.tipo, v.nronf, v.cfop, v.chave, v.emissao])).rows[0].codnf);
+          await pgOp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, aliquota, cfop, cst, icme, icms, vrbasecalculo, vricm, vricmst, ipi)
+            VALUES ($1, 1, 1, 'ITEM OPCOES', 2, 50, 50, 1, 0, 'T01', $2, 0, 18, 18, 100, 18, 10, 5)`, [id, v.cfop]);
+          nfs.push(id);
+          return id;
+        };
+        await nova({ tipo: 'E', nronf: '993101', cfop: '1102', emissao: 1, chave: '35450577888999000181550010009931011000000001' });
+        await nova({ tipo: 'S', nronf: '993102', cfop: '5929', emissao: 0, chave: '35450577888999000181550010009931021000000002' });
+        const codbarra1 = String((await pgOp.query(`SELECT codbarra FROM produtos WHERE idproduto = 1`)).rows[0]?.codbarra ?? '').trim();
+        const efd = async (op: Record<string, unknown> = {}) => {
+          const r = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2045-05-01', dtfim: '2045-05-31', ...op }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          const l = String(j.arquivo ?? '').split('\r\n');
+          const campos = (x: string | undefined) => (x ?? '').split('|').slice(2, -1);
+          // o C100 da nota e os filhos até o próximo C100
+          const nota = (nronf: string) => {
+            const i = l.findIndex((x) => x.startsWith('|C100|') && campos(x)[6] === nronf);
+            if (i < 0) return null;
+            let k = i + 1;
+            while (k < l.length && !l[k].startsWith('|C100|') && l[k].startsWith('|C')) k++;
+            const filhos = l.slice(i + 1, k);
+            return { c100: campos(l[i]), c170: filhos.filter((x) => x.startsWith('|C170|')).map(campos), c190: filhos.filter((x) => x.startsWith('|C190|')).map(campos) };
+          };
+          return { status: r.status, j, l, campos, nota };
+        };
+        const pad = await efd();
+        const pE = pad.nota('993101');
+        const pS = pad.nota('993102');
+        const mud = await efd({ gerarIcmsSt: true, somarIpiOutras: true, somarFcpStOutras: true, somarIcmsStOutras: true, c170Proprias: true, cst49: true, codigoProduto: 'ean', finalidade: 1 });
+        const mE = mud.nota('993101');
+        const mS = mud.nota('993102');
+        const des = await efd({ destacarIpiStItem: true });
+        const dE = des.nota('993101');
+        const soE = await efd({ saidas: false });
+        const soS = await efd({ entradas: false });
+        const z = await efd({ zerado5929Documento: true, zerado5929C170: true, c170Proprias: true });
+        const zS = z.nota('993102');
+        check('SPED FISCAL §310 [as opções de geração do bloco C]: no padrão do .dfm a entrada tem VL_OUT_DA 1,00, ST 0 e IPI 5,00 (C100/C170/C190) e a saída própria não tem C170; com ICMS ST + somas em outras despesas + C170 próprias + CST 049 + EAN + Retificação: COD_FIN 1, VL_OUT_DA 18,00 (1 + IPI 5 + ST 10 + FCP-ST 2), VL_ICMS_ST 10,00 e VL_IPI 0 nos três, C170 com o código de barras e CST 049, a saída própria com C170, o 0200 pelo código de barras; com o destaque no item, VL_MERC e VL_ITEM 115,00 e ST/IPI 0; Entradas/Saídas filtram as notas; com o 5929 zerado, o C100 da saída x929 todo zero, o VL_OPR do grupo 0 e o C170 sem ICMS',
+          pad.status === 200 && !!pE && !!pS && pE.c100[18] === '1,00' && pE.c100[22] === '0,00' && pE.c100[23] === '5,00' && pE.c170[0]?.[16] === '0,00' && pE.c170[0]?.[22] === '5,00'
+          && pE.c190[0]?.[7] === '0,00' && pE.c190[0]?.[9] === '5,00' && pS.c170.length === 0 && pad.l.some((x) => x.startsWith('|0000|') && x.split('|')[3] === '0')
+          && mud.status === 200 && mud.l.some((x) => x.startsWith('|0000|') && x.split('|')[3] === '1') && !!mE && !!mS
+          && mE.c100[18] === '18,00' && mE.c100[22] === '10,00' && mE.c100[23] === '0,00' && mE.c170[0]?.[1] === codbarra1 && mE.c170[0]?.[8] === '049'
+          && mE.c170[0]?.[16] === '10,00' && mE.c170[0]?.[22] === '0,00' && mE.c190[0]?.[7] === '10,00' && mE.c190[0]?.[9] === '0,00' && mS.c170.length === 1
+          && mud.l.some((x) => x.startsWith(`|0200|${codbarra1}|`))
+          && !!dE && dE.c100[14] === '115,00' && dE.c100[22] === '0,00' && dE.c100[23] === '0,00' && dE.c170[0]?.[5] === '115,00' && dE.c170[0]?.[22] === '0,00' && dE.c190[0]?.[9] === '0,00'
+          && !!soE.nota('993101') && !soE.nota('993102') && !soS.nota('993101') && !!soS.nota('993102')
+          && !!zS && zS.c100[10] === '0,00' && zS.c100[14] === '0,00' && zS.c100[18] === '0,00' && zS.c190[0]?.[3] === '0,00' && zS.c170[0]?.[11] === '0,00' && zS.c170[0]?.[13] === '0,00'
+          && [pad, mud, des, z].every((x) => x.j.validacao?.ok === true),
+          { pE, pS: pS && { c170: pS.c170.length }, mE, mS: mS && { c170: mS.c170.length }, dE, zS, codbarra1,
+            vals: [pad, mud, des, z].map((x) => x.j.validacao?.erros?.slice(0, 3)) });
+      } finally {
+        for (const id of nfs) { await pgOp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined); await pgOp.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined); }
+        if (!tinha5929) await pgOp.query(`DELETE FROM cfop WHERE codcfop = '5929'`).catch(() => undefined);
+        await pgOp.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

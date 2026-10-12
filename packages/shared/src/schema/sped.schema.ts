@@ -16,6 +16,20 @@ export const gerarSpedSchema = z
      */
     /** o "C113 / 114" do SPED Fiscal (marcado por padrão na tela do legado): false tira os documentos referenciados */
     c113c114: z.boolean().optional(),
+    // as demais opções da tela do SPED Fiscal (ausente = o padrão do .dfm)
+    finalidade: z.union([z.literal(0), z.literal(1)]).optional(),
+    entradas: z.boolean().optional(),
+    saidas: z.boolean().optional(),
+    codigoProduto: z.enum(['ean', 'plu']).optional(),
+    somarIcmsStOutras: z.boolean().optional(),
+    somarFcpStOutras: z.boolean().optional(),
+    somarIpiOutras: z.boolean().optional(),
+    zerado5929C170: z.boolean().optional(),
+    zerado5929Documento: z.boolean().optional(),
+    cst49: z.boolean().optional(),
+    c170Proprias: z.boolean().optional(),
+    gerarIcmsSt: z.boolean().optional(),
+    destacarIpiStItem: z.boolean().optional(),
     inventario: z
       .object({
         data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data do inventário.'),
