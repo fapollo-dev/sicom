@@ -7,6 +7,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { useShortcut } from '../../shared/keyboard';
+import { Modal } from '../../shared/ui/Modal';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -27,6 +28,21 @@ const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d
 interface Modalidade { modalidade: string; destino: string | null; campo: string }
 type Linha = Record<string, unknown> & { dia: string; total_venda: number; desconto: number; acrescimo: number; cancelamento: number; total_finalizadoras: number; diferenca: number };
 type Totais = Record<string, number>;
+interface Detalhe { titulo: string; modalidade: string; dia: string; linhas: Record<string, unknown>[] }
+
+/** as colunas da TfrmConsulta de cada DESTINO (os SELECT do `dbgDadosKeyDown`, na ordem do legado) */
+const COLUNAS_DETALHE: Record<string, Array<[string, string, 'data' | 'valor' | 'texto']>> = {
+  'A Receber': [['codrcb', 'Código', 'texto'], ['nrocupom', 'Cupom', 'texto'], ['dtvenda', 'Venda', 'data'], ['valor', 'Valor', 'valor'], ['dtvenc', 'Vencimento', 'data'],
+    ['codoperador', 'Operador', 'texto'], ['codparceiro', 'Parceiro', 'texto'], ['codpdv', 'PDV', 'texto'], ['razao', 'Razão', 'texto'], ['codempresa', 'Empresa', 'texto'],
+    ['obs', 'Obs', 'texto'], ['idpgto', 'Forma', 'texto'], ['quitada', 'Quitada', 'texto'], ['consiliado', 'Conciliado', 'texto']],
+  Cheques: [['codchq', 'Código', 'texto'], ['nrocheque', 'Cheque', 'texto'], ['dtemissao', 'Emissão', 'data'], ['valor', 'Valor', 'valor'], ['bompara', 'Bom para', 'data'],
+    ['operador', 'Operador', 'texto'], ['codparceiro', 'Parceiro', 'texto'], ['codpdv', 'PDV', 'texto'], ['razao', 'Razão', 'texto'], ['titular', 'Titular', 'texto'],
+    ['idempresa', 'Empresa', 'texto'], ['observacao', 'Observação', 'texto'], ['codbco', 'Banco', 'texto'], ['banco', 'Nome do banco', 'texto'], ['agencia', 'Agência', 'texto'],
+    ['idpgto', 'Forma', 'texto'], ['baixado', 'Baixado', 'texto'], ['consiliado', 'Conciliado', 'texto']],
+  'Cartões': [['codvendcartao', 'Código', 'texto'], ['nrocupom', 'Cupom', 'texto'], ['dtvenda', 'Venda', 'data'], ['valor', 'Valor', 'valor'], ['codoperador', 'Operador', 'texto'],
+    ['codpdv', 'PDV', 'texto'], ['operadora', 'Operadora', 'texto'], ['codoperadora', 'Cód. operadora', 'texto'], ['idempresa', 'Empresa', 'texto'], ['nropedido', 'Pedido', 'texto'],
+    ['idpgto', 'Forma', 'texto'], ['liberado', 'Liberado', 'texto'], ['consiliado', 'Conciliado', 'texto']],
+};
 
 /**
  * VENDAS E FINALIZADORAS (FRMRELFINALIZADORAS). Uma linha por DIA: o líquido vendido, desconto, acréscimo,
@@ -45,6 +61,8 @@ export function RelFinalizadorasPage() {
   // o `RgpOrientacaoFP` do legado: as formas em colunas (horizontal) ou uma linha por forma (vertical)
   const [vertical, setVertical] = useState(false);
   const [empresas, setEmpresas] = useState('');
+  // a TfrmConsulta do Enter numa célula de forma de pagamento
+  const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
 
   const listaEmpresas = () => empresas.split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
   // o "Imprimir" no layout do cliente (o botão do legado só habilita depois de uma consulta com dados)
@@ -68,6 +86,16 @@ export function RelFinalizadorasPage() {
   useShortcut('f10', () => { void consultar(); }, { when: !busy });
   // F11 = btnImprimirClick (FormKeyDown do UrelFinalizadoras; "[F11] - Imprimir") — só depois de uma consulta com dados, como o botão
   useShortcut('f11', imprimir, { when: !busy && linhas.length > 0 });
+
+  // o Enter (dbgDadosKeyDown) numa célula de forma de pagamento: os títulos do dia pela DESTINO da forma (RCB/CHQ/TEF/CRT); as outras não abrem
+  const detalhar = async (l: Linha, m: Modalidade) => {
+    if (busy) return;
+    try {
+      const r = await req<{ titulo: string | null; linhas: Record<string, unknown>[] }>('/relatorios/finalizadoras/detalhe',
+        { data: l.dia, modalidade: m.modalidade, ...(listaEmpresas().length ? { empresas: listaEmpresas() } : {}) });
+      if (r.titulo) setDetalhe({ titulo: r.titulo, modalidade: m.modalidade, dia: l.dia, linhas: r.linhas });
+    } catch (e) { mensagem.erro(e); }
+  };
 
   const exportar = () => {
     if (!linhas.length) return;
@@ -152,7 +180,9 @@ export function RelFinalizadorasPage() {
                   <td className="p-pad-xs text-right tabular-nums text-fg-muted">{brl(l.acrescimo)}</td>
                   <td className={`p-pad-xs text-right tabular-nums ${Number(l.cancelamento) > 0 ? 'text-danger' : 'text-fg-muted'}`}>{brl(l.cancelamento)}</td>
                   {mods.map((m) => (
-                    <td key={m.campo} className="p-pad-xs text-right tabular-nums">
+                    <td key={m.campo} className="p-pad-xs text-right tabular-nums focus:outline focus:outline-2 focus:outline-accent" tabIndex={0}
+                      aria-label={`${m.modalidade} em ${dia(l.dia)}`} title="Enter: os títulos do dia"
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void detalhar(l, m); } }} onDoubleClick={() => void detalhar(l, m)}>
                       {Number(l[`fin_${m.campo}`]) ? brl(l[`fin_${m.campo}`]) : <span className="text-fg-muted">·</span>}
                     </td>
                   ))}
@@ -192,6 +222,32 @@ export function RelFinalizadorasPage() {
           )}
         </table>
       </div>
+
+      <Modal open={!!detalhe} onClose={() => setDetalhe(null)} size="lg" title={detalhe ? `${detalhe.titulo} — ${detalhe.modalidade} em ${dia(detalhe.dia)}` : ''}
+        secondaryAction={{ label: '&Sair', onClick: () => setDetalhe(null) }}>
+        {detalhe && (
+          <div className="flex flex-col gap-gp-xs">
+            <div className="max-h-[60vh] overflow-auto rounded-radius-md border border-border">
+              <table className="w-full text-body-sm">
+                <thead><tr className="text-left text-fg-muted">{(COLUNAS_DETALHE[detalhe.titulo] ?? []).map(([, rot]) => <th key={rot} className="p-pad-xs whitespace-nowrap">{rot}</th>)}</tr></thead>
+                <tbody>
+                  {detalhe.linhas.map((r, i) => (
+                    <tr key={i} className="border-t border-border">
+                      {(COLUNAS_DETALHE[detalhe.titulo] ?? []).map(([c, , t]) => (
+                        <td key={c} className={`p-pad-xs whitespace-nowrap ${t === 'valor' ? 'text-right tabular-nums' : ''}`}>
+                          {t === 'valor' ? brl(r[c]) : t === 'data' ? dia(r[c]) : r[c] == null ? '' : String(r[c])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  {!detalhe.linhas.length && <tr><td colSpan={20} className="p-pad-md text-fg-muted">Nenhum registro.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-body-xs text-fg-muted">{detalhe.linhas.length} registro(s)</div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

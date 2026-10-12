@@ -6696,6 +6696,33 @@ async function main() {
           && rfVazio.status === 422,
           { h: [rfH.status, fh.length, fh[2], fh[3]?.CARTAO_SMOKE], v: [rfV.status, [...rotulos].slice(0, 8), rfV.j.variaveis?.V_TOTAL_VENDA], vazio: rfVazio.status });
 
+        // 47q.2) o ENTER numa forma de pagamento (dbgDadosKeyDown): os títulos do dia pela DESTINO — CRT → os CARTÕES do dia da forma (a de
+        // outra forma fica fora; a do dia seguinte também), RCB → o A RECEBER do PDV (sem CODPDV fica fora), CXA → nada. 'CARTAO SMOKE' tem
+        // espaço: no legado o Locate pelo nome do campo (CARTAO_SMOKE) falharia — aqui vale a forma da coluna.
+        await pgRv.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino) VALUES (1,'CREDIARIO SMOKE','Z3','RCB'), (1,'OUTRA SMOKE','Z4','CRT') ON CONFLICT DO NOTHING`);
+        const idpg = async (m: string) => Number((await pgRv.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND modalidade = $1`, [m])).rows[0]?.idpgto);
+        const [pgCartao, pgOutra, pgCred] = [await idpg('CARTAO SMOKE'), await idpg('OUTRA SMOKE'), await idpg('CREDIARIO SMOKE')];
+        const opera = Number((await pgRv.query(`SELECT min(codoperadoras) c FROM operadoras`)).rows[0].c);
+        const crts = (await pgRv.query(`INSERT INTO cartao (idempresa, dtvenda, nrocupom, nropedido, codpdv, codoperadora, idpgto, valor) VALUES
+            (1, '2026-08-21 21:30:00-03', '4701', '01210826213000', 1, $1, $2, 15), (1, '2026-08-21 10:00:00-03', '4702', '01210826100000', 1, $1, $3, 7),
+            (1, '2026-08-22 09:00:00-03', '4703', '01220826090000', 1, $1, $2, 9) RETURNING codvendcartao`, [opera, pgCartao, pgOutra])).rows.map((r: any) => Number(r.codvendcartao));
+        const rcbs = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, idpgto, codpdv, nrocupom) VALUES
+            (1, 2, '2026-08-21 11:00:00-03', '2026-09-21', 30, $1, 1, 4711), (1, 2, '2026-08-21 12:00:00-03', '2026-09-21', 40, $1, NULL, 4712) RETURNING codrcb`, [pgCred])).rows.map((r: any) => Number(r.codrcb));
+        try {
+          const det = async (modalidade: string) => { const r = await fetch(`${base}/relatorios/finalizadoras/detalhe`, { method: 'POST', headers: H, body: JSON.stringify({ data: '2026-08-21', modalidade }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+          const [dCrt, dRcb, dCxa] = [await det('CARTAO SMOKE'), await det('CREDIARIO SMOKE'), await det('DINHEIRO SMOKE')];
+          check('REL-FINALIZADORAS §47q.2 [o Enter numa forma de pagamento]: CRT → os Cartões do dia da forma (o das 21:30 entra pelo fuso da loja; o de outra forma e o do dia seguinte ficam fora), com a operadora; RCB → o A Receber do PDV (o título sem PDV fica fora); CXA → nada; a forma com espaço ("CARTAO SMOKE") abre a dela',
+            dCrt.status === 200 && dCrt.j.titulo === 'Cartões' && dCrt.j.linhas?.length === 1 && Number(dCrt.j.linhas[0].codvendcartao) === crts[0] && Number(dCrt.j.linhas[0].valor) === 15
+            && String(dCrt.j.linhas[0].operadora ?? '') !== ''
+            && dRcb.status === 200 && dRcb.j.titulo === 'A Receber' && dRcb.j.linhas?.length === 1 && Number(dRcb.j.linhas[0].codrcb) === rcbs[0]
+            && dCxa.status === 200 && dCxa.j.titulo === null && dCxa.j.linhas?.length === 0,
+            { dCrt: [dCrt.status, dCrt.j.code, dCrt.j.titulo, dCrt.j.linhas?.map((l: any) => [l.codvendcartao, l.valor, l.operadora])], dRcb: [dRcb.status, dRcb.j.titulo, dRcb.j.linhas?.map((l: any) => l.codrcb)], dCxa: [dCxa.status, dCxa.j.titulo], crts, rcbs });
+        } finally {
+          await pgRv.query(`DELETE FROM cartao WHERE codvendcartao = ANY($1::int[])`, [crts]);
+          await pgRv.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [rcbs]);
+          await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('CREDIARIO SMOKE','OUTRA SMOKE')`);
+        }
+
         await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-08-20' AND data < '2026-08-22'`);
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
         await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('DINHEIRO SMOKE','CARTAO SMOKE')`);

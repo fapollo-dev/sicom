@@ -21,6 +21,15 @@ export class RelFinalizadorasController {
     return this.svc.consultar(dto);
   }
 
+  /** o Enter numa célula de forma de pagamento (dbgDadosKeyDown): os títulos do dia — A Receber, Cheques ou Cartões, pela DESTINO */
+  @Post('detalhe')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELFINALIZADORAS', 'BTNCONSULTA')
+  detalhe(@Body() body: { data?: string; modalidade?: string; empresas?: unknown }) {
+    const empresas = Array.isArray(body?.empresas) ? body.empresas.map((e) => Number(e)).filter((e) => Number.isInteger(e) && e > 0) : undefined;
+    return this.svc.detalhe({ data: body?.data, modalidade: body?.modalidade, empresas });
+  }
+
   /** o "Imprimir": Rel_Finalizadoras.fr3 (horizontal, colunas por forma) ou Rel_Finalizadoras_Vertical.fr3 */
   @Post('impressao')
   @HttpCode(200)

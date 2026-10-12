@@ -271,6 +271,64 @@ export class RelFinalizadorasService {
    *    lista; V_TOTAL_VENDA = o total de venda (o "% do total" da segunda página).
    * PERIODO "Periodo: dd/mm/aaaa até dd/mm/aaaa". O botão só existe depois de uma consulta com dados (sem dados: a mensagem do legado).
    */
+  /**
+   * O ENTER numa célula de forma de pagamento (`dbgDadosKeyDown`, UrelFinalizadoras.pas:870-993 — o bloco vivo; o de cima está comentado):
+   * pela DESTINO da forma, a `TfrmConsulta` com os títulos do DIA da linha — RCB: o A RECEBER do PDV (`CODPDV IS NOT NULL`); CHQ: os
+   * CHEQUES (pela emissão); TEF/CRT: os CARTÕES. O filtro de forma é `(G.MODALIDADE = <a da coluna> OR G.MODALIDADE = 'DINHEIRO')`, como
+   * o legado; as lojas são as da consulta. Outras DESTINO (CXA, QUE) não abrem nada. O `UNION … FROM AGRUPARECEBER` do RCB é no-op (0
+   * linhas na produção). ⚠️ O legado localiza a forma pelo NOME DO CAMPO (`GetForma`: espaço e hífen viram `_`), então nas formas com espaço
+   * (IFOOD 2, PIX II, PIX POS, QUEBRA DE CAIXA) o `Locate` falha e a janela não abre ou abre a de outra forma — aqui vale a forma da coluna.
+   */
+  async detalhe(f: { data?: string; modalidade?: string; empresas?: number[] }): Promise<{ titulo: string | null; destino: string | null; linhas: Record<string, unknown>[] }> {
+    const emp = this.emp();
+    const data = String(f.data ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new BusinessRuleError('PERIODO_INVALIDO', { data: f.data });
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const empresas = await empresasDoOperador(db, f.empresas?.map(Number));
+    const forma = (await db.selectFrom('formas_pgto').select(['modalidade', 'destino']).where('idempresa', 'in', empresas)
+      .where('modalidade', '=', String(f.modalidade ?? '')).orderBy('destino').executeTakeFirst()) as { modalidade: string; destino: string | null } | undefined;
+    const destino = forma?.destino == null ? null : String(forma.destino).trim().toUpperCase();
+    if (!forma || !destino || !['RCB', 'CHQ', 'TEF', 'CRT'].includes(destino)) return { titulo: null, destino, linhas: [] };
+    const tz = String((await this.config.resolver('FUSO_HORARIO_ACESSO', { empresaId: emp })) ?? 'America/Sao_Paulo');
+    const dia = new Date(`${data}T00:00:00Z`);
+    dia.setUTCDate(dia.getUTCDate() + 1);
+    const ate = dia.toISOString().slice(0, 10);
+    const noDia = (col: string) => sql`${sql.ref(col)} >= (${data}::timestamp at time zone ${tz}) AND ${sql.ref(col)} < (${ate}::timestamp at time zone ${tz})`;
+    const daForma = sql`(g.modalidade = ${forma.modalidade} OR g.modalidade = 'DINHEIRO')`;
+    if (destino === 'RCB') {
+      const linhas = (await sql<Record<string, unknown>>`
+        SELECT r.codrcb, r.nrocupom, r.dtvenda, r.valor, r.dtvenc, r.codoperador, r.codparceiro, r.codpdv, p.razao, r.codempresa, r.obs, r.idpgto,
+               r.quitada, r.consiliado
+          FROM areceber r
+          LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+          LEFT JOIN formas_pgto g ON g.idpgto = r.idpgto
+         WHERE ${noDia('r.dtvenda')} AND ${daForma} AND r.codempresa = ANY(${empresas}::int[]) AND r.codpdv IS NOT NULL
+         ORDER BY 2`.execute(db)).rows;
+      return { titulo: 'A Receber', destino, linhas };
+    }
+    if (destino === 'CHQ') {
+      const linhas = (await sql<Record<string, unknown>>`
+        SELECT c.codchq, c.nrocheque, c.dtemissao, c.valor, c.bompara, c.operador, c.codparceiro, c.codpdv, p.razao, c.titular, c.idempresa, c.observacao,
+               c.codbco, b.banco, b.agencia, c.idpgto, c.baixado, c.consiliado
+          FROM cheque c
+          LEFT JOIN parceiros p ON p.codparceiro = c.codparceiro
+          LEFT JOIN bancos b ON b.codbco = c.codbco
+          LEFT JOIN formas_pgto g ON g.idpgto = c.idpgto
+         WHERE ${noDia('c.dtemissao')} AND ${daForma} AND c.idempresa = ANY(${empresas}::int[])
+         ORDER BY c.nrocheque`.execute(db)).rows;
+      return { titulo: 'Cheques', destino, linhas };
+    }
+    const linhas = (await sql<Record<string, unknown>>`
+      SELECT t.codvendcartao, t.nrocupom, t.dtvenda, t.valor, t.codoperador, t.codpdv, o.operadora, t.codoperadora, t.idempresa, t.nropedido, t.idpgto,
+             t.liberado, t.consiliado
+        FROM cartao t
+        LEFT JOIN operadoras o ON o.codoperadoras = t.codoperadora
+        LEFT JOIN formas_pgto g ON g.idpgto = t.idpgto
+       WHERE ${noDia('t.dtvenda')} AND ${daForma} AND t.idempresa = ANY(${empresas}::int[])
+       ORDER BY t.nropedido`.execute(db)).rows;
+    return { titulo: 'Cartões', destino, linhas };
+  }
+
   async impressao(f: FiltroRelFinalizadoras, vertical: boolean) {
     const r = await this.consultar(f);
     if (!r.linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Não foram encontrados registros para imprimir o relatório.');

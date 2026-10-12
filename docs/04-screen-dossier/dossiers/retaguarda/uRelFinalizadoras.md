@@ -39,3 +39,26 @@ fez funcionar o Compras1.fr3 (Add/SetTotal: os totais nos cabeçalhos dos grupos
 
 Smoke §47q (o "Imprimir" nos dois layouts: os memos por forma no XML, o cdsTemp com totais e participação, os rótulos do vertical,
 V_TOTAL_VENDA, sem dados → 422); testes de renderização dos dois layouts (972/973).
+
+## 5. O Enter numa forma de pagamento (12/10/2026)
+
+O `dbgDadosKeyDown` vivo (:870-993; o bloco de cima, :790-868, está comentado) abre a `TfrmConsulta` ao dar Enter numa célula de forma
+de pagamento, pela **DESTINO** da forma:
+
+| DESTINO | Janela | Fonte |
+|---|---|---|
+| RCB | "A Receber" | `ARECEBER` do dia (`TRUNC(DTVENDA)`), `CODPDV IS NOT NULL`, ordenado pelo cupom — `UNION AGRUPARECEBER` (0 linhas, no-op) |
+| CHQ | "Cheques" | `CHEQUE` pela emissão (11 linhas na produção, a última de dez/2023) |
+| TEF / CRT | "Cartões" | `CARTAO` do dia com a operadora, ordenado pelo pedido |
+| CXA, QUE… | nada | — |
+
+O filtro de forma é `(G.MODALIDADE = <a da coluna> OR G.MODALIDADE = 'DINHEIRO')` e as lojas são as da consulta — copiado. Convertido:
+`POST relatorios/finalizadoras/detalhe`; na tela, a célula da forma é focável e Enter (ou duplo clique) abre a janela com as colunas do
+SELECT do legado. O dia vale no fuso da loja (`FUSO_HORARIO_ACESSO`), como a consulta.
+
+⚠️ Defeito do legado, não copiado: a forma é localizada pelo **nome do campo** (`cdsPgto.Locate('MODALIDADE', Column.Field.FullName)`,
+e o campo é o `GetForma` — espaço e hífen viram `_`). Nas formas com espaço da produção (**IFOOD 2, PIX II, PIX POS, QUEBRA DE CAIXA**) o
+`Locate` falha e o cursor fica onde estava: a janela não abre ou abre a de outra forma. No Apollo vale a forma da coluna.
+
+Ctrl+A (`ExportaExcel`) = o "Exportar CSV" da tela. Smoke §47q.2; jsdom `relFinalizadoras.spec.tsx`.
+
