@@ -19716,6 +19716,64 @@ async function main() {
         await pgCt.end();
       }
     }
+    // ══ §312 SPED CONTRIBUIÇÕES — todos os blocos do leiaute (0 A C D F I M P 1 9, como o ACBr do legado) e o FRETE no bloco D
+    // (D100 do conhecimento + D101/D105 do analítico dos itens de CFOP do Sintegra)
+    {
+      const pgD = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const nfs: number[] = [];
+      const cfops: Array<{ cod: string; tinha: boolean; sintegra: string | null }> = [];
+      try {
+        for (const [cod, sint] of [['1353', 'S'], ['1949', 'N']] as const) {
+          const r = (await pgD.query(`SELECT sintegra FROM cfop WHERE codcfop = $1`, [cod])).rows[0];
+          cfops.push({ cod, tinha: !!r, sintegra: r?.sintegra ?? null });
+          if (r) await pgD.query(`UPDATE cfop SET sintegra = $2 WHERE codcfop = $1`, [cod, sint]);
+          else await pgD.query(`INSERT INTO cfop (codcfop, descricao, sintegra) VALUES ($1, 'CFOP SMOKE 312', $2)`, [cod, sint]);
+        }
+        await pgD.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con) VALUES (993121, 1, 'TRANSPORTADORA BLOCO D', 'TBD', 'J', 993121, 'N', 'S', 'N', 'N') ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgD.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, bairro, cidade, uf, endereco_padrao, ativado, cnpj_cpf) VALUES (993121, 993121, 'RUA FRETE', 'CENTRO', 'SAO PAULO', 'SP', 'S', 'S', '66555444000172') ON CONFLICT (codend) DO NOTHING`);
+        const cte = Number((await pgD.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, totalprod, cfop,
+            chavenfe, tipofrete, totalbaseicm, totalicm)
+          VALUES (1, 'E', 57, '1', '993121', '2045-11-08', '2045-11-10', 993121, 993121, 'S', 'N', 300, 300, '1353', '35451166555444000172570010009931211000000001', 0, 300, 36) RETURNING codnf`)).rows[0].codnf);
+        nfs.push(cte);
+        await pgD.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, desconto, aliquota, cfop, cst, icme, icms, depsacess, frete, ipi)
+          VALUES ($1, 1, 1, 'FRETE A', 2, 100, 100, 1, 10, 'T12', '1353', 0, 12, 12, 5, 0, 0), ($1, 2, 2, 'FRETE FORA', 1, 120, 120, 1, 0, 'T12', '1949', 0, 12, 12, 0, 0, 0)`, [cte]);
+        const gerar = async (dtini: string, dtfim: string) => {
+          const r = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini, dtfim, metodoApropriacao: 1 }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          return { status: r.status, j, l: String(j.arquivo ?? '').split('\r\n').filter(Boolean) };
+        };
+        const com = await gerar('2045-11-01', '2045-11-30');
+        const sem = await gerar('2045-12-01', '2045-12-31');
+        // C e M dependem do que mais houver na competência (o IND_MOV deles fica de fora da comparação)
+        const aberturas = (x: { l: string[] }) => x.l.filter((y) => /^\|[0-9A-Z]001\|/.test(y)).map((y) => y.split('|')[1][0] + ('CM'.includes(y.split('|')[1][0]) ? '?' : y.split('|')[2])).join(',');
+        const cstEnt = (await pgD.query(`SELECT lpad(coalesce(pc.cst_pis_ent, 98)::int::text, 2, '0') p, lpad(coalesce(pc.cst_cofins_ent, 98)::int::text, 2, '0') c
+          FROM produtos p LEFT JOIN piscofins pc ON pc.idpiscofins = p.idpiscofins WHERE p.idproduto = 1`)).rows[0] ?? { p: '98', c: '98' };
+        const reg = (x: { l: string[] }, pre: string) => x.l.filter((y) => y.startsWith(pre));
+        const cnpjLoja = String((await pgD.query(`SELECT regexp_replace(coalesce(cnpj,''), '\\D', '', 'g') c FROM empresas WHERE idempresa = 1`)).rows[0]?.c ?? '');
+        // o valor do analítico do item 1: (100 − 10%) × 2 + 5 de despesas = 185,00; o item 2 é de CFOP fora do Sintegra (sem D101/D105)
+        const d100 = reg(com, '|D100|')[0] ?? '';
+        check('SPED CONTRIBUIÇÕES §312 [todos os blocos + o frete no bloco D]: o arquivo traz as aberturas 0 A C D F I M P 1 9 na ordem do leiaute (A com dados e o A010 da loja; F/I/P/1 sem dados); com um CT-e na competência o D001 tem dados, o D010 da loja, o D100 (IND_OPER 0, terceiro, COD_PART do CNPJ da transportadora no 0150, modelo 57, série 001, a chave, VL_DOC/VL_SERV 300, IND_FRT 0, ICMS 300/36) e o D101/D105 só do item de CFOP do Sintegra (185,00, natureza 07, o CST de entrada do produto (98 sem cadastro), 1,65% e 7,60%); sem frete o D001 vem sem dados; o pré-validador aceita os dois',
+          com.status === 200 && aberturas(com) === '00,A0,C?,D0,F1,I1,M?,P1,11,90' && com.j.validacao?.ok === true
+          && reg(com, '|A010|').includes(`|A010|${cnpjLoja}|`) && reg(com, '|D010|').includes(`|D010|${cnpjLoja}|`)
+          && d100.startsWith('|D100|0|1|66555444000172|57|00|001|0|993121|35451166555444000172570010009931211000000001|08112045|10112045|||300,00|0,00|0|300,00|300,00|36,00|0,00||') && d100.split('|').length === 25
+          && reg(com, '|0150|').some((y) => y.startsWith('|0150|66555444000172|TRANSPORTADORA BLOCO D|'))
+          && reg(com, '|D101|').length === 1 && reg(com, '|D101|')[0].startsWith(`|D101|0|185,00|${cstEnt.p}|07|185,00|1,6500|3,05|`)
+          && reg(com, '|D105|').length === 1 && reg(com, '|D105|')[0].startsWith(`|D105|0|185,00|${cstEnt.c}|07|185,00|7,6000|14,06|`)
+          && sem.status === 200 && reg(sem, '|D001|')[0] === '|D001|1|' && reg(sem, '|D100|').length === 0 && sem.j.validacao?.ok === true,
+          { com: [com.status, com.j.code, aberturas(com), com.j.validacao?.erros?.slice(0, 5), reg(com, '|A010|'), reg(com, '|D'), reg(com, '|0150|').filter((y) => y.includes('66555444000172'))],
+            sem: [sem.status, aberturas(sem), reg(sem, '|D'), sem.j.validacao?.erros?.slice(0, 5)] });
+      } finally {
+        for (const id of nfs) {
+          await pgD.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]).catch(() => undefined);
+          await pgD.query(`DELETE FROM nf WHERE codnf = $1`, [id]).catch(() => undefined);
+        }
+        for (const c of cfops) {
+          if (c.tinha) await pgD.query(`UPDATE cfop SET sintegra = $2 WHERE codcfop = $1`, [c.cod, c.sintegra]).catch(() => undefined);
+          else await pgD.query(`DELETE FROM cfop WHERE codcfop = $1`, [c.cod]).catch(() => undefined);
+        }
+        await pgD.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

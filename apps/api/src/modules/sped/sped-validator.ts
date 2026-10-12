@@ -30,7 +30,10 @@ export interface ResultadoValidacao {
 /** contagem esperada de campos (após o REG) dos registros que emitimos — pega troca de ordem/campo faltando. */
 const CAMPOS_ESPERADOS: Record<string, number> = {
   '0000': 13, '0001': 1, '0100': 13, '0110': 4, '0140': 8, '0150': 12, '0190': 2, '0200': 12, '0990': 1,
+  A001: 1, A010: 1, A990: 1,
   C001: 1, C010: 2, C100: 28, C170: 37, C175: 17, C990: 1,
+  D001: 1, D010: 1, D100: 22, D101: 8, D105: 8, D990: 1,
+  F001: 1, F990: 1, I001: 1, I990: 1, P001: 1, P990: 1, '1001': 1, '1990': 1,
   M001: 1, M100: 14, M105: 9, M200: 12, M205: 3, M210: 15, M400: 4, M410: 4, M500: 14, M505: 9, M600: 12, M605: 3, M610: 15, M800: 4, M810: 4, M990: 1,
   '9001': 1, '9900': 2, '9990': 1, '9999': 1,
 };
@@ -73,15 +76,17 @@ export function validarSped(arquivo: string): ResultadoValidacao {
   const r9999 = regs.find((x) => x.reg === '9999');
   if (r9999 && Number(r9999.campos[0]) !== regs.length) erros.push(`9999 declara ${r9999.campos[0]}, arquivo tem ${regs.length} linhas`);
 
-  // 3) ABERTURA/FECHAMENTO de bloco: se há registro do bloco, tem de ter X001 e X990 (uma vez cada).
-  for (const b of ['0', 'C', 'M', '9']) {
+  // 3) ABERTURA/FECHAMENTO de bloco: todos os blocos do leiaute (0, A, C, D, F, I, M, P, 1, 9) com X001 e X990 uma vez cada, na ordem
+  const ordem = ['0', 'A', 'C', 'D', 'F', 'I', 'M', 'P', '1', '9'];
+  const posAbertura = ordem.map((b) => regs.findIndex((x) => x.reg === `${b}001`));
+  for (let i = 1; i < ordem.length; i++) {
+    if (posAbertura[i] >= 0 && posAbertura[i - 1] >= 0 && posAbertura[i] < posAbertura[i - 1]) erros.push(`bloco ${ordem[i]} fora da ordem do leiaute (0 A C D F I M P 1 9)`);
+  }
+  for (const b of ordem) {
     const abertura = `${b === '9' ? '9' : b}001`;
     const fechamento = `${b === '0' ? '0990' : b === '9' ? '9990' : `${b}990`}`;
-    const temBloco = regs.some((x) => x.reg.startsWith(b) && x.reg !== abertura && x.reg !== fechamento);
-    if (temBloco || b === '0' || b === '9') {
-      if ((contagem.get(abertura) ?? 0) !== 1) erros.push(`bloco ${b}: abertura ${abertura} deveria aparecer 1x (achou ${contagem.get(abertura) ?? 0})`);
-      if ((contagem.get(fechamento) ?? 0) !== 1) erros.push(`bloco ${b}: fechamento ${fechamento} deveria aparecer 1x (achou ${contagem.get(fechamento) ?? 0})`);
-    }
+    if ((contagem.get(abertura) ?? 0) !== 1) erros.push(`bloco ${b}: abertura ${abertura} deveria aparecer 1x (achou ${contagem.get(abertura) ?? 0})`);
+    if ((contagem.get(fechamento) ?? 0) !== 1) erros.push(`bloco ${b}: fechamento ${fechamento} deveria aparecer 1x (achou ${contagem.get(fechamento) ?? 0})`);
   }
 
   // 4) DERIVAÇÕES do bloco M (PIS M100/M200 e COFINS M500/M600). Pega o bug clássico do campo derivado errado.

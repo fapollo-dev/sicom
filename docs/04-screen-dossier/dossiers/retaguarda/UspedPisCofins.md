@@ -17,9 +17,9 @@
 
 ## Ainda não chegaram ao gerador do Apollo
 
-Finalidade do arquivo, "Apurar registros de forma", entradas/saídas, "Gerar C400" / "Gerar M100/810" / "Gerar C490", "Gerar CFOP
-5929", as alíquotas de PIS/COFINS da tela e os três indicadores (método de apropriação, tipo de contribuição, incidência — o LP marca
-a incidência no FormShow). O gerador usa o padrão do `.dfm`.
+As opções da tela chegaram (seção abaixo). Faltam: o A100/A170 (nota de serviço modelo 3 com PIS de entrada — **1 nota desde 2025**
+na produção) e o C010 de cada estabelecimento da raiz (o legado abre o C001 sempre com dados e escreve o C010 de todos; o Apollo, o da
+loja, e C001 sem dados quando não há documento — os dois são aceitos pelo leiaute).
 
 ## As opções da tela (12/10/2026)
 
@@ -41,3 +41,28 @@ Fora, com prova: Entradas/Saidas (declarados, nunca lidos — :33-34); C400/C490
 escrevia um deles — **0 vendas de ECF em 2026**); IND_SIT_ESP "cisão" quando a data final não é fim de mês (:2244-2247 — erro do
 legado, não se copia). Erros do legado anotados, não copiados: CST de COFINS nos dois campos do C170 (já tratado no corte anterior), o
 loop infinito do 0150 com "AO CONSUMIDOR", o M400 que dobra na segunda geração, o crédito do M200 sem teto, o M610 01 sempre. Smoke §311.
+
+## Os blocos do leiaute e o frete (12/10/2026)
+
+O ACBr do legado (`SaveFileTXT`, :1918) escreve **todos** os blocos (0 A C D F I M P 1 9); o Apollo escrevia só 0/C/M/9 — o PVA não abre
+o arquivo sem as aberturas. ⛔→✅ Agora, na ordem do leiaute:
+
+| Bloco | Legado | Apollo |
+|---|---|---|
+| A | `GeraBlocoA` (:595-683): A001 com dados + A010 de cada estabelecimento | igual; A100/A170 pendentes (1 nota) |
+| D | `GeraBlocoD` (:746-786): D001 com dados se o `sqqNFfrete` tem linha, D010 de cada estabelecimento, D100/D101/D105 | igual — o frete sob o D010 da loja da sessão (a NFAUXSPED do legado é a dela) |
+| F, I, P, 1 | não preenchidos (o ACBr abre sem dados) | X001 IND_MOV 1 + X990 |
+
+**D100** (:1365-1434, `sqqNFfrete` UdmSpedPisCofins.dfm:5108 — modelos 7/8/9/10/11/26/27/57 com número, sem filtro de processada nem de
+cancelada): IND_OPER 0, IND_EMIT 1 (terceiro), COD_PART = o CNPJ/CPF do endereço da nota (entra no 0150), COD_MOD (90 → 1B — morto: o 90
+não está no filtro), COD_SIT 00, SER com 3 dígitos, SUB 0, CHV_CTE, DT_A_P = DTCONTABIL, VL_DOC = VL_SERV = TOTALNF, VL_DESC 0, IND_FRT
+pelo TIPOFRETE (0-4 e 9; fora disso vazio), ICMS da nota, VL_NT 0, COD_CTA da conta do CFOP. **D101/D105** por grupo do
+`sqqAnaliticoFrete` (:5387 — itens de CFOP com SINTEGRA = S, por CST/CFOP/CSTs de PIS-COFINS do produto (98 sem cadastro)/ICME/cupom):
+VL_ITEM = Σ (custo − desconto%) × qtde + despesas + frete% + IPI%, IND_NAT_FRT pelo TIPOFRETE (0-5 e 9), CST de entrada ou saída pelo
+TIPO da nota, NAT_BC_CRED 07, alíquotas **fixas** 1,65 / 7,60.
+
+Produção (só leitura, 12/10): 15 conhecimentos desde 2025 (14 modelo 8 + 1 modelo 7, todos de entrada, TIPOFRETE 9), **nenhum item
+com CFOP do Sintegra** — o legado escreve o D100 sem D101/D105 e o Apollo também (fiel; se o PVA cobrar o analítico, é o cadastro do
+CFOP do frete que decide). Modelos 9/10/11/26/27: 0 notas. O bloco C já excluía 7/8/57. Validador: exige as 10 aberturas/fechamentos
+na ordem e conta os campos de A010/D010/D100/D101/D105. Smoke §312, `sped-validator.spec.ts`.
+

@@ -130,15 +130,36 @@ export class SpedEfdContribuicoesService {
     const docs = await this.coletarDocumentosEntrada(db, emp, dtini, dtfim, op.gera5929);
     const saida = await this.coletarVendasSaida(db, emp, dtini, dtfim); // corte-2: NFC-e de saída (C100 mod 65 + C175)
     const cupons = saida.cupons;
+    // o frete do bloco D (sqqNFfrete) — o participante dele entra no 0150
+    const frete = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros);
     this.emitirCadastros(arq, docs);
     arq.fecharBloco('0990', '0');
+
+    // BLOCO A (GeraBlocoA, UspedPisCofins.pas:595-683): o legado abre "com dados" e escreve o A010 de cada estabelecimento da raiz do CNPJ;
+    // os serviços (A100/A170 — NF modelo 3 com PIS de entrada) ainda não: 1 nota desde 2025 na produção
+    arq.add('A001', ['0']);
+    for (const e of estabs) arq.add('A010', [soDigitos(e.cnpj)]);
+    arq.fecharBloco('A990', 'A');
 
     // BLOCO C: documentos fiscais de ENTRADA (C100/C170) + SAÍDA NFC-e mod 65 (C100/C175 — corte-2 do PDV).
     this.emitirBlocoC(arq, docs, cupons, cnpj, op);
 
+    // BLOCO D (GeraBlocoD, :746-786): o conhecimento de frete (D100) com o analítico de PIS (D101) e de COFINS (D105)
+    this.emitirBlocoD(arq, frete, estabs, emp);
+    // os blocos F e I não têm dado neste ERP (o legado não os preenche; o ACBr escreve a abertura sem dados)
+    arq.add('F001', ['1']);
+    arq.fecharBloco('F990', 'F');
+    arq.add('I001', ['1']);
+    arq.fecharBloco('I990', 'I');
+
     // BLOCO M: apuração de PIS/COFINS — CRÉDITO de entrada (M100/M105/M500/M505) + DÉBITO de saída do PDV
     // (M200/M210/M600/M610, corte-1 VENDAS), com o crédito descontado e o valor a recolher (débito − crédito).
     const temM = await this.gerarBlocoM(arq, db, emp, dtini, dtfim, op);
+    // os blocos P (CPRB) e 1 sem dados, como o ACBr do legado
+    arq.add('P001', ['1']);
+    arq.fecharBloco('P990', 'P');
+    arq.add('1001', ['1']);
+    arq.fecharBloco('1990', '1');
 
     const arquivo = arq.gerar();
     // o nome do legado (UspedPisCofins.pas:2445): 'SPED_CONTRIBUICOES_' + CNPJ sem pontuação + '_' + a data de hoje (ddmmaaaa) + '.txt'
@@ -151,7 +172,7 @@ export class SpedEfdContribuicoesService {
       documentos: docs.nfs.length + cupons.length,
       parcial: true,
       validacao: validarSped(arquivo), // validação estrutural PVA-style (erros=[] ⇒ estruturalmente válido)
-      aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} entrada + ${cupons.length} NFC-e de saída${saida.truncado ? ' ⚠ TRUNCADO no limite de itens — gere por período menor' : ''}) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta o CAIXA contábil do PDV (CX_VENDAS→DIARIO) → corte-3.`,
+      aviso: `PARCIAL: bloco 0 (cadastros) + bloco A (o A010; os serviços A100/A170 ainda não) + bloco C (${docs.nfs.length} entrada + ${cupons.length} NFC-e de saída${saida.truncado ? ' ⚠ TRUNCADO no limite de itens — gere por período menor' : ''}) + bloco D (${frete.length} conhecimento(s) de frete) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + F/I/P/1 sem dados + bloco 9. Falta o CAIXA contábil do PDV (CX_VENDAS→DIARIO) → corte-3.`,
     };
   }
 
@@ -486,6 +507,98 @@ export class SpedEfdContribuicoesService {
       // 0200: COD_ITEM|DESCR_ITEM|COD_BARRA|COD_ANT_ITEM|UNID_INV|TIPO_ITEM|COD_NCM|EX_IPI|COD_GEN|COD_LST|ALIQ_ICMS|CEST (TIPO_ITEM 00 = merc. p/ revenda)
       arq.add('0200', [String(p.idproduto), (p.descricao as string) ?? '', (p.codbarra as string) ?? '', '', String(p.unidade ?? '').trim(), '00', String(p.ncmsh ?? '').replace(/\D/g, ''), '', '', '', '', (p.cest as string) ?? '']);
     }
+  }
+
+  /**
+   * O FRETE do bloco D (`sqqNFfrete`, UdmSpedPisCofins.dfm:5108 — a nota do período da loja dos modelos 7/8/9/10/11/26/27/57 com número,
+   * sem o filtro de processada nem de cancelada, como o legado) com o analítico (`sqqAnaliticoFrete`, :5387 — os itens de CFOP do Sintegra,
+   * por CST/CFOP/CST de PIS e COFINS do produto (98 sem cadastro)/ICME/cupom/alíquota, o valor com desconto, despesas, frete% e IPI%). O
+   * participante (COD_PART = o CNPJ/CPF do endereço da nota) entra no 0150. Produção: 15 conhecimentos desde 2025.
+   */
+  private async coletarFrete(db: AnyDB, emp: number, dtini: string, dtfim: string, parceiros: Map<string, Record<string, unknown>>) {
+    const nfs = (await sql<Record<string, any>>`
+        SELECT n.codnf, n.tipo, n.codparceiro, n.codparceiro_end, pe.cnpj_cpf, n.modelo, n.serie, n.nronf, n.dtemissao::text AS dtemissao, n.dtcontabil::text AS dtcontabil,
+               n.totalnf, n.tipofrete, n.totalbaseicm, n.totalicm, n.chavenfe, plc.codiexpandido
+          FROM nf n
+          LEFT JOIN parceiros_end pe ON pe.codend = n.codparceiro_end
+          LEFT JOIN cfop c ON c.codcfop::text = n.cfop::text
+          LEFT JOIN plano_contas plc ON plc.codplanocontas = c.codplanocontas
+         WHERE n.idempresa = ${emp} AND n.dtcontabil BETWEEN ${dtini}::date AND ${dtfim}::date AND n.nronf <> '0' AND n.nronf IS NOT NULL
+           AND n.modelo IN (7, 8, 9, 10, 11, 26, 27, 57)
+         ORDER BY n.tipo, n.modelo, n.dtemissao, n.nronf`.execute(db)).rows;
+    const ids = nfs.map((n) => Number(n.codnf));
+    const grupos = ids.length
+      ? (await sql<Record<string, any>>`
+          SELECT np.codnf, n.tipo, coalesce(pc.cst_pis_ent, 98) AS cst_pis_ent, coalesce(pc.cst_pis_sai, 98) AS cst_pis_sai,
+                 coalesce(pc.cst_cofins_ent, 98) AS cst_cofins_ent, coalesce(pc.cst_cofins_sai, 98) AS cst_cofins_sai,
+                 round(sum(((np.vrcusto - (np.vrcusto * coalesce(np.desconto, 0)) / 100) * np.quantidade) + coalesce(np.depsacess, 0)
+                   + round((coalesce(np.frete, 0) * ((np.vrcusto - (np.vrcusto * coalesce(np.desconto, 0)) / 100) * np.quantidade)) / 100, 2)
+                   + round((coalesce(np.ipi, 0) * round((np.vrcusto - (np.vrcusto * coalesce(np.desconto, 0)) / 100) * np.quantidade, 2)) / 100, 2)), 2) AS valor,
+                 plc.codiexpandido
+            FROM nf_prod np
+            JOIN nf n ON n.codnf = np.codnf
+            LEFT JOIN produtos p ON p.idproduto = np.codproduto
+            LEFT JOIN piscofins pc ON pc.idpiscofins = p.idpiscofins
+            LEFT JOIN cfop c ON c.codcfop::text = np.cfop::text
+            LEFT JOIN plano_contas plc ON plc.codplanocontas = c.codplanocontas
+           WHERE np.codnf = ANY(${ids}::int[]) AND c.sintegra = 'S'
+           GROUP BY np.codnf, np.cst, np.cfop, coalesce(pc.cst_pis_ent, 98), coalesce(pc.cst_pis_sai, 98), coalesce(pc.cst_cofins_ent, 98),
+                    coalesce(pc.cst_cofins_sai, 98), n.tipo,
+                    CASE c.proc_cupom WHEN 'S' THEN 0 ELSE CASE substr(np.aliquota, 1, 1) WHEN 'T' THEN np.icme ELSE 0 END END,
+                    c.proc_cupom, substr(np.aliquota, 1, 1), plc.codiexpandido
+           ORDER BY np.codnf, np.cst, np.cfop, c.proc_cupom, substr(np.aliquota, 1, 1)`.execute(db)).rows
+      : [];
+    const porNf = new Map<number, Array<Record<string, any>>>();
+    for (const g of grupos) porNf.set(Number(g.codnf), [...(porNf.get(Number(g.codnf)) ?? []), g]);
+    const ends = [...new Set(nfs.map((n) => Number(n.codparceiro_end)).filter(Boolean))];
+    if (ends.length) {
+      const rows = (await db.selectFrom('parceiros_end as pe').innerJoin('parceiros as p', 'p.codparceiro', 'pe.codparceiro')
+        .select(['p.codparceiro', 'p.razao', 'p.tipofj', 'pe.codend', 'pe.cnpj_cpf', 'pe.rg_insc', 'pe.endereco', 'pe.bairro', 'pe.idcidade'])
+        .where('pe.codend', 'in', ends).orderBy('pe.codend').execute()) as Array<Record<string, unknown>>;
+      for (const r of rows) {
+        const cod = String(r.cnpj_cpf ?? '').trim();
+        if (!cod || parceiros.has(cod)) continue;
+        parceiros.set(cod, r);
+      }
+    }
+    return nfs.map((n) => ({ ...n, grupos: porNf.get(Number(n.codnf)) ?? [] }));
+  }
+
+  /** emite o BLOCO D: D001 + o D010 de cada estabelecimento + D100/D101/D105 do frete da loja (sem frete, D001 sem dados) + D990 */
+  private emitirBlocoD(arq: SpedArquivo, frete: Array<Record<string, any> & { grupos: Array<Record<string, any>> }>,
+    estabs: Array<{ idempresa: number; cnpj?: string }>, emp: number): void {
+    const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    if (!frete.length) {
+      arq.add('D001', ['1']);
+      arq.fecharBloco('D990', 'D');
+      return;
+    }
+    arq.add('D001', ['0']);
+    // IND_FRT (GetIndFrete, :2263-2275) e IND_NAT_FRT (GetNaturezaFrtContratado) pelo TIPOFRETE da nota
+    const indFrt = (t: unknown) => (['0', '1', '2', '3', '4', '9'].includes(String(t ?? '').trim()) ? String(t).trim() : '');
+    const natFrt = (t: unknown) => (['0', '1', '2', '3', '4', '5', '9'].includes(String(t ?? '').trim()) ? String(t).trim() : '');
+    const cst2 = (v: unknown) => String(Math.trunc(nn(v))).padStart(2, '0');
+    for (const e of estabs) {
+      arq.add('D010', [soDigitos(e.cnpj)]);
+      if (Number(e.idempresa) !== emp) continue; // o frete é o da loja (a NFAUXSPED do legado é só a da sessão)
+      for (const n of frete) {
+        const mod = Number(n.modelo) === 90 ? '1B' : String(Math.trunc(nn(n.modelo))).padStart(2, '0');
+        // D100 (22): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|SUB|NUM_DOC|CHV_CTE|DT_DOC|DT_A_P|TP_CT-e|CHV_CTE_REF|VL_DOC|VL_DESC|IND_FRT|VL_SERV|VL_BC_ICMS|VL_ICMS|VL_NT|COD_INF|COD_CTA
+        arq.add('D100', ['0', '1', String(n.cnpj_cpf ?? '').trim(), mod, '00', String(n.serie ?? '').trim().padStart(3, '0'), '0', String(n.nronf ?? ''), String(n.chavenfe ?? '').trim(),
+          fmtData(String(n.dtemissao)), fmtData(String(n.dtcontabil)), '', '', fmtNum(nn(n.totalnf)), fmtNum(0), indFrt(n.tipofrete), fmtNum(nn(n.totalnf)),
+          fmtNum(nn(n.totalbaseicm)), fmtNum(nn(n.totalicm)), fmtNum(0), '', String(n.codiexpandido ?? '')]);
+        for (const g of n.grupos) {
+          const entrada = String(g.tipo) === 'E';
+          const valor = nn(g.valor);
+          // D101 (8): IND_NAT_FRT|VL_ITEM|CST_PIS|NAT_BC_CRED|VL_BC_PIS|ALIQ_PIS|VL_PIS|COD_CTA — natureza 07 e 1,65% fixos no legado
+          arq.add('D101', [natFrt(n.tipofrete), fmtNum(valor), cst2(entrada ? g.cst_pis_ent : g.cst_pis_sai), '07', fmtNum(valor), fmtNum(1.65, 4), fmtNum(r2((valor * 1.65) / 100)), String(g.codiexpandido ?? '')]);
+          // D105 (8): IND_NAT_FRT|VL_ITEM|CST_COFINS|NAT_BC_CRED|VL_BC_COFINS|ALIQ_COFINS|VL_COFINS|COD_CTA — 7,60% fixo
+          arq.add('D105', [natFrt(n.tipofrete), fmtNum(valor), cst2(entrada ? g.cst_cofins_ent : g.cst_cofins_sai), '07', fmtNum(valor), fmtNum(7.6, 4), fmtNum(r2((valor * 7.6) / 100)), String(g.codiexpandido ?? '')]);
+        }
+      }
+    }
+    arq.fecharBloco('D990', 'D');
   }
 
   /** emite o BLOCO C: C001/C010 + C100/C170 por NF de ENTRADA + C100/C175 por NFC-e de SAÍDA (corte-2) + C990. */

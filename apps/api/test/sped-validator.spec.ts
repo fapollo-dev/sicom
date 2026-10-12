@@ -3,16 +3,26 @@ import { SpedArquivo } from '../src/modules/sped/sped-writer';
 import { validarSped } from '../src/modules/sped/sped-validator';
 import { validarSpedFiscal } from '../src/modules/sped/sped-fiscal-validator';
 
-/** monta um arquivo mínimo VÁLIDO (bloco 0 + bloco M) via o motor escritor; `m200` permite injetar um M200 ruim. */
+/** os blocos do leiaute sem dados (X001 IND_MOV 1 + X990), como o gerador escreve os que não têm movimento */
+function semDados(a: SpedArquivo, blocos: string): void {
+  for (const b of blocos) {
+    a.add(`${b}001`, ['1']);
+    a.fecharBloco(`${b}990`, b);
+  }
+}
+
+/** monta um arquivo mínimo VÁLIDO (bloco 0 + bloco M + as aberturas sem dados) via o motor escritor; `m200` permite injetar um M200 ruim. */
 function arquivoBase(m200: string[]): string {
   const a = new SpedArquivo();
   a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '1']); // 13 campos
   a.add('0001', ['0']);
   a.fecharBloco('0990', '0');
+  semDados(a, 'ACDFI');
   a.add('M001', ['0']);
   a.add('M200', m200);
   a.add('M205', ['08', '810902', m200[6] ?? '0,00']); // detalhe do a-recolher = VL_CONT_NC_REC do M200 (coerente)
   a.fecharBloco('M990', 'M');
+  semDados(a, 'P1');
   return a.gerar();
 }
 
@@ -24,6 +34,18 @@ describe('validarSped (validador estrutural PVA-style)', () => {
     expect(r.ok).toBe(true);
     expect(r.erros).toEqual([]);
     expect(r.registros).toBeGreaterThan(0);
+  });
+
+  it('todos os blocos do leiaute (0 A C D F I M P 1 9): faltando o A → erro; o D antes do C → erro de ordem', () => {
+    const a = new SpedArquivo();
+    a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '1']);
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    semDados(a, 'DCFIMP1');
+    const r = validarSped(a.gerar());
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('bloco A'))).toBe(true);
+    expect(r.erros.some((e) => e.includes('bloco D fora da ordem'))).toBe(true);
   });
 
   it('M200 com VL_TOT_CONT_NC_DEV errado (≠ NC_PER − créditos) → erro (o bug clássico do campo derivado)', () => {
@@ -124,10 +146,12 @@ describe('validarSped (validador estrutural PVA-style)', () => {
       a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '2']);
       a.add('0001', ['0']);
       a.fecharBloco('0990', '0');
+      semDados(a, 'ACDFI');
       a.add('M001', ['0']);
       a.add('M400', ['06', '140,00', '', '']);
       a.add('M410', [nat, '140,00', '', '']);
       a.fecharBloco('M990', 'M');
+      semDados(a, 'P1');
       return validarSped(a.gerar());
     };
     expect(monta('000').ok).toBe(false); // ConcatenaLeft de natureza NULA — o PVA rejeita, tem de acusar
