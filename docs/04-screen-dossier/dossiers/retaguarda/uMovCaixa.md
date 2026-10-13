@@ -41,3 +41,20 @@
 ## Mortos na produção
 Recursos ≠ DINHEIRO (0 de 8.997), cheque-pré, a prazo, DOC/transferência/débito, NEUTRA 'S' (desde 11/2023), FORMAPGTO,
 CODNF (o ramo de NF sem chamador), CHQ_PROPRIO e LOTE.
+
+## A tela é o form-base (13/10/2026)
+
+O legado é um `TfrmCadMaster` (`uMovCaixa.pas:26`, `SetaDataset(edtData, cdsMovCaixa, 'CODCX', 'CAIXA')`): código + Enter, a Pesquisa
+genérica sobre a **GET_CAIXA** com o obrigatório `CADASTRADO_MANUALMENTE = 'S'` (`btnPesquisaClick`, :409-413), a navegação e as teclas do
+form-base. O Apollo tinha uma lista por período + formulário próprios (sem a Pesquisa, sem o código + Enter, sem as teclas). Agora a tela
+é o `<CadMaster>`:
+- a Pesquisa (`cobranca/lancamento-caixa` em `telas.ts`) lê a `get_caixa` (as 18 colunas da produção), com o obrigatório do legado e as
+  lojas do operador (o legado não recorta loja);
+- o registro carregado traz o valor **sem sinal** (o centro de custo decide o sinal no gravar; o da CAIXA vai em `valor_caixa`);
+- o Lote (`edtIDLOTE`) aparece; a observação em maiúsculas (`dbmObsKeyPress`); a situação única entra sozinha;
+- o menu do legado (`PopupMenu1`): **"Relatório"** abre a Caixa (D.R.E.) (`mniRelatorioClick` → `TfrmRelatorioCaixa`) — no menu Outros;
+  "Abertura de caixa"/"Fechamento de caixa" do mesmo menu não têm `OnClick` (mortos no fonte);
+- o "Registro de log" (`FRMMOVCAIXA`, chave CODCX) no menu Outros.
+
+`ChamaFrmMovCaixa(pCodCx)` (abrir a tela num lançamento) não tem chamador em nenhuma unit. Smoke §172.0; jsdom `lancamentoCaixa.spec.tsx`.
+

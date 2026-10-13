@@ -22747,6 +22747,17 @@ async function main() {
           && rateioCaixa === 0,
           { cr: [cr.status, crJ.code, crJ.campos], lin, mcb, apg, rateioCaixa });
 
+        // §172.0 o form-base do legado: o registro da tela traz o valor SEM sinal (o da CAIXA em valor_caixa) e a Pesquisa é a GET_CAIXA com o
+        // obrigatório CADASTRADO_MANUALMENTE = 'S' (a linha que não foi digitada aqui não aparece)
+        const lido = (await (await fetch(`${base}/${LC}/${cx}`, { headers: H })).json().catch(() => ({}))) as any;
+        const naoDigitada = Number(((await pgMv.query(`INSERT INTO caixa (data, valor, idempresa, cadastrado_manualmente, obs) VALUES ('2063-03-10', -1, 1, 'N', 'NAO DIGITADA 172') RETURNING codcx`)).rows[0] as any).codcx);
+        const pesqCx = async (codigo: number) => (((await (await fetch(`${base}/cadastro/pesquisa?recurso=${LC}&campo=codigo&operacao=igual&valor=${codigo}&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? []) as any[];
+        const [pCx, pOutra] = [await pesqCx(cx), await pesqCx(naoDigitada)];
+        await pgMv.query(`DELETE FROM caixa WHERE codcx = $1`, [naoDigitada]);
+        check('LANÇAMENTO DE CAIXA §172.0 [o form-base]: o registro da tela vem com o valor sem sinal (55,50; a CAIXA tem −55,50 em valor_caixa) e a Pesquisa (GET_CAIXA) acha o lançamento digitado e não a linha com CADASTRADO_MANUALMENTE N',
+          Number(lido.valor) === 55.5 && Number(lido.valor_caixa) === -55.5 && pCx.length === 1 && Number(pCx[0].valor) === -55.5 && pOutra.length === 0,
+          { lido: [lido.valor, lido.valor_caixa], pCx, pOutra });
+
         const logCx = (await pgMv.query(`SELECT acao, formulario, tabela, chave, historico FROM log WHERE tabela = 'CAIXA' AND valor = $1 ORDER BY idlog`, [cx])).rows as any[];
         check('LANÇAMENTO DE CAIXA §172.1b [a LOG]: "Movimentação de caixa" — Inseriu CAIXA (chave CODCX) com os campos do dataset na ordem da produção, cada linha com o espaço inicial, e o IDORIGEM do título',
           logCx.length === 1 && logCx[0].acao === 'Inseriu' && logCx[0].formulario === 'Movimentação de caixa' && logCx[0].chave === 'CODCX'

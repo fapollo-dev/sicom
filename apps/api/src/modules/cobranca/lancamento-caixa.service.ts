@@ -76,9 +76,10 @@ export class LancamentoCaixaService {
        LIMIT 500`.execute(db)).rows;
   }
 
+  /** o registro da tela: o VALOR sem sinal (o centro de custo decide o sinal no gravar) e o da CAIXA em `valor_caixa` */
   async read(codcx: number): Promise<Record<string, unknown> | undefined> {
     const rows = (await sql<Record<string, unknown>>`
-      SELECT c.codcx, to_char(c.data AT TIME ZONE ${FUSO}, 'YYYY-MM-DD') AS data, c.valor, c.idlote, c.obs, c.idempresa, c.idsituacao_nf,
+      SELECT c.codcx, to_char(c.data AT TIME ZONE ${FUSO}, 'YYYY-MM-DD') AS data, abs(c.valor) AS valor, c.valor AS valor_caixa, c.idlote, c.obs, c.idempresa, c.idsituacao_nf,
              c.neutra, c.codparceiro, c.codplc, c.codconta, c.origem, c.idorigem, c.contabilizado, c.cadastrado_manualmente, pl.tpconta
         FROM caixa c LEFT JOIN plc pl ON pl.codplc = c.codplc WHERE c.codcx = ${codcx}`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
     return rows[0];

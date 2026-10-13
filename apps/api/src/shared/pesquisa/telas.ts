@@ -459,6 +459,12 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // B4: a GET_LOTE_COBRANCA da produção (rel_get_lote_cobranca, mig 393) — CODIGO = CODLOTECOB, COBRADOR, COD_COBRADOR, DATA_COBRANCA,
   // TOTAL_LOTE; sem SetDefault (UCadLoteCobranca.pas herda o form-base): abre no 1º alfabético, COBRADOR — o que a abertura em RAZAO
   // da view anterior imitava
+  // uMovCaixa.pas:409-413: o form-base sobre a GET_CAIXA (SetaDataset(edtData, cdsMovCaixa, 'CODCX', 'CAIXA')) com o obrigatório
+  // CADASTRADO_MANUALMENTE = 'S' (o que a tela digita — as linhas da conciliação OFX também entram, como no legado); o legado não
+  // recorta loja — aqui, as lojas que o operador alcança
+  'cobranca/lancamento-caixa': { view: 'get_caixa', form: 'FRMMOVCAIXA', titulo: 'Caixa', retorno: 'codigo', campoAtivo: null,
+    obrigatorios: async (ctx) => [sql<SqlBool>`${sql.ref('cadastrado_manualmente')} = 'S'`, emLista('idempresa', await ctx.todasAsLojas())],
+    descricaoObrigatorios: "CADASTRADO_MANUALMENTE = 'S'" },
   'cobranca/lotes-md': { view: 'get_lote_cobranca', relacao: 'rel_get_lote_cobranca', ocultas: OCULTAS.loteCobranca, form: 'FRMCADLOTECOBRANCA',
     titulo: 'Lotes de cobrança', retorno: 'codigo' },
   // uCadAReceber.pas:1326-1349: "CONTAS A RECEBER" nas lojas (IDEMPRESA in (<lojas>)); CONSILIADO='S' quando a loja do login fecha
