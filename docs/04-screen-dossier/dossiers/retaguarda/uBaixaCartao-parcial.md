@@ -130,3 +130,13 @@ recentes, sem mostrar o que o lote moveu; e o "Visualizar títulos" do controle 
 - O "Visualizar títulos" reconhece o lote de cartão pela `GET_CARTAOBX.LOTE` (o recebível baixado nele), como o legado — antes era a
   `cartao_bx`. Smoke §47c.cons.
 
+## 8. Os controles da tela (13/10/2026)
+
+Conferidos contra o `.dfm`: Iniciar baixa, Cancelar, Gravar baixa, Consulta títulos, Total a baixar, Data da baixa, a conta, o recurso
+(`rdgDestino`), Observações, Outras despesas e a grade (Documento, Operadora, Valor, Valor com taxa, Data venda, Previsão) estão na tela.
+Mortos com prova no §5: "Importar Arquivo Retorno Conciliador" (E-Extrato, parado em 05/2026), o Valor digitado (`AjustarDiferenca`) e a
+taxa de antecipação. 🟢 O painel **"Centro de custo para descontos/outras despesas" / "para taxas"** (`PnlCentroCusto`, sempre visível;
+:706, :719, :1154, :1184) não está na tela: o servidor usa o CC da empresa quando não vem outro, e é o que a produção grava — em 2026,
+`CARTAO.CODPLC_TAXA_CARTAO` é o `CCMULTAJUROS` da empresa (12) ou nulo em 239 mil baixas, e `CODPLC_ACREDESC` é o
+`CODPLC_DESCONTOS_CONCEDIDOS` (2104) nas 10 mil com outras despesas. Ninguém escolhe outro centro de custo.
+
