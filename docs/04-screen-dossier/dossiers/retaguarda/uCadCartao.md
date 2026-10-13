@@ -83,3 +83,29 @@ E: auditoria por subagente pode falhar (API 529) — ter o **review inline como 
   verificada pela senha de operação 'admin' da empresa (com o lockout); a tela pede a senha.
 - O motor CRUD ganhou os ganchos genéricos `validarTrx` e `validarRemocaoTrx` (com a senha administrativa da query).
 - Smoke §210. Pendente (BAIXA): HISTORICO "ALTERACAO DO CAMPO X" (o app grava HISTORICO_DINAMICO).
+
+## As duas telas do legado, separadas (13/10/2026)
+
+O Apollo tinha juntado o **Controle de cartões** (`FRMCADCARTAO`, 4.346 acessos) e a **Baixa de cartões** (`FRMBAIXACARTAO`, 7.623 — a mais
+usada) numa página só ("Cartões / Recebíveis"), com um lançamento manual mínimo e **sem como abrir e editar um cartão existente** — o que o
+Controle de cartões do legado faz (em 2025-26: 445 alterações de NSU host e 178 de código da rede no HISTORICO, mais valor/parcela antes da
+conciliação). Agora, como no legado, duas entradas no menu:
+
+- **Controle de cartões** (`/financeiro/cartoes`) — o form-base `TfrmCadMaster` (`UcadCartao.pas:82`, `SetaDataset(…, 'CODVENDCARTAO',
+  'CARTAO')`): código + Enter; a Pesquisa sobre a GET_CARTAO das lojas (`CODIGO_EMPRESA in (GetMultiEmpresa)`, :389-394 — a view só traz os
+  abertos, como a da produção); os campos do "Lançamento de Cartões" (cupom, pedido, data da venda, valor, parcela, operadora ativa, forma
+  de pagamento TEF/CARTAO da loja, NSU, NSU host, autorização, código da rede, observações, e a loja e o operador para leitura); o
+  "Visualizar cupom" (:396-456 — a consulta do pedido do cartão) e o "Registro de log" no menu Outros.
+- **Baixa de cartões** (`/financeiro/cartoes/baixa`) — a página da baixa, sem o lançamento manual e sem a exclusão (que são do controle).
+
+Regras do Gravar que faltavam no servidor: **"Informe a forma de pagamento."** (`FormaPagamentoPreenchida`, :839), **"O número de parcelas
+deve ser menor que 200."** (:318), e o **cartão baixado não se altera nem se exclui** — "Este cartão não poderá ser alterado pois já foi
+baixado." (`edtCodigoExit` :518-533 desabilita o painel, o Editar e o Excluir). Mensagens do valor e da operadora com o texto do legado
+("Informe o valor do cartão.", "Informe a operadora do cartão."). Excluir o conciliado pede a senha administrativa antes (o shell do
+CadMaster ganhou `paramsExclusao`). A get_cartao ganhou NSU host, código da rede, operador, forma e razão social (mig 418) e o motor CRUD o
+gancho `aoLer` (as descrições ao lado dos códigos).
+
+Diferença consciente: a **Empresa** do cartão não se escolhe (o CRUD é da loja da sessão); o legado deixa digitar outra loja. Mortos: "Conciliar
+layout E-Extrato" e "Consulta conciliador" (a CONS_REG10 parou em 04/05/2026 — dossiê da baixa §5). Smoke §47c.7/§47c.8; jsdom
+`controleCartoes.spec.tsx`.
+

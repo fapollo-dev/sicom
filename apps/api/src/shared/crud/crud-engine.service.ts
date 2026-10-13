@@ -45,6 +45,7 @@ export class CrudEngineService {
     if (row && cfg.colunasOcultasLeitura?.length) {
       for (const c of cfg.colunasOcultasLeitura) delete row[c];
     }
+    if (row && cfg.aoLer) Object.assign(row, (await cfg.aoLer({ db: this.dbp.forTenantRead(), row })) ?? {});
     return row;
   }
 

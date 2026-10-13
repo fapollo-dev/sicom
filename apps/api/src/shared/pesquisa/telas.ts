@@ -351,6 +351,11 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // FRMBAIXACARTAO, "Iniciar Baix&a" / "&Adicionar" (btnAdicionarRegistroClick, UbaixaCartao.pas:801-830): a GET_CARTAO — os recebíveis
   // ABERTOS (o WHERE COALESCE(LIBERADO,'N') = 'N' está na view) — das lojas escolhidas (GetMultiEmpresa); com o FECHAMENTO_CAIXA da
   // empresa = 'S', só os CONSILIADO = 'S'; FCampoOrdenacao := 'DATA'; em multisseleção, os marcados vão aos documentos do lote (setDocumentos)
+  // FRMCADCARTAO (UcadCartao.pas:389-394, :627-641): o form-base sobre a GET_CARTAO (a da produção — só os abertos, o WHERE está na view)
+  // com o obrigatório CODIGO_EMPRESA in (GetMultiEmpresa); o código volta ao edtCodigo
+  'cadastro/cartao': { view: 'get_cartao', viewLegado: 'GET_CARTAO', relacao: 'rel_get_cartao', ocultas: OCULTAS.cartao, form: 'FRMCADCARTAO',
+    titulo: 'Cartões', retorno: 'codigo', campoAtivo: null,
+    obrigatorios: async (ctx) => [emLista('codigo_empresa', await ctx.lojas())] },
   'financeiro/cartao-baixa': { statusRetorno: '', view: 'get_cartao', viewLegado: 'GET_CARTAO', relacao: 'rel_get_cartao', ocultas: OCULTAS.cartao, form: 'FRMBAIXACARTAO',
     titulo: 'Cartões a baixar', retorno: 'codigo', abertura: { ordenacao: 'data' },
     obrigatorios: async (ctx) => [

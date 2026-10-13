@@ -50,8 +50,8 @@ export type AtualizarOperadoraDto = z.infer<typeof atualizarOperadoraSchema>;
 /** cadastro manual de um recebível de cartão. valor = BRUTO; líquido/vencimento são computados na view. */
 export const cartaoSchema = z.object({
   dtvenda: opcional(z.string()), // ISO; default = agora no engine
-  valor: z.coerce.number().positive({ message: 'Informe o valor (bruto) maior que zero.' }),
-  codoperadora: z.coerce.number().int().positive({ message: 'Informe a operadora.' }),
+  valor: z.coerce.number().positive({ message: 'Informe o valor do cartão.' }),
+  codoperadora: z.coerce.number().int().positive({ message: 'Informe a operadora do cartão.' }),
   idpgto: dec(z.number().int()),
   nrocupom: opcional(z.string().max(8)),
   nropedido: opcional(z.string().max(14)),

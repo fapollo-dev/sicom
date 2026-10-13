@@ -23,7 +23,7 @@ export interface CadMaster<T> {
   editar(): void;
   /** grava e devolve o registro gravado (o embutido da Pesquisa o repassa a quem abriu) */
   gravar(values: unknown): Promise<T | null>;
-  excluir(): Promise<void>;
+  excluir(params?: Record<string, string>): Promise<void>;
   cancelar(): void;
   // navegação de registro (DBNavigator sobre o cdsNavegation) — só no browse
   /** a lista navegável passa a ser o resultado desta Pesquisa (sem fonte: as setas param) */
@@ -106,11 +106,11 @@ export function useCadMaster<T extends Record<string, any>>(
     [api, modo, registro, pk],
   );
 
-  const excluir = useCallback(async () => {
+  const excluir = useCallback(async (params?: Record<string, string>) => {
     if (!registro) return;
     setCarregando(true);
     try {
-      await api.excluir(Number(registro[pk]));
+      await api.excluir(Number(registro[pk]), params);
       setRegistro(null);
       setModo('browse');
       setNavList([]); // registro removido → invalida a lista navegável

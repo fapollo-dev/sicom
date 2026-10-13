@@ -4566,8 +4566,10 @@ async function main() {
       const codoper = Number(opJ.codoperadoras);
       check('CARTÃO: criar operadora (txadm 2,59 / diascomp 30 / tipo C) → 201', opCr.status === 201 && codoper > 0, { status: opCr.status, op: opJ });
 
-      // 47c.2) criar recebível (bruto 100) → 201 + nasce LIBERADO='N'.
-      const cCr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, dtvenda: '2026-06-01', nrocupom: '55', nroparcela: 1 }) });
+      // 47c.2) criar recebível (bruto 100) → 201 + nasce LIBERADO='N'. A forma de pagamento é obrigatória (FormaPagamentoPreenchida)
+      const fpsCartao = (await (await fetch(`${base}/cadastro/formas-pgto`, { headers: H })).json().catch(() => [])) as any[];
+      const fpCartao = Number((fpsCartao.find((f) => ['TEF', 'CRT'].includes(String(f.destino ?? '').toUpperCase())) ?? fpsCartao[0])?.idpgto);
+      const cCr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, idpgto: fpCartao, dtvenda: '2026-06-01', nrocupom: '55', nroparcela: 1, nsuhost: 'HOST47', codrede: 9 }) });
       const cJ = (await cCr.json().catch(() => ({}))) as any;
       const codvc = Number(cJ.codvendcartao);
       const lista1 = (await (await fetch(`${base}/${CART}`, { headers: H })).json().catch(() => [])) as any[];
@@ -4597,6 +4599,21 @@ async function main() {
       // 47c.6) RBAC sem grant → 403.
       const cRb = await fetch(`${base}/${CART}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ valor: 10, codoperadora: codoper }) });
       check('CARTÃO: POST sem grant RBAC → 403', cRb.status === 403, { status: cRb.status });
+
+      // 47c.7) o "Controle de cartões" no form-base (UcadCartao): as regras do Gravar — sem a forma de pagamento → "Informe a forma de
+      // pagamento."; mais de 200 parcelas → "O número de parcelas deve ser menor que 200."; o registro traz o NSU host, o código da rede,
+      // a forma, a loja e o operador (mig 418); a Pesquisa (GET_CARTAO das lojas) acha o cartão aberto pelo código
+      const semForma = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 10, codoperadora: codoper }) });
+      const semFormaJ = (await semForma.json().catch(() => ({}))) as any;
+      const parc = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 10, codoperadora: codoper, idpgto: fpCartao, nroparcela: 201 }) });
+      const parcJ = (await parc.json().catch(() => ({}))) as any;
+      const reg = (await (await fetch(`${base}/${CART}/${codvc}`, { headers: H })).json().catch(() => ({}))) as any;
+      const pesqC = (((await (await fetch(`${base}/cadastro/pesquisa?recurso=${CART}&campo=codigo&operacao=igual&valor=${codvc}&porPagina=10`, { headers: H })).json().catch(() => ({}))) as any).linhas ?? []) as any[];
+      check('CARTÃO §47c.7 [o Controle de cartões]: sem a forma de pagamento → 422 "Informe a forma de pagamento."; 201 parcelas → 422 "O número de parcelas deve ser menor que 200."; o registro traz NSU host, código da rede, a forma, a loja e o operador; a Pesquisa da GET_CARTAO acha o cartão aberto pelo código',
+        semForma.status === 422 && semFormaJ.message === 'Informe a forma de pagamento.' && parc.status === 422 && parcJ.message === 'O número de parcelas deve ser menor que 200.'
+        && reg.nsuhost === 'HOST47' && Number(reg.codrede) === 9 && !!reg.modalidade && !!reg.razao_social && 'nome_operador' in reg
+        && pesqC.length === 1 && Number(pesqC[0].codigo) === codvc,
+        { semForma: [semForma.status, semFormaJ.message], parc: [parc.status, parcJ.message], reg: [reg.nsuhost, reg.codrede, reg.modalidade, reg.razao_social, reg.nome_operador], pesqC: pesqC.map((l) => l.codigo) });
     }
 
     // 47c-baixa) CARTÕES corte-2 — BAIXA / LIQUIDAÇÃO em lote (credita mov_contas_bancarias) + estorno do lote.
@@ -4624,8 +4641,9 @@ async function main() {
         // operadora base 2% + 2 recebíveis abertos (100→líq 98 / 50→líq 49).
         const opJ = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'REDE DEBITO', txadm: 2, diascomp: 1, tipo: 'D' }) })).json().catch(() => ({}))) as any;
         const codoper = Number(opJ.codoperadoras);
-        const c1 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
-        const c2 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 50, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
+        // a forma dos dois é a TEF (a mesma em que o cartão sem forma caía)
+        const c1 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, idpgto: fpTef, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
+        const c2 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 50, codoperadora: codoper, idpgto: fpTef, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
 
         // baixar os 2 NA DATA DIGITADA → as três pernas do legado (lote 91347 da produção): o crédito do líquido na conta de
         // destino (IDPGTO 1, a liberar) e as saídas do líquido e da taxa na conta da FORMA; DTBAIXA/CARTAO_BX/CAIXA na data.
@@ -4655,6 +4673,14 @@ async function main() {
           && cxTaxa.length === 1 && cxTaxa[0].valor === -3 && cxTaxa[0].obs === `Ref. a bx cartao lote ${idlote}` && cxTaxa[0].origem === 'BAIXA CARTAO' && cxTaxa[0].data === '2026-06-10'
           && Number(cxTaxa[0].codplc) === Number(ccMj),
           { fut: [bxFut.status, bxFutJ.code], bx: bxJ, movs, lib, cxTaxa, bxData, ccMj, ctaForma, fpTef });
+        // o cartão baixado não se altera nem se exclui pelo Controle de cartões (edtCodigoExit: o painel, o Editar e o Excluir desabilitados)
+        const putBx = await fetch(`${base}/${CART}/${c1}`, { method: 'PUT', headers: H, body: JSON.stringify({ nsuhost: 'DEPOIS' }) });
+        const putBxJ = (await putBx.json().catch(() => ({}))) as any;
+        const delBx = await fetch(`${base}/${CART}/${c1}`, { method: 'DELETE', headers: H });
+        const delBxJ = (await delBx.json().catch(() => ({}))) as any;
+        check('CARTÃO §47c.8 [o baixado]: alterar ou excluir o cartão baixado → 422 "Este cartão não poderá ser alterado pois já foi baixado."',
+          putBx.status === 422 && putBxJ.message === 'Este cartão não poderá ser alterado pois já foi baixado.' && delBx.status === 422 && delBxJ.code === 'CARTAO_BAIXADO',
+          { put: [putBx.status, putBxJ.code], del: [delBx.status, delBxJ.code] });
 
         // a CONSULTA do lote (FRMCONSCRTBX): a Pesquisa da GET_CARTAOBX acha o lote pelas lojas do operador; a consulta traz os cartões
         // baixados e os recursos utilizados com o sinal do legado; o "Visualizar títulos" do controle de contas a reconhece. Um cartão do
@@ -25222,7 +25248,8 @@ async function main() {
       try {
         const CART = 'cadastro/cartao';
         const oper = Number((await pgCt.query(`SELECT codoperadoras FROM operadoras ORDER BY codoperadoras LIMIT 1`)).rows[0]?.codoperadoras);
-        const cr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 80, codoperadora: oper, dtvenda: '2026-09-20', nsuhost: 'H123', codrede: 5 }) });
+        const fpCt = Number((await pgCt.query(`SELECT min(idpgto) AS i FROM formas_pgto WHERE idempresa = 1`)).rows[0]?.i);
+        const cr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 80, codoperadora: oper, idpgto: fpCt, dtvenda: '2026-09-20', nsuhost: 'H123', codrede: 5 }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
         const id = Number(crJ.codvendcartao) || 0;
         const row = (await pgCt.query(`SELECT consiliado, nsuhost, codrede FROM cartao WHERE codvendcartao=$1`, [id])).rows[0] as any;
@@ -25757,7 +25784,8 @@ async function main() {
 
         // 218.3 — o HISTORICO do cartão
         const oper = Number((await pgBx.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0].c);
-        const crC = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: J, body: JSON.stringify({ valor: 40, codoperadora: oper, dtvenda: '2026-09-20', nsuhost: 'H1', codrede: 5 }) });
+        const fpBx = Number((await pgBx.query(`SELECT min(idpgto) AS i FROM formas_pgto WHERE idempresa = 1`)).rows[0]?.i);
+        const crC = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: J, body: JSON.stringify({ valor: 40, codoperadora: oper, idpgto: fpBx, dtvenda: '2026-09-20', nsuhost: 'H1', codrede: 5 }) });
         const idC = Number(((await crC.json().catch(() => ({}))) as any).codvendcartao) || 0;
         await fetch(`${base}/cadastro/cartao/${idC}`, { method: 'PUT', headers: J, body: JSON.stringify({ nsuhost: 'H2', codrede: 7 }) });
         const hc = (await pgBx.query(`SELECT historico FROM historico WHERE tabela = 'CARTAO' AND coddoc = $1 ORDER BY codhist`, [String(idC)])).rows.map((r: any) => r.historico);
@@ -26256,7 +26284,8 @@ async function main() {
       const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         const oper = Number((await pgFc.query(`SELECT codoperadoras FROM operadoras ORDER BY codoperadoras LIMIT 1`)).rows[0]?.codoperadoras);
-        const cc = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 12.34, codoperadora: oper, dtvenda: '2036-06-01' }) });
+        const fpFc = Number((await pgFc.query(`SELECT min(idpgto) AS i FROM formas_pgto WHERE idempresa = 1`)).rows[0]?.i);
+        const cc = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 12.34, codoperadora: oper, idpgto: fpFc, dtvenda: '2036-06-01' }) });
         const ccJ = (await cc.json().catch(() => ({}))) as any;
         const codc = Number(ccJ.codvendcartao ?? ccJ.id ?? ccJ.codigo);
         const rc = (await pgFc.query(`SELECT codoperador, liberado, idempresa FROM cartao WHERE codvendcartao = $1`, [codc])).rows[0] as any;

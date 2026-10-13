@@ -61,6 +61,11 @@ export interface CrudConfig {
    */
   colunasOcultasLeitura?: string[];
   /**
+   * Completa o registro lido por-id (GET/:id e o echo de POST/PUT) com os campos de EXIBIÇÃO que a tela do legado mostra e a tabela base
+   * não tem (as descrições das pesquisas: a operadora, a forma, a loja, o operador) — o que volta é mesclado no registro.
+   */
+  aoLer?: (args: { db: any; row: Record<string, unknown> }) => Promise<Record<string, unknown> | undefined>;
+  /**
    * Campos DERIVADOS server-side (espelha derivações do BeforePost/OnValidate do legado,
    * ex.: NCM grava NCMSH = ConcatenaLeft(CODIGO,8,'0')). Recebe o dto (e a PK no update)
    * e retorna os valores a sobrepor ANTES do delta — o usuário nunca os digita.

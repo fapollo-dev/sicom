@@ -72,6 +72,11 @@ interface Props<T extends FieldValues> {
    * "O perfil não é do tipo …"): devolve o texto (a tela fica vazia e mostra a mensagem) ou null
    */
   recusarRegistro?: (registro: Record<string, unknown>) => string | null;
+  /**
+   * o que a exclusão do registro pede antes de ir (o `btnExcluirClick` da tela que testa e pergunta — ex.: a senha administrativa do cartão
+   * conciliado): devolve os parâmetros da query, ou null para não excluir
+   */
+  paramsExclusao?: (registro: Record<string, unknown>) => Promise<Record<string, string> | null>;
   /** render-prop dos campos da tela (recebe o form e se está editável) */
   campos: (ctx: CamposCtx<T>) => ReactNode;
 }
@@ -124,6 +129,7 @@ export function CadMaster<T extends FieldValues>({
   largura = '3xl',
   gerenciaEdicaoInterna = false,
   recusarRegistro,
+  paramsExclusao,
   campos,
 }: Props<T>) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
@@ -237,7 +243,13 @@ export function CadMaster<T extends FieldValues>({
   const onExcluir = () => setConfirmExcluir(true); // abre o AlertModal do DS (≠ confirm() nativo)
   const doExcluir = async () => {
     try {
-      await cad.excluir();
+      let params: Record<string, string> | undefined;
+      if (paramsExclusao && cad.registro) {
+        const p = await paramsExclusao(cad.registro as Record<string, unknown>);
+        if (p == null) return;
+        params = p;
+      }
+      await cad.excluir(params);
       form.reset(defaultValues ?? ({} as T));
       setCodigo('');
     } catch (e) {

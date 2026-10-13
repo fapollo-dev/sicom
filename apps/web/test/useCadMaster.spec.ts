@@ -74,7 +74,8 @@ describe('useCadMaster — máquina de estados do form-base (ControlaTela)', () 
     await act(async () => {
       await result.current.excluir();
     });
-    expect(api.excluir).toHaveBeenCalledWith(7);
+    // o 2º argumento são os parâmetros da exclusão (a senha administrativa do cartão conciliado) — sem eles, undefined
+    expect(api.excluir).toHaveBeenCalledWith(7, undefined);
     expect(result.current.registro).toBeNull();
     expect(result.current.modo).toBe('browse');
   });

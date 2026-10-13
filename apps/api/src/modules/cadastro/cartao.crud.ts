@@ -83,10 +83,15 @@ export const cartaoCrudConfig: CrudConfig = {
   derivar: (_dto, id) => (id == null ? { consiliado: 'S', codoperador: currentTenant().operadorId ?? null } : { consiliado: 'S' }),
   // "Documento ja consiliado na tesouraria, não é possivel alteração de valores!" (btnEditarClick :283-290): o VALOR e a
   // PARCELA do cartão conciliado não mudam
+  // e as do Gravar (btnGravarClick :309-388): "O número de parcelas deve ser menor que 200.", "Informe a forma de pagamento."
+  // (FormaPagamentoPreenchida :839); o cartão BAIXADO não se altera (edtCodigoExit :518-533 desabilita o painel, o Editar e o Excluir)
   validarTrx: async ({ trx, id, dto }) => {
+    if (num(dto.nroparcela) > 200) throw new BusinessRuleError('CARTAO_PARCELAS_200', { nroparcela: dto.nroparcela });
+    const c = id == null ? undefined : (await sql<{ consiliado: string | null; valor: unknown; nroparcela: unknown; idpgto: unknown; liberado: string | null }>`
+      SELECT consiliado, valor, nroparcela, idpgto, liberado FROM cartao WHERE codvendcartao = ${id}`.execute(trx)).rows[0];
+    if (c && String(c.liberado ?? 'N') === 'S') throw new BusinessRuleError('CARTAO_BAIXADO', { codvendcartao: id });
+    if (!num(dto.idpgto !== undefined ? dto.idpgto : c?.idpgto)) throw new BusinessRuleError('CARTAO_FORMA_OBRIGATORIA');
     if (id == null) return;
-    const c = (await sql<{ consiliado: string | null; valor: unknown; nroparcela: unknown }>`
-      SELECT consiliado, valor, nroparcela FROM cartao WHERE codvendcartao = ${id}`.execute(trx)).rows[0];
     if (c && String(c.consiliado ?? '') === 'S') {
       const mudou = (novo: unknown, atual: unknown) => novo !== undefined && Number(novo ?? 0) !== Number(atual ?? 0);
       if (mudou(dto.valor, c.valor) || mudou(dto.nroparcela, c.nroparcela)) throw new BusinessRuleError('CARTAO_CONCILIADO_VALOR', { codvendcartao: id });
@@ -95,8 +100,9 @@ export const cartaoCrudConfig: CrudConfig = {
   },
   // "Documento ja conciliado na tesouraria, não é possivel excluí-lo!" — só com a senha administrativa (btnExcluirClick :293-300)
   validarRemocaoTrx: async ({ trx, id, senhaAdmin, dbp }) => {
-    const c = (await sql<{ consiliado: string | null; nropedido: unknown; valor: unknown }>`SELECT consiliado, nropedido, valor FROM cartao WHERE codvendcartao = ${id}`.execute(trx)).rows[0];
+    const c = (await sql<{ consiliado: string | null; nropedido: unknown; valor: unknown; liberado: string | null }>`SELECT consiliado, nropedido, valor, liberado FROM cartao WHERE codvendcartao = ${id}`.execute(trx)).rows[0];
     if (!c) return;
+    if (String(c.liberado ?? 'N') === 'S') throw new BusinessRuleError('CARTAO_BAIXADO', { codvendcartao: id });
     if (String(c.consiliado ?? '') === 'S') {
       if (!senhaAdmin) throw new BusinessRuleError('CARTAO_CONCILIADO_EXCLUSAO', { codvendcartao: id });
       const { ok } = await new SenhaOperacaoService(dbp).verificar('admin', senhaAdmin);
@@ -108,6 +114,9 @@ export const cartaoCrudConfig: CrudConfig = {
         VALUES (${String(id)}, 'CARTAO', ${`EXCLUSAO DO REGISTRO , NROPEDIDO: ${c.nropedido ?? ''}, VALOR: ${fmt000(c.valor)}`}, current_date, ${operadorId ?? null}, ${empresaId ?? null})`.execute(trx);
   },
   colunasPesquisa: ['codvendcartao', 'dtvenda', 'operadora', 'liberado', 'nrocupom', 'nropedido', 'valor'],
+  // as descrições que o "Lançamento de Cartões" mostra ao lado dos códigos (OPERADORA, MODALIDADE, RAZAOSOCIAL, NOME — mig 418)
+  aoLer: async ({ db, row }) => (await sql<Record<string, unknown>>`
+      SELECT operadora, modalidade, razao_social, nome_operador FROM get_cartao WHERE codvendcartao = ${Number(row.codvendcartao)}`.execute(db)).rows[0],
 };
 
 export const CartaoCrudController = createCrudController({

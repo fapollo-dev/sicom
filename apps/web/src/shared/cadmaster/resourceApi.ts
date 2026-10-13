@@ -49,7 +49,8 @@ export interface ResourceApi<T = any> {
   ler(id: number): Promise<T>;
   criar(dto: any): Promise<T>;
   atualizar(id: number, dto: any): Promise<T>;
-  excluir(id: number): Promise<void>;
+  /** `params`: o que a exclusão pede na query (ex.: a senha administrativa do cartão conciliado) */
+  excluir(id: number, params?: Record<string, string>): Promise<void>;
 }
 
 /** Ex.: createResourceApi('cadastro/marcas') → { listar, ler, criar, atualizar, excluir }. */
@@ -64,6 +65,6 @@ export function createResourceApi<T = any>(path: string): ResourceApi<T> {
     ler: (id) => req<T>(`/${path}/${id}`),
     criar: (dto) => req<T>(`/${path}`, { method: 'POST', body: JSON.stringify(dto) }),
     atualizar: (id, dto) => req<T>(`/${path}/${id}`, { method: 'PUT', body: JSON.stringify(dto) }),
-    excluir: (id) => req<void>(`/${path}/${id}`, { method: 'DELETE' }),
+    excluir: (id, params) => req<void>(`/${path}/${id}${params && Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : ''}`, { method: 'DELETE' }),
   };
 }
