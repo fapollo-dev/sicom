@@ -451,3 +451,24 @@ Remover por linha. Smoke §200 (2 casos). Falta: o estilo caixa (UNION por títu
 da data da transferência — o dado confirma: 0 transferências de 2025-26 com mais de 90 dias para trás ou 30 para frente (512
 inserções). `INFORMAR_CONTAS_TRANSFERENCIA_BANCARIA` liga a matriz de destinos permitidos ('S' no Retaguarda); só o 'N'
 explícito a desliga. As mensagens não têm fonte (binário novo) e são do Apollo. Smoke §198.5.
+
+## 16. Corte E — as impressões (13/10/2026)
+
+**✅ O "Imprimir" da tela principal** (`BtnImprimirClick`, :156-179): o período (`TFrmPeriodo`) e o `TFrmRelCaixa` na apuração com
+`SomenteResumoCC` (URelCaixa.pas:121-145, :262-268, :418-425) — o relatório e as contas internas vazios, sem o resumo da apuração, o
+resumo das contas correntes **do operador** (`GetResumoCC(OperadorCODOPERADOR)` → `JOIN CONTAS_BANCARIAS_OP`), só as movimentadas no
+período (o clique do `CkbImprimeResumoCC` marca o "Somente contas movimentadas"), no `Caixa3 - Apuração do caixa.fr3` (o script mostra a
+página `PResumoCC` pelo `ImprimirResumoCC`). `POST cobranca/rel-caixa/resumo-contas/impressao`, gate da tela das contas (o legado cria o
+relatório direto, sem o acesso ao FRMRELCAIXA). ⛔→✅ de carona no resumo do relatório de caixa: o `dtemissao` é timestamp desde a mig 335 e
+o `BETWEEN <data> AND <data>` cortava o último dia depois da meia-noite (e a véspera no saldo anterior) — agora pelo dia no fuso da loja,
+como o `TRUNC` do legado. Smoke §99.7.
+
+**⛔ O extrato do detalhamento** (`btnImprimirMovBancariaClick`, UconsMovBancaria.pas:506-604, `extr - extrato conta corrente.fr3`):
+bloqueado com prova. O layout vivo (RELATORIOS 147 padrão / 737 personalizado da loja 1) tem, na página 4 ("FINALIZADORAS", ligada por
+`EXTRATO_CC_FINALIZADORAS = 'S'` na produção), dois datasets que **não existem no fonte de 2020**: `Modalidade` (MODALIDADE, VALOR — a
+"MOVIMENTAÇÃO DO PERÍODO" agrupada por forma) e `ResumoPgtoAtual` ("MOVIMENTAÇÃO GERAL ATÉ [Now]", banda oculta); e o `frxResumoPgto`
+aparece como "MOVIMENTAÇÃO GERAL (INCLUSO LANÇAMENTO FUTURO)", o que contradiz o `sqqResumoPgto` de 2020 (só `LIBERADO = 'S'`). O SQL
+desses três não está no V$SQL nem no AWR (DBA_HIST_SQLTEXT) — ninguém imprimiu o extrato recentemente, a mesma falta de prova de uso
+desta spec (§3.7). As páginas 1-3 (`cdsDetBancaria`, empresa, `cdsSaldoDet`, `cdsDoctos`, cheques) são reproduzíveis; a 4 não, sem
+inventar. Para destravar: uma impressão do extrato na produção e a captura do V$SQL logo depois.
+

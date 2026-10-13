@@ -108,6 +108,27 @@ export class RelCaixaService {
    * mais o `DBResumoApuracao` e o `DBDResumoCC` na apuração. Vazio: "Não foram encontrados registros para imprimir o relatório." — a
    * apuração só recusa quando o relatório, as contas internas e o resumo das contas estão todos vazios (`AntesImprimir`).
    */
+  /**
+   * O "Imprimir" do Controle de contas correntes (`uControleContasBancarias.pas:156-179`): o período (`TFrmPeriodo`) e o `TFrmRelCaixa` na
+   * apuração com `SomenteResumoCC` — o relatório e as contas internas vazios (`SELECT … WHERE 1 = 2`), sem o resumo da apuração, e o resumo
+   * das contas correntes do OPERADOR, só as movimentadas no período (o `CkbImprimeResumoCC` marca o "Somente contas movimentadas"). O layout
+   * mostra a página do resumo pelo `ImprimirResumoCC`. Sem conta: "Não foram encontrados registros para imprimir o relatório."
+   */
+  async impressaoResumoCC(dataIni: string, dataFim: string) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const f: FiltroCaixa = { modelo: 'APURACAO', dataIni, dataFim, resumoCC: true, somenteCCMovimentadas: true } as FiltroCaixa;
+    const c = await this.ctx(db, f);
+    const resumoCC = await this.resumoContas(db, c, dataIni, true, currentTenant().operadorId ?? -1);
+    const m = MODELOS_CAIXA.APURACAO;
+    return relatorioMestre(db, {
+      arquivo: m.arquivo, titulo: 'Resumo das contas correntes', vazio: !resumoCC.length,
+      relatorio: [], auxiliar: [],
+      variaveis: { empresas: c.empresas, dataIni, dataFim, niveis: m.niveisPadrao, tabela: 0,
+        extras: { ImprimirResumoCC: 'S', SomenteCCMovimentadas: 'S', SomenteResumoCC: true } },
+      extras: { DBResumoApuracao: [], DBDResumoCC: resumoCC },
+    });
+  }
+
   async impressao(f: FiltroCaixa, niveis?: number | null) {
     const r = await this.consultar(f);
     const m = MODELOS_CAIXA[f.modelo];
@@ -290,7 +311,13 @@ export class RelCaixaService {
   }
 
   /** `TApuracaoCaixa.GetResumoCC` (:370): por conta corrente — entradas, saídas, saldo liberado e pendente e o saldo anterior ao período */
-  private async resumoContas(db: AnyDB, c: Awaited<ReturnType<RelCaixaService['ctx']>>, dataIni: string, somenteMovimentadas: boolean): Promise<Linha[]> {
+  /**
+   * `TApuracaoCaixa.GetResumoCC(pUsuId)` (UCaixa.pas:370-431): por conta, entradas/saídas/saldo do período (liberado e pendente) e o saldo
+   * anterior (liberado até a véspera). Com o operador (o "Imprimir" do Controle de contas correntes), só as contas dele
+   * (`JOIN CONTAS_BANCARIAS_OP`). As datas pelo DIA (`TRUNC`) no fuso da loja — o `dtemissao` é timestamp (mig 335) e o `BETWEEN` cru
+   * cortava o último dia depois da meia-noite (e a véspera no saldo anterior).
+   */
+  private async resumoContas(db: AnyDB, c: Awaited<ReturnType<RelCaixaService['ctx']>>, dataIni: string, somenteMovimentadas: boolean, usuId: number | null = null): Promise<Linha[]> {
     const rows = (await sql<Linha>`
       WITH mov AS (
         SELECT m.codconta,
@@ -299,13 +326,15 @@ export class RelCaixaService {
                coalesce(sum(CASE WHEN liberado = 'S' THEN valor ELSE 0 END), 0) AS saldo_periodo,
                coalesce(sum(CASE WHEN liberado <> 'S' OR liberado IS NULL THEN valor ELSE 0 END), 0) AS saldo_periodo_pendente
           FROM mov_contas_bancarias m
-         WHERE ${somenteMovimentadas ? sql`m.dtemissao BETWEEN ${c.dataIniSql} AND ${c.dataFimSql}` : sql`true`}
+         WHERE ${somenteMovimentadas ? c.periodo('m.dtemissao') : sql`true`}
          GROUP BY m.codconta)
       SELECT c.titular, c.nroconta, cur.codconta, cur.entradas, cur.saidas, cur.saldo_periodo, cur.saldo_periodo_pendente,
              (SELECT sum(m.valor) FROM mov_contas_bancarias m
-               WHERE m.dtemissao BETWEEN cur.emissao AND (${dataIni}::date - 1) AND m.codconta = cur.codconta AND liberado = 'S') AS saldo_anterior
+               WHERE ${c.dia('m.dtemissao')} BETWEEN ${c.dia('cur.emissao')} AND (${dataIni}::date - 1) AND m.codconta = cur.codconta AND liberado = 'S') AS saldo_anterior
         FROM (SELECT m.codconta, min(m.dtemissao) AS emissao, mov.entradas, mov.saidas, mov.saldo_periodo, mov.saldo_periodo_pendente
-                FROM mov_contas_bancarias m JOIN mov ON mov.codconta = m.codconta
+                FROM mov_contas_bancarias m
+                ${usuId ? sql`JOIN contas_bancarias_op op ON op.codconta = m.codconta AND op.codoperador = ${usuId}` : sql``}
+                JOIN mov ON mov.codconta = m.codconta
                GROUP BY m.codconta, mov.entradas, mov.saidas, mov.saldo_periodo, mov.saldo_periodo_pendente) cur
         LEFT JOIN contas_bancarias c ON c.codconta = cur.codconta
        ORDER BY c.titular, c.nroconta`.execute(db)).rows;

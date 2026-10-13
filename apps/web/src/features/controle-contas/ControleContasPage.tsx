@@ -10,6 +10,8 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { useShortcut, focarMnemonico } from '../../shared/keyboard';
+import { Modal } from '../../shared/ui/Modal';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import {
   listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento, chavearConta,
   type ContaCC, type PainelSaldo, type Detalhamento, type DetMov, type FiltroDet,
@@ -33,6 +35,8 @@ export function ControleContasPage() {
   const [destinos, setDestinos] = useState<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>>([]);
   const [modalidades, setModalidades] = useState<Array<{ idpgto: number; modalidade: string }>>([]);
   const [conta, setConta] = useState('');
+  // o "Imprimir" da tela (BtnImprimirClick): o período do TFrmPeriodo e o resumo das contas correntes do operador
+  const [periodoImp, setPeriodoImp] = useState<{ dataIni: string; dataFim: string } | null>(null);
   const [painel, setPainel] = useState<PainelSaldo | null>(null);
   const [posicionar, setPosicionar] = useState<{ ativo: boolean; data: string }>({ ativo: false, data: hoje() });
   // o Detalhamento (UconsMovBancaria): período padrão hoje, data de emissão/vencimento/liberação, liberados, documento
@@ -191,6 +195,23 @@ export function ControleContasPage() {
           </tbody>
         </table>
       </div>
+      <div className="flex flex-wrap gap-gp-sm">
+        <Button label="&Imprimir" variant="ghost" disabled={busy} onClick={() => setPeriodoImp({ dataIni: hoje(), dataFim: hoje() })} />
+      </div>
+      <Modal open={!!periodoImp} onClose={() => setPeriodoImp(null)} size="sm" title="Informe o período"
+        primaryAction={{ label: '&OK', onClick: () => {
+          const p = periodoImp;
+          setPeriodoImp(null);
+          if (p) imprimirRelatorio('/cobranca/rel-caixa/resumo-contas/impressao', p).catch((e) => mensagem.erro(e));
+        } }}
+        secondaryAction={{ label: '&Cancelar', onClick: () => setPeriodoImp(null) }}>
+        {periodoImp && (
+          <div className="flex flex-wrap gap-gp-sm">
+            <div className="w-44"><DateField label="Data &inicial" value={periodoImp.dataIni} onChange={(v) => setPeriodoImp({ ...periodoImp, dataIni: v ?? hoje() })} /></div>
+            <div className="w-44"><DateField label="Data &final" value={periodoImp.dataFim} onChange={(v) => setPeriodoImp({ ...periodoImp, dataFim: v ?? hoje() })} /></div>
+          </div>
+        )}
+      </Modal>
 
       {sel && (
         <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">

@@ -12492,6 +12492,38 @@ async function main() {
           && pVazio.status === 422 && pVazio.j.message === 'Não foram encontrados registros para imprimir o relatório.' && semAcesso.status === 403,
           { pDiv: [pDiv.status, pDiv.j.code, pDiv.j.datasets?.DBDRelatorio?.length, vv], pAp: [pAp.status, pAp.j.code, pAp.j.datasets?.DBDVariaveisAdicionais], pVazio: [pVazio.status, pVazio.j.message], semAcesso: semAcesso.status });
 
+        // §99.7 o "Imprimir" do Controle de contas correntes: só o resumo das contas do OPERADOR (CONTAS_BANCARIAS_OP), as movimentadas no período,
+        // pelo DIA no fuso da loja (o movimento das 23:30 do último dia entra; o da véspera às 23:00 vai para o saldo anterior); sem conta → a
+        // mensagem do legado; o gate é a tela das contas
+        await pgRx.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (990993, 1, 'Caixa3 - Apuração do caixa.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO UPDATE SET arquivo = EXCLUDED.arquivo`, [stub]);
+        // ids fixos: não desloca a sequência das contas (o §83.3 cria a "caixa zerada" pela sequência)
+        const ccOp = Number((await pgRx.query(`INSERT INTO contas_bancarias (codconta, codbco, idempresa, titular, nroconta) VALUES (99701, 0, 1, 'AAA RESUMO 997', '997-1') RETURNING codconta`)).rows[0].codconta);
+        const ccOutra = Number((await pgRx.query(`INSERT INTO contas_bancarias (codconta, codbco, idempresa, titular, nroconta) VALUES (99702, 0, 1, 'AAA OUTRA 997', '997-2') RETURNING codconta`)).rows[0].codconta);
+        await pgRx.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1, 7)`, [ccOp]);
+        await pgRx.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, liberado, dtemissao, dtcadastro) VALUES
+            ($1, 1, 100, 'C', 'S', '2039-06-30 23:30:00-03', now()), ($1, 1, -30, 'D', 'N', '2039-06-10 10:00:00-03', now()),
+            ($1, 1, 50, 'C', 'S', '2039-05-31 23:00:00-03', now()), ($2, 1, 70, 'C', 'S', '2039-06-15 10:00:00-03', now())`, [ccOp, ccOutra]);
+        try {
+          const rcc = async (b: Record<string, unknown>, h = H) => { const r = await fetch(`${base}/${RCX}/resumo-contas/impressao`, { method: 'POST', headers: h, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+          const pr = await rcc({ dataIni: '2039-06-01', dataFim: '2039-06-30' });
+          const prVazio = await rcc({ dataIni: '2041-06-01', dataFim: '2041-06-30' });
+          const prSem = await rcc({ dataIni: '2039-06-01', dataFim: '2039-06-30' }, H_SEM_ACESSO);
+          const lr = (pr.j.datasets?.DBDResumoCC ?? []) as any[];
+          const minha = lr.find((l) => l.TITULAR === 'AAA RESUMO 997');
+          const vr = pr.j.datasets?.DBDVariaveisAdicionais?.[0] ?? {};
+          check('REL. CAIXA §99.7 [o "Imprimir" do Controle de contas correntes]: só o resumo das contas do operador (a conta sem vínculo fica fora), as movimentadas no período, pelo dia no fuso da loja — o movimento das 23:30 do último dia entra (entradas 100, saldo do período 100, pendente −30) e o da véspera às 23:00 vai para o saldo anterior (50); o relatório e a apuração vazios, ImprimirResumoCC "S"; sem conta → a mensagem do legado; o gate é a tela das contas',
+            pr.status === 200 && !!minha && !lr.some((l) => l.TITULAR === 'AAA OUTRA 997')
+            && Number(minha.ENTRADAS) === 100 && Number(minha.SAIDAS) === -30 && Number(minha.SALDO_PERIODO) === 100 && Number(minha.SALDO_PERIODO_PENDENTE) === -30 && Number(minha.SALDO_ANTERIOR) === 50
+            && (pr.j.datasets?.DBDRelatorio ?? []).length === 0 && (pr.j.datasets?.DBResumoApuracao ?? []).length === 0 && vr.ImprimirResumoCC === 'S' && vr.SomenteCCMovimentadas === 'S'
+            && prVazio.status === 422 && prVazio.j.message === 'Não foram encontrados registros para imprimir o relatório.' && prSem.status === 403,
+            { pr: [pr.status, pr.j.code, lr, vr], prVazio: [prVazio.status, prVazio.j.message], prSem: prSem.status });
+        } finally {
+          await pgRx.query(`DELETE FROM mov_contas_bancarias WHERE codconta IN ($1, $2)`, [ccOp, ccOutra]);
+          await pgRx.query(`DELETE FROM contas_bancarias_op WHERE codconta IN ($1, $2)`, [ccOp, ccOutra]);
+          await pgRx.query(`DELETE FROM contas_bancarias WHERE codconta IN ($1, $2)`, [ccOp, ccOutra]);
+          await pgRx.query(`DELETE FROM relatorios WHERE codrelatorio = 990993`);
+        }
+
         await pgRx.query(`DELETE FROM hist_voucher WHERE codhistvoucher = 990611`).catch(() => undefined);
         await pgRx.query(`DELETE FROM caixa WHERE codcx IN (990601,990602,990603)`);
         await pgRx.query(`DELETE FROM caixa_pdv WHERE codcaixa=990604`);
