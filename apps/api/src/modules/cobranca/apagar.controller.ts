@@ -1,7 +1,7 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { apagarSchema, atualizarApagarSchema, baixarTituloSchema, agruparApagarSchema } from '@apollo/shared';
+import { apagarSchema, atualizarApagarSchema, baixarTituloSchema, agruparApagarSchema, gerarParcelasApagarSchema, rateioApagarSchema, type GerarParcelasApagarDto, type RateioApagarDto } from '@apollo/shared';
 import { ApagarService } from './apagar.service';
 import { ApagarBaixaService } from './apagar-baixa.service';
 import { ApagarAgrupamentoService, type AgruparApagarInput } from './apagar-agrupamento.service';
@@ -27,9 +27,55 @@ export class ApagarController {
     return this.svc.list(query);
   }
 
+  /** a aba PENDÊNCIAS (`sqqPendencias`): antes do `:id` — "pendencias" não é um código */
+  @Get('pendencias')
+  pendencias(@Query('localizar') localizar?: string) {
+    return this.svc.pendencias(localizar);
+  }
+
   @Get(':id')
   read(@Param('id', ParseIntPipe) id: number) {
     return this.svc.read(id);
+  }
+
+  /** a aba PARCELAS: o documento inteiro (o grupo) com os totais */
+  @Get(':id/parcelas')
+  parcelas(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.parcelas(id);
+  }
+
+  /** a aba ULTIMOS LANÇAMENTOS do fornecedor */
+  @Get(':id/ultimos-lancamentos')
+  ultimosLancamentos(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.ultimosLancamentos(id);
+  }
+
+  /** o PROCESSAR sobre o documento gravado (btnGeraParcelas) */
+  @Post(':id/gerar-parcelas')
+  @HttpCode(200)
+  @RequerAcesso('FRMAPAGAR', 'BTNGRAVAR')
+  gerarParcelas(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(gerarParcelasApagarSchema)) dto: GerarParcelasApagarDto) {
+    return this.svc.gerarParcelas(id, dto);
+  }
+
+  /** "Pendência Resolvida" (o aceite da pendência) */
+  @Post(':id/resolver-pendencia')
+  @HttpCode(200)
+  @RequerAcesso('FRMAPAGAR', 'BTNGRAVAR')
+  resolverPendencia(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.resolverPendencia(id);
+  }
+
+  /** o grupo "Lançamento centro custo": as linhas do rateio */
+  @Get(':id/rateio')
+  rateio(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.rateio(id);
+  }
+
+  @Put(':id/rateio')
+  @RequerAcesso('FRMAPAGAR', 'BTNGRAVAR')
+  gravarRateio(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(rateioApagarSchema)) dto: RateioApagarDto) {
+    return this.svc.gravarRateio(id, dto);
   }
 
   @Post()

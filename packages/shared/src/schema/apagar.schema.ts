@@ -53,7 +53,56 @@ const apagarBase = z.object({
   codplc: opcional(z.number().int()),
   idsituacao_nf: opcional(z.number().int()),
   obs: opcional(z.string()),
+  // o NRPARCELA (`i/N`; '1/1' no título único — 9.702 de 9.703 em 2026) e o fornecedor CEDENTE do boleto (`edtCodParceiroCedente`,
+  // vale para todas as parcelas do documento)
+  nrparcela: opcional(z.string().max(10)),
+  codparceirocedente: opcional(z.number().int()),
+  // a Configuração do PROCESSAR (uAPagar `grbConfiguracao`): intervalo em dias OU dia fixo do mês; "Incluir restantes na última
+  // parcela". Só vale com nrodup > 1 — o `valor` é então o TOTAL do documento (o cleTOTALNF)
+  geracao: z.object({
+    intervalo: opcional(z.coerce.number().int().min(0, 'Intervalo inválido.').max(365, 'Intervalo máximo de 365 dias.')),
+    dia_fixo: opcional(z.coerce.number().int().min(1, 'Dia inválido.').max(31, 'Dia inválido.')),
+    restantes_na_ultima: z.boolean().optional(),
+  }).optional(),
 });
+
+/** o combo `cbbTIPODOC` do uAPagar.dfm (11 itens; o valor gravado é o texto) */
+export const AP_TIPODOC_OPCOES = [
+  { value: 'BOLETO', label: 'Boleto' },
+  { value: 'DUPLICATA', label: 'Duplicata' },
+  { value: 'BANCÁRIA', label: 'Bancária' },
+  { value: 'CARTEIRA', label: 'Carteira' },
+  { value: 'JURÍDICA', label: 'Jurídica' },
+  { value: 'RH', label: 'RH' },
+  { value: 'NEUTRA', label: 'Neutra' },
+  { value: 'A VISTA', label: 'À vista' },
+  { value: 'CHEQUE', label: 'Cheque' },
+  { value: 'CHEQUE PRÓPRIO', label: 'Cheque próprio' },
+  { value: 'CARTÃO PRÓPRIO', label: 'Cartão próprio' },
+] as const;
+
+/** o PROCESSAR de novo sobre um documento gravado (`btnGeraParcelasClick`): refaz as parcelas do grupo — nenhuma pode estar paga */
+export const gerarParcelasApagarSchema = z.object({
+  nrodup: z.coerce.number({ message: 'Informe o número de parcelas.' }).int().min(1, 'Mínimo 1 parcela.').max(200, 'Máximo de 200 parcelas.'),
+  dtvenc: z.string().min(1, 'Informe o vencimento da 1ª parcela.'),
+  total: dec(z.number().positive('O valor total deve ser maior que zero.')),
+  intervalo: opcional(z.coerce.number().int().min(0).max(365)),
+  dia_fixo: opcional(z.coerce.number().int().min(1).max(31)),
+  restantes_na_ultima: z.boolean().optional(),
+});
+export type GerarParcelasApagarDto = z.infer<typeof gerarParcelasApagarSchema>;
+
+/** o grupo "Lançamento centro custo" (BtnAdicionarCC/BtnExcluirCC/BtnGravarCC): as linhas V do rateio do documento */
+export const rateioApagarSchema = z.object({
+  linhas: z.array(z.object({
+    codcc: z.coerce.number({ message: 'Necessário informar o centro de custo.' }).int().positive('Necessário informar o centro de custo.'),
+    valor: z.coerce.number({ message: 'Informe o valor para o centro de custo.' }),
+    idsituacao_nf: opcional(z.coerce.number().int()),
+  })).min(1, 'Necessário informar o centro de custo.').max(200),
+  /** o "Deseja continuar?" do VERIFICA_CC_MAIOR_PARCELAS = Avisar */
+  confirmado: z.boolean().optional(),
+});
+export type RateioApagarDto = z.infer<typeof rateioApagarSchema>;
 
 const refineDatas = (d: { dtvenda?: string; dtvenc?: string }, ctx: z.RefinementCtx) => {
   if (d.dtvenda && d.dtvenc && d.dtvenc < d.dtvenda) {

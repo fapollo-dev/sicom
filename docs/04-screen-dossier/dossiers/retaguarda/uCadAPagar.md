@@ -62,3 +62,28 @@ notas (**268 descontos e 198 embutidos em 2026** foram digitados em títulos de 
   `FormatFloat('0,00')` do Delphi: inteiro, mínimo 3 dígitos, milhar com ponto — "001", "054", "1.068" na produção).
 
 Smoke §33 (as travas novas) e §174 (D/E, estorno do contábil, exclusão do documento).
+
+## 5. AUDITORIA CONTROLE A CONTROLE DO `uAPagar.dfm` (14/10/2026)
+
+Os 103 controles do dfm contra a tela do Apollo, com a produção decidindo o que vive (leitura só-leitura em 14/10/2026):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| **Aba Parcelas** (`TbsCadastro`, grade `sqqAPagarGrupo`) + grupo **Configuração** (`edtIntervalo`, `chbRestUlt`, `edtDataInicial`, `edtVencimento`, `btnGeraParcelas` "Processar") | **725 títulos manuais em 37 documentos parcelados em 2026** (`BOL-001/024`, `1/24`, OBS `… PARCELA 1 DE 24`, 30 em 30 dias) | ✅ `planejarParcelasApagar` (shared, puro: a prévia da tela e o gravar da API dão o mesmo plano) — intervalo OU dia fixo (`BuildParcelas` tcIntervalo/tcDiaFixo, o IncMonth clampando), valor/N em centavos com o resíduo na 1ª (na última com "Incluir restantes…"), desconto e embutidos `RoundTo(x/N)` com o resíduo na última (:2180), duplicata `PREFIXO-001/00N` (`GetDocumentoSelecionado`: BOL-/DUP-/BAN-/CAR-/JUR-/OUT-; `NRONF-` com MODELO_DUPLICATA 2 — a produção tem 1), NRPARCELA `i/N`, OBS `<digitada> PARCELA i DE N` (`SetObs`). `POST cadastro/apagar` com `nrodup`>1 + `geracao` grava as N no mesmo grupo (o rateio V leva o total do documento); `POST :id/gerar-parcelas` é o Processar sobre o gravado ("já existem parcelas pagas" = `RetornaTotalPago`). `GET :id/parcelas` = a grade + total/pago (`edtPago`). ⚠️ divergência consciente (a mesma do A Receber): o "vencimento anterior a hoje → próximo mês?" interativo não é replicado. |
+| `edtNRPARCELA` | 9.702/9.703 em 2026 (`1/1` até no título único) | ✅ campo; '1/1' por default no único |
+| `cbbTIPODOC` (11 itens) | BOLETO 51.763 · CARTÃO PRÓPRIO 1.922 · RESIDUAL ST 702 · RH 674 · PREVISÃO 544 · A VISTA 537 · DINHEIRO 147 · DUPLICATA 9 · ADIANTAMENTO 7 · NEUTRA 4 · JURÍDICA 1 | ✅ `AP_TIPODOC_OPCOES` (os 11 do dfm; o valor de outra tela — PREVISÃO do manifesto, RESIDUAL ST, DINHEIRO — continua visível) |
+| **Lançamento centro custo** (`edtCodPLC`/`CedValor`, Adicionar/Excluir/Gravar CC) | 36 documentos de 2026 com mais de um CC (7 manuais); a soma dos CCs = soma das parcelas em todos | ✅ `GET/PUT :id/rateio` (as linhas V do grupo; D/E só leitura). As regras do Gravar (:1740-1895): CC e valor obrigatórios; `VERIFICA_CC_MAIOR_PARCELAS` (**'B' na produção, sem override**; mig 421) — B bloqueia ("… é diferente do total das parcelas"), A pergunta "Deseja continuar?" (`confirmado`), N não confere; a soma compara V+E−D (com LANCAR_CENTROCUSTO_DESCACREJRS…='S') contra valor+embutidos−desconto; "Centro de custos incompleto!" no título único (CC < parcelas + pago) e no parcelado sem CC |
+| **Aba Pendências** (`sqqPendencias`, `edtLocalizar`, popup Abrir / Pendência Resolvida) | STATUS_PENDENCIA **vivo**: R 1.398 (último 10/10/2026), D 2.003, A 2 — quem grava é a NF (`AdicionaPendenciaFinanceiro`: D devolvida, E excluída, R revertida, C cancelada, N denegada; o Apollo já grava em `nf-faturamento.service.ts:768`) | ✅ `GET cadastro/apagar/pendencias?localizar=` (código, duplicata ou NF — sem filtro de loja, como o legado) e `POST :id/resolver-pendencia` (A + operador + data); a tela mostra a pendência do título carregado com o botão |
+| **Aba Agrupados** (`dbgHistorico`, Reverter, Imprimir Analítico/Sintético) | 562 títulos agrupados em 2026 | ✅ membros + `BTNREVERTERAGRUPAMENTO` + impressão (rotas já certificadas); no membro, "agrupado no documento X" (`CarregaDocumentoAgrupamento`: MAX(CODAPG) do grupo consolidador) |
+| **Aba Ultimos Lançamentos** (`FDqUltimosLanc`) | — | ✅ `GET :id/ultimos-lancamentos` (mesmo fornecedor, 365 dias de compra, sem o próprio, sem filtro de loja) |
+| `edtCodParceiroCedente` (fornecedor cedente do boleto) | 3 em 2026, 8 em 2025 (raro, vivo) | ✅ campo; gravado numa parcela vale para o documento inteiro (o laço do `edtCodParceiroCedenteExit`); 0 limpa |
+| **Aba Convênio Funcionários** (`cdsConvenioFun`, `cbbConvenio`, `CmbOpConvenioFuncionario`, `EdtConvenio`…) | **morta**: CONVENIO_FUN 0 linhas; CONVENIO 'N'/nulo em 56.308 títulos; OPERACAO_CONVENIO_FUNCIONARIO 0 | ✗ fora (documentado) |
+| Outros → **Bloqueio** (`PersistirFlagBloq`) | **morto**: BLOQUEIO nulo em 100% | ✗ fora |
+| Outros → **Associar/Desassociar Previsão** (`VerificaPrevisao`, AGENDA_PREV_PAGTO) | **morto**: 27 previsões, última 01/2022; PARCEIROS.DESPESA_FIXA='S' = 0 | ✗ fora (a previsão viva é a do manifesto — `previsao-apagar-manifesto.md`) |
+| Outros → Informar situação do documento / Registros de log | — | ✅ já havia (select da situação F04; log do CadMaster) |
+| `edtNRONF`/`spbNRONF` + `cleTOTALNF` com senha administrativa + `ValidaDocumentoRepetido` | **morto no manual**: 0 títulos manuais com IDNF>0 em 2026 (o título da nota nasce no faturamento) | ✗ fora (documentado) |
+| `edtCodBarras` (CODBARRASBLT, validador de boleto) | 1.189 títulos, **último em 23/04/2025** | ✗ fora (coluna existe e vem na carga) |
+| `edtCodEmpresa`/`btnBuscaEmpresa` | títulos manuais em 5 lojas (1: 656 · 52: 141 · 51: 110 · 2: 108 · 50: 57) | a loja do título é a da sessão (o Apollo troca a loja ativa no login) — o modelo de tenant do app; não muda aqui |
+| `ANEXOS1` (47 permissões) / `BTNCLONAR` (6) | binário mais novo que o fonte (não estão no uAPagar de 2020); ANEXOS = 4 linhas em 5 anos (2021, 2024) | ✗ sem fonte — não reconstruído |
+
+Smoke §318 (parcelas por intervalo e dia fixo, reprocessar, pendências, rateio B/A/N, últimos lançamentos, cedente); web `apagarParcelas.spec.ts` (o plano puro).

@@ -20425,6 +20425,108 @@ async function main() {
         await pgRl.end();
       }
     }
+    // ══ §318 CONTAS A PAGAR — OS CONTROLES AUDITADOS DO uAPagar.dfm: o Processar das parcelas (intervalo / dia fixo / restantes na última), a aba Parcelas, o rateio dos centros de custo, as pendências, os últimos lançamentos e o cedente ══
+    {
+      const pg3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AP3 = 'cadastro/apagar';
+      const jr = async (r: Response) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any });
+      const post3 = (path: string, body: unknown) => fetch(`${base}/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) }).then(jr);
+      const put3 = (path: string, body: unknown) => fetch(`${base}/${path}`, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(jr);
+      const get3 = (path: string) => fetch(`${base}/${path}`, { headers: H }).then(jr);
+      const diasDo = async (codgrupo: number) => (await pg3.query(`SELECT to_char(dtvenc, 'YYYY-MM-DD') AS d FROM apagar WHERE codgrupo = $1 ORDER BY codapg`, [codgrupo])).rows.map((r: any) => r.d).join();
+      const linhasV = async (codgrupo: number) => (await pg3.query(`SELECT valor::float AS valor, codcc FROM cx_apagar WHERE codgrupo = $1 AND coalesce(nullif(trim(tipo), ''), 'V') = 'V' ORDER BY codcxapagar`, [codgrupo])).rows as any[];
+      const cfgAntes = (await pg3.query(`SELECT valor FROM configuracoes WHERE codigo = 'VERIFICA_CC_MAIOR_PARCELAS'`)).rows[0]?.valor;
+      try {
+        const lancaSep = String((await pg3.query(`SELECT valor FROM configuracoes WHERE codigo = 'LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR'`)).rows[0]?.valor ?? 'N') === 'S';
+        // 318.1 o documento NOVO com 3 parcelas por intervalo de 30 dias (o cleTOTALNF é o `valor`)
+        const doc = await post3(AP3, { codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, desconto: 1, vendor: 2, nrodup: 3, tipodoc: 'BOLETO', obs: ' TESTE 318 ', codplc: 3, geracao: { intervalo: 30 } });
+        const p1 = await get3(`${AP3}/${doc.j.codapg}/parcelas`);
+        const P = (p1.j.parcelas ?? []) as any[];
+        const v1 = await linhasV(Number(p1.j.codgrupo));
+        check('CONTAS A PAGAR §318.1 [GerarDocumentos/BuildParcelas — uAPagar.pas:1256/2090]: o POST com nrodup 3 e intervalo 30 grava as 3 parcelas no mesmo grupo — 33,34/33,33/33,33 (o resíduo na 1ª), vencimentos 01/01, 31/01 e 02/03, BOL-001/003…, 1/3…, "TESTE 318 PARCELA 1 DE 3", desconto 0,33/0,33/0,34 e embutidos 0,67/0,67/0,66; a aba Parcelas traz os totais e a linha V do rateio leva o total do documento',
+          doc.status === 201 && doc.j.nrparcela === '1/3' && P.length === 3 && P.map((x) => Number(x.valor)).join() === '33.34,33.33,33.33'
+          && (await diasDo(Number(p1.j.codgrupo))) === '2027-01-01,2027-01-31,2027-03-02' && P[0].duplicata === 'BOL-001/003' && P[2].duplicata === 'BOL-003/003'
+          && P[0].obs === 'TESTE 318 PARCELA 1 DE 3' && P.map((x) => Number(x.desconto)).join() === '0.33,0.33,0.34' && P.map((x) => Number(x.vendor)).join() === '0.67,0.67,0.66'
+          && Number(p1.j.totais?.total_parcelas) === 100 && Number(p1.j.totais?.nrodup) === 3 && Number(p1.j.totais?.total_pago) === 0 && v1.length === 1 && Number(v1[0].valor) === (lancaSep ? 100 : 101),
+          { status: doc.status, code: doc.j.code, P: P.map((x) => [x.valor, x.dtvenc, x.duplicata, x.obs, x.desconto, x.vendor]), v1, totais: p1.j.totais, lancaSep });
+        // 318.2 dia fixo do mês + "Incluir restantes na última parcela"; sem intervalo nem dia → a mensagem do legado
+        const doc2 = await post3(AP3, { codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-31', valor: 100, nrodup: 3, tipodoc: 'RH', codplc: 3, geracao: { dia_fixo: 10, restantes_na_ultima: true } });
+        const p2 = await get3(`${AP3}/${doc2.j.codapg}/parcelas`);
+        const P2 = (p2.j.parcelas ?? []) as any[];
+        const semCfg = await post3(AP3, { codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-31', valor: 100, nrodup: 3 });
+        check('CONTAS A PAGAR §318.2 [tcDiaFixo + chbRestUlt]: dia fixo 10 a partir de 31/01 → 10/01, 10/02, 10/03; o resíduo na última (33,33/33,33/33,34); RH → OUT-001/003; sem intervalo nem dia → 422 APAGAR_PARCELAS_SEM_CONFIG ("Deve ser informado o dia de vencimento ou o intervalo…")',
+          doc2.status === 201 && P2.length === 3 && (await diasDo(Number(p2.j.codgrupo))) === '2027-01-10,2027-02-10,2027-03-10' && P2.map((x) => Number(x.valor)).join() === '33.33,33.33,33.34'
+          && P2[0].duplicata === 'OUT-001/003' && P2[0].obs === 'PARCELA 1 DE 3' && semCfg.status === 422 && semCfg.j.code === 'APAGAR_PARCELAS_SEM_CONFIG' && /dia de vencimento ou o intervalo/.test(String(semCfg.j.message)),
+          { status: doc2.status, code: doc2.j.code, P2: P2.map((x) => [x.valor, x.dtvenc, x.duplicata]), semCfg: [semCfg.status, semCfg.j.code] });
+        // 318.3 o Processar de novo sobre o documento gravado: refaz o grupo (2 parcelas de 15 dias, a soma do desconto redividida); com parcela paga, recusa
+        const antigos = P.map((x) => Number(x.codapg));
+        const reg = await post3(`${AP3}/${antigos[1]}/gerar-parcelas`, { nrodup: 2, dtvenc: '2027-02-01', intervalo: 15 });
+        const p3 = await get3(`${AP3}/${reg.j.codapgs?.[0]}/parcelas`);
+        const P3 = (p3.j.parcelas ?? []) as any[];
+        const sobrou = (await pg3.query(`SELECT count(*)::int AS n FROM apagar WHERE codapg = ANY($1::numeric[])`, [antigos])).rows[0]?.n;
+        const v3 = await linhasV(Number(p1.j.codgrupo));
+        const bx = await fetch(`${base}/${AP3}/${reg.j.codapgs?.[0]}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-08-01' }) });
+        const regPago = await post3(`${AP3}/${reg.j.codapgs?.[1]}/gerar-parcelas`, { nrodup: 3, dtvenc: '2027-02-01', intervalo: 15 });
+        check('CONTAS A PAGAR §318.3 [btnGeraParcelasClick :1256 no documento gravado]: as 3 parcelas saem e entram 2 no MESMO grupo (01/02 e 16/02, 50/50, desconto 0,5/0,5, 1/2 e 2/2), o total e a linha V se mantêm; depois de pagar uma parcela, "Não será possível processar pois já existem parcelas pagas." (422 APAGAR_PARCELAS_PAGAS)',
+          reg.status === 200 && reg.j.parcelas === 2 && P3.length === 2 && Number(p3.j.codgrupo) === Number(p1.j.codgrupo) && sobrou === 0 && (await diasDo(Number(p1.j.codgrupo))) === '2027-02-01,2027-02-16'
+          && P3.map((x) => Number(x.valor)).join() === '50,50' && P3.map((x) => Number(x.desconto)).join() === '0.5,0.5' && P3.map((x) => x.nrparcela).join() === '1/2,2/2' && P3[0].obs === 'TESTE 318 PARCELA 1 DE 2'
+          && v3.length === 1 && Number(v3[0].valor) === (lancaSep ? 100 : 101) && bx.status === 200 && regPago.status === 422 && regPago.j.code === 'APAGAR_PARCELAS_PAGAS',
+          { reg: [reg.status, reg.j.code, reg.j.parcelas], P3: P3.map((x) => [x.valor, x.dtvenc, x.desconto, x.nrparcela, x.obs]), sobrou, v3, bx: bx.status, regPago: [regPago.status, regPago.j.code] });
+        // 318.4 as pendências (sqqPendencias + edtLocalizar + "Pendência Resolvida")
+        const pend = Number(P2[0].codapg);
+        await pg3.query(`UPDATE apagar SET status_pendencia = 'D' WHERE codapg = $1`, [pend]);
+        const lista = await get3(`${AP3}/pendencias`);
+        const loc = await get3(`${AP3}/pendencias?localizar=${pend}`);
+        const locDup = await get3(`${AP3}/pendencias?localizar=OUT-001`);
+        const res = await post3(`${AP3}/${pend}/resolver-pendencia`, {});
+        const depois = await get3(`${AP3}/pendencias?localizar=${pend}`);
+        const row = (await pg3.query(`SELECT status_pendencia, codoperador_aceite_pendencia::int AS op, data_aceite_pendencia FROM apagar WHERE codapg = $1`, [pend])).rows[0] as any;
+        const lido = await get3(`${AP3}/${pend}`);
+        const deNovo = await post3(`${AP3}/${pend}/resolver-pendencia`, {});
+        check('CONTAS A PAGAR §318.4 [sqqPendencias/ResolverPendencias — udmAPagar.dfm:2306, uAPagar.pas:4284]: o título com STATUS_PENDENCIA D entra na aba como "Nota Fiscal Devolvida"; o Localizar acha pelo código e pela duplicata; "Pendência Resolvida" grava A + operador + data e tira da lista; a leitura traz o status; resolver de novo → 422 APAGAR_SEM_PENDENCIA',
+          lista.status === 200 && (lista.j as any[]).some((l) => Number(l.codapg) === pend && l.status_pendencia === 'Nota Fiscal Devolvida' && l.status === 'D')
+          && loc.status === 200 && (loc.j as any[]).length === 1 && Number(loc.j[0].codapg) === pend && (locDup.j as any[]).some((l) => Number(l.codapg) === pend)
+          && res.status === 200 && res.j.status_pendencia === 'A' && (depois.j as any[]).length === 0 && row?.status_pendencia === 'A' && row?.op === 7 && row?.data_aceite_pendencia != null
+          && lido.j.status_pendencia === 'A' && deNovo.status === 422 && deNovo.j.code === 'APAGAR_SEM_PENDENCIA',
+          { lista: [lista.status, (lista.j as any[]).length], loc: [loc.status, loc.j?.length], locDup: locDup.j?.length, res: [res.status, res.j.code], depois: depois.j?.length, row, deNovo: [deNovo.status, deNovo.j.code] });
+        // 318.5 o rateio dos centros de custo (BtnGravarCC + btnGravarClick :1740-1895) — Bloquear, Avisar, incompleto
+        const g2 = Number(p2.j.codgrupo);
+        const alvo = Number(P2[1].codapg);
+        const dif = await put3(`${AP3}/${alvo}/rateio`, { linhas: [{ codcc: 3, valor: 50 }, { codcc: 4, valor: 40 }] });
+        const ok = await put3(`${AP3}/${alvo}/rateio`, { linhas: [{ codcc: 3, valor: 60 }, { codcc: 4, valor: 40 }] });
+        const lidoR = await get3(`${AP3}/${alvo}/rateio`);
+        const vOk = await linhasV(g2);
+        await pg3.query(`UPDATE configuracoes SET valor = 'A' WHERE codigo = 'VERIFICA_CC_MAIOR_PARCELAS'`);
+        const maior = await put3(`${AP3}/${alvo}/rateio`, { linhas: [{ codcc: 3, valor: 70 }, { codcc: 4, valor: 40 }] });
+        const maiorOk = await put3(`${AP3}/${alvo}/rateio`, { linhas: [{ codcc: 3, valor: 70 }, { codcc: 4, valor: 40 }], confirmado: true });
+        await pg3.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'VERIFICA_CC_MAIOR_PARCELAS'`);
+        const unico = await post3(AP3, { codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-31', valor: 50, codplc: 3 });
+        const incompleto = await put3(`${AP3}/${unico.j.codapg}/rateio`, { linhas: [{ codcc: 3, valor: 30 }] });
+        const semValor = await put3(`${AP3}/${unico.j.codapg}/rateio`, { linhas: [{ codcc: 3, valor: 0 }] });
+        await pg3.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'VERIFICA_CC_MAIOR_PARCELAS'`, [cfgAntes ?? 'B']);
+        const afterCodplc = (await pg3.query(`SELECT DISTINCT codplc::int AS c FROM apagar WHERE codgrupo = $1`, [g2])).rows.map((r: any) => r.c);
+        check('CONTAS A PAGAR §318.5 [VERIFICA_CC_MAIOR_PARCELAS B/A/N — uAPagar.pas:1866]: com Bloquear, 50+40 ≠ 100 → 422 APAGAR_CC_DIFERENTE ("A soma dos valores…"); 60+40 grava as 2 linhas V (a leitura traz o código extenso 4.07.002/4.07.003) e o CC do título passa a ser o da 1ª linha; com Avisar, 70+40 pede "Deseja continuar?" (422 APAGAR_CC_MAIOR_CONFIRMAR) e grava com confirmado; no título único, 30 < 50 → 422 APAGAR_CC_INCOMPLETO; valor zero → APAGAR_CC_SEM_VALOR',
+          dif.status === 422 && dif.j.code === 'APAGAR_CC_DIFERENTE' && /soma dos valores/.test(String(dif.j.message)) && ok.status === 200 && (ok.j as any[]).filter((l) => l.tipo === 'V').length === 2
+          && lidoR.status === 200 && (lidoR.j as any[]).some((l) => l.desccodplc === '4.07.003' && Number(l.valor) === 40) && vOk.length === 2 && afterCodplc.join() === '3'
+          && maior.status === 422 && maior.j.code === 'APAGAR_CC_MAIOR_CONFIRMAR' && /Deseja continuar/.test(String(maior.j.message)) && maiorOk.status === 200 && (maiorOk.j as any[]).some((l) => Number(l.valor) === 70)
+          && unico.status === 201 && incompleto.status === 422 && incompleto.j.code === 'APAGAR_CC_INCOMPLETO' && Number(incompleto.j.detalhe?.calculado) === 50 && semValor.status === 422 && semValor.j.code === 'APAGAR_CC_SEM_VALOR',
+          { dif: [dif.status, dif.j.code, dif.j.message], ok: [ok.status, ok.j.code, ok.j?.length], lidoR: lidoR.j, vOk, afterCodplc, maior: [maior.status, maior.j.code], maiorOk: [maiorOk.status, maiorOk.j.code], incompleto: [incompleto.status, incompleto.j.code, incompleto.j.detalhe], semValor: [semValor.status, semValor.j.code] });
+        // 318.6 os últimos lançamentos do fornecedor (FDqUltimosLanc) e o cedente do boleto em todas as parcelas
+        const ult = await get3(`${AP3}/${alvo}/ultimos-lancamentos`);
+        const U = (ult.j ?? []) as any[];
+        const ced = await put3(`${AP3}/${alvo}`, { codparceirocedente: 20 });
+        const cedTodos = (await pg3.query(`SELECT count(*)::int AS n FROM apagar WHERE codgrupo = $1 AND codparceirocedente = 20`, [g2])).rows[0]?.n;
+        const semCed = await put3(`${AP3}/${alvo}`, { codparceirocedente: 0 });
+        const cedNenhum = (await pg3.query(`SELECT count(*)::int AS n FROM apagar WHERE codgrupo = $1 AND codparceirocedente IS NOT NULL`, [g2])).rows[0]?.n;
+        check('CONTAS A PAGAR §318.6 [FDqUltimosLanc — udmAPagar.dfm:996; edtCodParceiroCedenteExit :3038]: a aba traz os títulos do fornecedor 22 dos últimos 365 dias sem o próprio (as outras parcelas do grupo e o documento reprocessado entram, em ordem de compra); o cedente gravado numa parcela vale para as 3 (e a leitura traz a razão); 0 limpa em todas',
+          ult.status === 200 && U.length >= 4 && U.every((l) => Number(l.codparceiro) === 22 && Number(l.codapg) !== alvo) && U.some((l) => Number(l.codapg) === Number(P2[0].codapg)) && U.some((l) => Number(l.codapg) === Number(reg.j.codapgs?.[0]))
+          && ced.status === 200 && Number(ced.j.codparceirocedente) === 20 && String(ced.j.parceirocedente ?? '').length > 0 && cedTodos === 3 && semCed.status === 200 && cedNenhum === 0,
+          { ult: [ult.status, U.length, U.map((l) => l.codapg)], ced: [ced.status, ced.j.code, ced.j.codparceirocedente, ced.j.parceirocedente], cedTodos, semCed: [semCed.status, semCed.j.code], cedNenhum });
+      } finally {
+        await pg3.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'VERIFICA_CC_MAIOR_PARCELAS'`, [cfgAntes ?? 'B']).catch(() => {});
+        await pg3.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

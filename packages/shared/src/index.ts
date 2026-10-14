@@ -130,3 +130,4 @@ export * from './nf-valor';
 export * from './extenso';
 export * from './schema/fechamento-caixa.schema';
 export * from './schema/lancamento-caixa.schema';
+export * from './apagar-parcelas';
