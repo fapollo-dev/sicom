@@ -27,6 +27,10 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { TIPOS_RATEIO_NF, type NfFormaPagamentoDto, type TipoRateioNf } from '@apollo/shared';
+import { adicionarFormaPagamentoNf, cartasCorrecaoDaNf, devolucoesCompraDaNf, excluirFormaPagamentoNf, formasPagamentoNf, liberarTotalNf, pedidosDaNf, ratearNf,
+  type FormaPagamentoNf } from './nfAbasApi';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
@@ -174,7 +178,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
 
 // ═══════════════════════════════ Formulário tabulado (layout do legado) ═══════════════════════════════
 
-const DEFERRED_TABS = new Set(['pedidos', 'servico', 'cce', 'impexp', 'devcompra', 'avulsa', 'nfdev', 'xml']);
+const DEFERRED_TABS = new Set(['servico', 'impexp', 'nfdev', 'xml']);
 
 /**
  * as opções que dependem da SITUAÇÃO (UCadSituacaoNF.md C2): a situação do cabeçalho só lista as do tipo da nota que
@@ -256,12 +260,12 @@ function NfForm({
     { id: 'dados', label: '&Dados Gerais / Obs' },
     { id: 'transp', label: 'Transporte' },
     { id: 'contabil', label: 'Lançamentos contábeis' },
-    { id: 'pedidos', label: 'Pedidos', disabled: true },
+    { id: 'pedidos', label: 'Pedidos' },
     { id: 'servico', label: 'Serviço', disabled: true },
-    { id: 'cce', label: 'Carta Correção', disabled: true },
+    { id: 'cce', label: 'Carta Correção' },
     { id: 'impexp', label: 'Importação/Exportação', disabled: true },
-    { id: 'devcompra', label: 'Devoluções da Compra', disabled: true },
-    { id: 'avulsa', label: 'NFe Avulsa', disabled: true },
+    { id: 'devcompra', label: 'Devoluções da Compra' },
+    { id: 'avulsa', label: 'Dados NFe Avulsa' },
     { id: 'nfdev', label: 'NF de devolução', disabled: true },
     { id: 'xml', label: 'Acesso ao XML', disabled: true },
   ];
@@ -298,6 +302,10 @@ function NfForm({
           {aba === 'contabil' && (
             <ContabilSection form={form} editavel={liberado} situacaoOptions={opts.situacaoOptions} />
           )}
+          {aba === 'pedidos' && <PedidosTab form={form} />}
+          {aba === 'cce' && <CartaCorrecaoTab form={form} />}
+          {aba === 'devcompra' && <DevolucoesCompraTab form={form} />}
+          {aba === 'avulsa' && <AvulsaTab form={form} />}
           {DEFERRED_TABS.has(aba) && <PlaceholderTab nome={mainTabs.find((t) => t.id === aba)?.label ?? ''} />}
         </TabPanel>
       </div>
@@ -335,6 +343,11 @@ function CabecalhoBand({
   const totalnf = Number(form.watch('totalnf')) || 0;
   const chavenfe = form.watch('chavenfe') as string | undefined;
   const tipoLabel = tipo === 'E' ? 'Entrada' : 'Saída';
+  // o botão ao lado do "Total NF" (SpeedButton1Click, uNF.pas:16433): na importada, a edição do total exige a senha ADM
+  const [totalLiberado, setTotalLiberado] = useState(false);
+  const [pedindoSenha, setPedindoSenha] = useState(false);
+  const mensagem = useMensagem();
+  const importadaTravada = String(form.watch('nf_importacao_nfe' as never) ?? '') === 'S' && Number(form.watch('validatotalnf' as never)) > 0;
 
   return (
     <fieldset disabled={!editavel} className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -425,11 +438,18 @@ function CabecalhoBand({
                 label="Total NF"
                 value={field.value != null && String(field.value) !== '' ? Number(field.value) : undefined}
                 onChange={(v) => field.onChange(v)}
-                disabled={String(form.watch('nf_importacao_nfe' as never) ?? '') === 'S' && Number(field.value) > 0}
+                disabled={importadaTravada && !totalLiberado}
                 error={(err as Record<string, { message?: string }>).validatotalnf?.message}
               />
             )}
           />
+          {importadaTravada && !totalLiberado && (
+            <div className="self-end"><Button label="Liberar total" variant="ghost" disabled={!editavel} onClick={() => setPedindoSenha(true)} /></div>
+          )}
+          {pedindoSenha && (
+            <SenhaAdmModal titulo="Liberar o Total NF" onFechar={() => setPedindoSenha(false)}
+              onConfirmar={(senha) => { liberarTotalNf(senha).then(() => { setTotalLiberado(true); setPedindoSenha(false); }).catch((e) => mensagem.erro(e)); }} />
+          )}
           {Number(form.watch('validatotalnf' as never)) > 0 && Number(form.watch('validatotalnf' as never)).toFixed(2) !== totalnf.toFixed(2) && (
             <small className="self-end pb-pad-xs text-body-sm text-warning">Não confere com o total da nota (R$ {fmtBRL(totalnf)}).</small>
           )}
@@ -450,7 +470,16 @@ function CabecalhoBand({
               descricao="descricao"
               fixos={opts.cfopFixos ?? { tipo }}
               value={field.value ?? undefined}
-              onChange={(cod) => field.onChange(cod?.trim() || undefined)}
+              onChange={(cod) => {
+                const c = cod?.trim() || undefined;
+                field.onChange(c);
+                // o CFOP 5929/6929 (cupom referenciado — edtCFOPExit, uNF.pas:9611): finalidade normal, sem frete, presencial
+                if (c === '5929' || c === '6929') {
+                  form.setValue('finalidade' as never, '1' as never);
+                  form.setValue('tipofrete' as never, '9' as never);
+                  form.setValue('indicador_presenca' as never, '1' as never);
+                }
+              }}
               disabled={!editavel}
               error={err.cfop?.message as string | undefined}
             />
@@ -531,16 +560,39 @@ function Ro({ label, value }: { label: string; value: number }) {
   );
 }
 
+/** as caixas do "Ratear marcados" (chkRateia*, uNF.dfm:3913-4549): os rateios que o botão refaz nos itens */
+const RATEIOS_DA_TELA: Array<{ tipo: TipoRateioNf; label: string }> = [
+  { tipo: 'FRETE', label: 'Frete' }, { tipo: 'SEGURO', label: 'Seguro' }, { tipo: 'ACESSORIAS', label: 'Acessórias' }, { tipo: 'IPI', label: 'IPI' },
+  { tipo: 'FRETE_NAO_INCLUSO', label: 'Frete não incluso' }, { tipo: 'IPI_DEVOLUCAO', label: 'IPI devoluções' },
+];
+
 function CalcTab({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado: boolean }) {
   const [sub, setSub] = useState('internos');
   const w = (n: keyof CriarNfDto) => Number(form.watch(n as any)) || 0;
+  const mensagem = useMensagem();
+  const [marcados, setMarcados] = useState<TipoRateioNf[]>([]);
+  const [rateando, setRateando] = useState(false);
   const subTabs: TabDef[] = [
     { id: 'internos', label: 'Impostos Internos' },
     { id: 'stext', label: 'ICMS ST Externo', disabled: true },
     { id: 'inter', label: 'ICMS Interestadual', disabled: true },
     { id: 'ret', label: 'Retenções' },
-    { id: 'tribdev', label: 'Tributos devolvidos', disabled: true },
+    { id: 'tribdev', label: 'Tributos devolvidos' },
   ];
+  // "Ratear marcados" (btnRateioSTClick, uNF.pas:6328): os tipos marcados sobre todos os itens, depois o recálculo
+  const ratear = async () => {
+    if (!marcados.length || rateando) return;
+    setRateando(true);
+    try {
+      const r = await ratearNf(form.getValues() as CriarNfDto, marcados);
+      form.setValue('itens', (r.itens ?? []) as never, { shouldDirty: true });
+      mensagem.sucesso('Rateio refeito nos itens. Confira os valores e grave a nota.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setRateando(false);
+    }
+  };
   return (
     <div className="flex flex-col gap-form-gap">
       <Tabs tabs={subTabs} active={sub} onChange={setSub} variant="sub" />
@@ -562,7 +614,34 @@ function CalcTab({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado
           <small className="text-fg-muted">
             Valores calculados a partir dos itens (aba «Itens da nota» → «Recalcular impostos»). Somente leitura.
           </small>
+          {/* o grupo "Ratear marcados" (chkRateia* + btnRateioST): refaz nos itens o rateio dos totais marcados */}
+          <fieldset disabled={!liberado} className="rounded-radius-md border border-border bg-bg-surface p-pad-sm">
+            <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Ratear nos itens</legend>
+            <div className="flex flex-wrap items-end gap-form-gap">
+              {RATEIOS_DA_TELA.map((r) => (
+                <CheckboxField key={r.tipo} label={r.label} value={marcados.includes(r.tipo) ? 'S' : 'N'} disabled={!liberado}
+                  onChange={(v) => setMarcados((m) => (v === 'S' ? [...m.filter((x) => x !== r.tipo), r.tipo] : m.filter((x) => x !== r.tipo)))} />
+              ))}
+              <Button label="&Ratear marcados" variant="soft" disabled={!liberado || !marcados.length || rateando} onClick={() => void ratear()} />
+            </div>
+          </fieldset>
         </>
+      )}
+      {sub === 'tribdev' && (
+        <fieldset disabled={!liberado} className="border-0 p-0">
+          <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
+            {/* IPI Devoluções (edtIPI_DEVOLUCAO → TOTALIPI_DEVOLUCAO): entra no total da nota e rateia nos itens salvo a caixa da aba Itens */}
+            <Controller
+              control={form.control}
+              name={'totalipi_devolucao' as never}
+              render={({ field }) => (
+                <CurrencyField label="IPI Devoluções" value={field.value != null && String(field.value) !== '' ? Number(field.value) : undefined}
+                  onChange={(v) => field.onChange(v)} disabled={!liberado} />
+              )}
+            />
+          </div>
+          <small className="text-fg-muted">O IPI devolvido soma no total da nota; o rateio por item segue a caixa «Desabilitar somente IPI Devoluções» da aba Itens.</small>
+        </fieldset>
       )}
       {sub === 'ret' && (
         <>
@@ -581,7 +660,7 @@ function CalcTab({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado
           </small>
         </>
       )}
-      {(sub === 'stext' || sub === 'inter' || sub === 'tribdev') && (
+      {(sub === 'stext' || sub === 'inter') && (
         <PlaceholderTab nome={subTabs.find((t) => t.id === sub)?.label ?? ''} />
       )}
     </div>
@@ -597,7 +676,7 @@ function FinTab({ form, liberado, tipo, irParaCobranca }: { form: UseFormReturn<
   const subTabs: TabDef[] = [
     { id: 'cobranca', label: 'Dados da cobrança' },
     { id: 'docs', label: 'Documentos financeiros' },
-    { id: 'formas', label: 'Formas de pagamento', disabled: true },
+    { id: 'formas', label: 'Formas de pagamento' },
   ];
   return (
     <div className="flex flex-col gap-form-gap">
@@ -614,7 +693,7 @@ function FinTab({ form, liberado, tipo, irParaCobranca }: { form: UseFormReturn<
           «Faturamento» (aba «Dados da cobrança»). {!liberado && ''}
         </small>
       )}
-      {sub === 'formas' && <PlaceholderTab nome="Formas de pagamento" />}
+      {sub === 'formas' && <FormasPagamentoSection form={form} liberado={liberado} />}
     </div>
   );
 }
@@ -1704,6 +1783,17 @@ function ItensSection({
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
+        {/* as caixas do rateio da nota nos itens (ckbDesabilitaRateio/ckbRatIPI/ckgDesabSt/chkRatioDesconto/chkRatIPI_DEVOLUCAO, uNF.dfm:8468-9021):
+            'S' desliga o rateio do total do cabeçalho no item (RateioNota, udmNF.pas:4862) e o do ST pelo cabeçalho */}
+        <div className="flex flex-wrap items-center gap-form-gap">
+          {([
+            ['rateio', 'Desa&bilitar rateio'], ['rateio_ipi', 'Desabilitar somente IPI'], ['rateio_st', 'Desabilitar somente ST'],
+            ['rateio_desconto', 'Desabilitar rateio desconto'], ['rateio_ipi_devolucao', 'Desabilitar somente IPI Devoluções'],
+          ] as Array<[string, string]>).map(([campo, label]) => (
+            <Controller key={campo} control={form.control} name={campo as never}
+              render={({ field }) => <CheckboxField label={label} value={String(field.value ?? 'N')} onChange={(v) => field.onChange(v)} disabled={!editavel} />} />
+          ))}
+        </div>
         <div className="flex flex-wrap gap-gp-sm">
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
           <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
@@ -1922,6 +2012,9 @@ function TransporteSection({
             />
           )}
         />
+        {/* "Calcular peso automaticamente" (dbchkCALCULAPESO): o gravar soma o peso (e a tara) dos produtos × quantidade total dos itens */}
+        <Controller control={form.control} name={'calculapeso' as never}
+          render={({ field }) => <CheckboxField label="Calcular peso &automaticamente" value={String(field.value ?? 'N')} onChange={(v) => field.onChange(v)} disabled={!editavel} />} />
       </div>
     </fieldset>
   );
@@ -2320,13 +2413,262 @@ function ReferenciaModal({
 
 // ───────────────────────────── Dados Gerais / Observações ─────────────────────────────
 
+/** o combo "Indicador de presença do comprador" (cbbIndicadorPresencaComporador, uNF.dfm:11782) */
+const INDICADOR_PRESENCA_OPCOES = [
+  { value: '0', label: '0 - Não se aplica (por exemplo, Nota Fiscal complementar ou de ajuste)' },
+  { value: '1', label: '1 - Operação presencial' },
+  { value: '2', label: '2 - Operação não presencial, pela Internet' },
+  { value: '3', label: '3 - Operação não presencial, Teleatendimento' },
+  { value: '4', label: '4 - NFC-e em operação com entrega a domicílio' },
+  { value: '5', label: '5 - Operação presencial, fora do estabelecimento' },
+  { value: '9', label: '9 - Operação não presencial, outros' },
+];
+
 function DadosGeraisTab({ form, editavel }: { form: UseFormReturn<CriarNfDto>; editavel: boolean }) {
+  // "Observação NF" (DBMOBS): o memo de observações só para quem tem a permissão de controle (36 dos 67 operadores da produção)
+  const { tem: podeNf } = useOpcoesDoForm('FRMNF');
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-form-gap">
-        <TextArea label="Observações" rows={3} {...form.register('obs')} />
-        <TextArea label="Observações &fiscais" rows={2} {...form.register('obsnf')} />
+        <fieldset disabled={!podeNf('DBMOBS')} className="border-0 p-0">
+          <TextArea label="Observações" rows={3} {...form.register('obs')} />
+        </fieldset>
+        <TextArea label="Observações internas da nota" rows={2} {...form.register('obsnf')} />
+        {/* o grupo "Dados gerais" (grp1): o indicador de presença e as caixas de aproveitamento de crédito e nota de complemento */}
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <Controller
+            control={form.control}
+            name={'indicador_presenca' as never}
+            render={({ field }) => (
+              <SelectField label="Indicador de &presença do comprador" value={field.value != null ? String(field.value) : ''} onChange={(v) => field.onChange(v || undefined)}
+                options={INDICADOR_PRESENCA_OPCOES} placeholder="(na saída própria o gravar assume 9; complementar/devolução, 0)" disabled={!editavel} />
+            )}
+          />
+          <div className="flex flex-wrap items-end gap-form-gap">
+            <Controller control={form.control} name={'aproveitamentocredito' as never}
+              render={({ field }) => <CheckboxField label="Aproveitamento de crédito" value={String(field.value ?? 'N')} onChange={(v) => field.onChange(v)} disabled={!editavel} />} />
+            <Controller control={form.control} name={'complemento' as never}
+              render={({ field }) => <CheckboxField label="Nota de Complemento" value={String(field.value ?? 'N')} onChange={(v) => field.onChange(v)} disabled={!editavel} />} />
+          </div>
+        </div>
       </div>
     </fieldset>
   );
 }
+
+// ───────────────────────────── Senha ADM (SenhaAdministrativa('ADM') do legado) ─────────────────────────────
+
+function SenhaAdmModal({ titulo, onFechar, onConfirmar }: { titulo: string; onFechar: () => void; onConfirmar: (senha: string) => void }) {
+  const [senha, setSenha] = useState('');
+  return (
+    <Modal open onClose={onFechar} size="sm" title={titulo}
+      primaryAction={{ label: 'Confirmar', onClick: () => onConfirmar(senha) }} secondaryAction={{ label: 'Cancelar', onClick: onFechar }}>
+      <div className="flex flex-col gap-form-gap">
+        <small className="text-fg-muted">Informe a senha administrativa.</small>
+        <Field label="&Senha administrativa" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="off" />
+      </div>
+    </Modal>
+  );
+}
+
+// ───────────────────────────── Financeiro → Formas de pagamento (tsFormasPagto) ─────────────────────────────
+
+/**
+ * A sub-aba "Formas de pagamento" (NF_FORMA_PAGAMENTO): a importada traz as do XML; o operador inclui (valor sugerido = total da nota −
+ * total pago, btnAdicionarFormaPgtoClick uNF.pas:3232), grava com as travas do legado (forma, operadora no TEF/CRT, valor, integração,
+ * autorização — :5365) e exclui com a confirmação (:4324). A operadora só se informa no POS/TEF/CRT (LiberarCamposOperadora, :17770).
+ */
+export function FormasPagamentoSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado: boolean }) {
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const mensagem = useMensagem();
+  const { data, refetch } = useQuery({ queryKey: ['fiscal/nf', codnf, 'formas-pagamento'], queryFn: () => formasPagamentoNf(Number(codnf)), enabled: codnf != null });
+  const [novo, setNovo] = useState<NfFormaPagamentoDto | null>(null);
+  const formaEscolhida = data?.formas.find((f) => Number(f.idpgto) === Number(novo?.idpgto));
+  const destino = String(formaEscolhida?.destino ?? '').trim().toUpperCase();
+  const comOperadora = ['POS', 'TEF', 'CRT'].includes(destino);
+  const abrir = () => setNovo({ idpgto: 0, vrpgto: Math.round(((data?.totalnf ?? 0) - (data?.totalPago ?? 0)) * 100) / 100, vrtroco: 0, integrado: 'N', numero_aut: '' });
+  const gravar = async () => {
+    if (codnf == null || !novo) return;
+    try {
+      await adicionarFormaPagamentoNf(codnf, { ...novo, codoperadoras: comOperadora ? novo.codoperadoras : undefined });
+      setNovo(null);
+      await refetch();
+    } catch (e) {
+      mensagem.erro(e);
+    }
+  };
+  const excluir = async (l: FormaPagamentoNf) => {
+    if (codnf == null || !window.confirm('Deseja realmente excluir a forma de pagamento?')) return;
+    try {
+      await excluirFormaPagamentoNf(codnf, l.codnforpgto);
+      await refetch();
+    } catch (e) {
+      mensagem.erro(e);
+    }
+  };
+  const columns = useMemo<DataTableColumnDef<FormaPagamentoNf>[]>(() => [
+    { field: 'codnforpgto', headerName: 'Código', type: 'number', width: 90 },
+    { field: 'idpgto', headerName: 'Codigo Forma', type: 'number', width: 110 },
+    { field: 'modalidade', headerName: 'Forma de pagamento', type: 'text', isPrimary: true },
+    { field: 'vrpgto', headerName: 'Valor Pagamento', type: 'text', width: 140, valueGetter: (r) => fmtBRL(Number(r.vrpgto) || 0) },
+    { field: 'vrtroco', headerName: 'Valor Troco', type: 'text', width: 120, valueGetter: (r) => fmtBRL(Number(r.vrtroco) || 0) },
+    { field: 'integrado', headerName: 'Integrado', type: 'text', width: 100, valueGetter: (r) => (r.integrado === 'S' ? 'Sim' : 'Não') },
+    { field: 'operadora', headerName: 'Operadora', type: 'text', width: 160 },
+    { field: 'numero_aut', headerName: 'Autenticação', type: 'text', width: 140 },
+    {
+      field: 'acoes', headerName: '', type: 'actions', width: 90,
+      getActions: () => [{ id: 'excluir', label: 'Excluir', icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />, destructive: true,
+        onClick: (r: FormaPagamentoNf) => void excluir(r) }],
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [codnf, data]);
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para informar as formas de pagamento.</small>;
+  return (
+    <div className="flex flex-col gap-form-gap">
+      <div className="flex flex-wrap items-center gap-form-gap">
+        <span className="text-body-sm text-fg-muted">Total da nota: <strong className="text-fg-default">{fmtBRL(data?.totalnf ?? 0)}</strong></span>
+        <span className="text-body-sm text-fg-muted">Total pago: <strong className="text-fg-default">{fmtBRL(data?.totalPago ?? 0)}</strong></span>
+        {!novo && <Button label="&Adicionar" variant="soft" disabled={!liberado || !data} onClick={abrir} />}
+      </div>
+      {novo && (
+        <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Forma de pagamento</legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
+            <SelectField label="&Forma de pagamento" value={novo.idpgto ? String(novo.idpgto) : ''} onChange={(v) => setNovo({ ...novo, idpgto: Number(v) || 0, codoperadoras: undefined })}
+              options={(data?.formas ?? []).map((f) => ({ value: String(f.idpgto), label: `${f.idpgto} - ${f.modalidade}` }))} placeholder="Selecione" />
+            <SelectField label="&Operadora" value={novo.codoperadoras ? String(novo.codoperadoras) : ''} onChange={(v) => setNovo({ ...novo, codoperadoras: Number(v) || undefined })}
+              options={(data?.operadoras ?? []).map((o) => ({ value: String(o.codoperadoras), label: `${o.codoperadoras} - ${o.operadora}` }))} placeholder="(só POS/TEF/CRT)" disabled={!comOperadora} />
+            <CurrencyField label="Valor Pagamento" value={novo.vrpgto} onChange={(v) => setNovo({ ...novo, vrpgto: v ?? 0 })} />
+            <CurrencyField label="Valor Troco" value={novo.vrtroco} onChange={(v) => setNovo({ ...novo, vrtroco: v ?? 0 })} />
+            <SelectField label="&Integrado?" value={novo.integrado ?? ''} onChange={(v) => setNovo({ ...novo, integrado: (v as 'S' | 'N') || undefined })}
+              options={[{ value: 'N', label: 'Não' }, { value: 'S', label: 'Sim' }]} />
+            <Field label="Número de autorização da operação" maxLength={20} value={novo.numero_aut ?? ''} onChange={(e) => setNovo({ ...novo, numero_aut: e.target.value })} />
+          </div>
+          <div className="mt-form-gap flex flex-wrap gap-gp-sm">
+            <Button label="&Gravar" variant="soft" onClick={() => void gravar()} />
+            <Button label="&Cancelar" variant="ghost" onClick={() => setNovo(null)} />
+          </div>
+        </fieldset>
+      )}
+      {!data?.linhas.length ? (
+        <small className="text-fg-muted">Sem formas de pagamento na nota.</small>
+      ) : (
+        <DataTable rows={data.linhas} columns={columns} getRowId={(r) => String(r.codnforpgto)} toolbar={{ enableSearch: false, enableFilters: false }}
+          paginationConfig={{ enabled: true, initialPageSize: 10 }} cardBreakpoint={false} />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────── Pedidos (tsPedidos) ─────────────────────────────
+
+/** "Pedidos inclusos na nota": o pedido de compra da nota (Grid_pedCompra) e os pedidos de venda do PEDIDO_NF (Grid_PedVendas) */
+export function PedidosTab({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const { data } = useQuery({ queryKey: ['fiscal/nf', codnf, 'pedidos'], queryFn: () => pedidosDaNf(Number(codnf)), enabled: codnf != null });
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para ver os pedidos.</small>;
+  const dt = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
+  return (
+    <div className="flex flex-col gap-form-gap">
+      <div>
+        <span className="text-body-sm font-semibold text-fg-default">Pedidos de venda</span>
+        {!data?.venda.length ? <div><small className="text-fg-muted">Sem pedidos de venda na nota.</small></div> : (
+          <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr>
+            <th className="text-left">Nº do pedido</th><th className="text-left">Cliente</th><th className="text-right">Total bruto</th><th className="text-right">Desconto</th>
+            <th className="text-right">Total líquido</th><th className="text-left">Vendedor</th><th className="text-left">Data da venda</th><th className="text-left">Observações</th>
+          </tr></thead><tbody>
+            {data.venda.map((p) => (
+              <tr key={p.codpedido}><td>{p.nropedido ?? p.codpedido}</td><td>{p.titular}</td><td className="text-right tabular-nums">{fmtBRL(Number(p.total_bruto) || 0)}</td>
+                <td className="text-right tabular-nums">{fmtBRL(Number(p.desconto) || 0)}</td><td className="text-right tabular-nums">{fmtBRL(Number(p.total_pedido) || 0)}</td>
+                <td>{p.vendedor}</td><td>{dt(p.dtvenda)}</td><td>{p.obs}</td></tr>
+            ))}
+          </tbody></table></div>
+        )}
+      </div>
+      <div>
+        <span className="text-body-sm font-semibold text-fg-default">Pedido de compra</span>
+        {!data?.compra.length ? <div><small className="text-fg-muted">Sem pedido de compra ligado à nota.</small></div> : (
+          <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr>
+            <th className="text-left">Nº do pedido</th><th className="text-left">Cliente</th><th className="text-left">Data da compra</th><th className="text-right">Total bruto</th>
+            <th className="text-right">Total líquido</th><th className="text-left">Observações</th>
+          </tr></thead><tbody>
+            {data.compra.map((p) => (
+              <tr key={p.codpedcomp}><td>{p.codpedcomp}</td><td>{p.titular}</td><td>{dt(p.data)}</td><td className="text-right tabular-nums">{fmtBRL(Number(p.total_bruto) || 0)}</td>
+                <td className="text-right tabular-nums">{fmtBRL(Number(p.total_pedido) || 0)}</td><td>{p.obs}</td></tr>
+            ))}
+          </tbody></table></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────── Devoluções da Compra (tsDevCompra) ─────────────────────────────
+
+/** os pedidos de devolução feitos a partir desta entrada (sqqPedidosDevCompra, udmNF.dfm:17907): sem os cancelados */
+export function DevolucoesCompraTab({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const { data } = useQuery({ queryKey: ['fiscal/nf', codnf, 'devolucoes-compra'], queryFn: () => devolucoesCompraDaNf(Number(codnf)), enabled: codnf != null });
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para ver as devoluções.</small>;
+  const dt = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
+  if (!data?.linhas.length) return <small className="text-fg-muted">Sem pedidos de devolução desta nota.</small>;
+  return (
+    <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr>
+      <th className="text-left">Cód. Devolução</th><th className="text-left">Data</th><th className="text-left">Situação</th><th className="text-left">Cód. NF Saída Emitida</th>
+      <th className="text-left">Nº NF</th><th className="text-left">Data Emissão</th><th className="text-left">Chave</th>
+    </tr></thead><tbody>
+      {data.linhas.map((l) => (
+        <tr key={l.cod_pedido_dev_compra}><td>{l.cod_pedido_dev_compra}</td><td>{dt(l.data_pedido)}</td><td>{l.status}</td><td>{l.cod_nota_fiscal_emitida ?? ''}</td>
+          <td>{l.nronf ?? ''}</td><td>{dt(l.dtemissao)}</td><td className="font-mono text-body-xs">{l.chavenfe ?? ''}</td></tr>
+      ))}
+    </tbody></table></div>
+  );
+}
+
+// ───────────────────────────── Carta Correção (tsCartaCorrecao) ─────────────────────────────
+
+/** as cartas de correção da chave (NFE_EVENTOS 110110 — a NF_CARTA_CORRECAO do legado morreu em 2023): sequência, protocolo, texto */
+export function CartaCorrecaoTab({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const { data } = useQuery({ queryKey: ['fiscal/nf', codnf, 'cartas-correcao'], queryFn: () => cartasCorrecaoDaNf(Number(codnf)), enabled: codnf != null });
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para ver as cartas de correção.</small>;
+  const dh = (d: string | null | undefined) => (d ? new Date(d).toLocaleString('pt-BR') : '');
+  return (
+    <div className="flex flex-col gap-form-gap">
+      <span className="text-body-sm font-semibold text-fg-default">Cartas de Correção</span>
+      {!data?.linhas.length ? <small className="text-fg-muted">{data?.chavenfe ? 'Sem carta de correção nesta nota.' : 'A nota não tem chave de NF-e.'}</small> : (
+        <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr>
+          <th className="text-left">SEQUÊNCIA</th><th className="text-left">PROTOCOLO</th><th className="text-left">Data</th><th className="text-left">Retorno</th><th className="text-left">Correção</th>
+        </tr></thead><tbody>
+          {data.linhas.map((l) => (
+            <tr key={l.codnfe_evento}><td>{l.seq_evento ?? ''}</td><td>{l.protocolo_autorizacao ?? ''}</td><td>{dh(l.data_autorizacao ?? l.data_evento)}</td>
+              <td>{l.mensagem_autorizacao ?? ''}</td><td className="whitespace-pre-wrap">{l.correcao ?? ''}</td></tr>
+          ))}
+        </tbody></table></div>
+      )}
+      <small className="text-fg-muted">A carta de correção é enviada pela barra NF-e («Carta de correção»).</small>
+    </div>
+  );
+}
+
+// ───────────────────────────── Dados NFe Avulsa (tsNFeAvulsa) ─────────────────────────────
+
+/** os dados do fisco emitente da NF-e avulsa (grpNFeAvulsa, uNF.dfm:16543 — FISCO_EMIT_*): vêm do XML importado (80 notas desde 2025) */
+export function AvulsaTab({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const v = (k: string) => { const x = form.watch(k as never) as unknown; return x == null || x === '' ? '' : String(x); };
+  const campos: Array<[string, string]> = [
+    ['fisco_emit_orgao', 'Órgão Emitente'], ['fisco_emit_cnpj', 'CNPJ'], ['fisco_emit_reparticao', 'Repartição Fiscal do Emitente'], ['fisco_emit_matr', 'Matrícula do Funcionário'],
+    ['fisco_emit_agente', 'Nome do Funcionário'], ['fisco_emit_fone', 'Fone / Fax'], ['fisco_emit_uf', 'UF'], ['fisco_emit_dar_nro', 'Número do Documento de Arrecadação'],
+    ['fisco_emit_dar_valor', 'Valor Total do Documento Arrecadação'], ['fisco_emit_dar_dtemis', 'Data de Emissão do Documento Arrecadação'], ['fisco_emit_dar_dtpgto', 'Data do Pagamento do Documento Arrecadação'],
+  ];
+  const avulsa = !!v('fisco_emit_cnpj');
+  return (
+    <div className="flex flex-col gap-form-gap">
+      {!avulsa && <small className="text-fg-muted">Esta nota não é uma NF-e avulsa (sem fisco emitente no XML).</small>}
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
+        {campos.map(([k, label]) => <Field key={k} label={label} value={k === 'fisco_emit_dar_valor' && v(k) ? fmtBRL(Number(v(k)) || 0) : v(k)} readOnly disabled />)}
+      </div>
+    </div>
+  );
+}
+

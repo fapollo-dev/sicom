@@ -155,6 +155,10 @@ export const nfItemSchema = z.object({
   aliqcofinss: dec(z.number().nonnegative()),
   frete: dec(z.number().nonnegative()),
   seguro: dec(z.number().nonnegative()),
+  // o rateio dos totais da nota no item (RateioNota, udmNF.pas:4862): FRETE2 = frete não incluso (%), IPI_DEVOLUCAO (%) e o % devolvido
+  frete2: dec(z.number().nonnegative()),
+  ipi_devolucao: dec(z.number().nonnegative()),
+  ipi_devolucao_perc_devol: dec(z.number().nonnegative()),
   vroutrasdesp: dec(z.number().nonnegative()),
   depsacess: dec(z.number().nonnegative()), // F2b — despesas acessórias (× BCR na base ICMS)
   arredonda: sn().optional(), // F2b — 'S' arredonda / 'N' trunca (por item)
@@ -275,6 +279,11 @@ const nfBase = z.object({
   imp_manifesto: sn().optional(),
   rateio_ipi: sn().optional(),
   rateio_st: sn().optional(),
+  // as caixas "Desabilitar rateio desconto" e "Desabilitar somente IPI Devoluções" da aba Itens (uNF.dfm:8504/9021)
+  rateio_desconto: sn().optional(),
+  rateio_ipi_devolucao: sn().optional(),
+  // "Calcular peso automaticamente" (dbchkCALCULAPESO, uNF.dfm:12491): o gravar soma o peso dos itens
+  calculapeso: sn().optional(),
   qtde: dec(z.number()),
   fisco_emit_orgao: opcional(z.string().trim().max(60)),
   fisco_emit_cnpj: opcional(z.string().trim().max(20)),
@@ -493,6 +502,26 @@ export type ProcessarFinanceiroNfDto = z.infer<typeof processarFinanceiroNfSchem
  */
 export const recalcularNfSchema = z.preprocess(stripNulls, nfBase);
 export type RecalcularNfDto = z.infer<typeof recalcularNfSchema>;
+
+/** o "Ratear marcados" da aba Cálculo de impostos (btnRateioSTClick, uNF.pas:6328): os tipos de rateio escolhidos nas caixas */
+export const TIPOS_RATEIO_NF = ['FRETE', 'SEGURO', 'ACESSORIAS', 'IPI', 'FRETE_NAO_INCLUSO', 'IPI_DEVOLUCAO'] as const;
+export type TipoRateioNf = (typeof TIPOS_RATEIO_NF)[number];
+export const ratearNfSchema = z.object({
+  nf: recalcularNfSchema,
+  tipos: z.array(z.enum(TIPOS_RATEIO_NF)).min(1, 'Marque pelo menos um rateio'),
+});
+export type RatearNfDto = z.infer<typeof ratearNfSchema>;
+
+/** a forma de pagamento da nota (NF_FORMA_PAGAMENTO — a sub-aba "Formas de pagamento" do Financeiro, btnGravarFormaPgtoClick uNF.pas:5365) */
+export const nfFormaPagamentoSchema = z.object({
+  idpgto: z.coerce.number().int().nonnegative().default(0),
+  codoperadoras: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().positive().optional()),
+  vrpgto: z.coerce.number().default(0),
+  vrtroco: z.coerce.number().nonnegative().default(0),
+  integrado: z.preprocess((v) => (v === '' || v == null ? undefined : String(v).toUpperCase()), z.enum(['S', 'N']).optional()),
+  numero_aut: opcional(z.string().trim().max(20)),
+});
+export type NfFormaPagamentoDto = z.infer<typeof nfFormaPagamentoSchema>;
 
 /**
  * F6 — body da transmissão (POST /fiscal/nf/:id/transmitir). Sem campos obrigatórios:

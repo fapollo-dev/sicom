@@ -6,8 +6,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 import { ConfigService } from './config.service';
-import { baseProdutoItem, totaisProdutosNf } from '@apollo/shared';
-import { normalizarItensNf } from './nf-item-padrao';
+import { baseProdutoItem, totaisProdutosNf, type TipoRateioNf } from '@apollo/shared';
+import { normalizarItensNf, ratearTotaisNosItens } from './nf-item-padrao';
 import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = any;
@@ -76,6 +76,20 @@ export class NfFiscalService {
     // o menu "Liberar nota fiscal para não usar indexador" só aparece com LIBERA_NF_USO_INDEXADOR = 'S' (uNF.pas:8402)
     const lib = await configNaTrx(this.dbp.forTenantRead(), 'LIBERA_NF_USO_INDEXADOR', ctx);
     return { editarDescricao: String(v ?? 'N').toUpperCase() === 'S', liberaNfIndexador: String(lib ?? 'N').toUpperCase() === 'S' };
+  }
+
+  /**
+   * "Ratear marcados" (btnRateioSTClick, uNF.pas:6328 → Rateio :15397): refaz nos itens TODOS o rateio dos tipos marcados e recalcula.
+   * Travas do legado: "Desabilitar rateio" marcado e total dos produtos zerado. O ICMS ST/FCP-ST não entram: o motor já os rateia
+   * pelos totais do cabeçalho (nf-indexador-item) quando as caixas RATEIO/RATEIO_ST estão desmarcadas.
+   */
+  async ratear(dto: Record<string, unknown>, tipos: TipoRateioNf[]): Promise<Record<string, unknown>> {
+    if (String(dto.rateio ?? 'N').toUpperCase() === 'S') throw new BusinessRuleError('NF_RATEIO_DESABILITADO');
+    const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]).map((i) => ({ ...i })) : [];
+    const totalprod = Number(dto.totalprod) > 0 ? Number(dto.totalprod) : totaisProdutosNf(itens as never).totalprod;
+    if (!(totalprod > 0)) throw new BusinessRuleError('NF_RATEIO_SEM_TOTAL');
+    ratearTotaisNosItens(dto, itens, tipos, 'todos');
+    return this.recalcular({ ...dto, itens });
   }
 
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {

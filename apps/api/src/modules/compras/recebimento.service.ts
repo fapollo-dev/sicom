@@ -443,7 +443,9 @@ export class RecebimentoService {
       dthorasaida: nfe.dhSaiEnt,
       indicador_presenca: Number(nfe.indPres ?? 9) || 9,
       versaoxml: nfe.versao,
-      rateio: 'N',
+      // a importada nasce com o rateio DESABILITADO (RATEIO='S' em 6.340 das 6.540 notas importadas de 2026 — o binário novo protege os valores
+      // por item do XML do RateioNota); RATEIO_ST segue o padrão 'N' (na produção varia nota a nota, sem regra derivável)
+      rateio: 'S',
       rateio_ipi: 'N',
       rateio_st: 'N',
       imp_importadormassa: 'N',

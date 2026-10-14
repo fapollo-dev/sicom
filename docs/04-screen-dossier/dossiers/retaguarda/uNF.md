@@ -485,3 +485,52 @@ outra loja, que a sessão não alcança pelo cadastro) — no legado ela abre em
 - **Fora, com prova:** devolução por clone (desde 2023 as 180 devoluções 5202/6202 vêm do pedido de devolução — COD_PED_DEV_COMPRA em
   100%), entrada de devolução a partir da saída (0 em 2026) e transferência para depósito (0 na história).
 
+## A auditoria controle a controle do uNF.dfm (14/10/2026)
+
+O `.dfm` (35.392 linhas: 48 BitBtn, 49 itens de menu, 25 abas) e as 20 opções de permissão da produção revistos contra o Apollo, com a
+prova de uso de cada aba nas 7.779 NFs de 2026. Convertido neste corte:
+
+- ⛔→✅ **O rateio dos totais da nota nos itens** (`RateioNota`, udmNF.pas:4862, chamado no `NewRecord` do item :4859 e pelo "Ratear
+  marcados" :6328/:15397): frete, seguro, frete não incluso e IPI devolvido em % (TOTAL/TOTALPROD × 100) e acessórias/outras despesas
+  em valor proporcional ao total do item sobre (TOTALPROD − TOTALDESC); cabeçalho zerado zera o item; só quando a soma dos itens difere.
+  As cinco caixas da aba Itens (`RATEIO` "Desabilitar rateio", `RATEIO_IPI`, `RATEIO_ST`, `RATEIO_DESCONTO`, `RATEIO_IPI_DEVOLUCAO`)
+  entraram na tela e no gravar; o motor já olhava RATEIO/RATEIO_ST no ST. **Produção:** RATEIO='S' em 5.300 das 7.779 NFs de 2026 — a
+  **importada nasce com 'S'** (6.340 das 6.540; o binário novo protege os valores do XML) → o RecebimentoService passou a gravar 'S'.
+  `POST fiscal/nf/ratear {nf, tipos}` = o "Ratear marcados" (as caixas chkRateia* na aba Cálculo de impostos). Sem equivalente: o rateio
+  do DESCONTO e do IPI a partir do total digitado (aqui os dois são somas dos itens) e o ST/FCP-ST manual (o motor rateia pelo cabeçalho
+  quando as caixas estão desmarcadas).
+- ⛔→✅ **"Calcular peso automaticamente"** (`dbchkCALCULAPESO`; uNF.pas:8519/:3301): peso bruto = Σ (peso + tara do produto) × quantidade
+  total; líquido sem a tara; a nota nova nasce com a config `CALCULA_PESO_AUTOMATICO` ('S' na produção), a importada não (nulo nas 6.459).
+  **Produção:** 'S' em 1.320 NFs de 2026 — todas com peso 0, porque só 3 dos 47.827 produtos têm PESO; fiel mesmo assim.
+- ⛔→✅ **Indicador de presença do comprador** (combo de 7 valores, Dados Gerais; 0/1/2/3/5/9 em uso): no gravar da saída própria,
+  finalidade 2/4 → 0 e vazio → 9 (uNF.pas:4829); o CFOP 5929/6929 força finalidade 1, sem frete e presencial (edtCFOPExit :9611, na tela
+  e no gravar). As caixas "Aproveitamento de crédito" e "Nota de Complemento" entraram (0 marcadas desde 2023 — colunas vivas).
+- ⛔→✅ **Financeiro → Formas de pagamento** (`tsFormasPagto`, NF_FORMA_PAGAMENTO): a importada já trazia as do XML; agora a sub-aba lista
+  (modalidade, operadora, integrado, autenticação, total pago), inclui com o valor sugerido total − pago e as travas do
+  `btnGravarFormaPgtoClick` :5365 (forma; operadora obrigatória no TEF/CRT e só informável no POS/TEF/CRT :17770; valor; integração;
+  autorização quando integrado) e exclui com a confirmação. **Produção:** 6.539 NFs de 2026 com forma (as importadas) e 4 saídas manuais.
+  `GET/POST/DELETE fiscal/nf/:id/formas-pagamento`.
+- ⛔→✅ **Pedidos** (`tsPedidos`): o pedido de compra da nota (`cdsComView` :18219 — pelo `NF.CODPEDCOMP`, o vínculo vivo: o JOIN do legado
+  por PEDIDO_NF.CODPEDIDO = CODPEDCOMP casa scrap com pedido de compra, só o scrap está lá) e os pedidos de venda do PEDIDO_NF tipo 'P'
+  (`qryPedidos` :7277 — 1 em 2022). `GET fiscal/nf/:id/pedidos`.
+- ⛔→✅ **Devoluções da Compra** (`tsDevCompra`, `sqqPedidosDevCompra` :17907): os pedidos de devolução não cancelados feitos desta entrada,
+  com a NF de saída emitida. **Produção:** 72 NFs de 2026 com devolução. `GET fiscal/nf/:id/devolucoes-compra`.
+- ⛔→✅ **Carta Correção** (`tsCartaCorrecao`): a grade lia a NF_CARTA_CORRECAO (3 linhas, a última de 2023); a aba mostra as CC-e vivas da
+  chave (NFE_EVENTOS 110110 — 5 em 2026). `GET fiscal/nf/:id/cartas-correcao`. O "Imprimir" da carta fica morto com a tabela.
+- ⛔→✅ **Dados NFe Avulsa** (`grpNFeAvulsa`): os 11 campos FISCO_EMIT_* da NF-e avulsa (80 entradas desde 2025, todas da SEF/MG pelo XML),
+  somente leitura.
+- ⛔→✅ **Tributos devolvidos** (`tsTributosDevolvidos`): o IPI Devoluções (TOTALIPI_DEVOLUCAO) editável; 5 NFs em 2026.
+- ⛔→✅ **O botão ao lado do Total NF** (`SpeedButton1Click` :16433): na importada, a edição do total pede a senha ADM
+  (`POST fiscal/nf/liberar-total` com `x-senha-administrativa`).
+- ⛔→✅ **DBMOBS "Observação NF"** (36 dos 67 operadores): o memo de observações só edita com a permissão de controle (mig 419 — a opção é
+  do binário novo; o `dbmObs` de 2020 não tem Tag).
+
+Com prova, sem código: **Serviço** (VALORSERVICO > 0: 0 desde 2023), **Importação** (NFE_IMPORTACAO='S': 0), **Classificação de Animais**
+(NF_ANIMAL: 0 linhas), **Gerar nota de complemento** (COMPLEMENTO: 0 desde 2023), **ST externo/interestadual** (0 em 2023-26), **base manual
+IRRF/INSS** (0), **contingência** (TPEMISSAO ≠ 1: 10 em 2023, 0 depois), **AJUSTEDADOSDOSPRODUTOS1/AJUSTEST1** (26/11 operadores — não existem
+no fonte de 2020; registradas). Já vereditados antes: as impressões (uNF-impressoes.md), o SEFAZ/ACBr (F6b), Verificar NF com pedido,
+devolução/depósito por clone. A LOG da produção registra a NF por TABELA ('NF' 30.730 alterações e 7.862 inclusões em 2026), não por
+FORMULARIO — o Apollo loga FRMNF/CODNF.
+
+Smoke §314 (6 checks); jsdom `nfAbas.spec.tsx`.
+

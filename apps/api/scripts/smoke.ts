@@ -20037,6 +20037,144 @@ async function main() {
         await pgPo.end();
       }
     }
+    // ══ §314 NF — OS CONTROLES AUDITADOS DO uNF.dfm: rateio nos itens, peso automático, presença, formas de pagamento, pedidos, devoluções, CC-e, Total NF ══
+    {
+      const pgAb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const NRS = ['314RAT', '314SEM', '314PESO', '314PESN', '314S9', '314S0', '314C'];
+      const CH314 = '31260611222333000181550010003140011000314001';
+      let pcAb = 0; let pdcAb: number[] = []; let pedAb = 0;
+      const prodAntes = (await pgAb.query(`SELECT peso, taraembalagem FROM produtos WHERE idproduto = 1`)).rows[0] as any;
+      const nfAb = (extra: Record<string, unknown>) => ({ modelo: 55, serie: '1', dtemissao: '2026-06-12', dtcontabil: '2026-06-12', tipoemissao: '0', ...extra });
+      const postAb = async (body: Record<string, unknown>, h = H) => { const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: h, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const getAb = async (id: unknown, sufixo = '', h = H) => { const r = await fetch(`${base}/fiscal/nf/${id}${sufixo}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const callAb = async (sufixo: string, method: string, body?: unknown, h = H) => { const r = await fetch(`${base}/fiscal/nf${sufixo}`, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const perto = (a: unknown, b: number, tol = 0.001) => Math.abs(Number(a) - b) <= tol;
+      const itemAb = (q: number, extra: Record<string, unknown> = {}) => ({ codproduto: 1, quantidade: q, vrcusto: 3.5, cfop: '1102', aliquota: 'T01', ...extra });
+      try {
+        // 314.1 — o rateio dos totais no item NOVO (RateioNota no NewRecord): frete 10, seguro 5, acessórias 3 sobre 35 + 70 = 105
+        const r1 = await postAb(nfAb({ tipo: 'E', nronf: '314RAT', codparceiro: 22, cfop: '1102', validatotalnf: 123, totalfrete: 10, totalseguro: 5, totalacessorias: 3, itens: [itemAb(10), itemAb(20)] }));
+        const l1 = await getAb(r1.j.codnf);
+        const its1 = ((l1.j.itens ?? []) as any[]).slice().sort((a, b) => Number(a.quantidade) - Number(b.quantidade));
+        // a nota com "Desabilitar rateio": o item fica como veio
+        const r2 = await postAb(nfAb({ tipo: 'E', nronf: '314SEM', codparceiro: 22, cfop: '1102', validatotalnf: 50, rateio: 'S', totalfrete: 10, totalacessorias: 3, itens: [itemAb(10)] }));
+        const l2 = await getAb(r2.j.codnf);
+        // o "Ratear marcados": o frete 21 refeito nos 2 itens (20% cada); desabilitado → 422; sem total → 422
+        const rat = await callAb('/ratear', 'POST', { nf: { ...l1.j, totalfrete: 21, itens: its1.map((i) => ({ ...i, frete: 0 })) }, tipos: ['FRETE'] });
+        const ratDes = await callAb('/ratear', 'POST', { nf: { ...l1.j, rateio: 'S' }, tipos: ['FRETE'] });
+        const ratSem = await callAb('/ratear', 'POST', { nf: { ...l1.j, totalprod: 0, itens: [] }, tipos: ['FRETE'] });
+        check('NF §314.1 [RateioNota — udmNF.pas:4862]: o item novo recebe o rateio dos totais da nota (frete 10/105 = 9,5238%, seguro 4,7619%, acessórias em valor 1,00 e 2,00); com "Desabilitar rateio" (RATEIO=S) o item fica como veio; o "Ratear marcados" refaz o frete em todos (21/105 = 20%), recusa com o rateio desabilitado e sem total dos produtos',
+          r1.status === 201 && its1.length === 2 && perto(its1[0].frete, 9.5238) && perto(its1[1].frete, 9.5238) && perto(its1[0].seguro, 4.7619) && perto(its1[0].depsacess, 1) && perto(its1[1].depsacess, 2)
+          && r2.status === 201 && Number(l2.j.itens?.[0]?.frete ?? 0) === 0 && Number(l2.j.itens?.[0]?.depsacess ?? 0) === 0 && l2.j.rateio === 'S'
+          && rat.status === 200 && (rat.j.itens ?? []).length === 2 && perto(rat.j.itens[0].frete, 20) && perto(rat.j.itens[1].frete, 20)
+          && ratDes.status === 422 && ratDes.j.code === 'NF_RATEIO_DESABILITADO' && ratSem.status === 422 && ratSem.j.code === 'NF_RATEIO_SEM_TOTAL',
+          { r1: [r1.status, r1.j.code, its1.map((i) => [i.frete, i.seguro, i.depsacess])], r2: [r2.status, r2.j.code, l2.j.itens?.[0]?.frete, l2.j.rateio], rat: [rat.status, rat.j.code, (rat.j.itens ?? []).map((i: any) => i.frete)], ratDes: [ratDes.status, ratDes.j.code], ratSem: [ratSem.status, ratSem.j.code] });
+
+        // 314.2 — "Calcular peso automaticamente": peso 0,5 + tara 0,1 do produto × 10 × fator 2 → bruto 12, líquido 10; com 'N' fica o digitado
+        await pgAb.query(`UPDATE produtos SET peso = 0.5, taraembalagem = 0.1 WHERE idproduto = 1`);
+        const p1 = await postAb(nfAb({ tipo: 'E', nronf: '314PESO', codparceiro: 22, cfop: '1102', validatotalnf: 70, calculapeso: 'S', pesobruto: 1, pesoliquido: 1, itens: [itemAb(10, { fatorembal: 2 })] }));
+        const lp1 = await getAb(p1.j.codnf);
+        const p2 = await postAb(nfAb({ tipo: 'E', nronf: '314PESN', codparceiro: 22, cfop: '1102', validatotalnf: 35, calculapeso: 'N', pesobruto: 1.5, pesoliquido: 1.25, itens: [itemAb(10)] }));
+        const lp2 = await getAb(p2.j.codnf);
+        check('NF §314.2 [CALCULAPESO — uNF.pas:8519]: com "Calcular peso automaticamente" o gravar soma (peso + tara) × quantidade total dos itens no peso bruto (12) e o peso × quantidade no líquido (10); desmarcado, fica o digitado (1,5 / 1,25)',
+          p1.status === 201 && lp1.j.calculapeso === 'S' && perto(lp1.j.pesobruto, 12) && perto(lp1.j.pesoliquido, 10) && p2.status === 201 && perto(lp2.j.pesobruto, 1.5) && perto(lp2.j.pesoliquido, 1.25),
+          { p1: [p1.status, p1.j.code, lp1.j.calculapeso, lp1.j.pesobruto, lp1.j.pesoliquido], p2: [p2.status, p2.j.code, lp2.j.pesobruto, lp2.j.pesoliquido] });
+
+        // 314.3 — o indicador de presença da saída própria (uNF.pas:4829) e o CFOP 5929 (edtCFOPExit :9611)
+        const s9 = await postAb(nfAb({ tipo: 'S', nronf: '314S9', codparceiro: 20, cfop: '5102', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] }));
+        const ls9 = await getAb(s9.j.codnf);
+        const s0 = await postAb(nfAb({ tipo: 'S', nronf: '314S0', codparceiro: 20, cfop: '5102', idsituacao_nf: 8, finalidade: '2', indicador_presenca: '1', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] }));
+        const ls0 = await getAb(s0.j.codnf);
+        const tem5929 = Number((await pgAb.query(`SELECT count(*)::int n FROM cfop WHERE codcfop = '5929'`)).rows[0].n) > 0;
+        const sC = tem5929 ? await postAb(nfAb({ tipo: 'S', nronf: '314C', codparceiro: 20, cfop: '5929', finalidade: '2', tipofrete: '0', indicador_presenca: '9', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5929', aliquota: 'T01' }] })) : { status: 201, j: {} as any };
+        const lsC = tem5929 && sC.status === 201 ? await getAb(sC.j.codnf) : { status: 200, j: { finalidade: '1', tipofrete: '9', indicador_presenca: 1 } as any };
+        check('NF §314.3 [indicador de presença]: a saída própria sem indicador grava 9 (outros); com finalidade 2 (complementar) grava 0 (não se aplica), mesmo informado 1; o CFOP 5929 (cupom referenciado) força finalidade 1, sem frete (9) e presencial (1)',
+          s9.status === 201 && String(ls9.j.indicador_presenca) === '9' && s0.status === 201 && String(ls0.j.indicador_presenca) === '0'
+          && sC.status === 201 && String(lsC.j.finalidade) === '1' && String(lsC.j.tipofrete) === '9' && String(lsC.j.indicador_presenca) === '1',
+          { s9: [s9.status, s9.j.code, ls9.j.indicador_presenca], s0: [s0.status, s0.j.code, ls0.j.indicador_presenca], sC: [tem5929, sC.status, sC.j.code, lsC.j.finalidade, lsC.j.tipofrete, lsC.j.indicador_presenca] });
+
+        // 314.4 — as formas de pagamento da nota (NF_FORMA_PAGAMENTO): as travas do btnGravarFormaPgtoClick, a inclusão, a lista e a exclusão
+        const nfR = Number(r1.j.codnf);
+        const fp0 = await getAb(nfR, '/formas-pagamento');
+        const formas = (fp0.j.formas ?? []) as any[];
+        const fCrt = formas.find((f) => ['CRT', 'TEF'].includes(String(f.destino ?? '').trim().toUpperCase()));
+        const fDin = formas.find((f) => !['CRT', 'TEF', 'POS'].includes(String(f.destino ?? '').trim().toUpperCase()));
+        const fpVazia = await callAb(`/${nfR}/formas-pagamento`, 'POST', {});
+        const fpOper = fCrt ? await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fCrt.idpgto, vrpgto: 10, integrado: 'N' }) : { status: 422, j: { code: 'NF_FORMA_PGTO_OPERADORA' } };
+        const fpValor = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 0, integrado: 'N' });
+        const fpInteg = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 10 });
+        const fpAut = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 10, integrado: 'S' });
+        const fpInex = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: 999999, vrpgto: 10, integrado: 'N' });
+        const fpOk = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 10, vrtroco: 0, integrado: 'N' });
+        const fp1 = await getAb(nfR, '/formas-pagamento');
+        const fpSem = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 10, integrado: 'N' }, H_SEM_ACESSO);
+        const fpDel = await callAb(`/${nfR}/formas-pagamento/${fpOk.j.codnforpgto}`, 'DELETE');
+        const fpDel2 = await callAb(`/${nfR}/formas-pagamento/${fpOk.j.codnforpgto}`, 'DELETE');
+        await pgAb.query(`UPDATE nf SET proc = 'S' WHERE codnf = $1`, [nfR]);
+        const fpProc = await callAb(`/${nfR}/formas-pagamento`, 'POST', { idpgto: fDin?.idpgto, vrpgto: 10, integrado: 'N' });
+        await pgAb.query(`UPDATE nf SET proc = 'N' WHERE codnf = $1`, [nfR]);
+        check('NF §314.4 [Financeiro → Formas de pagamento — uNF.pas:3232/5365/4324]: a lista traz as formas da loja da nota e as operadoras ativas; o gravar exige a forma, a operadora no TEF/CRT, o valor, o tipo de integração e a autorização quando integrado; a forma de outra loja não entra; incluída, a lista mostra a modalidade e soma o pago; a exclusão com a confirmação; na nota processada → 422; sem a tela → 403',
+          fp0.status === 200 && formas.length > 0 && Array.isArray(fp0.j.operadoras) && (fp0.j.linhas ?? []).length === 0 && fDin
+          && fpVazia.status === 422 && fpVazia.j.code === 'NF_FORMA_PGTO_OBRIGATORIA' && fpOper.status === 422 && fpOper.j.code === 'NF_FORMA_PGTO_OPERADORA'
+          && fpValor.status === 422 && fpValor.j.code === 'NF_FORMA_PGTO_VALOR' && fpInteg.status === 422 && fpInteg.j.code === 'NF_FORMA_PGTO_INTEGRACAO'
+          && fpAut.status === 422 && fpAut.j.code === 'NF_FORMA_PGTO_AUTORIZACAO' && fpInex.status === 422 && fpInex.j.code === 'NF_FORMA_PGTO_INEXISTENTE'
+          && fpOk.status === 201 && Number(fpOk.j.codnforpgto) > 0 && fp1.j.linhas?.length === 1 && fp1.j.linhas[0].modalidade === fDin?.modalidade && Number(fp1.j.totalPago) === 10 && Number(fp1.j.linhas[0].vrpgto) === 10
+          && fpSem.status === 403 && fpDel.status === 200 && fpDel2.status === 422 && fpDel2.j.code === 'NF_FORMA_PGTO_NAO_ENCONTRADA' && fpProc.status === 422 && fpProc.j.code === 'NF_PROCESSADA',
+          { fp0: [fp0.status, formas.length, fp0.j.operadoras?.length, fCrt?.destino, fDin?.destino], fpVazia: [fpVazia.status, fpVazia.j.code], fpOper: [fpOper.status, fpOper.j.code], fpValor: [fpValor.status, fpValor.j.code], fpInteg: [fpInteg.status, fpInteg.j.code], fpAut: [fpAut.status, fpAut.j.code], fpInex: [fpInex.status, fpInex.j.code], fpOk: [fpOk.status, fpOk.j], fp1: [fp1.j.linhas, fp1.j.totalPago], fpSem: fpSem.status, fpDel: [fpDel.status, fpDel2.status, fpDel2.j.code], fpProc: [fpProc.status, fpProc.j.code] });
+
+        // 314.5 — as abas Pedidos (o pedido de compra da nota + o pedido de venda do PEDIDO_NF), Devoluções da Compra e Carta Correção
+        pcAb = Number((await pgAb.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro) VALUES (22, 1, current_date, 7, 7) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        await pgAb.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto, vrvenda, vendaliq) VALUES ($1, 1, 5, 7, 1, 7, 5, 35, 10, 8)`, [pcAb]);
+        await pgAb.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, qtde, qtdtotal, totalcusto) SELECT codpedcompi, 1, qtde, qtdtotal, totalcusto FROM pedidocompra_i WHERE codpedcomp = $1`, [pcAb]);
+        await pgAb.query(`UPDATE nf SET codpedcomp = $1 WHERE codnf = $2`, [pcAb, nfR]);
+        pedAb = Number((await pgAb.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro) VALUES ('314P', 1, 1, 1, 'ABAS SMOKE', 'UN', 2, 10, 1, 5, now(), 'N', 'P', 20) RETURNING codpedidos`)).rows[0].codpedidos);
+        await pgAb.query(`INSERT INTO pedido_nf (codnf, codpedido, tipo) VALUES ($1, $2, 'P')`, [nfR, pedAb]);
+        const ped = await getAb(nfR, '/pedidos');
+        const codnfprod1 = Number(its1[0]?.codnfprod ?? 0);
+        for (const st of ['FINALIZADO', 'CANCELADO']) {
+          const id = Number((await pgAb.query(`INSERT INTO pedido_devolucao_compra (idempresa, codparceiro, status) VALUES (1, 22, $1) RETURNING codpeddevcompra`, [st])).rows[0].codpeddevcompra);
+          pdcAb.push(id);
+          await pgAb.query(`INSERT INTO pedido_devolucao_compra_i (codpeddevcompra, codnf, codnfprod, idproduto, qtd_nota_fiscal, qtd_devolvida) VALUES ($1, $2, $3, 1, 10, 1)`, [id, nfR, codnfprod1]);
+        }
+        const dev = await getAb(nfR, '/devolucoes-compra');
+        await pgAb.query(`UPDATE nf SET chavenfe = $1 WHERE codnf = $2`, [CH314, nfR]);
+        await pgAb.query(`INSERT INTO nfe_eventos (chave_acesso, tipo_evento, seq_evento, protocolo_autorizacao, correcao, data_evento, data_autorizacao) VALUES ($1, 110110, 1, '135260000000314', 'TEXTO DA CCE DO SMOKE', now(), now()), ($1, 210200, 1, '135260000000315', NULL, now(), now())`, [CH314]);
+        const cce = await getAb(nfR, '/cartas-correcao');
+        const pedSem = await getAb(nfR, '/pedidos', H_SEM_ACESSO);
+        check('NF §314.5 [abas Pedidos (cdsComView/qryPedidos), Devoluções da Compra (sqqPedidosDevCompra) e Carta Correção (NFE_EVENTOS 110110)]: o pedido de compra da nota (total bruto 70 = 7 × 10, líquido 56) e o pedido de venda do PEDIDO_NF tipo P (bruto 20, desconto 2, líquido 18); só o pedido de devolução não cancelado; só a CC-e da chave (a ciência 210200 fora); sem a tela → 403',
+          ped.status === 200 && ped.j.compra?.length === 1 && Number(ped.j.compra[0].codpedcomp) === pcAb && Number(ped.j.compra[0].total_bruto) === 70 && Number(ped.j.compra[0].total_pedido) === 56
+          && ped.j.venda?.length === 1 && ped.j.venda[0].nropedido === '314P' && Number(ped.j.venda[0].total_bruto) === 20 && Number(ped.j.venda[0].desconto) === 2 && Number(ped.j.venda[0].total_pedido) === 18 && ped.j.venda[0].titular
+          && dev.status === 200 && dev.j.linhas?.length === 1 && Number(dev.j.linhas[0].cod_pedido_dev_compra) === pdcAb[0] && dev.j.linhas[0].status === 'FINALIZADO'
+          && cce.status === 200 && cce.j.chavenfe === CH314 && cce.j.linhas?.length === 1 && Number(cce.j.linhas[0].seq_evento) === 1 && cce.j.linhas[0].correcao === 'TEXTO DA CCE DO SMOKE' && cce.j.linhas[0].protocolo_autorizacao === '135260000000314'
+          && pedSem.status === 403,
+          { ped: [ped.status, ped.j.compra, ped.j.venda], dev: [dev.status, dev.j.linhas], cce: [cce.status, cce.j.chavenfe, cce.j.linhas], pedSem: pedSem.status });
+
+        // 314.6 — o Total NF da importada: a liberação pede a senha ADM (SpeedButton1Click); a permissão DBMOBS do memo de observações
+        const libSem = await callAb('/liberar-total', 'POST', {});
+        const libErr = await callAb('/liberar-total', 'POST', {}, { ...H, 'x-senha-administrativa': 'nao-e-esta' });
+        const libOk = await callAb('/liberar-total', 'POST', {}, await hAdm());
+        const opcNf = ((await (await fetch(`${base}/cadastro/acesso/opcoes/FRMNF`, { headers: H })).json().catch(() => ({}))) as any).opcoes ?? [];
+        check('NF §314.6 [Total NF da importada — uNF.pas:16433]: liberar a edição do total exige a senha administrativa (ausente/errada → 403; certa → liberado); a opção DBMOBS ("Observação NF") chega à tela nas opções do operador',
+          libSem.status === 403 && libSem.j.code === 'SENHA_ADMINISTRATIVA_OBRIGATORIA' && libErr.status === 403 && libErr.j.code === 'SENHA_ADMINISTRATIVA_INVALIDA' && libOk.status === 200 && libOk.j.liberado === true
+          && opcNf.includes('DBMOBS'),
+          { libSem: [libSem.status, libSem.j.code], libErr: [libErr.status, libErr.j.code], libOk: [libOk.status, libOk.j], opcNf });
+      } finally {
+        await pgAb.query(`DELETE FROM nfe_eventos WHERE chave_acesso = $1`, [CH314]).catch(() => undefined);
+        await pgAb.query(`UPDATE nf SET chavenfe = NULL, codpedcomp = NULL WHERE nronf = ANY($1) AND idempresa = 1`, [NRS]).catch(() => undefined);
+        if (pdcAb.length) await pgAb.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra = ANY($1)`, [pdcAb]).catch(() => undefined);
+        await pgAb.query(`DELETE FROM pedido_nf WHERE codnf IN (SELECT codnf FROM nf WHERE nronf = ANY($1) AND idempresa = 1)`, [NRS]).catch(() => undefined);
+        if (pedAb) await pgAb.query(`DELETE FROM pedidos WHERE codpedidos = $1`, [pedAb]).catch(() => undefined);
+        if (pcAb) {
+          await pgAb.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [pcAb]).catch(() => undefined);
+          await pgAb.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [pcAb]).catch(() => undefined);
+          await pgAb.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pcAb]).catch(() => undefined);
+        }
+        await pgAb.query(`DELETE FROM nf_forma_pagamento WHERE codnf IN (SELECT codnf FROM nf WHERE nronf = ANY($1) AND idempresa = 1)`, [NRS]).catch(() => undefined);
+        await pgAb.query(`DELETE FROM nf_prod WHERE codnf IN (SELECT codnf FROM nf WHERE nronf = ANY($1) AND idempresa = 1)`, [NRS]).catch(() => undefined);
+        await pgAb.query(`DELETE FROM nf WHERE nronf = ANY($1) AND idempresa = 1`, [NRS]).catch(() => undefined);
+        await pgAb.query(`UPDATE produtos SET peso = $1, taraembalagem = $2 WHERE idproduto = 1`, [prodAntes?.peso ?? null, prodAntes?.taraembalagem ?? null]).catch(() => undefined);
+        await pgAb.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
@@ -26808,11 +26946,11 @@ async function main() {
           && nf?.placatransp === 'ABC1D23' && nf?.ufplacatransp === 'MG' && flags[0]?.tra === 'S' && flags[1]?.frn === 'S',
           { outraLoja, semLoja: semLoja.j.code, semTransp: [semTransp.status, semTransp.j.code, semTransp.j.detalhe], cadTr: [cadTr.status, cadTrJ], ok: [ok.status, ok.j.code], nf, flags, endTr });
         const N = (v: unknown) => Number(v);
-        check('IMPORTAÇÃO §238.2 [o cabeçalho e o total]: FINALIDADE, DTHORASAIDA, INDICADOR_PRESENCA, VERSAOXML 400, os totais DA NOTA (ICMS base/valor, base e valor do ST, base do ST externo, FCP-ST), VALIDATOTALNF = vNF, IMP_MANIFESTO S, IMP_IMPORTADORMASSA N, RATEIO/RATEIO_IPI/RATEIO_ST N, TIPOFRETE do XML e os volumes (quantidade, pesos, espécie e marca sem acento); o TOTALNF é o do legado (soma o FCP-ST — 70,00 = vNF; o Apollo dava 68,00)',
+        check('IMPORTAÇÃO §238.2 [o cabeçalho e o total]: FINALIDADE, DTHORASAIDA, INDICADOR_PRESENCA, VERSAOXML 400, os totais DA NOTA (ICMS base/valor, base e valor do ST, base do ST externo, FCP-ST), VALIDATOTALNF = vNF, IMP_MANIFESTO S, IMP_IMPORTADORMASSA N, RATEIO S (a importada nasce com o rateio desabilitado — 6.340 das 6.540 de 2026) e RATEIO_IPI/RATEIO_ST N, TIPOFRETE do XML e os volumes (quantidade, pesos, espécie e marca sem acento); o TOTALNF é o do legado (soma o FCP-ST — 70,00 = vNF; o Apollo dava 68,00)',
           nf?.finalidade === '1' && nf?.dthorasaida != null && N(nf?.indicador_presenca) === 1 && N(nf?.versaoxml) === 400
           && N(nf?.totalnf) === 70 && N(nf?.validatotalnf) === 70 && ok.j.divergencia === false && N(nf?.total_icms_nota_valor) === 10.8 && N(nf?.total_icms_nota_bc) === 60
           && N(nf?.totalbaseicmt) === 80 && N(nf?.total_streal) === 8 && N(nf?.totalbase_stexterno) === 80 && N(nf?.total_fcp_valor_st) === 2
-          && nf?.imp_manifesto === 'S' && nf?.imp_importadormassa === 'N' && nf?.rateio === 'N' && nf?.rateio_ipi === 'N' && nf?.rateio_st === 'N'
+          && nf?.imp_manifesto === 'S' && nf?.imp_importadormassa === 'N' && nf?.rateio === 'S' && nf?.rateio_ipi === 'N' && nf?.rateio_st === 'N'
           && String(nf?.tipofrete).trim() === '0' && N(nf?.qtde) === 3 && N(nf?.pesoliquido) === 28.5 && N(nf?.pesobruto) === 30.5 && nf?.especie === 'Caixa' && nf?.marca === 'ACME',
           { nf, divergencia: ok.j.divergencia });
       } finally {

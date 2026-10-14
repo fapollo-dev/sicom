@@ -11,6 +11,7 @@ import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
+import { configNaTrx } from '../compras/pedido-heranca';
 import { estornarVinculoScrap } from './nf-scrap.service';
 import { estornarVinculoVendas } from './nf-vendas.service';
 import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
@@ -37,6 +38,9 @@ function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string
 
 /** as parcelas do TOTALNF que o formulário não calcula: vêm do dto ou, no PUT que não as traz, do banco (`validar` → `_totaisNota`) */
 const NF_TOTAIS_DA_FORMULA = ['valorservico', 'totalvroutros', 'totaldescfinal', 'total_icmsdeson'] as const;
+/** o que as regras do validar leem da nota gravada quando o PUT não traz (rateio/peso/presença/CFOP) */
+const NF_CAMPOS_DO_CABECALHO = ['tipo', 'tipoemissao', 'finalidade', 'cfop', 'indicador_presenca', 'calculapeso', 'rateio', 'rateio_ipi', 'rateio_st',
+  'rateio_desconto', 'rateio_ipi_devolucao', 'totaloutrasdesp', 'totalfrete2', 'totalprod', 'totaldesc'] as const;
 const NF_PARCELAS_DO_TOTAL = [...NF_TOTAIS_DA_FORMULA, 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao', 'total_fcp_valor_st', 'complemento', 'tipo'] as const;
 
 /** as colunas do retrato do produto no item da NF */
@@ -128,7 +132,7 @@ export const NF_CAMPOS_LOG: readonly CampoLog[] = [
   'totaloutrasdesp', 'totalseguro', 'totaldescfinal', 'totalprod', 'proc', 'cancelada', 'modelo', 'serie', 'cfop',
   'tipofrete', 'idempresa', 'qtdetransp', 'pesobruto', 'pesoliquido', 'totalfrete2', 'chavenfe', 'valorservico',
   'issqn', 'valorissqn', 'qtde', 'pis_nfe', 'cofins_nfe', 'taxa_importacao_nfe', 'stexterno', 'tipoemissao',
-  'nf_importacao_nfe', 'sequencia_nfe', 'validatotalnf', 'idsituacao_nf', 'rateio', 'rateio_ipi', 'rateio_st',
+  'nf_importacao_nfe', 'sequencia_nfe', 'validatotalnf', 'idsituacao_nf', 'rateio', 'rateio_ipi', 'rateio_st', 'rateio_desconto',
   'tpemissao', 'complemento', 'finalidade', 'vtoticmsufdest', 'vtoticmsufremet', 'vtotfcpufdest',
   ['TOTALICM_STEXTERNO', 'total_icmst_externo'], 'totalbase_stexterno', 'totalbaseicmsrep', 'total_icms_uf_dest_bc',
   'total_fcp_bc', 'total_fcp', 'obs', 'total_streal', 'total_icms_nota_valor', 'total_icms_nota_bc',
@@ -239,7 +243,7 @@ export const nfAggregateConfig: AggregateConfig = {
     // o resto da fórmula do TOTALNF (cdsNotaCalcFields) e o cabeçalho da nota importada (ImportaNFe): os totais "da nota", que não se
     // alteram, o controle do total (VALIDATOTALNF = vNF), a origem, os volumes e a NF avulsa do fisco
     ...NF_TOTAIS_DA_FORMULA, 'validatotalnf', 'totalbaseicmt', 'total_streal', 'totalbase_stexterno', 'total_icms_nota_valor',
-    'total_icms_nota_bc', 'imp_importadormassa', 'imp_manifesto', 'rateio_ipi', 'rateio_st', 'qtde',
+    'total_icms_nota_bc', 'imp_importadormassa', 'imp_manifesto', 'rateio_ipi', 'rateio_st', 'rateio_desconto', 'rateio_ipi_devolucao', 'calculapeso', 'qtde',
     'fisco_emit_orgao', 'fisco_emit_cnpj', 'fisco_emit_matr', 'fisco_emit_agente', 'fisco_emit_reparticao', 'fisco_emit_uf',
     'fisco_emit_fone', 'fisco_emit_dar_nro', 'fisco_emit_dar_valor', 'fisco_emit_dar_dtemis', 'fisco_emit_dar_dtpgto',
     // ST residual (corte-4c): TOTALICM_STEXTERNO/ICMS_ST_PAGO_FONTE são inputs de cabeçalho (F2/operador);
@@ -330,10 +334,46 @@ export const nfAggregateConfig: AggregateConfig = {
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
     // o item completo ANTES do derivar somar os totais: ARREDONDA padrão, VRVENDA nulo = 0, DESCONTO % do VRDESCPROD
-    await normalizarItensNf(db, emp, dto.itens);
     // as parcelas do TOTALNF que o PUT não trouxe: as da nota gravada (o `derivar` é síncrono e não lê o banco)
     if (id != null && Array.isArray(dto.itens) && NF_PARCELAS_DO_TOTAL.some((k) => dto[k] === undefined)) {
       dto._totaisNota = (await db.selectFrom('nf').select([...NF_PARCELAS_DO_TOTAL]).where('codnf', '=', id).executeTakeFirst()) ?? {};
+    }
+    // o cabeçalho gravado que as regras abaixo olham (rateio, peso, presença) quando o PUT não o traz
+    if (id != null) dto._cabecalho = (await db.selectFrom('nf').select([...NF_CAMPOS_DO_CABECALHO]).where('codnf', '=', id).executeTakeFirst()) ?? {};
+    const cab = { ...((dto._cabecalho as Record<string, unknown> | undefined) ?? {}), ...((dto._totaisNota as Record<string, unknown> | undefined) ?? {}), ...dto };
+    // o item completo ANTES do derivar somar os totais: ARREDONDA padrão, VRVENDA nulo = 0, DESCONTO % do VRDESCPROD — e o item NOVO
+    // recebe o rateio dos totais da nota (RateioNota no NewRecord, udmNF.pas:4859)
+    await normalizarItensNf(db, emp, dto.itens, cab);
+    const ctxCfg = { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    // "Calcular peso automaticamente": a nota nova nasce com a config CALCULA_PESO_AUTOMATICO ('S' na produção; uNF.pas:3301) — a importada
+    // não (CALCULAPESO nulo nas 6.459 importadas de 2026); com 'S', o peso é a soma dos itens (peso + tara do produto × quantidade total,
+    // uNF.pas:8519 — bruto com a tara, líquido sem)
+    if (id == null && dto.calculapeso === undefined && dto._origemServico !== true)
+      dto.calculapeso = String((await configNaTrx(db, 'CALCULA_PESO_AUTOMATICO', ctxCfg)) ?? 'N').toUpperCase() === 'S' ? 'S' : 'N';
+    if (String(dto.calculapeso ?? cab.calculapeso ?? '').toUpperCase() === 'S' && Array.isArray(dto.itens)) {
+      const itensPeso = dto.itens as Array<Record<string, unknown>>;
+      const ids = [...new Set(itensPeso.map((it) => Number(it.codproduto)).filter((x) => x > 0))];
+      const pesos = new Map<number, { peso: number; tara: number }>();
+      if (ids.length) for (const pr of (await db.selectFrom('produtos').select(['idproduto', 'peso', 'taraembalagem']).where('idproduto', 'in', ids).execute()) as Array<Record<string, unknown>>)
+        pesos.set(Number(pr.idproduto), { peso: num(pr.peso), tara: num(pr.taraembalagem) });
+      let bruto = 0; let liquido = 0;
+      for (const it of itensPeso) {
+        const pr = pesos.get(Number(it.codproduto)) ?? { peso: 0, tara: 0 };
+        const qtdeTotal = num(it.quantidade) * (num(it.fatorembal) > 0 ? num(it.fatorembal) : 1);
+        bruto += qtdeTotal * (pr.peso + pr.tara);
+        liquido += qtdeTotal * pr.peso;
+      }
+      dto.pesobruto = Math.round(bruto * 1000) / 1000;
+      dto.pesoliquido = Math.round(liquido * 1000) / 1000;
+    }
+    // o CFOP 5929/6929 (cupom referenciado — "Solicitação 1796", edtCFOPExit uNF.pas:9611): finalidade normal, sem frete, presencial
+    if (['5929', '6929'].includes(String(dto.cfop ?? cab.cfop ?? '').trim())) { dto.finalidade = '1'; dto.tipofrete = '9'; dto.indicador_presenca = '1'; }
+    // o indicador de presença da SAÍDA própria no gravar (uNF.pas:4829): finalidade 2/4 (complementar/devolução) → 0; vazio → 9
+    if (String(dto.tipo ?? cab.tipo ?? '').toUpperCase() === 'S' && String(dto.tipoemissao ?? cab.tipoemissao ?? '0') === '0') {
+      const fin = String(dto.finalidade ?? cab.finalidade ?? '');
+      const ind = dto.indicador_presenca !== undefined ? dto.indicador_presenca : cab.indicador_presenca;
+      if (fin === '2' || fin === '4') dto.indicador_presenca = '0';
+      else if (ind == null || String(ind).trim() === '') dto.indicador_presenca = '9';
     }
     // a linha do rateio sem ADICIONAL: 'S' quando a situação é de bonificação — tem CFOP 1910/2910
     // (`SituacaoDeBonificacao`, uLancamentoContabilNF.pas:762, no Exit da situação)

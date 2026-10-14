@@ -331,6 +331,16 @@ const CODE_PT: Record<string, string> = {
   NF_PROCESSADA: 'Nota fiscal já processada não pode ser modificada.',
   NF_CONTABILIZADA: 'Documento contabilizado. Não é permitido editar.',
   NF_ENVIADA: 'Nota fiscal já enviada para receita.',
+  // o rateio dos totais nos itens (Rateio, uNF.pas:15397) e as formas de pagamento da nota (btnGravarFormaPgtoClick, uNF.pas:5365)
+  NF_RATEIO_DESABILITADO: 'O rateio está desabilitado na aba de Itens. Habilite para continuar.',
+  NF_RATEIO_SEM_TOTAL: 'Informe o total dos produtos para realizar o rateio.',
+  NF_FORMA_PGTO_OBRIGATORIA: 'Favor, informar a forma de pagamento.\nNF-e versão 4.00.',
+  NF_FORMA_PGTO_INEXISTENTE: 'Forma de pagamento não encontrada nesta empresa.',
+  NF_FORMA_PGTO_OPERADORA: 'Para a forma de pagamento selecionada, favor informar a operadora.',
+  NF_FORMA_PGTO_VALOR: 'Favor, informar o valor do pagamento.',
+  NF_FORMA_PGTO_INTEGRACAO: 'Favor, informar o tipo de integração.',
+  NF_FORMA_PGTO_AUTORIZACAO: 'Favor, para pagamentos com integração, informar o número de autorização da operação.',
+  NF_FORMA_PGTO_NAO_ENCONTRADA: 'Forma de pagamento da nota não encontrada.',
   NF_DUPLICADA: 'Esta nota fiscal já está lançada com o mesmo número e o mesmo fornecedor.',
   // processamento / movimento de estoque (F3)
   NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',

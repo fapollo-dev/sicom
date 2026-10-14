@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
-import { recalcularNfSchema } from '@apollo/shared';
+import { recalcularNfSchema, ratearNfSchema, type RatearNfDto } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { NfFiscalService } from './nf-fiscal.service';
 
@@ -26,5 +26,12 @@ export class NfFiscalController {
   @HttpCode(200) // cálculo (não cria recurso) — 200, não o 201 default do POST
   recalcular(@Body(new ZodValidationPipe(recalcularNfSchema)) dto: Record<string, unknown>) {
     return this.fiscal.recalcular(dto);
+  }
+
+  /** "Ratear marcados" da aba Cálculo de impostos: os tipos marcados nos itens, e o recálculo — puro, como o recalcular */
+  @Post('ratear')
+  @HttpCode(200)
+  ratear(@Body(new ZodValidationPipe(ratearNfSchema)) dto: RatearNfDto) {
+    return this.fiscal.ratear(dto.nf as Record<string, unknown>, dto.tipos);
   }
 }

@@ -143,6 +143,8 @@ import { EmpresaContabilistaController } from './empresa-contabilista.controller
 import { OperadoresAggregateController } from './operadores.aggregate';
 import { FormasPgtoCrudController } from './formas-pgto.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
+import { NfAbasController } from './nf-abas.controller';
+import { NfAbasService } from './nf-abas.service';
 import { NfFiscalService } from './nf-fiscal.service';
 import { ConfigService } from './config.service';
 import { ConfiguracoesAdminController } from './configuracoes-admin.controller';
@@ -221,6 +223,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     OperadoresAggregateController, // mestre-detalhe (OPERADORES + empresas-permitidas; global, pk digitada, soft-delete INDR)
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
+    NfAbasController, // as abas da NF que olham o que se liga à nota (formas de pagamento, pedidos, devoluções, CC-e)
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfProcessamentoRapidoController, // a janela da transferência (TFrmProcessaNotaFiscal)
     NfClonarController, // ClonaNF — clonar / nota de transferência entre lojas
@@ -303,6 +306,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     ConfigService,
     ConfiguracoesAdminService,
     NfFiscalService,
+    NfAbasService,
     NfProcessamentoService,
     NfProcessamentoRapidoService,
     NfClonarService,

@@ -463,6 +463,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('416_get_pc_tipocreditoisento.sql'));
   await pool.query(sql('417_rel_curva_abc_fornecedor.sql'));
   await pool.query(sql('418_get_cartao_campos_da_tela.sql'));
+  await pool.query(sql('419_nf_abas_da_tela.sql'));
   await pool.end();
   return pg;
 }
