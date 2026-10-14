@@ -19,6 +19,7 @@ import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { AgendaPromocaoRelatorios } from './AgendaPromocaoRelatorios';
 import { listarAgendas, criarAgenda, atualizarAgenda, obterAgenda, clonarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
 import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
+import { RegistrosLogModal } from '../../shared/log/RegistrosLogModal';
 
 const n = (v: unknown) => Number(v) || 0;
 
@@ -28,6 +29,17 @@ const simNao = (v: unknown) => (String(v) === 'S' || String(v) === 'T' ? '✓' :
 /** flags de mídia: 'T'/'F' no legado; o CheckboxField fala 'S'/'N' */
 const tfParaSn = (v: unknown): 'S' | 'N' => (String(v) === 'T' || String(v) === 'S' ? 'S' : 'N');
 const snParaTf = (v: 'S' | 'N'): 'T' | 'F' => (v === 'S' ? 'T' : 'F');
+/**
+ * A pergunta da Pesquisa do legado (btnPesquisaClick, uCadAgendaPromocao.pas:857 / F3 :1359): "Trazer somente abertas" = FLAGPROMOCAO <> 'J'
+ * e DT_FIM_PROMOCAO >= hoje; "somente fechadas" = FLAGPROMOCAO = 'J'; "todas" = sem filtro.
+ */
+export function filtrarAgendas<T extends { flagpromocao?: string | null; situacao?: unknown; dtfimpromocao?: unknown }>(lista: T[], filtro: 'abertas' | 'fechadas' | 'todas', hojeIso: string): T[] {
+  if (filtro === 'todas') return lista;
+  const fechada = (a: T) => String(a.flagpromocao ?? '') === 'J' || String(a.situacao ?? '') === 'ENCERRADA';
+  if (filtro === 'fechadas') return lista.filter(fechada);
+  return lista.filter((a) => !fechada(a) && String(a.dtfimpromocao ?? '').slice(0, 10) >= hojeIso);
+}
+
 const SIT_LABEL: Record<string, string> = { AGENDADA: 'Agendada', VIGENTE: 'Vigente', EXPIRADA: 'Expirada', ENCERRADA: 'Encerrada' };
 // Status (FLAGPROMOCAO) — o combo cbbStatus do legado: N = ABERTA · E = EXECUTANDO · J = FECHADA (uCadAgendaPromocao.dfm:505)
 const STATUS_OPCOES = (Object.entries(STATUS_AGENDA_PROMOCAO) as Array<[string, string]>).map(([value, label]) => ({ value, label }));
@@ -70,6 +82,11 @@ export function AgendaPromocaoCadMaster() {
   const [dtini, setDtini] = useState('');
   const [dtfim, setDtfim] = useState('');
   const [itens, setItens] = useState<AgendaPromocaoItemDto[]>([]);
+  // a auditoria do uCadAgendaPromocao.dfm (14/10/2026): "Exibir produtos" (RdgExibirProdutosAtivos: Ativos/Inativos/Ambos — Ambos é o padrão),
+  // o filtro da Pesquisa (btnPesquisaClick/F3: só abertas / só fechadas / todas) e o "Histórico" (BtnHistorico → registros de log por CODAGENDA)
+  const [exibir, setExibir] = useState<'S' | 'N' | 'T'>('T');
+  const [filtroLista, setFiltroLista] = useState<'abertas' | 'fechadas' | 'todas'>('todas');
+  const [logAberto, setLogAberto] = useState(false);
   // o % de desconto do cabeçalho (JvCalcEdit1): na geração por grupo, cada irmão sai com Vr. Venda − Vr. Venda × %/100
   const [pct, setPct] = useState<number | undefined>(undefined);
 
@@ -323,6 +340,7 @@ export function AgendaPromocaoCadMaster() {
     },
   ], [rotuloProduto]);
 
+  const listaFiltrada = filtrarAgendas(lista, filtroLista, new Date().toISOString().slice(0, 10));
   return (
     <div className="flex flex-col gap-gp-md">
       <PageHeader title="Agenda de Promoção" />
@@ -362,7 +380,8 @@ export function AgendaPromocaoCadMaster() {
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
             {/* uCadAgendaPromocao.pas:438-439 — GET_PRODUTOS com ATIVO='S' AND IMPRIMIRCOMP='N' (o naoComposto vai pela tabela no servidor) */}
-            <div ref={produtoRef} className="sm:col-span-2"><LookupField label="&Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao"
+            {/* o F2 do legado (edtCodBarra + SegCodBarra): o operador digita o CÓDIGO DE BARRAS e sai; o auxiliar e a Pesquisa pelo botão */}
+            <div ref={produtoRef} className="sm:col-span-2"><LookupField label="&Produto (código de barras)" recurso="lookup/produtos" campoCodigo="idproduto" campoDigitado="codbarra" descricao="descricao"
               fixos={{ ativo: 'S' }} parametros={{ naoComposto: 'S' }} value={idproduto} onChange={(cod) => setIdproduto(cod ? Number(cod) : undefined)} /></div>
             <CurrencyField label="Vr. &Venda" value={vrvenda} onChange={setVrvenda} />
             <CurrencyField label="Vr. &Promocional" value={vlrpromocao} onChange={setVlrpromocao} />
@@ -391,7 +410,9 @@ export function AgendaPromocaoCadMaster() {
 
         {itens.length > 0 && (
           <div className="mt-form-gap overflow-x-auto">
-            <DataTable persistId="agenda-promocao" savedViewsService={gradeLayoutService} rows={itens} columns={itensColunas} getRowId={(r) => String(r.idproduto)}
+            <div className="mb-gp-xs w-44"><SelectField label="Exibir produtos" value={exibir} onChange={(v) => setExibir((v as 'S' | 'N' | 'T') || 'T')}
+              options={[{ value: 'S', label: 'Ativos' }, { value: 'N', label: 'Inativos' }, { value: 'T', label: 'Ambos' }]} /></div>
+            <DataTable persistId="agenda-promocao" savedViewsService={gradeLayoutService} rows={exibir === 'T' ? itens : itens.filter((it) => (it.ativo ?? 'S') === exibir)} columns={itensColunas} getRowId={(r) => String(r.idproduto)}
               onCellEditCommit={editarCelula} />
           </div>
         )}
@@ -401,6 +422,7 @@ export function AgendaPromocaoCadMaster() {
             <div className="w-56"><SelectField label="Preço da etiqueta" value={precoEtiqueta} onChange={(v) => setPrecoEtiqueta(v as 'status' | 'venda' | 'promocional')}
               options={[{ value: 'status', label: 'Pela situação da agenda' }, { value: 'venda', label: 'Utilizar valor de venda' }, { value: 'promocional', label: 'Utilizar valor promocional' }]} /></div>
           )}
+          {editando != null && <Button label="&Histórico" variant="ghost" onClick={() => setLogAberto(true)} />}
           {editando != null && <Button label="E&tiquetas" variant="soft" onClick={etiquetas} />}
           {editando != null && <Button label="C&lonar agenda" variant="soft" onClick={() => void clonar()} />}
           {editando != null && <Button label="&Cancelar" variant="ghost" onClick={limparForm} />}
@@ -410,8 +432,11 @@ export function AgendaPromocaoCadMaster() {
 
       {editando != null && <AgendaPromocaoRelatorios codagenda={editando} />}
 
-      {/* Lista de agendas */}
-      <DataTable persistId="agenda-promocao-2" savedViewsService={gradeLayoutService} rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.codagenda)} />
+      {/* Lista de agendas — a pergunta da Pesquisa do legado (btnPesquisaClick/F3): só abertas (FLAGPROMOCAO <> J e fim ≥ hoje), só fechadas (J), todas */}
+      <div className="w-56"><SelectField label="Trazer" value={filtroLista} onChange={(v) => setFiltroLista((v as 'abertas' | 'fechadas' | 'todas') || 'todas')}
+        options={[{ value: 'abertas', label: 'Somente abertas' }, { value: 'fechadas', label: 'Somente fechadas' }, { value: 'todas', label: 'Todas' }]} /></div>
+      <DataTable persistId="agenda-promocao-2" savedViewsService={gradeLayoutService} rows={listaFiltrada} columns={colunas} loading={carregando} getRowId={(r) => String(r.codagenda)} />
+      {logAberto && editando != null && <RegistrosLogModal log={{ form: 'FRMCADAGENDAPROMOCAO', chave: 'CODAGENDA' }} valor={editando} onFechar={() => setLogAberto(false)} />}
     </div>
   );
 }

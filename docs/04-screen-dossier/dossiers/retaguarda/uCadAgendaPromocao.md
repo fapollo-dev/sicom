@@ -120,3 +120,27 @@ e desativados há até AGENDA_PROMOCAO_DIAS_ITEM_CANCELADO dias (365 na produç�
 grupo** (o mestre os regera); de cada um: venda, promocional, clube, ATIVO, mídias e a marca de grupo; opções do item = as do
 cabeçalho. Produção: 14 clones em 2025, 6 em 2026. Smoke §266.
 
+## A auditoria controle a controle do uCadAgendaPromocao.dfm (14/10/2026)
+
+O `.dfm` (3.494 linhas) e as 7 opções de permissão da produção revistos contra a tela do Apollo, com a prova nas 3.744 agendas e 45.532
+itens. A tela já tinha o cabeçalho (nome, status, % desconto, período com hora, lojas, observação), o adder do item (venda, promocional,
+fidelidade, máx., mín. compra, TV/Rádio/Tabloide/Interno), a grade (ativo/inativo, grupo de preço, remover), etiquetas (venda/promocional),
+clonar, encerrar/aplicar/reabrir e os 10 relatórios do Outros. Convertido neste corte:
+
+- ⛔→✅ **"Exibir produtos"** (`RdgExibirProdutosAtivos` :1670 — Ativos / Inativos / Ambos, Ambos é o padrão): o filtro da grade dos itens.
+- ⛔→✅ **A pergunta da Pesquisa** (`btnPesquisaClick` :857 e o F3 :1359 — "Trazer somente abertas / somente fechadas / todas": abertas =
+  FLAGPROMOCAO <> 'J' e fim ≥ hoje; fechadas = 'J'): o filtro "Trazer" da lista.
+- ⛔→✅ **"Histórico"** (`BtnHistorico` :781 → `ChamaTelaRegistrosLog('CODAGENDA')`): o visualizador de log da agenda (a LOG da produção tem
+  7.434 linhas da tela em 2026).
+- ⛔→✅ **F2 / `edtCodBarra`** (:1231): o produto do adder passa a ser digitado pelo **código de barras** (`campoDigitado`), como o
+  SegCodBarra; o auxiliar e a descrição ficam na Pesquisa.
+
+Com prova, sem código: **Opções** (`cbbOpcoes`, o combo Rebaixa por vencimento/excesso/avariada/sem giro/inativo → V/E/A/S/I): na
+produção o cabeçalho AGENDA_PROMOCAO.OPCOES é NUMBER (101-104 em 304 agendas de 2021-2024) e o item CHAR (V/E/S em 338 itens de
+2020-2023) — nulo em 100% desde 2025; o Apollo mantém o inteiro do cabeçalho e a cópia do cabeçalho para os itens ao gravar
+(`cbbOpcoesExit` :1047). **% fidelidade do cabeçalho** (`editFidelidade` :1215 → VRCLUBE_FIDELIDADE por item): 3 itens, todos de 2022 — o
+valor por item existe na grade. **Multi-Ordenação** (`chbMultiOrdem`): a grade do DS ordena. **Alterar empresas da agenda**: as lojas
+são editáveis na edição. A opção **CUSTOREPOSICAO** (23 operadores) não existe no fonte de 2020 — binário novo, registrada.
+
+jsdom: `agendaPromocaoFiltros.spec.ts` (o filtro da lista; o Select do DS é Radix e não se escolhe em jsdom — o filtro da grade e o Histórico ficam no tsc).
+
