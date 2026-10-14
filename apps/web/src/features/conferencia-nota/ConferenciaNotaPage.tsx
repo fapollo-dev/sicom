@@ -9,6 +9,7 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { hojeNaLoja } from '../../shared/tempo';
 import { useShortcut } from '../../shared/keyboard';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -46,6 +47,23 @@ const digitando = (e: KeyboardEvent) => {
 };
 
 const APROVADO = (i: Item) => String(i.produc_status ?? '').trim().toUpperCase() === 'APROVADO';
+/** `dbgridDrawColumnCell` (uConferenciaNota.pas:745): BLOQUEADO vermelho, APROVADO verde, LIBERADO azul */
+const corStatus = (i: Item) => {
+  const st = String(i.produc_status ?? '').trim().toUpperCase();
+  if (st === 'APROVADO') return 'font-semibold text-success';
+  if (st === 'BLOQUEADO') return 'font-semibold text-danger';
+  if (st === 'LIBERADO') return 'font-semibold text-info';
+  return 'text-fg-muted';
+};
+/** `PreencheStatusLote` (:1094): a soma do coletado contra a soma da nota — nada, parte ou tudo */
+export function statusDaConferencia(itens: Array<{ qtde_nota: number; qtde_coletada: number | null }>): string {
+  if (!itens.length) return '';
+  const total = itens.reduce((s, i) => s + Number(i.qtde_nota ?? 0), 0);
+  const coletado = itens.reduce((s, i) => s + Number(i.qtde_coletada ?? 0), 0);
+  if (coletado === 0) return 'Não coletado';
+  if (Math.abs(coletado - total) > 0.0005) return 'Parcialmente coletado';
+  return 'Totalmente coletado';
+}
 
 /**
  * CONFERÊNCIA DE NOTA FISCAL (FRMCONFERENCIANOTA) — corte-1. A conferência física é do COLETOR; aqui o
@@ -63,6 +81,15 @@ export function ConferenciaNotaPage() {
   const [busy, setBusy] = useState(false);
   // o legado tem uma caixa de código de barras que LOCALIZA a linha numa nota grande (edtCodBarraKeyDown:810)
   const [filtro, setFiltro] = useState('');
+  // o btnPesquisa: a Pesquisa da GET_NF só de entrada (CarregaNF :621, TIPO = 'E'); o modo "Por lote de notas fiscais"
+  // (RgpTipoConferencia, LOTE_CONFERENCIA_NF) não tem substrato — 4 lotes de teste em 2021-22 na produção
+  const [pesquisando, setPesquisando] = useState(false);
+  // "Pesquisa Cod. Barras" (edtCodBarraKeyDown): o Enter num código que não está na nota avisa
+  const localizarCodBarra = (e: { key: string }) => {
+    const v = filtro.trim();
+    if (e.key !== 'Enter' || !/^\d+$/.test(v)) return;
+    if (!itens.some((i) => String(i.codbarra ?? '') === v)) mensagem.erro(new Error('Código de barras não encontrado.'));
+  };
 
   const [params] = useSearchParams();
   const carregar = async (cod = codnf) => {
@@ -162,8 +189,10 @@ export function ConferenciaNotaPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-40"><Field label="&Nota fiscal (código)" value={codnf} onChange={(e) => setCodnf(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void carregar()} /></div>
         <Button label="&Abrir" variant="soft" disabled={busy || !codnf} onClick={() => void carregar()} />
+        <Button label="Pes&quisar nota" variant="ghost" disabled={busy} onClick={() => setPesquisando(true)} />
         {nf && <div className="flex-1 text-body-sm">
           NF <b>{nf.nronf}</b>/{nf.serie} · {nf.fornecedor} · {brl(nf.totalnf)}
+          {itens.length > 0 && <span className="ml-gp-sm font-semibold">Status: {statusDaConferencia(itens)}</span>}
         </div>}
         <div className="flex flex-wrap items-center gap-gp-xs">
           <span className="text-body-sm text-fg-muted">Imprimir:</span>
@@ -172,6 +201,11 @@ export function ConferenciaNotaPage() {
           <Button label="Lista de conferência usuários" variant="ghost" onClick={() => imprimirLista('usuarios')} />
         </div>
       </div>
+
+      {pesquisando && (
+        <Pesquisa resourcePath="fiscal/nf" parametros={{ tipo: 'E' }} onFechar={() => setPesquisando(false)}
+          onSelecionar={(l) => { setPesquisando(false); const cod = String(l.codigo ?? l.codnf ?? ''); if (cod) { setCodnf(cod); void carregar(cod); } }} />
+      )}
 
       {painelRel && (
         <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -216,7 +250,7 @@ export function ConferenciaNotaPage() {
           <Button label="A&provar selecionados" variant="soft" disabled={busy || !sel.size} onClick={() => void aprovar()} />
           <Button label="&Cancelar aprovação" variant="ghost" disabled={busy || !sel.size} onClick={() => void cancelar()} />
           <Button label="A&nálise produto" variant="ghost" disabled={busy || !sel.size} onClick={() => void analisar()} />
-          <div className="w-52"><Field label="&Localizar (código ou descrição)" value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="filtra a lista" /></div>
+          <div className="w-52"><Field label="&Localizar (código ou descrição)" value={filtro} onChange={(e) => setFiltro(e.target.value)} onKeyDown={localizarCodBarra} placeholder="filtra a lista" /></div>
           <div className="flex-1 text-right text-body-sm"><b>{sel.size}</b> de {itens.length} selecionado(s)</div>
           <small className="w-full text-fg-muted">
             A contagem é feita no <b>coletor</b> — «Qtd. contada» e «Coleta» vêm dele. <b>Vermelho</b> é divergência
@@ -248,7 +282,7 @@ export function ConferenciaNotaPage() {
                   {i.qtde_coletada == null ? <span className="text-fg-muted">não contado</span> : q3(i.qtde_coletada)}
                 </td>
                 <td className="p-pad-xs text-right tabular-nums text-fg-muted">{brl(i.vl_custo)}</td>
-                <td className={`p-pad-xs ${APROVADO(i) ? 'font-semibold text-accent' : 'text-fg-muted'}`}>
+                <td className={`p-pad-xs ${corStatus(i)}`}>
                   {String(i.produc_status ?? '').trim() || 'pendente'}
                 </td>
                 <td className="p-pad-xs text-fg-muted whitespace-nowrap">
