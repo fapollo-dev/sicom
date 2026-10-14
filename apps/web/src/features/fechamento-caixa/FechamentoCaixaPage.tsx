@@ -461,6 +461,46 @@ export function FechamentoCaixaPage() {
             </table>
           </section>
 
+          {/* a grade "Valores de conferência" da tela do legado (cdsCX_Vendas, ProcessaSQL :1785-2006): uma linha por lançamento do turno; o duplo clique
+              abre o cupom (JvDBUltimGrid1DblClick :1626-1654 → TfrmConsHistVendas pelo cupom + PDV + loja, ou pelo pedido quando não há COO) */}
+          {!!det.grade?.length && (
+            <details className="rounded-radius-md border border-border bg-bg-surface">
+              <summary className="cursor-pointer p-pad-sm text-body-sm font-semibold">Valores de conferência — {det.grade.length} lançamento(s) do turno</summary>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-fg-muted">
+                      <th className="px-2 py-1">Data</th><th className="px-2 py-1">Nome</th><th className="px-2 py-1">Modalidade</th><th className="px-2 py-1 text-right">Valor</th>
+                      <th className="px-2 py-1">Cupom</th><th className="px-2 py-1">Tipo</th><th className="px-2 py-1 text-right">Vr. Recebido</th><th className="px-2 py-1 text-right">Troco</th>
+                      <th className="px-2 py-1 text-right">Venda Balcão</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {det.grade.map((g, i) => {
+                      const cupom = String(g.coo ?? '').trim();
+                      const semCupom = cupom === '' || cupom === '0';
+                      const abre = !(semCupom && Number(g.valor) === 0) && String(g.nropedido ?? '').trim() !== '' && String(g.nropedido) !== '00000';
+                      const href = `/vendas/historico?nropedido=${encodeURIComponent(String(g.nropedido ?? ''))}${g.idempresa ? `&empresa=${g.idempresa}` : ''}`;
+                      return (
+                        <tr key={`${g.data}-${g.operacao}-${i}`} className="border-t border-border" onDoubleClick={() => { if (abre) navigate(href); }}>
+                          <td className="px-2 py-1 tabular-nums">{g.data?.replace('T', ' ').slice(0, 19)}</td>
+                          <td className="px-2 py-1">{g.nome ?? ''}</td>
+                          <td className="px-2 py-1">{g.operacao}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(g.valor)}</td>
+                          <td className="px-2 py-1 tabular-nums">{abre ? <button className="underline" onClick={() => navigate(href)} title="Visualizar cupom">{semCupom ? g.nropedido : cupom}</button> : (semCupom ? '' : cupom)}</td>
+                          <td className="px-2 py-1">{g.debito_credito ?? ''}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(g.valorb)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(g.troco)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(g.venda_balcao)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
           <section className="grid grid-cols-1 gap-gp-md rounded-radius-md border border-border bg-bg-surface p-pad-md md:grid-cols-2">
             <div className="flex flex-col gap-gp-xs">
               <strong className="text-body-sm">Dinheiro, sangrias e suprimento</strong>

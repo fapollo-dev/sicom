@@ -555,3 +555,20 @@ As impressões do corte 4 saíam em HTML próprio (`imprimirPagina`); agora saem
   fec_Fechamento_de_caixa_totalizado estão na RELATORIOS mas nenhuma unit do fonte os carrega.
 Smoke §293; renderização dos 4 layouts em `apps/web/test/relatorio-fr3.spec.ts`.
 
+## A auditoria controle a controle da tela principal (14/10/2026)
+
+`uFechamentoCaixa.pas` (2.072) + `.dfm` (3.047) revistos contra o Apollo (os cortes 1-4 e as impressões já estavam). O que faltava:
+
+- ✅ **A grade "Valores de conferência"** (`cdsCX_Vendas` — `ProcessaSQL` :1785-2006: Data, Nome, Modalidade, Valor, Cupom, Tipo, Vr. Recebido,
+  Troco, Venda Balcão; sem DESCONTO/ACRESCIMO/SANGRIA/SUPRIMENTO) e o **duplo clique** que abre o cupom (`JvDBUltimGrid1DblClick` :1626-1654 →
+  `TfrmConsHistVendas` pelo cupom + PDV + loja, ou pelo pedido quando não há COO; nada quando não há cupom e o valor é 0). O Apollo mostrava
+  só a grade por operação (a da finalização) — a `grade` já vinha na API (base do relatório de análise) e agora aparece no detalhe do turno,
+  com o cupom como atalho para a consulta de histórico de vendas.
+
+Com prova, sem código:
+- **"Abrir Caixa"** (`btnAbrir` → `TfrmAbertCaixa`, UabertCaixa.pas:89-140: grava em CX_VENDAS as linhas 'SALDO ANTERIOR' por modalidade e o
+  fundo de caixa em SUPRIMENTOS às 00:00 sem pedido): **0 linhas de 2024 a 2026** — a abertura do turno é do PDV (CAIXA_PDV: ~480/mês).
+- Os modos **Balcão / OS** (`cmbOpcao` 1/2, CX_PEDIDOS/CX_OS, "Data Faturamento", Tipo/Situação): CX_PEDIDOS tem 1 linha em 2026 (§ impressões, e.3).
+- Os filtros da tela (PDV, operador, data/hora, operação, status, turno): o Apollo chega ao turno pela data → lista → detalhe, o mesmo caminho do
+  [F5] "Caixa em aberto" que o operador usa; Alt+I (o menu Imprimir) são os botões de impressão do detalhe.
+

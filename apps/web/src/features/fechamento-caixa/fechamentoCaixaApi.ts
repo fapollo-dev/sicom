@@ -51,7 +51,9 @@ export interface DetalheTurno {
   turno: { data: string; chave: string | null; nropdv: number; codoperadora: number; nome: string | null; situacao: number };
   modo: 'fechamento' | 'consulta';
   /** as linhas de CX_VENDAS do turno (a grade da tela do legado) — base do relatório de análise */
-  grade?: Array<{ data: string; nropdv: number; codoperadora: number; nome?: string | null; operacao: string; valor: number; sangrias?: number | null; suprimentos?: number | null }>;
+  grade?: Array<{ data: string; nropdv: number; codoperadora: number; nome?: string | null; operacao: string; valor: number; sangrias?: number | null; suprimentos?: number | null;
+    /** as colunas da grade "Valores de conferência" do legado (cdsCX_Vendas): o bruto, o troco, o cupom (COO), o tipo e a venda balcão */
+    valorb?: number; troco?: number | null; coo?: string | null; nropedido?: string | null; debito_credito?: string | null; venda_balcao?: number; idempresa?: number }>;
   linhas: LinhaFechamento[];
   fixas: Record<Fixa, number>;
   dinheiroContado: number;
