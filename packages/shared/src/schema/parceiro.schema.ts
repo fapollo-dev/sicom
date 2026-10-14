@@ -294,6 +294,24 @@ const parceiroBase = z.object({
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
   /** o "Deseja continuar?" do legado quando o CPF/CNPJ já está em endereço ativo de outro cadastro (edtCNPJ_CPFExit) — não grava */
   confirmarDocumentoRepetido: z.boolean().optional(),
+  /** "Existe parceiro cadastrado com o mesmo nome … Verificar antes de prosseguir?" (edtRazaoExit) — não grava */
+  confirmarRazaoRepetida: z.boolean().optional(),
+  // ── a auditoria do uCadClientes.dfm (14/10/2026) ──
+  /** a condição de pagamento do fornecedor (edtCondicaoPagto → CONDICOES_PAGTO; 1.927 parceiros na produção) */
+  codconpagto: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  /** "Cliente Especial" (DESPREZA_BLOQUEIO — o PDV não aplica o bloqueio) */
+  despreza_bloqueio: sn().optional(),
+  /** "Sálario Fixo" e "Observação Financeira" da aba Dados financeiros */
+  fixo: dec(z.number().nonnegative('Salário fixo inválido')),
+  obs2: z.string().trim().max(800).optional(),
+  /** "Observação ECF" (PRINTECF — o texto que sai no cupom do cliente; 105 na produção) */
+  printecf: z.string().trim().max(300).optional(),
+  /** "Autorização de Vendas no PDV": a senha de 6 caracteres (edtSenhaAutPDVExit) e a confirmação — só de escrita */
+  senha_autpdv: opcional(z.string().regex(/^.{6}$/, 'Senha para autorização de venda no PDV deve conter 6 caracteres. Verifique!')),
+  senha_autpdv_confirma: opcional(z.string().max(30)),
+  /** a senha do fornecedor (edtSENHA — o login da cotação; gravada na cifra do legado) e a confirmação — só de escrita */
+  senha: opcional(z.string().max(30)),
+  senha_confirma: opcional(z.string().max(30)),
   bancos: z.array(bancoParceiroSchema).optional().default([]),
   pgtos: z.array(pgtoParceiroSchema).optional().default([]),
   relacionamentos: z.array(relParceiroSchema).optional().default([]),
@@ -304,7 +322,18 @@ const parceiroBase = z.object({
 const aoMenosUmPapel = (d: { cli?: string; frn?: string; fun?: string; tra?: string; con?: string }) =>
   d.cli === 'S' || d.frn === 'S' || d.fun === 'S' || d.tra === 'S' || d.con === 'S';
 
+/** as confirmações das senhas (edtConfSenhaAutPDV / edtConfSENHA): só quando a senha vem */
+const confirmacoesDeSenha = (d: { senha_autpdv?: string; senha_autpdv_confirma?: string; senha?: string; senha_confirma?: string }, ctx: z.RefinementCtx) => {
+  if (d.senha_autpdv != null && d.senha_autpdv_confirma != null && d.senha_autpdv !== d.senha_autpdv_confirma) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A confirmação da senha de autorização no PDV não confere.', path: ['senha_autpdv_confirma'] });
+  }
+  if (d.senha != null && d.senha_confirma != null && d.senha !== d.senha_confirma) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A confirmação da senha não confere.', path: ['senha_confirma'] });
+  }
+};
+
 export const parceiroSchema = z.preprocess(stripNulls, parceiroBase).superRefine((d, ctx) => {
+  confirmacoesDeSenha(d, ctx);
   if (!aoMenosUmPapel(d)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -328,7 +357,7 @@ export const parceiroSchema = z.preprocess(stripNulls, parceiroBase).superRefine
 });
 export type CriarParceiroDto = z.infer<typeof parceiroSchema>;
 
-export const atualizarParceiroSchema = z.preprocess(stripNulls, parceiroBase.partial());
+export const atualizarParceiroSchema = z.preprocess(stripNulls, parceiroBase.partial()).superRefine((d, ctx) => confirmacoesDeSenha(d as any, ctx));
 export type AtualizarParceiroDto = z.infer<typeof atualizarParceiroSchema>;
 
 export interface Parceiro extends CriarParceiroDto {

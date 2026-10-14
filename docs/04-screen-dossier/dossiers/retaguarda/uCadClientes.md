@@ -658,3 +658,31 @@ O logotipo (`images\logorel.jpg` da estação) não está no banco. Smoke §287.
 A aba "Movimento do vendedor" (`BtnConsultarMovVendedorClick` → `qryVendedorMovimento` sobre NF_PROD.CODVENDEDOR, mais o saldo flexível
 da HISTORICO_FLEX) e a impressão Movimento_Vendedor.fr3: **28 itens de nota com vendedor em toda a produção, o último de 15/12/2023;
 HISTORICO_FLEX vazia** (01/10/2026). Morta — não convertida.
+
+## Auditoria controle a controle do `uCadClientes.dfm` (14/10/2026)
+
+Os 287 controles e 13+2 abas do dfm contra a tela do Apollo, com a produção decidindo (leitura só-leitura em 14/10/2026; 19.099 parceiros):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| **Histórico de vendas** (`tbsHistoricoVendas`: período, origem Vendas/Pedidos, Buscar, grade, duplo clique → `frmConsHistVendas`) | 59.811 linhas de venda com parceiro em 2026 (211 parceiros); PEDIDOS 'P' com parceiro: 0 | ✅ `GET cadastro/parceiros/:cod/historico-vendas?de&ate&origem&empresas` (a SQL de `btnConsHistoricoVendasClick` :1467 — Σ qtde × (VRVENDA + os descontos devolvidos), sem cancelados, nas lojas do `GetMultiEmpresa`); a seção na tela abre a venda em `/vendas/historico` |
+| `edtCondicaoPagto` (CODCONPAGTO, `tsFornecedorGeral`) | 1.927 parceiros (último em 02/2026) | ✅ lookup `condicoes-pagto` no bloco Fornecedor |
+| `DBCheckBox1` "Cliente Especial" (DESPREZA_BLOQUEIO) | 22 | ✅ no bloco Cliente |
+| `JvDBCalcEdit1` "Sálario Fixo" (FIXO) · `memObsFin` "Observação Financeira" (OBS2) | 169 (alterado em 14/10/2026) · 35 | ✅ bloco Dados financeiros |
+| `memECF` "Observação ECF" (PRINTECF) | 105 (alterado em 13/10/2026; "ISAC PARCERIA", …) | ✅ no bloco Cliente |
+| `grbSenhaAut` "Autorização de Vendas no PDV" (SENHA_AUTPDV + confirma; `edtSenhaAutPDVExit`: 6 caracteres) + Outros → "Visualizar senha dados financeiros" (Tag 1) | 203 (todas com 6; alterado em 13/10/2026); 159 concessões | ✅ só de escrita (a leitura devolve `tem_senha_autpdv`); `GET :cod/senha-autpdv` com a opção VISUALIZARSENHADADOSFINANCEIROS1 (mig 422 = a fixture do operador 7) |
+| `edtSENHA`/`edtConfSENHA` (SENHA do fornecedor — o login da cotação, `uLoginCotacao`) | 57 (54 fornecedores; alterado em 10/10/2026) | ✅ só de escrita, gravada na cifra do legado (`encSenha` = César +13 — `encodeSenhaLegado`, a mesma do cutover das senhas); vazia limpa |
+| `FormShow` :3848 — `PERMITIR_HISTORICO` (aba Histórico financeiro) · `PARCEIRO_EXIBIR_DADOS_FINANCEIROS` (aba Dados financeiros) | N com o módulo Retaguarda = S · S | ✅ mig 422 (ids 169/189 + o override) e `GET apoio/configs`; a tela esconde os blocos |
+| `edtRazaoExit` :3660 — "(\|)" na razão; "Existe parceiro cadastrado com o mesmo nome … Verificar antes de prosseguir?" | — | ✅ 422 PARCEIRO_RAZAO_PIPE; 422 PARCEIRO_RAZAO_REPETIDA com `confirmar` (o CadMaster pergunta e reenvia `confirmarRazaoRepetida`) |
+| `chbATIVADOChange` :5225 — "Já existe fornecedor ativo com este CNPJ" (desmarca o Ativo) | 552 CNPJs com mais de um fornecedor ativo (a tela só testa ao marcar) | ✅ 422 PARCEIRO_FORNECEDOR_CNPJ_ATIVO ao ativar o fornecedor (inativo grava) |
+| Aba **Faturamento** (CLIENTES_TIPOFATURAMENTO; só SEGMENTO='INDUSTRIA') | 0 linhas; segmento ≠ indústria | ✗ fora |
+| Aba **Foto** (ANEXOS_IMG, biometria) | 0 linhas; BIOMETRIA nulo em 100% | ✗ fora |
+| Aba **Acordo Comercial** (ACORDO_COMERCIAL, Gerar/Reverter financeiro, Imprimir acordo, contrato via Word) | 7 acordos, todos de 2020-2021 | ✗ fora (documentado) |
+| Aba **Vendedor** (movimento/flex) | 🪦 (02/10/2026) | ✗ |
+| `EdtCodTipoBloqueio` (CODIGO_BLOQUEIO) | 1 | ✗ fora |
+| CARGOEMPRESA / TELEFONEEMPRESA / TEMPOSERVICO / VENCIMENTOS / DIASFINAN | 0 | ✗ fora (colunas existem e vêm na carga) |
+| Senha PDV do relacionamento (PARCEIROS_REL.SENHA_AUTPDV; "Visualizar senha relacionamentos") | PARCEIROS_REL = 3 linhas | ✗ fora |
+| Consultar SINTEGRA / Receita Federal (`btnSintegra`, `btnConsultar`) | serviços externos | ✗ (adiado C, como antes) |
+| Bancos / Formas de pagamento / Relacionamentos / Vendedores / Cód. ref. fornecedor / Histórico financeiro / Ficha cadastral / Cartão / Registro de log | PARCEIROS_BANCOS 0 · PARCEIROS_PGTO 274 · PARCEIROS_REL 3 · 1/22 · CODREFERENCIA_FOR 23.200 | ✅ já havia |
+
+Smoke §319; web `historicoVendasParceiro.spec.tsx`.

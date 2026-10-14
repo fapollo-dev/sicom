@@ -6,6 +6,9 @@ import { createAggregateController } from '../../shared/crud/aggregate.controlle
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { capturarAlteracaoParceiro } from '../sped/sped-alteracoes';
 import { validarEnderecosDoParceiro, CODPAIS_BRASIL } from './parceiro-enderecos';
+import { encodeSenhaLegado } from '../../shared/auth/crypto';
+import { sql } from 'kysely';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 import { UFS } from '@apollo/shared';
 import { configNaTrx } from '../compras/pedido-heranca';
 
@@ -38,6 +41,17 @@ export const parceiroAggregateConfig: AggregateConfig = {
       if (dto[k] === undefined) out[k] = 'N';
     }
     return out;
+  },
+  // as senhas não voltam na leitura (a view GET_PARCEIROS não as tem; a da autorização no PDV sai só pelo "Visualizar senha dados
+  // financeiros", com a permissão) — a tela só sabe SE existem
+  anexarLeitura: async ({ db, id, registro }) => {
+    const r = { ...registro } as Record<string, unknown>;
+    delete r.senha_autpdv;
+    delete r.senha;
+    const f = (await sql<{ ts: boolean; tp: boolean }>`SELECT coalesce(senha, '') <> '' AS ts, coalesce(senha_autpdv, '') <> '' AS tp FROM parceiros WHERE codparceiro = ${id}`.execute(db)).rows[0];
+    r.tem_senha = f?.ts ? 'S' : 'N';
+    r.tem_senha_autpdv = f?.tp ? 'S' : 'N';
+    return r;
   },
   // a data da última alteração carimbada pela TELA em toda gravação (está no dataset: vai na LOG "Alterou" — 280 de 280 em 2026)
   derivar: () => ({ dtultalteracao: new Date().toISOString() }),
@@ -73,6 +87,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
     // a conta corrente, o parceiro matriz, "todos os pagamentos" e a placa da transportadora
     'soma_st_bonificacao', 'habilita_retencao_senar_nf', 'visualiza_pc_parc', 'participa_cotacao', 'clubefidelidade',
     'codconta', 'codparceiro_matriz', 'todospgtos', 'placa', 'ufplaca',
+    // a auditoria do uCadClientes.dfm (14/10/2026): a condição de pagamento, "Cliente Especial", "Sálario Fixo", a observação financeira,
+    // a "Observação ECF" e a senha de autorização de venda no PDV (6 caracteres, em claro como o legado — o `edtSenhaAutPDV` não cifra)
+    'codconpagto', 'despreza_bloqueio', 'fixo', 'obs2', 'printecf', 'senha_autpdv',
+    // a senha do fornecedor (edtSENHA — o login da cotação, uLoginCotacao): o `validar` a troca pela cifra do legado antes de gravar
+    'senha',
   ],
   detalhes: [
     {
@@ -120,6 +139,8 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // o registro 0175 do SPED: nome, documento, município ou endereço do participante mudou (uCadClientes.pas:2113-2114).
   // No UPDATE o `validar` roda na transação do save, antes da troca dos endereços — lê o endereço ainda gravado.
   validar: async ({ dto, id, db }) => {
+    // a senha do fornecedor na cifra do legado (encSenha: César +13 — 57 na produção, alterada em 10/10/2026); vazia limpa
+    if (typeof dto.senha === 'string') (dto as Record<string, unknown>).senha = dto.senha === '' ? null : encodeSenhaLegado(dto.senha);
     // as PERMISSÕES DE CONTROLE do cadastro de clientes (UCadClientes.dfm, form de cadastro): os papéis (cliente, fornecedor,
     // funcionário, convênio, transportadora), o crédito, "livre do indexador" e "realiza troca" desabilitados sem a opção —
     // produção 27/09/2026: 2 de 49 operador×loja sem as de fornecedor/convênio/transportadora/crédito, 5 sem indexador/troca
@@ -149,6 +170,42 @@ export const parceiroAggregateConfig: AggregateConfig = {
       estrangeiro: String(dto.estrangeiro ?? gravado?.estrangeiro ?? 'N') === 'S',
       criando: id == null,
     });
+    // edtRazaoExit (uCadClientes.pas:3660): o "|" não entra na razão; outro parceiro com o MESMO nome pergunta "Verificar antes de
+    // prosseguir?" — na inclusão e quando a razão muda
+    if (typeof dto.razao === 'string') {
+      if (dto.razao.includes('|')) throw new BusinessRuleError('PARCEIRO_RAZAO_PIPE');
+      const antesRazao = id != null ? ((await (db as any).selectFrom('parceiros').select('razao').where('codparceiro', '=', id).executeTakeFirst()) as { razao?: string | null } | undefined) : undefined;
+      if ((id == null || String(antesRazao?.razao ?? '') !== dto.razao) && dto.confirmarRazaoRepetida !== true) {
+        const outro = (await sql<{ codparceiro: number; razao: string }>`SELECT codparceiro, razao FROM parceiros
+            WHERE upper(razao) = upper(${dto.razao}) AND codparceiro <> ${id ?? 0} ORDER BY codparceiro LIMIT 1`.execute(db)).rows[0];
+        if (outro) {
+          throw new BusinessRuleError('PARCEIRO_RAZAO_REPETIDA', { codparceiro: outro.codparceiro, razao: outro.razao, confirmar: 'confirmarRazaoRepetida' },
+            `Existe parceiro cadastrado com o mesmo nome: ${outro.codparceiro} - ${outro.razao}. Verificar antes de prosseguir?`);
+        }
+      }
+    }
+    // chbATIVADOChange (:5225): ativar um FORNECEDOR cujo CNPJ já é de outro fornecedor ativo com fantasia — a tela desmarca o Ativo
+    if (dto.ativado === 'S' && (dto.frn === 'S' || (id != null && dto.frn === undefined))) {
+      const antesFlags = id != null ? ((await (db as any).selectFrom('parceiros').select(['ativado', 'frn']).where('codparceiro', '=', id).executeTakeFirst()) as { ativado?: string | null; frn?: string | null } | undefined) : undefined;
+      const ativando = id == null || antesFlags?.ativado !== 'S' || (dto.frn === 'S' && antesFlags?.frn !== 'S');
+      const ehFrn = dto.frn === 'S' || antesFlags?.frn === 'S';
+      if (ativando && ehFrn) {
+        const docs = ((dto.enderecos as Array<Record<string, unknown>> | undefined) ?? []).map((e) => String(e.cnpj_cpf ?? '').replace(/\D/g, '')).filter((d) => d);
+        const docsGravados = id != null && !docs.length
+          ? (await sql<{ d: string }>`SELECT regexp_replace(coalesce(cnpj_cpf, ''), '\D', '', 'g') AS d FROM parceiros_end WHERE codparceiro = ${id} AND coalesce(ativado, 'S') = 'S'`.execute(db)).rows.map((r) => r.d).filter((d) => d)
+          : [];
+        for (const doc of [...docs, ...docsGravados]) {
+          const outro = (await sql<{ codparceiro: number; fantasia: string | null }>`SELECT p.codparceiro, p.fantasia FROM parceiros p
+              JOIN parceiros_end pe ON pe.codparceiro = p.codparceiro
+             WHERE regexp_replace(coalesce(pe.cnpj_cpf, ''), '\D', '', 'g') = ${doc} AND p.ativado = 'S' AND p.codparceiro <> ${id ?? 0}
+               AND coalesce(p.fantasia, '') <> '' ORDER BY p.codparceiro LIMIT 1`.execute(db)).rows[0];
+          if (outro) {
+            throw new BusinessRuleError('PARCEIRO_FORNECEDOR_CNPJ_ATIVO', { codparceiro: outro.codparceiro, fantasia: outro.fantasia },
+              `Já existe fornecedor ativo com este CNPJ. Fornecedor : COD - ${outro.codparceiro} / FANTASIA -  ${outro.fantasia}`);
+          }
+        }
+      }
+    }
     if (id != null) await capturarAlteracaoParceiro(db, id, dto);
     // o ATIVADO de antes (o gatilho REM_PARCEIROS cascateia na gravação do cabeçalho; o detalhe de endereços precisa saber que mudou)
     if (id != null && dto.ativado !== undefined) {

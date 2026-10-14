@@ -40,6 +40,55 @@ export class ParceiroHistoricoService {
     private readonly config: ConfigService,
   ) {}
 
+  // ── a auditoria do uCadClientes.dfm (14/10/2026) ──────────────────────────────────────────────────────────────
+
+  /** FormShow (:3848) e edtCodigoExit: `tsSaldoParceiros.TabVisible := PERMITIR_HISTORICO = 'S'` (produção: N com o módulo Retaguarda = S) e
+   *  `tbsDadosFinanceiros.TabVisible := PARCEIRO_EXIBIR_DADOS_FINANCEIROS = 'S'` (produção: S) */
+  async configsDaTela(): Promise<{ permitir_historico: boolean; exibir_dados_financeiros: boolean }> {
+    const ctx = { empresaId: currentTenant().empresaId ?? null, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    const hist = String((await this.config.resolver('PERMITIR_HISTORICO', ctx)) ?? 'N').trim().toUpperCase() === 'S';
+    const fin = String((await this.config.resolver('PARCEIRO_EXIBIR_DADOS_FINANCEIROS', ctx)) ?? 'S').trim().toUpperCase() === 'S';
+    return { permitir_historico: hist, exibir_dados_financeiros: fin };
+  }
+
+  /**
+   * A aba HISTÓRICO DE VENDAS (`btnConsHistoricoVendasClick`, uCadClientes.pas:1467): por dia, pedido (e cupom nas VENDAS), razão e loja, o
+   * total = Σ qtde × (VRVENDA + os descontos devolvidos: promoção, departamento, acréscimo/desconto médio e do item) nas VENDAS; nos PEDIDOS
+   * (TIPO 'P') Σ qtde × (VRVENDA + DESC_ACRE_ITEM). Sem os cancelados; as lojas marcadas (`GetMultiEmpresa`; vazio = a do login).
+   * Produção 2026: 59.811 linhas de venda com parceiro (211 parceiros); PEDIDOS 'P' com parceiro: 0.
+   */
+  async historicoVendas(cod: number, f: { de?: string; ate?: string; origem?: string; empresas: number[] }) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const dia = /^\d{4}-\d{2}-\d{2}$/;
+    if (!f.de || !f.ate || !dia.test(f.de) || !dia.test(f.ate)) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
+    const emps = await empresasDoOperador(db, f.empresas.length ? f.empresas : [emp]);
+    if (!emps.length) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const origem = f.origem === 'P' ? 'P' : 'V';
+    const linhas = origem === 'V'
+      ? (await sql<Linha>`SELECT v.dtvenda::date AS dtvenda, v.nropedido, v.nrocupom, p.razao, v.idempresa,
+            sum(v.qtde * (v.vrvenda + ((coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0)) + (coalesce(v.desc_acre_medio, 0) + coalesce(v.desc_acre_item, 0))))) AS total
+            FROM vendas v LEFT JOIN parceiros p ON p.codparceiro = v.codparceiro
+           WHERE v.dtvenda::date BETWEEN ${f.de}::date AND ${f.ate}::date AND p.codparceiro = ${cod}
+             AND (v.cancelado IS NULL OR v.cancelado = 'N') AND v.idempresa = ANY(${sql.val(emps)}::int[])
+           GROUP BY v.dtvenda::date, v.nropedido, v.nrocupom, p.razao, v.idempresa ORDER BY v.dtvenda::date, v.idempresa LIMIT 2000`.execute(db)).rows
+      : (await sql<Linha>`SELECT v.dtvenda::date AS dtvenda, v.nropedido, NULL::int AS nrocupom, p.razao, v.idempresa,
+            sum(v.qtde * (v.vrvenda + coalesce(v.desc_acre_item, 0))) AS total, sum(v.qtde * (v.vrvenda + coalesce(v.desc_acre_item, 0))) AS desconto
+            FROM pedidos v LEFT JOIN parceiros p ON p.codparceiro = v.codparceiro
+           WHERE v.dtvenda::date BETWEEN ${f.de}::date AND ${f.ate}::date AND p.codparceiro = ${cod}
+             AND (v.cancelado IS NULL OR v.cancelado = 'N') AND v.tipo = 'P' AND v.idempresa = ANY(${sql.val(emps)}::int[])
+           GROUP BY v.dtvenda::date, v.nropedido, p.razao, v.idempresa ORDER BY v.dtvenda::date, v.idempresa LIMIT 2000`.execute(db)).rows;
+    return { origem, empresas: emps, linhas: linhas.map((l) => ({ ...l, total: r2(Number(l.total ?? 0)) })), total: r2(linhas.reduce((s, l) => s + Number(l.total ?? 0), 0)) };
+  }
+
+  /** "Visualizar senha dados financeiros" (`Visualizarsenhadadosfinanceiros1Click`): a Mensagem com a senha de autorização no PDV */
+  async senhaAutPdv(cod: number): Promise<{ codparceiro: number; senha_autpdv: string | null }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = (await sql<{ senha_autpdv: string | null }>`SELECT senha_autpdv FROM parceiros WHERE codparceiro = ${cod}`.execute(db)).rows[0];
+    if (!r) throw new BusinessRuleError('PARCEIRO_NAO_ENCONTRADO', { codparceiro: cod });
+    return { codparceiro: cod, senha_autpdv: r.senha_autpdv ?? null };
+  }
+
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
     if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');

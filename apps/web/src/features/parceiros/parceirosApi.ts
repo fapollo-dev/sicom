@@ -42,3 +42,14 @@ const soDigitosCep = (cep: string) => (cep ?? '').replace(/\D/g, '');
 export function buscarCep(cep: string): Promise<CepResposta> {
   return req<CepResposta>(`/cadastro/cep/${soDigitosCep(cep)}`);
 }
+
+// ── a auditoria do uCadClientes.dfm (14/10/2026) ───────────────────────────────────────────────────────────────
+/** FormShow/edtCodigoExit: as abas Histórico financeiro (PERMITIR_HISTORICO) e Dados financeiros (PARCEIRO_EXIBIR_DADOS_FINANCEIROS) */
+export const configsParceiros = () => req<{ permitir_historico: boolean; exibir_dados_financeiros: boolean }>('/cadastro/parceiros/apoio/configs');
+export interface LinhaHistoricoVendas { dtvenda?: string | null; nropedido?: string | null; nrocupom?: number | null; razao?: string | null; idempresa?: number | null; total: number }
+/** a aba HISTÓRICO DE VENDAS (btnConsHistoricoVendasClick): período, origem (V = Vendas, P = Pedidos) e as lojas (vazio = a do login) */
+export const historicoVendasParceiro = (cod: number, p: { de: string; ate: string; origem: 'V' | 'P'; empresas?: string }) =>
+  req<{ origem: 'V' | 'P'; empresas: number[]; linhas: LinhaHistoricoVendas[]; total: number }>(
+    `/cadastro/parceiros/${cod}/historico-vendas?de=${p.de}&ate=${p.ate}&origem=${p.origem}${p.empresas ? `&empresas=${encodeURIComponent(p.empresas)}` : ''}`);
+/** "Visualizar senha dados financeiros" (só com a opção VISUALIZARSENHADADOSFINANCEIROS1) */
+export const senhaAutPdvParceiro = (cod: number) => req<{ codparceiro: number; senha_autpdv: string | null }>(`/cadastro/parceiros/${cod}/senha-autpdv`);

@@ -15,6 +15,26 @@ const empresas = (s?: string) => (s ?? '').split(',').map((e) => Number(e.trim()
 export class ParceiroHistoricoController {
   constructor(private readonly svc: ParceiroHistoricoService) {}
 
+  /** as configurações que a tela lê (FormShow/edtCodigoExit): PERMITIR_HISTORICO (a aba Histórico financeiro) e
+   *  PARCEIRO_EXIBIR_DADOS_FINANCEIROS (a aba Dados financeiros) */
+  @Get('apoio/configs')
+  configs() {
+    return this.svc.configsDaTela();
+  }
+
+  /** a aba HISTÓRICO DE VENDAS (`btnConsHistoricoVendasClick`): `?de=&ate=&origem=V|P&empresas=1,2` */
+  @Get(':cod/historico-vendas')
+  historicoVendas(@Param('cod', ParseIntPipe) cod: number, @Query('de') de?: string, @Query('ate') ate?: string, @Query('origem') origem?: string, @Query('empresas') emps?: string) {
+    return this.svc.historicoVendas(cod, { de, ate, origem, empresas: empresas(emps) });
+  }
+
+  /** "Visualizar senha dados financeiros" (ppmBotaoOutros, Tag 1): a senha de autorização de venda no PDV, só com a opção */
+  @Get(':cod/senha-autpdv')
+  @RequerAcesso('FRMCADCLIENTES', 'VISUALIZARSENHADADOSFINANCEIROS1')
+  senhaAutPdv(@Param('cod', ParseIntPipe) cod: number) {
+    return this.svc.senhaAutPdv(cod);
+  }
+
   /** `?status=abertos|liquidados|todos&empresas=1,2` (as lojas da grade; vazio = a do login) */
   @Get(':cod/historico-financeiro')
   historico(@Param('cod', ParseIntPipe) cod: number, @Query('status') status?: string, @Query('empresas') emps?: string) {

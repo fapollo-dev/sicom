@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
@@ -37,6 +37,8 @@ import {
 } from './ParceirosDetalhes';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { HistoricoFinanceiroSection } from './HistoricoFinanceiroSection';
+import { HistoricoVendasSection } from './HistoricoVendasSection';
+import { configsParceiros, senhaAutPdvParceiro } from './parceirosApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 /**
@@ -598,6 +600,7 @@ function CamposCondicionais({
   form: UseFormReturn<CriarParceiroDto>;
   editavel: boolean;
 }) {
+  const configs = useConfigsParceiros();
   // observa as 3 flags que governam as seções condicionais
   const ehFornecedor = form.watch('frn') === 'S';
   const ehCliente = form.watch('cli') === 'S';
@@ -665,6 +668,20 @@ function CamposCondicionais({
               error={form.formState.errors.codcontabil_for?.message as string | undefined}
               {...form.register('codcontabil_for')}
             />
+            {/* edtCondicaoPagto/btnBuscaCondicaoPagto (tsFornecedorGeral): a condição de pagamento (1.927 parceiros na produção) */}
+            <Controller
+              control={form.control}
+              name={'codconpagto' as never}
+              render={({ field }) => (
+                <LookupField label="Condição de pa&gamento" recurso="lookup/condicoes-pagto" campoCodigo="codigo" descricao="descricao"
+                  value={field.value as number | undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} disabled={!editavel} />
+              )}
+            />
+            {/* edtSENHA/edtConfSENHA: a senha do fornecedor (o login da cotação), gravada na cifra do legado — só de escrita */}
+            <Field label="Senha (cotação)" type="password" autoComplete="new-password" disabled={!editavel} maxLength={30}
+              placeholder={(form.watch('tem_senha' as never) as unknown as string) === 'S' ? '••••• (gravada)' : ''} {...form.register('senha' as never)} />
+            <Field label="Confirma a senha" type="password" autoComplete="new-password" disabled={!editavel} maxLength={30}
+              error={(form.formState.errors as Record<string, { message?: string }>).senha_confirma?.message} {...form.register('senha_confirma' as never)} />
           </div>
         </fieldset>
       )}
@@ -704,9 +721,20 @@ function CamposCondicionais({
               error={form.formState.errors.codcontabil?.message as string | undefined}
               {...form.register('codcontabil')}
             />
+            {/* DBCheckBox1 "Cliente Especial" (DESPREZA_BLOQUEIO) e memECF "Observação ECF" (PRINTECF — 105 na produção) */}
+            <Controller control={form.control} name={'despreza_bloqueio' as never} render={({ field }) => (
+              <CheckboxField label="Cliente Especial" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+            )} />
+            <div className="sm:col-span-2">
+              <TextArea label="Observação ECF" rows={2} disabled={!editavel} maxLength={300} {...form.register('printecf' as never)} />
+            </div>
           </div>
         </fieldset>
       )}
+
+      {/* ===== Dados financeiros (tbsDadosFinanceiros, PARCEIRO_EXIBIR_DADOS_FINANCEIROS): "Sálario Fixo", "Observação Financeira" e a
+           "Autorização de Vendas no PDV" (grbSenhaAut: senha de 6 caracteres + confirma; "Visualizar senha dados financeiros" com a opção) ===== */}
+      {configs.exibir_dados_financeiros && <DadosFinanceirosSection form={form} editavel={editavel} />}
 
       {/* ===== Funcionário (fun === 'S') ===== */}
       {ehFuncionario && (
@@ -742,12 +770,67 @@ function CamposCondicionais({
         </fieldset>
       )}
 
-      {/* ===== Histórico financeiro (tsSaldoParceiros) — extrato AR/AP read-only; qualquer parceiro gravado ===== */}
+      {/* ===== Histórico de vendas (tbsHistoricoVendas) — consulta por período/origem; parceiro gravado ===== */}
       <fieldset className="rounded-radius-md border border-border p-pad-md">
-        <legend className="px-pad-xs text-fg-muted">Histórico financeiro</legend>
-        <HistoricoFinanceiroSection codparceiro={Number(form.watch('codparceiro' as never)) || undefined} />
+        <legend className="px-pad-xs text-fg-muted">Histórico de vendas</legend>
+        <HistoricoVendasSection codparceiro={Number(form.watch('codparceiro' as never)) || undefined} />
       </fieldset>
+
+      {/* ===== Histórico financeiro (tsSaldoParceiros, PERMITIR_HISTORICO) — extrato AR/AP read-only; qualquer parceiro gravado ===== */}
+      {configs.permitir_historico && (
+        <fieldset className="rounded-radius-md border border-border p-pad-md">
+          <legend className="px-pad-xs text-fg-muted">Histórico financeiro</legend>
+          <HistoricoFinanceiroSection codparceiro={Number(form.watch('codparceiro' as never)) || undefined} />
+        </fieldset>
+      )}
     </>
+  );
+}
+
+/** as configurações que o FormShow/edtCodigoExit leem (uma vez por tela; sem a API, tudo visível) */
+function useConfigsParceiros() {
+  const [configs, setConfigs] = useState<{ permitir_historico: boolean; exibir_dados_financeiros: boolean }>({ permitir_historico: true, exibir_dados_financeiros: true });
+  useEffect(() => { configsParceiros().then(setConfigs).catch(() => undefined); }, []);
+  return configs;
+}
+
+function DadosFinanceirosSection({ form, editavel }: { form: UseFormReturn<CriarParceiroDto>; editavel: boolean }) {
+  const mensagem = useMensagem();
+  const { tem: pode } = useOpcoesDoForm('FRMCADCLIENTES');
+  const codparceiro = Number(form.watch('codparceiro' as never)) || undefined;
+  const temSenha = (form.watch('tem_senha_autpdv' as never) as unknown as string) === 'S';
+  const visualizar = async () => {
+    if (codparceiro == null) return;
+    try {
+      const r = await senhaAutPdvParceiro(codparceiro);
+      mensagem.sucesso(r.senha_autpdv ? `Senha de autorização no PDV: ${r.senha_autpdv}` : 'Este parceiro não tem senha de autorização no PDV.');
+    } catch (e) { mensagem.erro(e); }
+  };
+  const erros = form.formState.errors as Record<string, { message?: string }>;
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Dados financeiros</legend>
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+        <Controller control={form.control} name={'fixo' as never} render={({ field }) => (
+          <CurrencyField label="Salário fi&xo" value={field.value as number | undefined} onChange={field.onChange} disabled={!editavel} error={erros.fixo?.message} />
+        )} />
+        <div className="sm:col-span-2">
+          <TextArea label="Observação financeira" rows={2} disabled={!editavel} maxLength={800} {...form.register('obs2' as never)} />
+        </div>
+      </div>
+      <fieldset className="mt-form-gap rounded-radius-base border border-border p-pad-sm">
+        <legend className="px-1 text-body-sm text-fg-muted">Autorização de Vendas no PDV</legend>
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+          <Field label="Senha" type="password" autoComplete="new-password" maxLength={6} disabled={!editavel} placeholder={temSenha ? '•••••• (gravada)' : ''}
+            error={erros.senha_autpdv?.message} {...form.register('senha_autpdv' as never)} />
+          <Field label="Confirma" type="password" autoComplete="new-password" maxLength={6} disabled={!editavel}
+            error={erros.senha_autpdv_confirma?.message} {...form.register('senha_autpdv_confirma' as never)} />
+          {codparceiro != null && pode('VISUALIZARSENHADADOSFINANCEIROS1') && (
+            <div className="self-end"><Button label="Visualizar senha dados financeiros" variant="ghost" onClick={visualizar} /></div>
+          )}
+        </div>
+      </fieldset>
+    </fieldset>
   );
 }
 

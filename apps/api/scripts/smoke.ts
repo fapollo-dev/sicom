@@ -20527,6 +20527,67 @@ async function main() {
         await pg3.end();
       }
     }
+    // ══ §319 CADASTRO DE PARCEIROS — OS CONTROLES AUDITADOS DO uCadClientes.dfm: as configs das abas, a condição de pagamento, Cliente Especial, Sálario Fixo/obs/ECF, as senhas (PDV e cotação), a razão repetida/pipe, o fornecedor ativo com o mesmo CNPJ e o histórico de vendas ══
+    {
+      const pg9 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PA = 'cadastro/parceiros';
+      const jr9 = async (r: Response) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any });
+      const post9 = (body: unknown, h: Record<string, string> = H) => fetch(`${base}/${PA}`, { method: 'POST', headers: h, body: JSON.stringify(body) }).then(jr9);
+      const get9 = (path: string, h: Record<string, string> = H) => fetch(`${base}/${path}`, { headers: h }).then(jr9);
+      const CNPJ9 = '31223344000193';
+      // a loja 2 para o operador do smoke só durante a seção (o GetMultiEmpresa recorta às lojas do operador)
+      const tinhaLoja2 = Number((await pg9.query(`SELECT count(*)::int AS n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0]?.n) > 0;
+      if (!tinhaLoja2) await pg9.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`); // um CNPJ válido que não está na carga de desenvolvimento (o 11.222.333/0001-81 é o cobrador padrão)
+      try {
+        // 319.1 as configs da tela e o parceiro com os campos novos
+        const cfg = await get9(`${PA}/apoio/configs`);
+        const a = await post9({ razao: 'FORN 319 ALFA', fantasia: 'ALFA 319', tipofj: 'J', frn: 'S', ativado: 'S', codconpagto: 41, despreza_bloqueio: 'S', fixo: 765, obs2: 'OBS FIN 319', printecf: 'ISAC PARCERIA',
+          senha_autpdv: '123456', senha_autpdv_confirma: '123456', senha: 'abc', senha_confirma: 'abc', enderecos: [{ ...END_OK, endereco_padrao: 'S', cnpj_cpf: CNPJ9 }] });
+        const lidoA = await get9(`${PA}/${a.j.codparceiro}`);
+        const senhaPg = (await pg9.query(`SELECT senha, senha_autpdv FROM parceiros WHERE codparceiro = $1`, [a.j.codparceiro])).rows[0] as any;
+        const ver = await get9(`${PA}/${a.j.codparceiro}/senha-autpdv`);
+        const verSem = await get9(`${PA}/${a.j.codparceiro}/senha-autpdv`, H_SEM_ACESSO);
+        check('PARCEIROS §319.1 [FormShow :3848; tsFornecedorGeral; tbsDadosFinanceiros; grbSenhaAut; edtSENHA]: as configs (PERMITIR_HISTORICO N com o módulo Retaguarda S → histórico visível; dados financeiros S); o fornecedor grava condição de pagamento 41, Cliente Especial, salário fixo 765, a observação financeira e a "Observação ECF"; as senhas não voltam na leitura (só os `tem_*`), a do PDV fica em claro com 6 caracteres e a da cotação na cifra do legado (abc → nop); "Visualizar senha dados financeiros" devolve a senha do PDV só com a opção',
+          cfg.status === 200 && cfg.j.permitir_historico === true && cfg.j.exibir_dados_financeiros === true && a.status === 201
+          && Number(lidoA.j.codconpagto) === 41 && lidoA.j.despreza_bloqueio === 'S' && Number(lidoA.j.fixo) === 765 && lidoA.j.obs2 === 'OBS FIN 319' && lidoA.j.printecf === 'ISAC PARCERIA'
+          && lidoA.j.tem_senha_autpdv === 'S' && lidoA.j.tem_senha === 'S' && lidoA.j.senha === undefined && lidoA.j.senha_autpdv === undefined
+          && senhaPg?.senha === 'nop' && senhaPg?.senha_autpdv === '123456' && ver.status === 200 && ver.j.senha_autpdv === '123456' && verSem.status === 403,
+          { cfg: [cfg.status, cfg.j], a: [a.status, a.j.code, a.j.message], lidoA: [lidoA.j.codconpagto, lidoA.j.despreza_bloqueio, lidoA.j.fixo, lidoA.j.printecf, lidoA.j.tem_senha_autpdv, lidoA.j.tem_senha, 'senha' in lidoA.j], senhaPg, ver: [ver.status, ver.j.code], verSem: verSem.status });
+        // 319.2 as validações: a senha do PDV de 6, as confirmações, o "|" na razão, a razão repetida (pergunta) e o fornecedor ativo com o mesmo CNPJ
+        const curta = await post9({ razao: 'FORN 319 CURTA', tipofj: 'F', cli: 'S', senha_autpdv: '12345', senha_autpdv_confirma: '12345', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const confDif = await post9({ razao: 'FORN 319 CONF', tipofj: 'F', cli: 'S', senha: 'abc', senha_confirma: 'abd', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const pipe = await post9({ razao: 'FORN 319 | PIPE', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const rep = await post9({ razao: 'forn 319 alfa', tipofj: 'F', cli: 'S', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const repOk = await post9({ razao: 'forn 319 alfa', tipofj: 'F', cli: 'S', confirmarRazaoRepetida: true, enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const frnDup = await post9({ razao: 'FORN 319 BETA', tipofj: 'J', frn: 'S', ativado: 'S', confirmarDocumentoRepetido: true, enderecos: [{ ...END_OK, endereco_padrao: 'S', cnpj_cpf: CNPJ9 }] });
+        const frnInativo = await post9({ razao: 'FORN 319 BETA', tipofj: 'J', frn: 'S', ativado: 'N', confirmarDocumentoRepetido: true, enderecos: [{ ...END_OK, endereco_padrao: 'S', cnpj_cpf: CNPJ9 }] });
+        check('PARCEIROS §319.2 [edtSenhaAutPDVExit :3702; edtConfSENHA; edtRazaoExit :3660; chbATIVADOChange :5225]: senha do PDV com 5 → 400 ("deve conter 6 caracteres"); confirmação diferente → 400; "|" na razão → 422 PARCEIRO_RAZAO_PIPE; o mesmo nome (sem caixa) → 422 PARCEIRO_RAZAO_REPETIDA com o `confirmar` e passa confirmado; ativar um fornecedor com o CNPJ de outro fornecedor ativo com fantasia → 422 PARCEIRO_FORNECEDOR_CNPJ_ATIVO (inativo grava)',
+          curta.status === 400 && /6 caracteres/.test(JSON.stringify(curta.j)) && confDif.status === 400 && pipe.status === 422 && pipe.j.code === 'PARCEIRO_RAZAO_PIPE'
+          && rep.status === 422 && rep.j.code === 'PARCEIRO_RAZAO_REPETIDA' && rep.j.detalhe?.confirmar === 'confirmarRazaoRepetida' && Number(rep.j.detalhe?.codparceiro) === Number(a.j.codparceiro) && repOk.status === 201
+          && frnDup.status === 422 && frnDup.j.code === 'PARCEIRO_FORNECEDOR_CNPJ_ATIVO' && Number(frnDup.j.detalhe?.codparceiro) === Number(a.j.codparceiro) && /ALFA 319/.test(String(frnDup.j.message)) && frnInativo.status === 201,
+          { curta: [curta.status, curta.j.code], confDif: [confDif.status, confDif.j.code], pipe: [pipe.status, pipe.j.code], rep: [rep.status, rep.j.code, rep.j.detalhe], repOk: [repOk.status, repOk.j.code], frnDup: [frnDup.status, frnDup.j.code, frnDup.j.detalhe], frnInativo: [frnInativo.status, frnInativo.j.code, frnInativo.j.message] });
+        // 319.3 o histórico de vendas (btnConsHistoricoVendasClick :1467): por dia/pedido/cupom/loja, com os descontos devolvidos, sem cancelados, nas lojas marcadas
+        const A = Number(a.j.codparceiro);
+        await pg9.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nropedido, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, codparceiro, desc_promocao, desc_departamento, desc_acre_medio, desc_acre_item) VALUES
+          (1, '2026-03-03 10:00', 9, 319001, '01319001', 1, 1, 2, 10, 4, 'A', '5102', 'N', 'S', 'P', $1, 1, 0, 0.5, 0),
+          (1, '2026-03-03 10:00', 9, 319001, '01319001', 2, 1000, 1, 5, 4, 'A', '5102', 'N', 'S', 'P', $1, 0, 0, 0, 0),
+          (2, '2026-03-04 10:00', 9, 319002, '02319002', 1, 1, 1, 7, 4, 'A', '5102', 'N', 'S', 'P', $1, 0, 0, 0, 0),
+          (1, '2026-03-03 11:00', 9, 319003, '01319003', 1, 1, 1, 100, 4, 'A', '5102', 'S', 'S', 'P', $1, 0, 0, 0, 0)`, [A]);
+        const hv = await get9(`${PA}/${A}/historico-vendas?de=2026-03-01&ate=2026-03-31&origem=V`);
+        const hv2 = await get9(`${PA}/${A}/historico-vendas?de=2026-03-01&ate=2026-03-31&origem=V&empresas=1,2`);
+        const hvP = await get9(`${PA}/${A}/historico-vendas?de=2026-03-01&ate=2026-03-31&origem=P`);
+        const hvSem = await get9(`${PA}/${A}/historico-vendas?origem=V`);
+        const L1 = (hv.j.linhas ?? []) as any[];
+        check('PARCEIROS §319.3 [btnConsHistoricoVendasClick :1467]: a loja do login traz o pedido 01319001 com 28,00 (2 × (10 + 1 + 0,5) + 5) e o cupom, sem o cancelado; as lojas 1,2 trazem as 2 linhas (35,00); a origem Pedidos (0 na produção) não tem linha; sem o período → 422 PERIODO_OBRIGATORIO',
+          hv.status === 200 && L1.length === 1 && L1[0].nropedido === '01319001' && Number(L1[0].nrocupom) === 319001 && Number(L1[0].total) === 28 && Number(hv.j.total) === 28 && Number(L1[0].idempresa) === 1
+          && hv2.status === 200 && (hv2.j.linhas ?? []).length === 2 && Number(hv2.j.total) === 35 && hvP.status === 200 && (hvP.j.linhas ?? []).length === 0 && hvSem.status === 422 && hvSem.j.code === 'PERIODO_OBRIGATORIO',
+          { hv: [hv.status, hv.j.code, hv.j.total, L1], hv2: [hv2.status, hv2.j.total, hv2.j.linhas?.length], hvP: [hvP.status, hvP.j.linhas?.length], hvSem: [hvSem.status, hvSem.j.code] });
+      } finally {
+        await pg9.query(`DELETE FROM vendas WHERE nroserie::text = '9' AND nrocupom::text IN ('319001', '319002', '319003')`).catch(() => {});
+        if (!tinhaLoja2) await pg9.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => {});
+        await pg9.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

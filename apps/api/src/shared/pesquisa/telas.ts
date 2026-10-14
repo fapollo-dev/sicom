@@ -669,6 +669,8 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/pc-natureza': { view: 'get_pc_tipocreditoisento', form: 'FRMPESQUISA', titulo: 'Natureza da receita', retorno: 'idtabela',
     abertura: { campo: 'descricao', operacao: 'qualquer' } },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
+  // a condição de pagamento do fornecedor (uCadClientes `SegCondicaoPagto`/`btnBuscaCondicaoPagto` sobre CONDICOES_PAGTO)
+  'lookup/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMPESQUISA', titulo: 'Condições de pagamento', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },
 
   // UCadProduto.pas:6294-6300: abre em DESCRICAO (em qualquer lugar), ordena por DESCRICAO; o código de barras acha também pelo
