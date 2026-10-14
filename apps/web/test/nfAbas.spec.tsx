@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactElement } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -27,11 +28,11 @@ beforeEach(() => {
   window.confirm = vi.fn(() => true) as any;
 });
 
-function Tela({ children, valores }: { children: (form: any) => JSX.Element; valores: Record<string, unknown> }) {
+function Tela({ children, valores }: { children: (form: any) => ReactElement; valores: Record<string, unknown> }) {
   const form = useForm({ defaultValues: valores });
   return <QueryClientProvider client={new QueryClient()}><MemoryShell>{children(form)}</MemoryShell></QueryClientProvider>;
 }
-function MemoryShell({ children }: { children: JSX.Element }) {
+function MemoryShell({ children }: { children: ReactElement }) {
   return <ShortcutScope><MensagemProvider>{children}</MensagemProvider></ShortcutScope>;
 }
 const botao = (texto: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === texto)!;

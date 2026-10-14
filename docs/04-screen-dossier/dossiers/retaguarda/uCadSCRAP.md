@@ -110,3 +110,43 @@ MULTI_PRECO, não o custo gravado no item; fiel) e **frxDBEmpresa** (a empresa l
 mestre-detalhe (DetailData dos itens com um grupo que soma quantidade e total), e o motor `shared/fr3` ganhou a DetailData. O menu não
 tem Tag: vale o acesso à tela (`FRMCADSCRAP`; mig 404 dá a opção ao operador de fixture). Botão "Imprimir" no lançamento gravado.
 Smoke 47b.1b.
+
+## A auditoria controle a controle do uCadSCRAP.dfm (14/10/2026)
+
+O `.dfm` (2.525 linhas), o `udmCadSCRAP` e as 8 opções de permissão da produção revistos contra a página do Apollo, com a prova nos
+3.794 scraps / 133.324 itens (273 scraps e 11.594 itens em 2026). Convertido:
+
+- ⛔→✅ **O produto pelo código** (`EdtCodProduto` + "Buscar por PLU (F2)" + `BtnBuscaProduto`/F3; `GetProduto`/`GetProdutoFilho`,
+  udmCadSCRAP.pas:382/332): código de barras ou **código auxiliar** (CODAUXILIAR), ou o código do produto com o F2 (guardado por
+  estação — `ConfigTelas.ini` → `localStorage`); o produto **filho** leva ao pai (IDPRODUTO_PAI) e fica no IDPRODUTO_FILHO (527 dos
+  11.590 itens de 2026 são filhos); custo e reposição do MULTI_PRECO da loja; com `IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO` só com estoque;
+  o fornecedor do item = o da última entrada (ESTOQUE.IDORIGEM_ENT → NF, senão PRODUTOS.CODFOR — `SetaOutrasInformacoesItemScrap` :441).
+  A página pedia o id do produto e do filho. `GET cadastro/scrap/apoio/produto?codigo=&plu=`.
+- ⛔→✅ **A grade do legado** (cxgridItensScrap): Cod.prod, Cod.Prod Filho (com `EXIBE_CAMPO_PRODUTO_PAI` — 'S' na empresa 1), Codigo
+  Barra, Descrição, Qtde, Vr.Custo, Custo Repos., Total, Origem, Faturado, Imp, Origem Imp., Setor, Motivo perda, Fornecedor — a leitura
+  do agregado anexa o que a SCRAP_ITEM não guarda (`anexarLeitura`). A página mostrava só o id do produto.
+- ⛔→✅ **"Limpar"** (`btnLimparIClick` :791, BTNLIMPARI — 60 operadores): "Deseja limpar todos os produtos deste pedido?"; sem senha
+  (o legado só confere o importado). **"Excluir" do item gravado e do documento com a liberação por login** (`PermiteExcluir` :1749,
+  `PEDE_SENHA_EXCLUIR_ITEM_SCRAP` = 'S' no módulo Retaguarda; libera quem tem a config em 'N' — o usuário 1 na produção; 35 itens e 1
+  scrap excluídos em 2026): `POST cadastro/scrap/:id/excluir-itens` e `:id/excluir` com login/senha; o item novo sai sem senha
+  (NOVO_REGISTRO). As permissões BTNEXCLUIR (35 operadores), BTNGRAVAR/BTNEDITAR/BTNADICIONARREGISTRO agora valem na página.
+- ⛔→✅ **"Não é permitido fracionar produto que não seja Kg!"** (`ProdutoUndFracionado` :1772) — na página e no gravar (item incluído).
+- ⛔→✅ **`BLOQUEIA_PRODUTO_DUPLICADO_SCRAP`** ("O produto já foi inserido no SCRAP anteriormente.", `GetProduto` :424; pai + filho é a
+  chave) — 'N' no módulo Retaguarda da produção: a regra existe, desligada lá.
+- ⛔→✅ **Data do lançamento** (`edtData`/`edtDataExit` :1373, `TController` fora do fonte — as configs são as da produção):
+  `DIAS_PERMITIDO_LANCTO_RETROATIVO_SCRAP` = 0 → data só de hoje na inclusão (futura e retroativa → 422); `EDICAO_SCRAP_FORA_DO_MES`
+  'N' bloqueia a edição fora do mês — 'S' em todos os níveis da produção (3 de 652 scraps alterados fora do mês: a importação na NF).
+  DT_CADASTRO = DTCADASTRO em 652 de 652: ninguém muda a data, mas o campo existe.
+- ⛔→✅ **Importado** (`Importado`/`ListaNotasFiscaisAssociadas` :1595/:1690 e o grupo "Notas fiscais", `cdsNotasFiscais`): o scrap ligado a
+  uma NF de perda (PEDIDO_NF tipo S — 225 dos 273 de 2026) lista a nota com o STATUSNOTA e não se altera nem se exclui ("Este SCRAP já foi
+  importado. Não será possível alterá-lo. NF.: …"); a trava anterior olhava só o IMPORTADO='S'.
+- ⛔→✅ **[F6] - Análise geral do produto** (`MostraAnaliseGeralProduto` :1739 → TfrmPosicaoProduto): a posição do produto da linha.
+- Mig 420: as 7 configurações da tela (ids/defaults/whitelist da produção) e os overrides da produção.
+
+Com prova, sem código: **[F7] - Importar produtos** (`ConsultaImportarPerdas` :979 — as perdas das VENDAS/NF, IMP_VENDAS='S'): 132 itens em
+2024, **0 em 2025 e 2026**; **motivo padrão do centro de custo** (`GetMotivoOpCentroCustoPerda` :276 — PLC_MOTIVO_OPERACAO): 0 linhas;
+**fornecedor do documento** editável (`edtCODFOR`): 652 de 652 = o parceiro da empresa (fica fixo); **empresa de origem ≠ logada**: o
+agregado é por loja (a de outra loja não abre); **edição da quantidade na grade** (Enter na coluna): aqui exclui e inclui de novo.
+
+Smoke §315 (4 checks); jsdom `scrapPage.spec.tsx`.
+

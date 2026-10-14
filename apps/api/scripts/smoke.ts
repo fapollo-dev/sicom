@@ -20175,6 +20175,114 @@ async function main() {
         await pgAb.end();
       }
     }
+    // ══ §315 SCRAP — OS CONTROLES AUDITADOS DO uCadSCRAP.dfm: produto por código de barras/auxiliar/PLU (pai e filho), data, fracionado, duplicado, exclusão com liberação, NF importada ══
+    {
+      const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PAI = 993150; const FILHO = 993151; const KG = 993152;
+      const scraps: number[] = []; let nfSc = 0;
+      const ovr = async (codigo: string, tipo: string, chave: string, valor: string) => pgSc.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, $2::text, $3::text, $4::text FROM configuracoes WHERE codigo = $1 ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = EXCLUDED.valor`, [codigo, tipo, chave, valor]);
+      const semOvr = async (codigo: string, tipo: string, chave: string) => pgSc.query(`DELETE FROM configuracoes_especificas WHERE id = (SELECT id FROM configuracoes WHERE codigo = $1) AND tipo = $2 AND chave = $3`, [codigo, tipo, chave]);
+      const callSc = async (sufixo: string, method: string, body?: unknown, h = H) => { const r = await fetch(`${base}/cadastro/scrap${sufixo}`, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const hojeSc = String((await pgSc.query(`SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date::text d`)).rows[0].d);
+      const diaSc = (n: number) => { const d = new Date(`${hojeSc}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+      try {
+        await pgSc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES ($1, '7899009931501', 'SCRAP PAI UN', 'UN', 2, 'T01', 'S'), ($2, '7899009931525', 'SCRAP KG', 'KG', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`, [PAI, KG]);
+        await pgSc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idproduto_pai) VALUES ($1, '7899009931518', 'SCRAP FILHO 500G', 'UN', 2, 'T01', 'S', $2) ON CONFLICT (idproduto) DO NOTHING`, [FILHO, PAI]);
+        await pgSc.query(`INSERT INTO codauxiliar (idproduto, codauxiliar) VALUES ($1, 'AUX993150')`, [PAI]);
+        await pgSc.query(`DELETE FROM multi_preco WHERE idproduto IN ($1, $2)`, [PAI, KG]);
+        await pgSc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, vrcustorep) VALUES ($1, 1, 2.5, 5, 2.7), ($2, 1, 8, 12, 8.4)`, [PAI, KG]);
+        await pgSc.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1, 1, 10), ($2, 1, 0) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = EXCLUDED.qtde`, [PAI, KG]);
+        // 315.1 — o apoio com as configurações da tela e o produto pelo código: de barras do FILHO (pai + filho), auxiliar, PLU; o inexistente; o sem estoque com o gate
+        const ap = await callSc('/apoio/dados', 'GET');
+        const pFilho = await callSc('/apoio/produto?codigo=7899009931518&plu=N', 'GET');
+        const pAux = await callSc('/apoio/produto?codigo=AUX993150&plu=N', 'GET');
+        const pPlu = await callSc(`/apoio/produto?codigo=${PAI}&plu=S`, 'GET');
+        const pNao = await callSc('/apoio/produto?codigo=NAOEXISTE&plu=N', 'GET');
+        await ovr('IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO', 'Usuario', '7', 'S');
+        const pSemEstoque = await callSc('/apoio/produto?codigo=7899009931525&plu=N', 'GET');
+        const pComEstoque = await callSc('/apoio/produto?codigo=7899009931501&plu=N', 'GET');
+        await semOvr('IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO', 'Usuario', '7');
+        const pSem = await callSc('/apoio/produto?codigo=7899009931501&plu=N', 'GET', undefined, H_SEM_ACESSO);
+        check('SCRAP §315.1 [GetProduto/GetProdutoFilho — udmCadSCRAP.pas:382/332]: o apoio traz as configs da tela (exibe produto pai, pede senha para excluir, não bloqueia duplicado no Retaguarda, 0 dias retroativos); o código de barras do FILHO resolve o pai (IDPRODUTO_PAI) com o filho e a descrição do filho; o código auxiliar e o PLU resolvem o pai (custo 2,50 / reposição 2,70 do MULTI_PRECO, estoque 10); inexistente → 422; com IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO o produto sem estoque é "não encontrado"; sem a opção → 403',
+          ap.status === 200 && ap.j.exibeProdutoPai === true && ap.j.pedeSenhaExcluir === true && ap.j.bloqueiaDuplicado === false && Number(ap.j.diasRetroativo) === 0
+          && pFilho.status === 200 && Number(pFilho.j.idproduto) === PAI && Number(pFilho.j.idproduto_filho) === FILHO && pFilho.j.descricao === 'SCRAP FILHO 500G' && pFilho.j.codbarra === '7899009931518' && Number(pFilho.j.vrcusto) === 2.5
+          && pAux.status === 200 && Number(pAux.j.idproduto) === PAI && pAux.j.idproduto_filho == null && pAux.j.descricao === 'SCRAP PAI UN' && Number(pAux.j.vrcustorep) === 2.7 && Number(pAux.j.qtde_estoque) === 10 && pAux.j.unidade === 'UN'
+          && pPlu.status === 200 && Number(pPlu.j.idproduto) === PAI && pNao.status === 422 && pNao.j.code === 'PRODUTO_NAO_ENCONTRADO'
+          && pSemEstoque.status === 422 && pSemEstoque.j.code === 'PRODUTO_NAO_ENCONTRADO' && pComEstoque.status === 200 && pSem.status === 403,
+          { ap: [ap.status, ap.j.exibeProdutoPai, ap.j.pedeSenhaExcluir, ap.j.bloqueiaDuplicado, ap.j.diasRetroativo], pFilho: [pFilho.status, pFilho.j], pAux: [pAux.status, pAux.j], pPlu: [pPlu.status, pPlu.j.idproduto], pNao: [pNao.status, pNao.j.code], pSemEstoque: [pSemEstoque.status, pSemEstoque.j.code], pComEstoque: pComEstoque.status, pSem: pSem.status });
+
+        // 315.2 — o gravar: a leitura anexa descrição/código de barras/unidade/total; a data (futura e retroativa com 0 dias); o fracionado fora do KG; o duplicado com a config
+        const sit = (ap.j.situacoes ?? [])[0]?.idsituacao_nf ?? null;
+        const base315 = { codplc: 3, ...(sit ? { idsituacao_nf: sit } : {}) };
+        const c1 = await callSc('', 'POST', { ...base315, dt_cadastro: hojeSc, itens: [{ idproduto: PAI, qtde: 2 }, { idproduto: PAI, idproduto_filho: FILHO, qtde: 1 }, { idproduto: KG, qtde: 1.5 }] });
+        if (c1.status === 201) scraps.push(Number(c1.j.codscrap));
+        const l1 = await callSc(`/${c1.j.codscrap}`, 'GET');
+        const its = ((l1.j.itens ?? []) as any[]);
+        const itPai = its.find((i) => Number(i.idproduto) === PAI && !(Number(i.idproduto_filho) > 0));
+        const itFilho = its.find((i) => Number(i.idproduto_filho) === FILHO);
+        const cFut = await callSc('', 'POST', { ...base315, dt_cadastro: diaSc(1), itens: [{ idproduto: PAI, qtde: 1 }] });
+        const cRetro = await callSc('', 'POST', { ...base315, dt_cadastro: diaSc(-3), itens: [{ idproduto: PAI, qtde: 1 }] });
+        const cFrac = await callSc('', 'POST', { ...base315, itens: [{ idproduto: PAI, qtde: 1.5 }] });
+        const cFracFilho = await callSc('', 'POST', { ...base315, itens: [{ idproduto: PAI, idproduto_filho: FILHO, qtde: 0.5 }] });
+        await ovr('BLOQUEIA_PRODUTO_DUPLICADO_SCRAP', 'Usuario', '7', 'S');
+        const cDup = await callSc('', 'POST', { ...base315, itens: [{ idproduto: PAI, qtde: 1 }, { idproduto: PAI, qtde: 2 }] });
+        const cDupFilho = await callSc('', 'POST', { ...base315, itens: [{ idproduto: PAI, qtde: 1 }, { idproduto: PAI, idproduto_filho: FILHO, qtde: 2 }] });
+        if (cDupFilho.status === 201) scraps.push(Number(cDupFilho.j.codscrap));
+        await semOvr('BLOQUEIA_PRODUTO_DUPLICADO_SCRAP', 'Usuario', '7');
+        check('SCRAP §315.2 [o gravar e a grade do legado]: a leitura anexa Codigo Barra, Descrição (a do filho no item com filho), unidade, custo de reposição e o Total (2 × 2,50 = 5,00); o KG fraciona (1,5); a data futura → 422 SCRAP_DATA_FUTURA; 3 dias atrás com DIAS_PERMITIDO_LANCTO_RETROATIVO_SCRAP = 0 → 422 SCRAP_DATA_RETROATIVA; o UN com 1,5 → 422 SCRAP_QTDE_FRACIONADA (também no filho UN); com BLOQUEIA_PRODUTO_DUPLICADO_SCRAP o mesmo pai duas vezes → 422 SCRAP_PRODUTO_DUPLICADO, mas pai e pai+filho são produtos diferentes',
+          c1.status === 201 && l1.status === 200 && its.length === 3 && itPai && itPai.descricao === 'SCRAP PAI UN' && itPai.codbarra === '7899009931501' && itPai.unidade === 'UN' && Number(itPai.total) === 5 && Number(itPai.vrcustorep) === 2.7
+          && itFilho && itFilho.descricao === 'SCRAP FILHO 500G' && itFilho.codbarra === '7899009931518' && Array.isArray(l1.j.notas) && l1.j.notas.length === 0
+          && cFut.status === 422 && cFut.j.code === 'SCRAP_DATA_FUTURA' && cRetro.status === 422 && cRetro.j.code === 'SCRAP_DATA_RETROATIVA'
+          && cFrac.status === 422 && cFrac.j.code === 'SCRAP_QTDE_FRACIONADA' && cFracFilho.status === 422 && cFracFilho.j.code === 'SCRAP_QTDE_FRACIONADA'
+          && cDup.status === 422 && cDup.j.code === 'SCRAP_PRODUTO_DUPLICADO' && cDupFilho.status === 201,
+          { c1: [c1.status, c1.j.code], l1: [l1.status, its.map((i) => [i.idproduto, i.idproduto_filho, i.descricao, i.codbarra, i.unidade, i.total, i.vrcustorep]), l1.j.notas], cFut: [cFut.status, cFut.j.code], cRetro: [cRetro.status, cRetro.j.code], cFrac: [cFrac.status, cFrac.j.code], cFracFilho: [cFracFilho.status, cFracFilho.j.code], cDup: [cDup.status, cDup.j.code], cDupFilho: [cDupFilho.status, cDupFilho.j.code] });
+
+        // 315.3 — a exclusão com liberação (PEDE_SENHA_EXCLUIR_ITEM_SCRAP = S): sem login → 422; senha errada → não liberado; quem tem a config em N libera (o item sai; o documento sai)
+        const sc1 = Number(c1.j.codscrap);
+        const exSem = await callSc(`/${sc1}/excluir-itens`, 'POST', { codscrapitens: [Number(itPai?.codscrapitem)] });
+        const exErr = await callSc(`/${sc1}/excluir-itens`, 'POST', { codscrapitens: [Number(itPai?.codscrapitem)], login: 'SMOKE', senha: 'nao-e-esta' });
+        const exNaoLib = await callSc(`/${sc1}/excluir-itens`, 'POST', { codscrapitens: [Number(itPai?.codscrapitem)], login: 'SMOKE', senha: 'smoke123' });
+        const docSem = await callSc(`/${sc1}/excluir`, 'POST', {});
+        // o usuário 7 passa a liberar (a config em N para ele, como o usuário 1 na produção)
+        await ovr('PEDE_SENHA_EXCLUIR_ITEM_SCRAP', 'Usuario', '7', 'N');
+        const exOk = await callSc(`/${sc1}/excluir-itens`, 'POST', { codscrapitens: [Number(itPai?.codscrapitem)], login: 'SMOKE', senha: 'smoke123' });
+        const exInex = await callSc(`/${sc1}/excluir-itens`, 'POST', { codscrapitens: [999999999], login: 'SMOKE', senha: 'smoke123' });
+        const docOk = await callSc(`/${sc1}/excluir`, 'POST', { login: 'SMOKE', senha: 'smoke123' });
+        await semOvr('PEDE_SENHA_EXCLUIR_ITEM_SCRAP', 'Usuario', '7');
+        const lDepois = await callSc(`/${sc1}`, 'GET');
+        check('SCRAP §315.3 [PermiteExcluir — uCadSCRAP.pas:1749]: excluir o item gravado sem login → 422 SCRAP_EXCLUSAO_PEDE_LIBERACAO; senha errada ou usuário que também precisa de senha → 422 SCRAP_EXCLUSAO_ITEM_NAO_LIBERADA; o usuário com a config em N libera: o item sai e os outros ficam; item inexistente → 422; excluir o documento sem login → 422 e com a liberação → 200 (o scrap some)',
+          exSem.status === 422 && exSem.j.code === 'SCRAP_EXCLUSAO_PEDE_LIBERACAO' && exErr.status === 422 && exErr.j.code === 'SCRAP_EXCLUSAO_ITEM_NAO_LIBERADA' && exNaoLib.status === 422 && exNaoLib.j.code === 'SCRAP_EXCLUSAO_ITEM_NAO_LIBERADA'
+          && exOk.status === 200 && (exOk.j.itens ?? []).length === 2 && !(exOk.j.itens ?? []).some((i: any) => Number(i.codscrapitem) === Number(itPai?.codscrapitem))
+          && exInex.status === 422 && exInex.j.code === 'SCRAP_ITEM_NAO_ENCONTRADO' && docSem.status === 422 && docSem.j.code === 'SCRAP_EXCLUSAO_PEDE_LIBERACAO'
+          && docOk.status === 200 && lDepois.j?.codscrap == null,
+          { exSem: [exSem.status, exSem.j.code], exErr: [exErr.status, exErr.j.code], exNaoLib: [exNaoLib.status, exNaoLib.j.code], exOk: [exOk.status, exOk.j.code, (exOk.j.itens ?? []).length], exInex: [exInex.status, exInex.j.code], docSem: [docSem.status, docSem.j.code], docOk: [docOk.status, docOk.j], lDepois: [lDepois.status, lDepois.j] });
+
+        // 315.4 — o scrap importado numa NF de perda (PEDIDO_NF tipo S): a leitura mostra a nota com o status; alterar e excluir recusam com a lista das NFs
+        const sc2 = Number(cDupFilho.j.codscrap);
+        nfSc = Number((await pgSc.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop) VALUES (1, 2, '315001', 55, '1', 'S', 'N', 'N', current_date, current_date, 5927) RETURNING codnf`)).rows[0].codnf);
+        await pgSc.query(`INSERT INTO pedido_nf (codnf, codpedido, tipo) VALUES ($1, $2, 'S')`, [nfSc, sc2]);
+        const lImp = await callSc(`/${sc2}`, 'GET');
+        const putImp = await callSc(`/${sc2}`, 'PUT', { obs: 'tentativa' });
+        await ovr('PEDE_SENHA_EXCLUIR_ITEM_SCRAP', 'Usuario', '7', 'N');
+        const delImp = await callSc(`/${sc2}/excluir`, 'POST', { login: 'SMOKE', senha: 'smoke123' });
+        await semOvr('PEDE_SENHA_EXCLUIR_ITEM_SCRAP', 'Usuario', '7');
+        check('SCRAP §315.4 [Importado/ListaNotasFiscaisAssociadas — uCadSCRAP.pas:1595/1690]: o scrap ligado a uma NF de perda lista a nota (código, número, "NÃO PROCESSADA"); editar → 422 SCRAP_IMPORTADO_NA_NF com as NFs no detalhe; excluir, mesmo liberado → 422',
+          lImp.status === 200 && lImp.j.notas?.length === 1 && Number(lImp.j.notas[0].codnf) === nfSc && lImp.j.notas[0].nronf === '315001' && lImp.j.notas[0].statusnota === 'NÃO PROCESSADA'
+          && putImp.status === 422 && putImp.j.code === 'SCRAP_IMPORTADO_NA_NF' && JSON.stringify(putImp.j.detalhe?.notas) === JSON.stringify([nfSc])
+          && delImp.status === 422 && delImp.j.code === 'SCRAP_IMPORTADO_NA_NF',
+          { lImp: [lImp.status, lImp.j.notas], putImp: [putImp.status, putImp.j.code, putImp.j.detalhe], delImp: [delImp.status, delImp.j.code] });
+      } finally {
+        for (const c of ['IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO', 'BLOQUEIA_PRODUTO_DUPLICADO_SCRAP', 'PEDE_SENHA_EXCLUIR_ITEM_SCRAP']) await semOvr(c, 'Usuario', '7').catch(() => undefined);
+        await pgSc.query(`DELETE FROM pedido_nf WHERE codnf = $1`, [nfSc || -1]).catch(() => undefined);
+        await pgSc.query(`DELETE FROM nf WHERE codnf = $1`, [nfSc || -1]).catch(() => undefined);
+        for (const sc of scraps) { await pgSc.query(`DELETE FROM caixa WHERE codscrap = $1`, [sc]).catch(() => undefined); await pgSc.query(`DELETE FROM scrap WHERE codscrap = $1`, [sc]).catch(() => undefined); }
+        await pgSc.query(`DELETE FROM estoque WHERE idproduto IN ($1, $2, $3)`, [PAI, FILHO, KG]).catch(() => undefined);
+        await pgSc.query(`DELETE FROM multi_preco WHERE idproduto IN ($1, $2, $3)`, [PAI, FILHO, KG]).catch(() => undefined);
+        await pgSc.query(`DELETE FROM codauxiliar WHERE idproduto = $1`, [PAI]).catch(() => undefined);
+        await pgSc.query(`DELETE FROM produtos WHERE idproduto IN ($1, $2, $3)`, [FILHO, PAI, KG]).catch(() => undefined);
+        await pgSc.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

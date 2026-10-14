@@ -32,17 +32,31 @@ export interface ScrapItem {
   idproduto: number;
   qtde: number;
   vr_custo?: number;
+  vrcustorep?: number | null;
   codmotivoop?: number | null;
   codsetor?: number | null;
   codfor?: number | null;
   idproduto_filho?: number | null;
+  // o que a leitura anexa para a grade do legado (anexarLeitura do agregado)
+  codbarra?: string | null;
+  descricao?: string | null;
+  unidade?: string | null;
+  fornecedor?: string | null;
+  origem?: string | null;
+  faturado?: string | null;
+  imp_vendas?: string | null;
+  origem_perda?: string | null;
+  total?: number | null;
 }
+/** a NF de perda em que o scrap foi importado (grupo "Notas fiscais" da tela) */
+export interface NotaDoScrap { codnf: number; nronf: string | null; dtemissao: string | null; tiponf: string | null; statusnota: string }
 export interface ScrapDetalhe extends ScrapHeader {
   codplc?: number | null;
   codparceiro?: number | null;
   idsituacao_nf?: number | null;
   obs?: string | null;
   itens: ScrapItem[];
+  notas?: NotaDoScrap[];
 }
 export interface MotivoPerda {
   codmotivoop: number;
@@ -57,7 +71,7 @@ export function listarScraps(): Promise<ScrapHeader[]> {
 export function obterScrap(id: number): Promise<ScrapDetalhe> {
   return req(`/cadastro/scrap/${id}`, { method: 'GET' });
 }
-export interface ScrapGravar { codplc?: number | null; idsituacao_nf?: number | null; obs?: string; itens: ScrapItem[] }
+export interface ScrapGravar { dt_cadastro?: string; codplc?: number | null; idsituacao_nf?: number | null; obs?: string; itens: ScrapItem[] }
 export function criarScrap(body: ScrapGravar): Promise<ScrapDetalhe> {
   return req('/cadastro/scrap', { method: 'POST', body: JSON.stringify(body) });
 }
@@ -89,7 +103,29 @@ export interface ScrapApoio {
   informaSituacao: boolean;
   informaMotivo: boolean;
   baixarEstoque: boolean;
+  exibeProdutoPai?: boolean;
+  pedeSenhaExcluir?: boolean;
+  bloqueiaDuplicado?: boolean;
+  diasRetroativo?: number | null;
 }
 export function apoioScrap(): Promise<ScrapApoio> {
   return req('/cadastro/scrap/apoio/dados', { method: 'GET' });
 }
+
+/** o produto do item pelo código de barras/auxiliar (ou pelo código do produto com "Buscar por PLU") — GetProduto do legado */
+export interface ProdutoScrap {
+  idproduto: number; idproduto_filho: number | null; codbarra: string | null; descricao: string | null; unidade: string | null;
+  vrcusto: number; vrcustorep: number; qtde_estoque: number; codfor: number | null; fornecedor: string | null;
+}
+export function produtoScrap(codigo: string, plu: boolean): Promise<ProdutoScrap> {
+  return req(`/cadastro/scrap/apoio/produto?codigo=${encodeURIComponent(codigo)}&plu=${plu ? 'S' : 'N'}`, { method: 'GET' });
+}
+/** a exclusão com a liberação por login (PEDE_SENHA_EXCLUIR_ITEM_SCRAP): o item gravado e o documento */
+export interface LiberacaoExclusaoScrap { login?: string; senha?: string }
+export function excluirItensScrap(id: number, body: { codscrapitens: number[] } & LiberacaoExclusaoScrap): Promise<ScrapDetalhe> {
+  return req(`/cadastro/scrap/${id}/excluir-itens`, { method: 'POST', body: JSON.stringify(body) });
+}
+export function excluirScrapLiberado(id: number, body: LiberacaoExclusaoScrap): Promise<{ codscrap: number }> {
+  return req(`/cadastro/scrap/${id}/excluir`, { method: 'POST', body: JSON.stringify(body) });
+}
+

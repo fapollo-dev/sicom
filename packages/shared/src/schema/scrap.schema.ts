@@ -46,4 +46,12 @@ export const scrapSchema = z.object({
 });
 export type ScrapDto = z.infer<typeof scrapSchema>;
 export const atualizarScrapSchema = scrapSchema.partial();
+
+/** a liberação por login de quem pode excluir (PEDE_SENHA_EXCLUIR_ITEM_SCRAP — `PermiteExcluir`, uCadSCRAP.pas:1749): o item gravado e o documento */
+export const scrapLiberacaoExclusaoSchema = z.object({
+  login: opcional(z.string().trim().max(100)),
+  senha: opcional(z.string().max(100)),
+  codscrapitens: z.array(z.coerce.number().int().positive()).max(5000).optional(),
+});
+export type ScrapLiberacaoExclusaoDto = z.infer<typeof scrapLiberacaoExclusaoSchema>;
 export type AtualizarScrapDto = z.infer<typeof atualizarScrapSchema>;

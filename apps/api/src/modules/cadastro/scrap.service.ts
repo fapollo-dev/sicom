@@ -4,6 +4,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { LiberacaoService } from '../auth/liberacao.service';
+import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
+import { scrapAggregateConfig } from './scrap.aggregate';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
@@ -27,7 +30,11 @@ const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000; // num
  */
 @Injectable()
 export class ScrapService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly liberacao: LiberacaoService,
+    private readonly engine: AggregateEngineService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -69,7 +76,100 @@ export class ScrapService {
       informaSituacao: await cfg('INFORMA_SITUACAO_DOCUMENTO_SCRAP', 'N'),
       informaMotivo: await cfg('INFORMA_MOTIVO_PERDA_SCRAP', 'N'),
       baixarEstoque: await cfg('BAIXAR_ESTOQUE_NO_SCRAP', 'N'),
+      // a auditoria do uCadSCRAP.dfm (14/10/2026): a coluna "Cod.Prod Filho" (FormShow), a senha para excluir (PermiteExcluir), o produto
+      // repetido (GetProduto) e os dias do lançamento retroativo (edtDataExit)
+      exibeProdutoPai: await cfg('EXIBE_CAMPO_PRODUTO_PAI', 'N'),
+      pedeSenhaExcluir: await cfg('PEDE_SENHA_EXCLUIR_ITEM_SCRAP', 'N'),
+      bloqueiaDuplicado: await cfg('BLOQUEIA_PRODUTO_DUPLICADO_SCRAP', 'N'),
+      diasRetroativo: ((v) => (v == null ? null : Number(v) || 0))(await configNaTrx(db, 'DIAS_PERMITIDO_LANCTO_RETROATIVO_SCRAP', ctx)),
     };
+  }
+
+  /**
+   * O produto do item pelo código de barras (ou código auxiliar) — ou pelo código do produto com "Buscar por PLU (F2)" — como o
+   * `GetProduto`/`GetProdutoFilho` (udmCadSCRAP.pas:382/332): o produto FILHO leva ao pai (IDPRODUTO_PAI) e fica no IDPRODUTO_FILHO; o
+   * custo é o MULTI_PRECO da loja; com IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO só entra com estoque; o fornecedor é o da última entrada
+   * (ESTOQUE.IDORIGEM_ENT → NF, senão o PRODUTOS.CODFOR — `SetaOutrasInformacoesItemScrap` :441).
+   */
+  async produto(codigo: string, plu: boolean): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ctx = { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    const cod = String(codigo ?? '').trim();
+    if (!cod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { codigo: cod });
+    const achado = plu
+      ? (Number.isInteger(Number(cod)) ? (await sql<Record<string, unknown>>`SELECT p.idproduto, p.idproduto_pai FROM produtos p WHERE p.idproduto = ${Number(cod)} LIMIT 1`.execute(db)).rows[0] : undefined)
+      : (await sql<Record<string, unknown>>`
+          SELECT p.idproduto, p.idproduto_pai FROM produtos p LEFT JOIN codauxiliar ax ON ax.idproduto = p.idproduto
+           WHERE p.codbarra = ${cod} OR ax.codauxiliar = ${cod} ORDER BY p.idproduto LIMIT 1`.execute(db)).rows[0];
+    if (!achado) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { codigo: cod });
+    const pai = Number(achado.idproduto_pai) > 0 ? Number(achado.idproduto_pai) : Number(achado.idproduto);
+    const filho = Number(achado.idproduto_pai) > 0 ? Number(achado.idproduto) : 0;
+    const impedirNegativo = String((await configNaTrx(db, 'IMPEDIR_MOVIMENTO_ESTOQUE_NEGATIVO', ctx)) ?? 'N').toUpperCase() === 'S';
+    const r = (await sql<Record<string, unknown>>`
+      SELECT pro.idproduto, pro.codbarra, pro.unidade, coalesce(nullif(prof.descricao, ''), pro.descricao) AS descricao, prof.codbarra AS codbarra_filho,
+             pr.vrcusto, pr.vrcustorep, coalesce(e.qtde, 0) AS qtde_estoque
+        FROM produtos pro
+        LEFT JOIN produtos prof ON prof.idproduto = ${filho}
+        LEFT JOIN multi_preco pr ON pr.idproduto = pro.idproduto AND pr.idempresa = ${emp}
+        LEFT JOIN estoque e ON e.idproduto = pro.idproduto AND e.idempresa = ${emp}
+       WHERE pro.idproduto = ${pai}`.execute(db)).rows[0];
+    if (!r || (impedirNegativo && !(Number(r.qtde_estoque) > 0))) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { codigo: cod });
+    const ultFor = (await sql<Record<string, unknown>>`
+      SELECT f.codparceiro, f.razao FROM estoque e
+        LEFT JOIN nf n ON n.codnf = e.idorigem_ent
+        LEFT JOIN produtos p ON p.idproduto = e.idproduto
+        LEFT JOIN parceiros f ON f.codparceiro = coalesce(n.codparceiro, p.codfor)
+       WHERE e.idempresa = ${emp} AND e.idproduto = ${pai} LIMIT 1`.execute(db)).rows[0];
+    return {
+      idproduto: pai, idproduto_filho: filho > 0 ? filho : null, codbarra: filho > 0 ? r.codbarra_filho ?? r.codbarra : r.codbarra, descricao: r.descricao,
+      unidade: r.unidade, vrcusto: Number(r.vrcusto ?? 0), vrcustorep: Number(r.vrcustorep ?? 0), qtde_estoque: Number(r.qtde_estoque ?? 0),
+      codfor: Number(ultFor?.codparceiro ?? 0) > 0 ? Number(ultFor?.codparceiro) : null, fornecedor: ultFor?.razao ?? null,
+    };
+  }
+
+  /**
+   * PEDE_SENHA_EXCLUIR_ITEM_SCRAP ('S' na produção): excluir item gravado ou o scrap pede a liberação por login de quem tem a
+   * config em 'N' (o usuário 1 na produção) — `PermiteExcluir` (uCadSCRAP.pas:1749) via `ChamaLiberacaoLogin`.
+   */
+  private async liberarExclusao(db: AnyDB, cred: { login?: string; senha?: string }, item: boolean, texto: string): Promise<void> {
+    const emp = this.emp();
+    const ctx = { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    if (String((await configNaTrx(db, 'PEDE_SENHA_EXCLUIR_ITEM_SCRAP', ctx)) ?? 'N').toUpperCase() !== 'S') return;
+    if (!cred.login || !cred.senha) throw new BusinessRuleError('SCRAP_EXCLUSAO_PEDE_LIBERACAO');
+    const sup = (await db.selectFrom('operadores').select(['codoperador']).where(sql`upper(login)`, '=', String(cred.login).toUpperCase())
+      .where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst()) as { codoperador: number } | undefined;
+    const libera = !!sup && String((await configNaTrx(db, 'PEDE_SENHA_EXCLUIR_ITEM_SCRAP', { empresaId: emp, operadorId: Number(sup.codoperador), modulo: 'Retaguarda' })) ?? 'N').toUpperCase() !== 'S';
+    const r = await this.liberacao.validar({ codigo: 'PEDE_SENHA_EXCLUIR_ITEM_SCRAP', login: cred.login, senha: cred.senha, liberacao: texto, permitidos: libera && sup ? [Number(sup.codoperador)] : [] });
+    if (!r.liberado) throw new BusinessRuleError(item ? 'SCRAP_EXCLUSAO_ITEM_NAO_LIBERADA' : 'SCRAP_EXCLUSAO_NAO_LIBERADA');
+  }
+
+  /** "Excluir" da grade sobre o item GRAVADO (btnExcluirIClick, :535): a liberação e o gravar com os itens que ficam (o motor confere BTNEXCLUIRI e loga) */
+  async excluirItens(codscrap: number, dto: { codscrapitens?: number[]; login?: string; senha?: string }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const atual = await this.engine.readAggregate(scrapAggregateConfig, codscrap) as Record<string, unknown> | undefined;
+    if (!atual) throw new BusinessRuleError('SCRAP_NAO_ENCONTRADO', { codscrap });
+    const itens = (atual.itens as Array<Record<string, unknown>>) ?? [];
+    const sair = new Set((dto.codscrapitens ?? []).map(Number));
+    if (!sair.size) throw new BusinessRuleError('SCRAP_ITEM_NAO_ENCONTRADO', { codscrap });
+    for (const c of sair) if (!itens.some((i) => Number(i.codscrapitem) === c)) throw new BusinessRuleError('SCRAP_ITEM_NAO_ENCONTRADO', { codscrap, codscrapitem: c });
+    await this.liberarExclusao(db, dto, true, `EXCLUSAO DE ITEM DO SCRAP ${codscrap}: ${[...sair].join(', ')}`);
+    const ficam = itens.filter((i) => !sair.has(Number(i.codscrapitem))).map((i) => ({
+      idproduto: Number(i.idproduto), qtde: Number(i.qtde), codmotivoop: i.codmotivoop ?? null, codsetor: i.codsetor ?? null, codfor: i.codfor ?? null,
+      idproduto_filho: i.idproduto_filho ?? null, origem_estoque: i.origem_estoque ?? null, obs: i.obs ?? null,
+    }));
+    await this.engine.updateAggregate(scrapAggregateConfig, codscrap, { itens: ficam });
+    return this.engine.readAggregate(scrapAggregateConfig, codscrap);
+  }
+
+  /** "Excluir" do documento (btnExcluirClick, :510): a liberação e a exclusão do motor (com as travas do validarRemocao) */
+  async excluirComLiberacao(codscrap: number, dto: { login?: string; senha?: string }) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const s = (await db.selectFrom('scrap').select(['codscrap']).where('codscrap', '=', codscrap).executeTakeFirst()) as { codscrap: number } | undefined;
+    if (!s) throw new BusinessRuleError('SCRAP_NAO_ENCONTRADO', { codscrap });
+    await this.liberarExclusao(db, dto, false, `EXCLUSAO DO SCRAP ${codscrap}`);
+    await this.engine.removeAggregate(scrapAggregateConfig, codscrap);
+    return { codscrap };
   }
 
   /** sem `BAIXAR_ESTOQUE_NO_SCRAP='S'` a baixa é da NF de perda — aplicar/estornar aqui recusa */

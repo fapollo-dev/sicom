@@ -1,4 +1,6 @@
-import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { scrapLiberacaoExclusaoSchema, type ScrapLiberacaoExclusaoDto } from '@apollo/shared';
+import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { ScrapService } from './scrap.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -19,6 +21,29 @@ export class ScrapController {
   @RequerAcesso('FRMCADSCRAP', 'BTNGRAVAR')
   apoio() {
     return this.svc.apoio();
+  }
+
+  /** o produto do item pelo código de barras/auxiliar ou pelo código do produto (PLU) — GetProduto/GetProdutoFilho */
+  @Get('apoio/produto')
+  @RequerAcesso('FRMCADSCRAP', 'BTNADICIONARITEM')
+  produto(@Query('codigo') codigo: string, @Query('plu') plu?: string) {
+    return this.svc.produto(codigo, String(plu ?? '').toUpperCase() === 'S');
+  }
+
+  /** "Excluir" o item gravado: a liberação por login (PEDE_SENHA_EXCLUIR_ITEM_SCRAP) e o gravar com os itens que ficam */
+  @Post(':id/excluir-itens')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADSCRAP', 'BTNEXCLUIRI')
+  excluirItens(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(scrapLiberacaoExclusaoSchema)) dto: ScrapLiberacaoExclusaoDto) {
+    return this.svc.excluirItens(id, dto);
+  }
+
+  /** "Excluir" o documento com a liberação por login */
+  @Post(':id/excluir')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADSCRAP', 'BTNEXCLUIR')
+  excluirComLiberacao(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(scrapLiberacaoExclusaoSchema)) dto: ScrapLiberacaoExclusaoDto) {
+    return this.svc.excluirComLiberacao(id, dto);
   }
 
   /** APLICA a baixa de estoque de todos os itens do scrap (mov_estoque='S'). */
