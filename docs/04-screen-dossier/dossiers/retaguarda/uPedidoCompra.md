@@ -605,3 +605,46 @@ fica vermelha com registro) e o `VerificaPendencias`, que o Apollo só tinha pel
   e a "Conferência de Preço" do menu (conf - conferencia de preco pedcomp.fr3: os itens na ordem da descrição com o preço de venda).
 API `GET compras/pedidos/fornecedor/:codparceiro/pendencias`, `POST …/impressao/:tipo`, `GET compras/pedidos/:id/impressao/conferencia-preco`
 (acesso à tela FRMPEDIDOCOMPRA). Smoke §286 e §57.7.
+
+## A auditoria controle a controle do uPedidoCompra.dfm (14/10/2026)
+
+O `.dfm` (6.994 linhas: 14 abas, 49 itens de menu) e as 18 opções de permissão da produção revistos contra a página do Apollo, com a prova
+nos 12.948 pedidos (684 em 2026). Convertido neste corte:
+
+- ⛔→✅ **O produto pelo código na grade** (`edtCodBarra` + `TipoBusca`, `edtCodBarraKeyDown` :6256): F2 = código de barras ou
+  auxiliar (`SegCodBarra`/`SegCodBarra_CodAux`), F12 = referência do fornecedor (CODREFERENCIA_FOR — "Nenhum produto foi encontrado com
+  este código para este fornecedor."), Ctrl+P = PLU ("Nenhum produto foi encontrado com este PLU."); "Produto não encontrado!"; o filho
+  não entra ("Produtos cadastrados como filho não podem ser informados no pedido de compra."); o produto achado entra pela mesma herança
+  do catálogo da Pesquisa (`CarregarItens`). `GET compras/pedidos/apoio/produto?codigo=&modo=barra|ref|plu&codparceiro=`.
+- ⛔→✅ **"F9 - Limpar"** (`btnLimparIClick` :7086, BTNLIMPARI — 32 operadores): "Deseja limpar os produtos deste pedido?"; **F10** exclui
+  a linha corrente (BTNEXCLUIRI); **F6 - Análise do produto** (`MniAnaliseProdutoClick` :2272 → TfrmPosicaoProduto) pela linha ou pela
+  ação da grade. A trava do Limpar por transferência gerada (PEDIDOCOMPRA_QTDE_TRANSF) fica fora: 0 linhas na produção.
+- ⛔→✅ **"Últimas compras"** (`sqqUltimasCompras`, udmPedidoCompra.dfm:220): os pedidos do produto com a quantidade por loja (EMP<n>),
+  fator, custo e venda médios e o fechado — `GET compras/pedidos/produto/:id/ultimas-compras`, pela ação da grade.
+- ⛔→✅ **"Categorias"** (`sqqCategorias` :528, `AbreCategoria` :3785): os produtos do subgrupo do item na loja (estoque, depósito,
+  fornecedor, preços) — `GET compras/pedidos/categoria/:codsubgrupo?idempresa=`.
+- ⛔→✅ **"Desativar produto"** (`DesativarProduto1Click` :5699): MULTI_PRECO.ATIVO e ATIVO_COMPRA = 'N' em todas as empresas ou nas do pedido
+  (a terceira opção, "Selecionar empresas", é a lista do multi-empresa — aqui as duas primeiras), e o item sai do pedido.
+  **Produção:** 1.329 preços com ATIVO_COMPRA = 'N' alterados em 2026. `POST compras/pedidos/:id/itens/:idproduto/desativar`.
+- ⛔→✅ **"Fluxo de caixa geral"** (`MontaFluxo`/`MontaFluxoGeral` :5945/:6069, `sqqFluxo` udmPedidoCompra.dfm:5111 = GET_FLUXOSAIDAS):
+  para cada condição CD1..CD8 a janela de desembolso em torno de (faturamento + CD) — ±3 dias no `TIPO_FLUXO_CAIXA_PC` = 'D' (a
+  produção) ou a semana civil no 'S' — com o A Pagar aberto não agrupado e os cheques próprios não baixados pelo vencimento (fora com
+  `FLUXO_CAIXA_SOMENTE_VALOR_PC` = 'P'; a produção é 'T'), as parcelas dos outros pedidos abertos e as deste pedido (as lojas que já
+  receberam nota ficam fora — `GetValorParcela`/`GetEmpresasComNF`). `GET compras/pedidos/:id/fluxo-caixa?dtfaturamento=&cds=`, a
+  seção "Fluxo de caixa geral" abaixo das parcelas. **"Fluxo de caixa por empresa"**: `FLUXO_POR_EMPRESA` = 'N' na produção — fora.
+- ⛔→✅ **"Importar produtos de uma nota fiscal"** (`MniImportarProdutosNFClick` :2810 → `ImportaItens` tNotaFiscal :8242): a Pesquisa
+  da GET_NF de entrada e os produtos da nota do fornecedor entram com a herança do catálogo (`importar-itens` com `origem: 'nota-fiscal'`
+  + `codnf`; a NF de outro fornecedor é recusada). As opções "Produtos associados e comprados" (união) e "Tabela do fornecedor" (IDTF:
+  0 pedidos) ficam fora.
+
+Com prova, sem código: **Bonificações** (aba `TabSheet2`, BONIFICACAO: 2 linhas em 2024, 0 depois — o espelho bonificado já existe);
+**Histórico do pedido** (PEDIDO_COMPRA_HISTORICO: 4 linhas em 2025, as reaberturas — a LOG do Apollo as registra); **Agenda de
+descarregamento** (AGENDA_DESCARREGAMENTO: 3 linhas; DOCA: 1); **Cotação** (1 cotação em 2026); **Quantidade mínima** (ESTOQUE.MINIMO >
+0 em 4 produtos); **F8 - Importar Coletor** (`LAYOUT_IMPORTACAO_COLETOR_PC` vazio na produção: "O layout não foi definido no
+configurador geral."); **Gerar Lote / lote de vários pedidos** (LTPRECO_PROCESSADO: 0 em 2025-26); **Criar/Atualizar tabela do
+fornecedor** (IDTF nulo em 100%); **Dividir compras** (COMPRA_1_PARA_N_LOJAS: 0); **Setar estoque mínimo** (oculto). As opções
+BTNSALVAREDICAOPEDIDO / MNIFECHARDIGITAOASSOCIADO / MNIREABRIRDIGITAO / MNIGERARPEDIDOS (7 operadores) não existem no fonte de 2020 —
+binário novo ("pedido associado"), registradas.
+
+Smoke §316 (4 checks).
+

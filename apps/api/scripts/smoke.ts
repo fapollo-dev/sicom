@@ -20283,6 +20283,107 @@ async function main() {
         await pgSc.end();
       }
     }
+    // ══ §316 PEDIDO DE COMPRA — OS CONTROLES AUDITADOS DO uPedidoCompra.dfm: produto pelo código (F2/F12/Ctrl+P), últimas compras, categoria, desativar, fluxo de caixa, importar de uma NF ══
+    {
+      const pgPc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FILHO316 = 993160; const NOVO316 = 993161;
+      const pedidos: number[] = []; let nfA = 0; let nfB = 0; let apg316 = 0; let codrefIns = 0;
+      const callPc = async (sufixo: string, method: string, body?: unknown, h = H) => { const r = await fetch(`${base}/compras/pedidos${sufixo}`, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const prod1 = (await pgPc.query(`SELECT codbarra, codfor, codsubgrupo FROM produtos WHERE idproduto = 1`)).rows[0] as any;
+      const mpAntes = (await pgPc.query(`SELECT ativo, ativo_compra FROM multi_preco WHERE idproduto = 1 AND idempresa = 1`)).rows[0] as any;
+      const hojePc = String((await pgPc.query(`SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date::text d`)).rows[0].d);
+      const diaPc = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+      try {
+        await pgPc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idproduto_pai) VALUES ($1, '7899009931600', 'PC FILHO 316', 'UN', 22, 'T01', 'S', 1) ON CONFLICT (idproduto) DO NOTHING`, [FILHO316]);
+        await pgPc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, fatorcx) VALUES ($1, '7899009931617', 'PC NOVO 316', 'UN', 22, 'T01', 'S', 1) ON CONFLICT (idproduto) DO NOTHING`, [NOVO316]);
+        await pgPc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1, 1, 4, 8) ON CONFLICT DO NOTHING`, [NOVO316]);
+        await pgPc.query(`INSERT INTO codauxiliar (idproduto, codauxiliar) VALUES (1, 'AUX316')`);
+        codrefIns = Number((await pgPc.query(`INSERT INTO codreferencia_for (idproduto, codfor, codref) VALUES (1, 22, 'REF-316') RETURNING codreferencia_for`)).rows[0].codreferencia_for);
+        // 316.1 — o produto pelo código: barras, auxiliar, referência do fornecedor, PLU; o filho não entra; os não encontrados com a mensagem de cada busca
+        const pBarra = await callPc(`/apoio/produto?codigo=${encodeURIComponent(String(prod1.codbarra))}&modo=barra`, 'GET');
+        const pAux = await callPc(`/apoio/produto?codigo=AUX316&modo=barra`, 'GET');
+        const pRef = await callPc(`/apoio/produto?codigo=REF-316&modo=ref&codparceiro=22`, 'GET');
+        const pRefNao = await callPc(`/apoio/produto?codigo=REF-316&modo=ref&codparceiro=20`, 'GET');
+        const pPlu = await callPc(`/apoio/produto?codigo=1&modo=plu`, 'GET');
+        const pPluNao = await callPc(`/apoio/produto?codigo=999999999&modo=plu`, 'GET');
+        const pNao = await callPc(`/apoio/produto?codigo=NAOEXISTE316&modo=barra`, 'GET');
+        const pFilho = await callPc(`/apoio/produto?codigo=7899009931600&modo=barra`, 'GET');
+        const pSem = await callPc(`/apoio/produto?codigo=1&modo=plu`, 'GET', undefined, H_SEM_ACESSO);
+        check('PEDIDO DE COMPRA §316.1 [edtCodBarraKeyDown — uPedidoCompra.pas:6256]: o código de barras e o código auxiliar (SegCodBarra_CodAux) acham o produto 1; a referência do fornecedor (CODREFERENCIA_FOR) só para o fornecedor dela ("Nenhum produto foi encontrado com este código para este fornecedor."); o PLU é o código do produto ("Nenhum produto foi encontrado com este PLU."); inexistente → "Produto não encontrado!"; o filho → "Produtos cadastrados como filho não podem ser informados no pedido de compra."; sem a opção → 403',
+          pBarra.status === 200 && Number(pBarra.j.idproduto) === 1 && pAux.status === 200 && Number(pAux.j.idproduto) === 1 && pRef.status === 200 && Number(pRef.j.idproduto) === 1
+          && pRefNao.status === 422 && pRefNao.j.code === 'PEDIDO_PRODUTO_REF_NAO_ENCONTRADO' && pPlu.status === 200 && Number(pPlu.j.idproduto) === 1 && pPluNao.status === 422 && pPluNao.j.code === 'PEDIDO_PRODUTO_PLU_NAO_ENCONTRADO'
+          && pNao.status === 422 && pNao.j.code === 'PEDIDO_PRODUTO_NAO_ENCONTRADO' && pFilho.status === 422 && pFilho.j.code === 'PEDIDO_PRODUTO_FILHO' && pSem.status === 403,
+          { pBarra: [pBarra.status, pBarra.j], pAux: [pAux.status, pAux.j.idproduto], pRef: [pRef.status, pRef.j.idproduto], pRefNao: [pRefNao.status, pRefNao.j.code], pPlu: [pPlu.status, pPlu.j.idproduto], pPluNao: [pPluNao.status, pPluNao.j.code], pNao: [pNao.status, pNao.j.code], pFilho: [pFilho.status, pFilho.j.code], pSem: pSem.status });
+
+        // 316.2 — o pedido com o produto 1: as últimas compras (a quantidade por loja), a categoria do item, o desativar (ATIVO/ATIVO_COMPRA = N na loja do pedido)
+        const c1 = await callPc('', 'POST', { codparceiro: 22, data: hojePc, data_faturamento: hojePc, cd1: 10, cd2: 20, itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5, qtde: 2 }] });
+        if (c1.status === 201) pedidos.push(Number(c1.j.codpedcomp));
+        const pc1 = Number(c1.j.codpedcomp);
+        const ult = await callPc('/produto/1/ultimas-compras', 'GET');
+        const minha = ((ult.j.linhas ?? []) as any[]).find((l) => Number(l.pedido) === pc1);
+        const razao22 = String((await pgPc.query(`SELECT razao FROM parceiros WHERE codparceiro = 22`)).rows[0]?.razao ?? '');
+        const fam = Number((await pgPc.query(`SELECT codfamilia FROM familias_prod ORDER BY codfamilia LIMIT 1`)).rows[0]?.codfamilia ?? 0);
+        await pgPc.query(`UPDATE produtos SET codsubgrupo = $1 WHERE idproduto IN (1, $2)`, [fam, NOVO316]);
+        const cat = await callPc(`/categoria/${fam}?idempresa=1`, 'GET');
+        await pgPc.query(`UPDATE produtos SET codsubgrupo = $1 WHERE idproduto = 1`, [prod1.codsubgrupo ?? null]);
+        await pgPc.query(`UPDATE produtos SET codsubgrupo = NULL WHERE idproduto = $1`, [NOVO316]);
+        const des = await callPc(`/${pc1}/itens/1/desativar`, 'POST', { empresas: 'pedido' });
+        const mpDepois = (await pgPc.query(`SELECT ativo, ativo_compra FROM multi_preco WHERE idproduto = 1 AND idempresa = 1`)).rows[0] as any;
+        await pgPc.query(`UPDATE multi_preco SET ativo = $1, ativo_compra = $2 WHERE idproduto = 1 AND idempresa = 1`, [mpAntes?.ativo ?? 'S', mpAntes?.ativo_compra ?? 'S']);
+        const desSem = await callPc(`/${pc1}/itens/1/desativar`, 'POST', { empresas: 'pedido' }, H_SEM_ACESSO);
+        check('PEDIDO DE COMPRA §316.2 [Últimas compras / Categorias / Desativar produto — sqqUltimasCompras, sqqCategorias, DesativarProduto1Click]: a última compra do produto 1 é este pedido (2 na loja 1, fator 1, custo 5, do fornecedor 22, aberto); a categoria lista os produtos do subgrupo na loja (o 1 e o novo, com a razão do fornecedor e os preços); desativar para as empresas do pedido deixa o MULTI_PRECO da loja 1 com ATIVO = N e ATIVO_COMPRA = N; sem a opção → 403',
+          c1.status === 201 && ult.status === 200 && minha && Number(minha.lojas?.['1']) === 2 && Number(minha.fator) === 1 && Number(minha.vrcusto) === 5 && minha.fornecedor === razao22 && (ult.j.lojas ?? []).includes(1)
+          && cat.status === 200 && (cat.j.linhas ?? []).some((l: any) => Number(l.idproduto) === 1) && (cat.j.linhas ?? []).some((l: any) => Number(l.idproduto) === NOVO316 && Number(l.vrcusto) === 4 && l.razao === razao22)
+          && des.status === 200 && JSON.stringify(des.j.empresas) === '[1]' && mpDepois?.ativo === 'N' && mpDepois?.ativo_compra === 'N' && desSem.status === 403,
+          { c1: [c1.status, c1.j.code], ult: [ult.status, ult.j.lojas, minha], cat: [cat.status, (cat.j.linhas ?? []).map((l: any) => [l.idproduto, l.vrcusto, l.razao])], des: [des.status, des.j, mpDepois], desSem: desSem.status });
+
+        // 316.3 — o fluxo de caixa geral (modo diário por override da loja): a janela ±3 dias de cada CD com o A Pagar aberto do dia e as parcelas deste pedido
+        await pgPc.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Empresa', '1', 'D' FROM configuracoes WHERE codigo = 'TIPO_FLUXO_CAIXA_PC' ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'D'`);
+        const gp = await callPc(`/${pc1}/gerar-parcelas`, 'POST');
+        apg316 = Number((await pgPc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc) VALUES (1, 2, 'FLX-316', $1, 100, 'N', 'DP') RETURNING codapg`, [diaPc(hojePc, 10)])).rows[0].codapg);
+        const fx = await callPc(`/${pc1}/fluxo-caixa`, 'GET');
+        const fx1 = await callPc(`/${pc1}/fluxo-caixa?cds=5`, 'GET');
+        await pgPc.query(`DELETE FROM configuracoes_especificas WHERE id = (SELECT id FROM configuracoes WHERE codigo = 'TIPO_FLUXO_CAIXA_PC') AND tipo = 'Empresa' AND chave = '1'`);
+        const cd10 = (fx.j.condicoes ?? []).find((c: any) => Number(c.cd) === 10);
+        const dia10 = cd10?.dias?.find((d: any) => d.data === diaPc(hojePc, 10));
+        const parcelaDia10 = Number((await pgPc.query(`SELECT coalesce(sum(valor), 0) v FROM pedidocompra_parcelas WHERE codpedcomp = $1 AND data::date = $2::date`, [pc1, diaPc(hojePc, 10)])).rows[0].v);
+        check('PEDIDO DE COMPRA §316.3 [Fluxo de caixa geral — MontaFluxo, uPedidoCompra.pas:5945]: no modo diário cada condição (CD 10 e 20) traz os 7 dias em torno de faturamento + CD; o dia do vencimento soma o A Pagar aberto (100) com a parcela deste pedido; cds=5 na consulta recalcula com uma condição só',
+          gp.status === 200 && fx.status === 200 && fx.j.modo === 'D' && fx.j.base === hojePc && (fx.j.condicoes ?? []).length === 2 && cd10 && cd10.dias.length === 7 && cd10.dias[0].data === diaPc(hojePc, 7) && cd10.dias[6].data === diaPc(hojePc, 13)
+          && dia10 && parcelaDia10 > 0 && Math.abs(Number(dia10.valor) - (100 + parcelaDia10)) < 0.011 && fx1.status === 200 && (fx1.j.condicoes ?? []).length === 1 && Number(fx1.j.condicoes[0].cd) === 5,
+          { gp: [gp.status, gp.j], fx: [fx.status, fx.j.modo, fx.j.base, fx.j.somentePedidos, cd10, parcelaDia10], fx1: [fx1.status, (fx1.j.condicoes ?? []).map((c: any) => c.cd)] });
+
+        // 316.4 — "Importar produtos de uma nota fiscal": só a NF de entrada do fornecedor; o produto da NF entra com a herança do catálogo
+        nfA = Number((await pgPc.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop) VALUES (1, 22, '316001', 55, '1', 'E', 'N', 'N', current_date, current_date, 1102) RETURNING codnf`)).rows[0].codnf);
+        nfB = Number((await pgPc.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop) VALUES (1, 20, '316002', 55, '1', 'E', 'N', 'N', current_date, current_date, 1102) RETURNING codnf`)).rows[0].codnf);
+        await pgPc.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, cfop) VALUES ($1, 1, $2, 'PC NOVO 316', 3, 8, 4, 1, '1102')`, [nfA, NOVO316]);
+        const impSem = await callPc(`/${pc1}/importar-itens`, 'POST', { origem: 'nota-fiscal' });
+        const impOutro = await callPc(`/${pc1}/importar-itens`, 'POST', { origem: 'nota-fiscal', codnf: nfB });
+        const impOk = await callPc(`/${pc1}/importar-itens`, 'POST', { origem: 'nota-fiscal', codnf: nfA });
+        const lido = await callPc(`/${pc1}`, 'GET');
+        const itemNovo = ((lido.j.itens ?? []) as any[]).find((i) => Number(i.idproduto) === NOVO316);
+        check('PEDIDO DE COMPRA §316.4 [ImportaItens tNotaFiscal — uPedidoCompra.pas:8242]: sem a nota → 422; a NF de outro fornecedor → 422; a NF de entrada do fornecedor importa o produto dela (custo 4 do MULTI_PRECO) e o pedido o lista',
+          impSem.status === 422 && impSem.j.code === 'PEDIDO_IMPORT_NF_OBRIGATORIA' && impOutro.status === 422 && impOutro.j.code === 'PEDIDO_IMPORT_NF_DE_OUTRO_FORNECEDOR'
+          && impOk.status === 200 && Number(impOk.j.importados) === 1 && itemNovo && Number(itemNovo.vrcusto) === 4,
+          { impSem: [impSem.status, impSem.j.code], impOutro: [impOutro.status, impOutro.j.code], impOk: [impOk.status, impOk.j], itemNovo });
+      } finally {
+        await pgPc.query(`DELETE FROM configuracoes_especificas WHERE id = (SELECT id FROM configuracoes WHERE codigo = 'TIPO_FLUXO_CAIXA_PC') AND tipo = 'Empresa' AND chave = '1'`).catch(() => undefined);
+        if (apg316) await pgPc.query(`DELETE FROM apagar WHERE codapg = $1`, [apg316]).catch(() => undefined);
+        for (const n of [nfA, nfB]) if (n) { await pgPc.query(`DELETE FROM nf_prod WHERE codnf = $1`, [n]).catch(() => undefined); await pgPc.query(`DELETE FROM nf WHERE codnf = $1`, [n]).catch(() => undefined); }
+        for (const pc of pedidos) {
+          await pgPc.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+          await pgPc.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [pc]).catch(() => undefined);
+          await pgPc.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+          await pgPc.query(`DELETE FROM pedido_compra_empresa WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+          await pgPc.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pc]).catch(() => undefined);
+        }
+        if (codrefIns) await pgPc.query(`DELETE FROM codreferencia_for WHERE codreferencia_for = $1`, [codrefIns]).catch(() => undefined);
+        await pgPc.query(`DELETE FROM codauxiliar WHERE codauxiliar = 'AUX316'`).catch(() => undefined);
+        await pgPc.query(`UPDATE multi_preco SET ativo = $1, ativo_compra = $2 WHERE idproduto = 1 AND idempresa = 1`, [mpAntes?.ativo ?? 'S', mpAntes?.ativo_compra ?? 'S']).catch(() => undefined);
+        await pgPc.query(`DELETE FROM multi_preco WHERE idproduto IN ($1, $2)`, [FILHO316, NOVO316]).catch(() => undefined);
+        await pgPc.query(`DELETE FROM produtos WHERE idproduto IN ($1, $2)`, [FILHO316, NOVO316]).catch(() => undefined);
+        await pgPc.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

@@ -699,6 +699,13 @@ const CODE_PT: Record<string, string> = {
   // Pedido de Compra (FRMPEDIDOCOMPRA)
   PEDIDO_FORNECEDOR_INVALIDO: 'Fornecedor inválido: o parceiro informado não é um fornecedor (FRN).',
   PEDIDO_FECHADO: 'Este pedido de compra está fechado — reabra o pedido antes de alterá-lo ou excluí-lo.',
+  // a auditoria do uPedidoCompra.dfm (14/10/2026): o produto pelo código, a importação de uma NF
+  PEDIDO_PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado!',
+  PEDIDO_PRODUTO_REF_NAO_ENCONTRADO: 'Nenhum produto foi encontrado com este código para este fornecedor.',
+  PEDIDO_PRODUTO_PLU_NAO_ENCONTRADO: 'Nenhum produto foi encontrado com este PLU.',
+  PEDIDO_PRODUTO_FILHO: 'Produtos cadastrados como filho não podem ser informados no pedido de compra.',
+  PEDIDO_IMPORT_NF_OBRIGATORIA: 'Informe a nota fiscal de entrada do fornecedor.',
+  PEDIDO_IMPORT_NF_DE_OUTRO_FORNECEDOR: 'A nota fiscal informada não é deste fornecedor.',
   PEDIDO_NAO_ENCONTRADO: 'Pedido de compra não encontrado.',
   PEDIDO_JA_FECHADO: 'Este pedido de compra já está fechado.',
   PEDIDO_NAO_FECHADO: 'Este pedido de compra não está fechado — não há o que reabrir.',

@@ -145,9 +145,37 @@ export function desassociarProdutoPedido(id: number, idproduto: number): Promise
 /** POST :id/importar-itens — corte-final: importa itens em massa do fornecedor (associados / já comprados). */
 export function importarItensPedido(
   id: number,
-  origem: 'associados' | 'comprados',
+  origem: 'associados' | 'comprados' | 'nota-fiscal',
+  codnf?: number,
 ): Promise<{ codpedcomp: number; importados: number; ja_no_pedido: number; inativos: number }> {
-  return req(`/compras/pedidos/${id}/importar-itens`, { method: 'POST', body: JSON.stringify({ origem }) });
+  return req(`/compras/pedidos/${id}/importar-itens`, { method: 'POST', body: JSON.stringify({ origem, ...(codnf ? { codnf } : {}) }) });
+}
+
+/** o produto pelo código digitado na grade (edtCodBarraKeyDown): F2 código de barras/auxiliar, F12 referência do fornecedor, Ctrl+P PLU */
+export function produtoPedidoPorCodigo(codigo: string, modo: 'barra' | 'ref' | 'plu', codparceiro?: number | null): Promise<{ idproduto: number; codbarra: string | null; descricao: string | null }> {
+  return req(`/compras/pedidos/apoio/produto?codigo=${encodeURIComponent(codigo)}&modo=${modo}${codparceiro ? `&codparceiro=${codparceiro}` : ''}`, { method: 'GET' });
+}
+/** a aba "Últimas compras" do item (sqqUltimasCompras) */
+export interface UltimasComprasProduto { idproduto: number; lojas: number[]; linhas: Array<{ pedido: number; data_compra: string | null; vencimento: string | null; fornecedor: string | null; fator: number; vrcusto: number; vrvenda: number; fechado: string | null; lojas: Record<string, number> }> }
+export function ultimasComprasProduto(idproduto: number): Promise<UltimasComprasProduto> {
+  return req(`/compras/pedidos/produto/${idproduto}/ultimas-compras`, { method: 'GET' });
+}
+/** a aba "Categorias": os produtos do subgrupo do item na loja (sqqCategorias) */
+export interface CategoriaProduto { codsubgrupo: number; idempresa: number; linhas: Array<Record<string, unknown>> }
+export function categoriaProduto(codsubgrupo: number, idempresa?: number | null): Promise<CategoriaProduto> {
+  return req(`/compras/pedidos/categoria/${codsubgrupo}${idempresa ? `?idempresa=${idempresa}` : ''}`, { method: 'GET' });
+}
+/** "Desativar produto" da grade: inativa a compra nas lojas escolhidas */
+export function desativarProdutoPedido(id: number, idproduto: number, empresas: 'todas' | 'pedido' | number[]): Promise<{ codpedcomp: number; idproduto: number; empresas: number[] }> {
+  return req(`/compras/pedidos/${id}/itens/${idproduto}/desativar`, { method: 'POST', body: JSON.stringify({ empresas }) });
+}
+/** a aba "Fluxo de caixa geral" (MontaFluxo): a janela de desembolso de cada condição */
+export interface FluxoCaixaPedido { modo: string; somentePedidos: boolean; base: string; condicoes: Array<{ cd: number; dias: Array<{ data: string; valor: number }> }> }
+export function fluxoCaixaPedido(id: number, dtfaturamento?: string | null, cds?: Array<number | null | undefined>): Promise<FluxoCaixaPedido> {
+  const q = new URLSearchParams();
+  if (dtfaturamento) q.set('dtfaturamento', dtfaturamento);
+  if (cds) q.set('cds', cds.map((c) => (c == null || c === undefined ? '' : String(c))).join(','));
+  return req(`/compras/pedidos/${id}/fluxo-caixa${q.toString() ? `?${q}` : ''}`, { method: 'GET' });
 }
 
 /**

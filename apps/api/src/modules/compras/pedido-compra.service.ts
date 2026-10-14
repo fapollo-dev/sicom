@@ -12,6 +12,7 @@ import { CAMPOS_HERDADOS_ITEM } from '@apollo/shared';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown): number => {
@@ -761,7 +762,160 @@ export class PedidoCompraService {
    * (USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR='S' — :7302) senão PRODUTOS.FATORCX (≥1). Variantes
    * tabela-do-fornecedor / da-NF / coletor = ADIADAS (dossiê). Cap 990 anti-boom (padrão do repo).
    */
-  async importarItens(codpedcomp: number, origem: 'associados' | 'comprados'): Promise<{ codpedcomp: number; importados: number; ja_no_pedido: number; inativos: number }> {
+  /**
+   * O produto pelo código digitado na grade (edtCodBarraKeyDown, uPedidoCompra.pas:6256): código de barras (ou auxiliar — F2), código de
+   * referência do fornecedor (CODREFERENCIA_FOR — F12) ou PLU (o código do produto — Ctrl+P). O produto FILHO não entra no pedido.
+   */
+  async produtoPorCodigo(codigo: string, modo: 'barra' | 'ref' | 'plu', codparceiro: number | null): Promise<{ idproduto: number; codbarra: string | null; descricao: string | null }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cod = String(codigo ?? '').trim();
+    if (!cod) throw new BusinessRuleError('PEDIDO_PRODUTO_NAO_ENCONTRADO', { codigo: cod });
+    const cols = ['idproduto', 'codbarra', 'descricao', 'idproduto_pai'] as const;
+    let p: Record<string, unknown> | undefined;
+    if (modo === 'ref') {
+      // segCodRef: a referência do fornecedor (CODREFERENCIA_FOR) leva ao produto dela
+      p = (await db.selectFrom('codreferencia_for as c').innerJoin('produtos as p', 'p.idproduto', 'c.idproduto').select(cols.map((c) => `p.${c}` as const))
+        .where('c.codfor', '=', Number(codparceiro ?? 0)).where('c.codref', '=', cod).orderBy('p.idproduto').executeTakeFirst()) as Record<string, unknown> | undefined;
+      if (!p) throw new BusinessRuleError('PEDIDO_PRODUTO_REF_NAO_ENCONTRADO', { codigo: cod, codparceiro });
+    } else if (modo === 'plu') {
+      // SegPLU: o código do produto
+      p = Number.isInteger(Number(cod))
+        ? (await db.selectFrom('produtos').select([...cols]).where('idproduto', '=', Number(cod)).executeTakeFirst()) as Record<string, unknown> | undefined
+        : undefined;
+      if (!p) throw new BusinessRuleError('PEDIDO_PRODUTO_PLU_NAO_ENCONTRADO', { codigo: cod });
+    } else {
+      // SegCodBarra (o primeiro produto do código), com o SegCodBarra_CodAux de reserva (o código auxiliar)
+      p = (await db.selectFrom('produtos').select([...cols]).where('codbarra', '=', cod).orderBy('idproduto').executeTakeFirst()) as Record<string, unknown> | undefined;
+      if (!p) {
+        p = (await db.selectFrom('codauxiliar as a').innerJoin('produtos as p', 'p.idproduto', 'a.idproduto').select(cols.map((c) => `p.${c}` as const))
+          .where('a.codauxiliar', '=', cod).orderBy('p.idproduto').executeTakeFirst()) as Record<string, unknown> | undefined;
+      }
+    }
+    if (!p) throw new BusinessRuleError('PEDIDO_PRODUTO_NAO_ENCONTRADO', { codigo: cod });
+    if (Number(p.idproduto_pai) > 0) throw new BusinessRuleError('PEDIDO_PRODUTO_FILHO', { idproduto: Number(p.idproduto) });
+    return { idproduto: Number(p.idproduto), codbarra: (p.codbarra as string) ?? null, descricao: (p.descricao as string) ?? null };
+  }
+
+  /**
+   * "Últimas compras" (sqqUltimasCompras, udmPedidoCompra.dfm:220): os pedidos em que o produto entrou, com a quantidade por loja
+   * (as colunas EMP<n> das lojas do operador), fator, custo e venda médios e o fechado — os mais recentes primeiro.
+   */
+  async ultimasCompras(idproduto: number): Promise<{ idproduto: number; lojas: number[]; linhas: Array<Record<string, unknown>> }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const lojas = await empresasDoOperador(db, null);
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT i.codpedcomp AS pedido, pc.data::date AS data_compra, pc.dt_vencimento::date AS vencimento, pr.razao AS fornecedor, pq.idempresa,
+             sum(coalesce(pq.qtde, 0)) AS qtde, avg(i.fatorembalagem) AS fator, avg(i.vrcusto) AS vrcusto, avg(i.vrvenda) AS vrvenda, pc.fechado
+        FROM pedidocompra_i i
+        LEFT JOIN pedidocompra pc ON pc.codpedcomp = i.codpedcomp
+        LEFT JOIN parceiros pr ON pr.codparceiro = pc.codparceiro
+        LEFT JOIN pedido_compra_qtde pq ON pq.codpedcompi = i.codpedcompi
+       WHERE i.idproduto = ${idproduto} AND coalesce(pq.qtdtotal, 0) > 0 AND coalesce(pc.indr, 'I') <> 'E'
+       GROUP BY i.codpedcomp, pc.data::date, pc.dt_vencimento::date, pr.razao, pq.idempresa, pc.fechado
+       ORDER BY pc.data::date DESC, i.codpedcomp DESC
+       LIMIT 400`.execute(db)).rows;
+    const porPedido = new Map<number, Record<string, unknown>>();
+    for (const r of rows) {
+      const k = Number(r.pedido);
+      const l = porPedido.get(k) ?? { pedido: k, data_compra: r.data_compra, vencimento: r.vencimento, fornecedor: r.fornecedor, fator: num(r.fator), vrcusto: num(r.vrcusto), vrvenda: num(r.vrvenda), fechado: r.fechado, lojas: {} as Record<string, number> };
+      (l.lojas as Record<string, number>)[String(r.idempresa)] = num(r.qtde);
+      porPedido.set(k, l);
+    }
+    return { idproduto, lojas, linhas: [...porPedido.values()].slice(0, 100) };
+  }
+
+  /** "Categorias" (sqqCategorias, udmPedidoCompra.dfm:528): os produtos do mesmo subgrupo do item, com estoque, preços e fornecedor, na loja */
+  async categoria(codsubgrupo: number, idempresa?: number | null): Promise<{ codsubgrupo: number; idempresa: number; linhas: Array<Record<string, unknown>> }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = Number(idempresa ?? this.emp());
+    const linhas = (await sql<Record<string, unknown>>`
+      SELECT p.idproduto, p.codbarra, p.descricao, p.unidade, e.qtde, ed.qtde AS qtde_dep, pr.razao, pr.codparceiro, f.descricao AS subgrupo, f.codfamilia,
+             m.vrcusto, m.vrvenda, p.codsubgrupo
+        FROM produtos p
+        LEFT JOIN estoque e ON e.idproduto = p.idproduto AND e.idempresa = ${emp}
+        LEFT JOIN estoque_dep ed ON ed.idproduto = p.idproduto AND ed.idempresa = ${emp}
+        LEFT JOIN parceiros pr ON pr.codparceiro = p.codfor
+        LEFT JOIN familias_prod f ON f.codfamilia = p.codsubgrupo
+        LEFT JOIN multi_preco m ON m.idproduto = p.idproduto AND m.idempresa = ${emp}
+       WHERE p.codsubgrupo > 0 AND p.codsubgrupo = ${codsubgrupo}
+       ORDER BY p.descricao
+       LIMIT 500`.execute(db)).rows;
+    return { codsubgrupo, idempresa: emp, linhas };
+  }
+
+  /**
+   * "Desativar produto" (DesativarProduto1Click, uPedidoCompra.pas:5699): inativa a compra (MULTI_PRECO.ATIVO e ATIVO_COMPRA = 'N') em
+   * todas as lojas, nas do pedido ou nas escolhidas — o item sai do pedido na tela.
+   */
+  async desativarProduto(codpedcomp: number, idproduto: number, empresas: 'todas' | 'pedido' | number[]): Promise<{ codpedcomp: number; idproduto: number; empresas: number[] }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado']);
+      let lojas: number[];
+      if (empresas === 'todas') lojas = ((await trx.selectFrom('empresas').select('idempresa').execute()) as Array<{ idempresa: number }>).map((r) => Number(r.idempresa));
+      else if (empresas === 'pedido') lojas = lojasDoPedido((pc as any).empresas, emp);
+      else lojas = empresas.map(Number);
+      if (!lojas.length) return { codpedcomp, idproduto, empresas: [] };
+      await trx.updateTable('multi_preco').set({ ativo: 'N', ativo_compra: 'N' }).where('idproduto', '=', idproduto).where('idempresa', 'in', lojas).execute();
+      return { codpedcomp, idproduto, empresas: lojas };
+    });
+  }
+
+  /**
+   * "Fluxo de caixa geral" (MontaFluxo/MontaFluxoGeral, uPedidoCompra.pas:5945/6069 — sqqFluxo, udmPedidoCompra.dfm:5111): para cada
+   * condição (CD1..CD8, dias), a janela em torno de (faturamento + CD) — ±3 dias no modo diário (TIPO_FLUXO_CAIXA_PC = 'D') ou a semana
+   * civil no semanal — com o desembolso do dia: as saídas do financeiro (GET_FLUXOSAIDAS: A Pagar não quitado nem agrupado e cheques
+   * próprios não baixados, pelo vencimento — fora com FLUXO_CAIXA_SOMENTE_VALOR_PC = 'P'), as parcelas dos OUTROS pedidos abertos e as
+   * deste pedido (as lojas que já receberam nota ficam fora). FLUXO_POR_EMPRESA = 'N' na produção: só o geral.
+   */
+  async fluxoCaixa(codpedcomp: number, p: { dtfaturamento?: string | null; cds?: Array<number | null> }): Promise<{ modo: string; somentePedidos: boolean; base: string; condicoes: Array<{ cd: number; dias: Array<{ data: string; valor: number }> }> }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const pc = await this.pedidoDaLoja(db, codpedcomp, emp, ['data', 'dtfaturamento', ...CD_COLS]);
+    const modo = String((await this.config.resolver('TIPO_FLUXO_CAIXA_PC', { empresaId: emp })) ?? 'D').trim().toUpperCase() === 'S' ? 'S' : 'D';
+    const somentePedidos = String((await this.config.resolver('FLUXO_CAIXA_SOMENTE_VALOR_PC', { empresaId: emp })) ?? 'T').trim().toUpperCase() === 'P';
+    // as datas do pedido vêm do banco como Date (a `data` é date, o faturamento timestamptz): o dia local, sem o deslocamento do UTC
+    const isoDia = (v: unknown): string => {
+      if (v == null || v === '') return '';
+      if (v instanceof Date) return Number.isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+      return String(v).slice(0, 10);
+    };
+    const baseStr = isoDia(p.dtfaturamento) || isoDia((pc as any).dtfaturamento) || isoDia((pc as any).data);
+    if (!baseStr) return { modo, somentePedidos, base: '', condicoes: [] };
+    const cds = (p.cds ?? CD_COLS.map((c) => (pc as any)[c])).map((v) => (v == null || v === '' ? null : Number(v))).filter((v): v is number => v != null && Number.isFinite(v) && v >= 0);
+    const dia = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const janelas = cds.map((cd) => {
+      const centro = dia(baseStr, cd);
+      if (modo === 'D') return { cd, dias: [-3, -2, -1, 0, 1, 2, 3].map((i) => dia(centro, i)) };
+      const dow = new Date(`${centro}T12:00:00Z`).getUTCDay(); // domingo = 0 (o DayOfWeek do legado: domingo = 1)
+      const ini = dia(centro, -dow);
+      return { cd, dias: [0, 1, 2, 3, 4, 5, 6].map((i) => dia(ini, i)) };
+    });
+    if (!janelas.length) return { modo, somentePedidos, base: baseStr, condicoes: [] };
+    const todas = janelas.flatMap((j) => j.dias);
+    const ini = todas.reduce((a, b) => (a < b ? a : b)); const fim = todas.reduce((a, b) => (a > b ? a : b));
+    const porDia = new Map<string, number>();
+    const soma = (rows: Array<{ d: string; v: unknown }>) => { for (const r of rows) porDia.set(String(r.d), (porDia.get(String(r.d)) ?? 0) + num(r.v)); };
+    if (!somentePedidos) {
+      soma((await sql<{ d: string; v: unknown }>`
+        SELECT to_char(dtvenc::date, 'YYYY-MM-DD') AS d, sum(valor) AS v FROM apagar
+         WHERE quitada = 'N' AND coalesce(agrupado, 'N') = 'N' AND dtvenc::date BETWEEN ${ini}::date AND ${fim}::date GROUP BY dtvenc::date`.execute(db)).rows);
+      soma((await sql<{ d: string; v: unknown }>`
+        SELECT to_char(dtvenc::date, 'YYYY-MM-DD') AS d, sum(valor) AS v FROM chq_proprio
+         WHERE coalesce(baixado, 'N') = 'N' AND dtvenc::date BETWEEN ${ini}::date AND ${fim}::date GROUP BY dtvenc::date`.execute(db)).rows);
+    }
+    soma((await sql<{ d: string; v: unknown }>`
+      SELECT to_char(pp.data::date, 'YYYY-MM-DD') AS d, sum(pp.valor) AS v
+        FROM pedidocompra_parcelas pp JOIN pedidocompra p ON p.codpedcomp = pp.codpedcomp
+       WHERE pp.codpedcomp <> ${codpedcomp} AND coalesce(p.indr, 'I') <> 'E'
+         AND NOT EXISTS (SELECT 1 FROM nf n WHERE n.codpedcomp = pp.codpedcomp AND n.idempresa = pp.idempresa AND coalesce(n.cancelada, 'N') <> 'S' AND coalesce(n.statusnfe, '') <> 'C')
+         AND pp.data::date BETWEEN ${ini}::date AND ${fim}::date
+       GROUP BY pp.data::date`.execute(db)).rows);
+    for (const f of await this.fluxoDoPedido(db, codpedcomp)) porDia.set(f.data, (porDia.get(f.data) ?? 0) + f.valor);
+    return { modo, somentePedidos, base: baseStr, condicoes: janelas.map((j) => ({ cd: j.cd, dias: j.dias.map((d) => ({ data: d, valor: r2(porDia.get(d) ?? 0) })) })) };
+  }
+
+  async importarItens(codpedcomp: number, origem: 'associados' | 'comprados' | 'nota-fiscal', codnf?: number | null): Promise<{ codpedcomp: number; importados: number; ja_no_pedido: number; inativos: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
@@ -791,6 +945,13 @@ export class PedidoCompraService {
         .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM produtos_forn_desassociados d WHERE d.idproduto = pr.idproduto AND d.codparceiro = ${forn})`);
       if (origem === 'associados') {
         q = q.where('pr.codfor', '=', forn);
+      } else if (origem === 'nota-fiscal') {
+        // "Importar produtos de uma nota fiscal" (GetSQLProdutosNF): os produtos da NF de entrada deste fornecedor
+        if (!(Number(codnf) > 0)) throw new BusinessRuleError('PEDIDO_IMPORT_NF_OBRIGATORIA', { codpedcomp });
+        const nfSel = (await trx.selectFrom('nf').select(['codnf', 'codparceiro', 'tipo']).where('codnf', '=', Number(codnf)).executeTakeFirst()) as { codparceiro?: unknown; tipo?: string } | undefined;
+        if (!nfSel) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+        if (Number(nfSel.codparceiro) !== forn || String(nfSel.tipo ?? '') !== 'E') throw new BusinessRuleError('PEDIDO_IMPORT_NF_DE_OUTRO_FORNECEDOR', { codnf, codparceiro: nfSel.codparceiro });
+        q = q.where('pr.idproduto', 'in', (eb: any) => eb.selectFrom('nf_prod as n').select('n.codproduto').where('n.codnf', '=', Number(codnf)));
       } else {
         q = q.where('pr.idproduto', 'in', (eb: any) =>
           eb

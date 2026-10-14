@@ -197,8 +197,16 @@ export type GerarNfPedidoDto = z.infer<typeof gerarNfPedidoSchema>;
 
 /** corte-final — importar itens em massa do fornecedor (ImportaItens): associados (CODFOR) ou já comprados. */
 export const importarItensPedidoSchema = z.object({
-  origem: z.enum(['associados', 'comprados'], { message: "Origem inválida (use 'associados' ou 'comprados')." }),
+  // 'nota-fiscal' = "Importar produtos de uma nota fiscal" (ImportaItens tNotaFiscal, uPedidoCompra.pas:8242): os produtos da NF de entrada do fornecedor
+  origem: z.enum(['associados', 'comprados', 'nota-fiscal'], { message: "Origem inválida (use 'associados', 'comprados' ou 'nota-fiscal')." }),
+  codnf: z.coerce.number().int().positive().optional(),
 });
+
+/** "Desativar produto" da grade (DesativarProduto1Click, uPedidoCompra.pas:5699): inativa a compra do produto nas lojas escolhidas */
+export const desativarProdutoPedidoSchema = z.object({
+  empresas: z.union([z.literal('todas'), z.literal('pedido'), z.array(z.coerce.number().int().positive()).min(1)]),
+});
+export type DesativarProdutoPedidoDto = z.infer<typeof desativarProdutoPedidoSchema>;
 export type ImportarItensPedidoDto = z.infer<typeof importarItensPedidoSchema>;
 
 /**

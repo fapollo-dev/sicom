@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
-import { Pencil, Trash2, Unlink } from 'lucide-react';
+import { Pencil, Trash2, Unlink, BarChart3, History, Layers, Ban } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import { Modal } from '../../shared/ui/Modal';
 import {
@@ -26,7 +27,8 @@ import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
   atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido, herdarItensPedido,
-  baixarPedidosLote, excluirZeradosPedido } from './pedidoCompraApi';
+  baixarPedidosLote, excluirZeradosPedido, produtoPedidoPorCodigo, ultimasComprasProduto, categoriaProduto, desativarProdutoPedido, fluxoCaixaPedido,
+  type UltimasComprasProduto, type CategoriaProduto, type FluxoCaixaPedido } from './pedidoCompraApi';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 import { PendenciasFornecedorSection, usePendenciasFornecedor } from './PendenciasFornecedorSection';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -212,6 +214,7 @@ function PedidoForm({
       <ItensSection form={form} editavel={liberado} pendForn={pendForn} />
       <PendenciasFornecedorSection form={form} dados={pendForn} />
       <ParcelasSection form={form} editavel={liberado} />
+      <FluxoCaixaSection form={form} />
       <RecebimentoSection form={form} />
     </div>
   );
@@ -503,6 +506,90 @@ function ItensSection({
   // (`if not (State in [dsInsert, dsEdit]) then exit`) e com a opção do botão; com uma janela aberta por cima, a tecla é dela.
   // Abre a Pesquisa da GET_PRODUTOS_PC em MULTISSELEÇÃO (uPedidoCompra.pas:4426-4512)
   const [pesquisando, setPesquisando] = useState(false);
+  // a auditoria do uPedidoCompra.dfm (14/10/2026): o código digitado na grade (edtCodBarra — F2 barras/auxiliar, F12 referência do
+  // fornecedor, Ctrl+P PLU), a linha corrente (F6 análise, F10 excluir, Últimas compras, Categoria, Desativar), o Limpar (F9) e a NF
+  const navigate = useNavigate();
+  const [modoCodigo, setModoCodigo] = useState<'barra' | 'ref' | 'plu'>('barra');
+  const [codigo, setCodigo] = useState('');
+  const [linhaSel, setLinhaSel] = useState<string | null>(null);
+  const [ultimas, setUltimas] = useState<{ idproduto: number; dados: UltimasComprasProduto | null } | null>(null);
+  const [categoria, setCategoria] = useState<{ idproduto: number; dados: CategoriaProduto | null } | null>(null);
+  const [desativando, setDesativando] = useState<(PedidoCompraItemDto & { fieldId: string }) | null>(null);
+  const [importandoNf, setImportandoNf] = useState(false);
+  const codparceiro = (form.getValues() as { codparceiro?: number }).codparceiro ?? null;
+  const linhaCorrente = () => (linhaSel ? (fields as Array<PedidoCompraItemDto & { fieldId: string }>).find((f) => f.fieldId === linhaSel) : undefined) ?? (fields as Array<PedidoCompraItemDto & { fieldId: string }>)[fields.length - 1];
+  const janelaAberta = () => !!document.querySelector('[role="dialog"], [role="alertdialog"]');
+  const codigoRef = useRef<HTMLInputElement>(null);
+  const focarCodigo = (modo: 'barra' | 'ref' | 'plu') => {
+    setModoCodigo(modo);
+    setTimeout(() => codigoRef.current?.focus(), 0);
+  };
+  const resolverCodigo = async () => {
+    const c = codigo.trim();
+    if (!c) return;
+    try {
+      const p = await produtoPedidoPorCodigo(c, modoCodigo, codparceiro);
+      setCodigo('');
+      await adicionarDaPesquisa([{ codigo: p.idproduto }]);
+    } catch (e) { mensagem.erro(e); }
+  };
+  // "F9 - Limpar" (btnLimparIClick, :7086): todos os produtos, com a confirmação
+  const limpar = () => {
+    if (!fields.length) return;
+    if (!window.confirm('Deseja limpar os produtos deste pedido?')) return;
+    remove();
+    setLinhaSel(null);
+  };
+  const analiseGeral = () => {
+    const it = linhaCorrente();
+    if (!it) { window.alert('Selecione um item do pedido.'); return; }
+    navigate(`/cadastro/produtos/posicao?idproduto=${it.idproduto}`);
+  };
+  const abrirUltimas = async (it: PedidoCompraItemDto) => {
+    setUltimas({ idproduto: Number(it.idproduto), dados: null });
+    try { setUltimas({ idproduto: Number(it.idproduto), dados: await ultimasComprasProduto(Number(it.idproduto)) }); } catch (e) { setUltimas(null); mensagem.erro(e); }
+  };
+  const abrirCategoria = async (it: PedidoCompraItemDto) => {
+    const sub = Number((it as Record<string, unknown>).codsubgrupo ?? produtosDosItens.get(String(it.idproduto))?.codsubgrupo ?? 0);
+    if (!(sub > 0)) { window.alert('O produto não tem subgrupo (categoria).'); return; }
+    setCategoria({ idproduto: Number(it.idproduto), dados: null });
+    try { setCategoria({ idproduto: Number(it.idproduto), dados: await categoriaProduto(sub, estadoLojas(form).lojas[0]?.idempresa ?? null) }); } catch (e) { setCategoria(null); mensagem.erro(e); }
+  };
+  const desativar = async (empresas: 'todas' | 'pedido') => {
+    const it = desativando;
+    if (!it) return;
+    if (codpedcomp == null) { mensagem.erro('Grave o pedido antes de desativar o produto.'); return; }
+    try {
+      await desativarProdutoPedido(codpedcomp, Number(it.idproduto), empresas);
+      const idx = fields.findIndex((f) => f.fieldId === it.fieldId);
+      if (idx >= 0) remove(idx);
+      setDesativando(null);
+      mensagem.sucesso('Processo executado com sucesso');
+    } catch (e) { mensagem.erro(e); }
+  };
+  const importarDaNf = async (l: Record<string, unknown>) => {
+    setImportandoNf(false);
+    if (codpedcomp == null) return;
+    setImportando(true);
+    try {
+      const r = await importarItensPedido(codpedcomp, 'nota-fiscal', Number(l.codigo ?? l.codnf));
+      const fresh = await obterPedido(codpedcomp);
+      form.setValue('itens' as any, (fresh.itens ?? []) as any);
+      mensagem.sucesso(r.importados > 0 ? `${r.importados} item(ns) importado(s) da nota fiscal.` : 'Nenhum item novo a importar desta nota fiscal.');
+    } catch (e) { mensagem.erro(e); } finally { setImportando(false); }
+  };
+  useShortcut('f2', () => { if (janelaAberta()) return false; focarCodigo('barra'); }, { when: editavel });
+  useShortcut('f12', () => { if (janelaAberta()) return false; focarCodigo('ref'); }, { when: editavel });
+  useShortcut('ctrl+p', () => { if (janelaAberta()) return false; focarCodigo('plu'); }, { when: editavel });
+  useShortcut('f9', () => { if (janelaAberta()) return false; if (pode('BTNLIMPARI')) limpar(); }, { when: editavel });
+  useShortcut('f10', () => {
+    if (janelaAberta()) return false;
+    const it = linhaCorrente();
+    if (!it || !pode('BTNEXCLUIRI')) return;
+    const idx = fields.findIndex((f) => f.fieldId === it.fieldId);
+    if (idx >= 0) remove(idx);
+  }, { when: editavel });
+  useShortcut('f6', () => { if (janelaAberta()) return false; analiseGeral(); });
   useShortcut('f7', () => {
     if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return false;
     setPesquisando(true);
@@ -632,6 +719,32 @@ function ItensSection({
               if (idx >= 0) remove(idx);
             },
           }] : []),
+          // "F6 - Análise do produto" (MniAnaliseProdutoClick → TfrmPosicaoProduto), "Últimas compras", "Categorias" e "Desativar produto" (a grade do legado)
+          {
+            id: 'analise',
+            label: 'Análise geral do produto [F6]',
+            icon: <BarChart3 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: PedidoCompraItemDto & { fieldId: string }) => navigate(`/cadastro/produtos/posicao?idproduto=${r.idproduto}`),
+          },
+          {
+            id: 'ultimas',
+            label: 'Últimas compras',
+            icon: <History className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: PedidoCompraItemDto & { fieldId: string }) => void abrirUltimas(r),
+          },
+          {
+            id: 'categoria',
+            label: 'Produtos da categoria',
+            icon: <Layers className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: PedidoCompraItemDto & { fieldId: string }) => void abrirCategoria(r),
+          },
+          {
+            id: 'desativar',
+            label: 'Desativar produto',
+            icon: <Ban className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: PedidoCompraItemDto & { fieldId: string }) => setDesativando(r),
+          },
           // mig 314: "Desassociar fornecedor do produto" (uPedidoCompra.pas:2297) — a importação passa a pular o produto
           {
             id: 'desassociar',
@@ -656,12 +769,23 @@ function ItensSection({
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
-        <div className="flex flex-wrap items-center gap-gp-sm">
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          {/* o código digitado na grade (edtCodBarra + TipoBusca): Enter busca o produto e o põe no pedido com a herança do catálogo */}
+          <div className="w-44">
+            <SelectField label="&Busca por" value={modoCodigo} onChange={(v) => setModoCodigo((v as 'barra' | 'ref' | 'plu') || 'barra')}
+              options={[{ value: 'barra', label: 'Código de barras (F2)' }, { value: 'ref', label: 'Ref. do fornecedor (F12)' }, { value: 'plu', label: 'PLU (Ctrl+P)' }]} />
+          </div>
+          <div className="w-48">
+            <Field ref={codigoRef} label="Código do &produto" value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="código + Enter"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void resolverCodigo(); } }} disabled={!pode('BTNADICIONARI')} />
+          </div>
           <Button label="Adicionar &item" variant="soft" disabled={!pode('BTNADICIONARI')} onClick={() => setPesquisando(true)} />
+          <Button label="F9 - &Limpar" variant="ghost" disabled={!pode('BTNLIMPARI') || !fields.length} onClick={limpar} />
           {codpedcomp != null && (
             <>
               <Button label="Importar do fornecedor (&associados)" variant="ghost" onClick={() => void importar('associados')} />
               <Button label="Importar já &comprados" variant="ghost" onClick={() => void importar('comprados')} />
+              <Button label="Importar de uma &nota fiscal" variant="ghost" onClick={() => setImportandoNf(true)} />
             </>
           )}
         </div>
@@ -676,6 +800,7 @@ function ItensSection({
               rows={itens}
               columns={columns}
               getRowId={(r) => r.fieldId}
+              onRowClick={(r) => setLinhaSel((r as { fieldId: string }).fieldId)}
               onCellEditCommit={({ id, field, value }: { id: unknown; field: string; value: unknown }) => {
                 if (field !== 'qtde') return;
                 const q = Number(String(value ?? '').replace(',', '.'));
@@ -697,6 +822,22 @@ function ItensSection({
       {pesquisando && (
         <Pesquisa resourcePath="lookup/produtos-pc" multisselecao onSelecionarVarios={(ls) => void adicionarDaPesquisa(ls)}
           onSelecionar={(l) => void adicionarDaPesquisa([l])} onFechar={() => setPesquisando(false)} />
+      )}
+      {/* "Importar produtos de uma nota fiscal" (ImportaItens tNotaFiscal): a Pesquisa da GET_NF de entrada — o servidor confere o fornecedor */}
+      {importandoNf && (
+        <Pesquisa resourcePath="fiscal/nf" parametros={{ tipo: 'E' }} onSelecionar={(l) => void importarDaNf(l)} onFechar={() => setImportandoNf(false)} />
+      )}
+      {ultimas && <UltimasComprasModal idproduto={ultimas.idproduto} dados={ultimas.dados} rotulo={rotuloProduto(ultimas.idproduto)} onFechar={() => setUltimas(null)} />}
+      {categoria && <CategoriaModal dados={categoria.dados} rotulo={rotuloProduto(categoria.idproduto)} onFechar={() => setCategoria(null)} />}
+      {desativando && (
+        <Modal open onClose={() => setDesativando(null)} size="sm" title="Desativar produto"
+          primaryAction={{ label: 'Inativar para as empresas do pedido', onClick: () => void desativar('pedido') }}
+          secondaryAction={{ label: 'Cancelar', onClick: () => setDesativando(null) }}>
+          <div className="flex flex-col gap-form-gap">
+            <small className="text-fg-muted">Selecione uma opção para inativar a compra de {rotuloProduto(desativando.idproduto)} (ATIVO e ATIVO_COMPRA = N no preço da loja); o item sai do pedido.</small>
+            <Button label="Inativar para &todas as empresas" variant="soft" onClick={() => void desativar('todas')} />
+          </div>
+        </Modal>
       )}
       {editIdx != null && (
         <PedidoCompraItemModal
@@ -1064,3 +1205,99 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
     </fieldset>
   );
 }
+
+// ───────────────────────────── Últimas compras / Categorias (as abas do item do legado) ─────────────────────────────
+
+const dtBr = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
+
+/** "Últimas compras" (GrdUltimasCompras): os pedidos em que o produto entrou, a quantidade por loja (EMP<n>), fator, custo e venda médios */
+export function UltimasComprasModal({ idproduto, dados, rotulo, onFechar }: { idproduto: number; dados: UltimasComprasProduto | null; rotulo: string; onFechar: () => void }) {
+  return (
+    <Modal open onClose={onFechar} size="lg" title={`Últimas compras — ${rotulo || idproduto}`} secondaryAction={{ label: 'Fechar', onClick: onFechar }}>
+      {!dados ? <small className="text-fg-muted">Carregando…</small> : !dados.linhas.length ? <small className="text-fg-muted">Sem compras deste produto.</small> : (
+        <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr className="text-left text-fg-muted">
+          <th className="p-pad-xs">Pedido</th><th className="p-pad-xs">Data compra</th><th className="p-pad-xs">Vencimento</th><th className="p-pad-xs">Fornecedor</th>
+          {dados.lojas.map((l) => <th key={l} className="p-pad-xs text-right">EMP{l}</th>)}
+          <th className="p-pad-xs text-right">Fator</th><th className="p-pad-xs text-right">Vr.custo</th><th className="p-pad-xs text-right">Vr.venda</th><th className="p-pad-xs">Fechado</th>
+        </tr></thead><tbody>
+          {dados.linhas.map((l) => (
+            <tr key={l.pedido} className="border-t border-border"><td className="p-pad-xs tabular-nums">{l.pedido}</td><td className="p-pad-xs">{dtBr(l.data_compra)}</td><td className="p-pad-xs">{dtBr(l.vencimento)}</td><td className="p-pad-xs">{l.fornecedor ?? ''}</td>
+              {dados.lojas.map((e) => <td key={e} className="p-pad-xs text-right tabular-nums">{l.lojas[String(e)] != null ? Number(l.lojas[String(e)]).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''}</td>)}
+              <td className="p-pad-xs text-right tabular-nums">{Number(l.fator).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td><td className="p-pad-xs text-right tabular-nums">{fmtBRL(Number(l.vrcusto) || 0)}</td>
+              <td className="p-pad-xs text-right tabular-nums">{fmtBRL(Number(l.vrvenda) || 0)}</td><td className="p-pad-xs">{l.fechado ?? ''}</td></tr>
+          ))}
+        </tbody></table></div>
+      )}
+    </Modal>
+  );
+}
+
+/** "Categorias" (GrdCategorias): os produtos do mesmo subgrupo do item na loja, com estoque, preços e fornecedor */
+export function CategoriaModal({ dados, rotulo, onFechar }: { dados: CategoriaProduto | null; rotulo: string; onFechar: () => void }) {
+  return (
+    <Modal open onClose={onFechar} size="lg" title={`Categoria — ${rotulo}`} secondaryAction={{ label: 'Fechar', onClick: onFechar }}>
+      {!dados ? <small className="text-fg-muted">Carregando…</small> : !dados.linhas.length ? <small className="text-fg-muted">Sem produtos neste subgrupo.</small> : (
+        <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr className="text-left text-fg-muted">
+          <th className="p-pad-xs">Código barra</th><th className="p-pad-xs">Descrição</th><th className="p-pad-xs">UN</th><th className="p-pad-xs text-right">Estoque</th><th className="p-pad-xs text-right">Depósito</th>
+          <th className="p-pad-xs">Fornecedor</th><th className="p-pad-xs">Subgrupo</th><th className="p-pad-xs text-right">Vr.custo</th><th className="p-pad-xs text-right">Vr.venda</th>
+        </tr></thead><tbody>
+          {dados.linhas.map((l) => (
+            <tr key={String(l.idproduto)} className="border-t border-border"><td className="p-pad-xs font-mono">{String(l.codbarra ?? '')}</td><td className="p-pad-xs">{String(l.descricao ?? '')}</td><td className="p-pad-xs">{String(l.unidade ?? '')}</td>
+              <td className="p-pad-xs text-right tabular-nums">{Number(l.qtde ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td><td className="p-pad-xs text-right tabular-nums">{Number(l.qtde_dep ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
+              <td className="p-pad-xs">{String(l.razao ?? '')}</td><td className="p-pad-xs">{String(l.subgrupo ?? '')}</td><td className="p-pad-xs text-right tabular-nums">{fmtBRL(Number(l.vrcusto) || 0)}</td><td className="p-pad-xs text-right tabular-nums">{fmtBRL(Number(l.vrvenda) || 0)}</td></tr>
+          ))}
+        </tbody></table></div>
+      )}
+    </Modal>
+  );
+}
+
+// ───────────────────────────── Fluxo de caixa geral (TbsFluxoCaixaGeral) ─────────────────────────────
+
+/**
+ * "Fluxo de caixa geral" (MontaFluxoGeral, uPedidoCompra.pas:6069): para cada condição CD1..CD8 a janela de desembolso em torno de
+ * (faturamento + CD) — ±3 dias no modo diário, a semana civil no semanal — com as saídas do financeiro, as parcelas dos outros pedidos
+ * abertos e as deste pedido. Só do pedido gravado (as parcelas); a data e as condições são as da tela.
+ */
+export function FluxoCaixaSection({ form }: { form: UseFormReturn<CriarPedidoCompraDto> }) {
+  const mensagem = useMensagem();
+  const [dados, setDados] = useState<FluxoCaixaPedido | null>(null);
+  const [aberto, setAberto] = useState(false);
+  const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
+  const carregar = async () => {
+    if (codpedcomp == null) return;
+    try {
+      const v = form.getValues() as Record<string, unknown>;
+      setDados(await fluxoCaixaPedido(codpedcomp, (v.dtfaturamento as string | undefined) || (v.data_faturamento as string | undefined) || null, CD_KEYS.map((k) => (v[k] == null || v[k] === '' ? null : Number(v[k])))));
+    } catch (e) { mensagem.erro(e); }
+  };
+  if (codpedcomp == null) return null;
+  return (
+    <details className="rounded-radius-md border border-border bg-bg-surface p-pad-md" onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setAberto(o); if (o) void carregar(); }}>
+      <summary className="cursor-pointer text-body-sm font-semibold text-fg-default">Fluxo de caixa geral</summary>
+      {aberto && (
+        <div className="mt-gp-sm flex flex-col gap-gp-sm">
+          <div className="flex flex-wrap items-center gap-gp-sm">
+            <Button label="Atuali&zar" variant="ghost" onClick={() => void carregar()} />
+            {dados && <small className="text-fg-muted">Base {dtBr(dados.base)} · {dados.modo === 'S' ? 'semana civil' : '± 3 dias'} de cada condição{dados.somentePedidos ? ' · só os pedidos (FLUXO_CAIXA_SOMENTE_VALOR_PC = P)' : ' · saídas do financeiro + pedidos'}</small>}
+          </div>
+          {dados && !dados.condicoes.length && <small className="text-fg-muted">Sem condições de pagamento (CD1..CD8) no pedido.</small>}
+          {dados && dados.condicoes.length > 0 && (
+            <div className="overflow-x-auto"><table className="w-full text-body-sm"><thead><tr className="text-left text-fg-muted">
+              {dados.condicoes.map((c) => <th key={c.cd} className="p-pad-xs" colSpan={2}>CD {c.cd} dias</th>)}
+            </tr></thead><tbody>
+              {dados.condicoes[0].dias.map((_, i) => (
+                <tr key={i} className="border-t border-border">
+                  {dados.condicoes.map((c) => (
+                    <Fragment key={c.cd}><td className="p-pad-xs">{dtBr(c.dias[i]?.data)}</td><td className="p-pad-xs text-right tabular-nums">{fmtBRL(c.dias[i]?.valor ?? 0)}</td></Fragment>
+                  ))}
+                </tr>
+              ))}
+            </tbody></table></div>
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+

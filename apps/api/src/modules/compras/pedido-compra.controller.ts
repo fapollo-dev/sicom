@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto } from '@apollo/shared';
+import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, desativarProdutoPedidoSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto, type DesativarProdutoPedidoDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { PedidoImpressaoService } from './pedido-impressao.service';
 import { PedidoPendenciasService } from './pedido-pendencias.service';
@@ -193,9 +193,47 @@ export class PedidoCompraController {
   @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
   importarItens(
     @Param('id', ParseIntPipe) id: number,
-    @Body(new ZodValidationPipe(importarItensPedidoSchema)) body: { origem: 'associados' | 'comprados' },
+    @Body(new ZodValidationPipe(importarItensPedidoSchema)) body: { origem: 'associados' | 'comprados' | 'nota-fiscal'; codnf?: number },
   ) {
-    return this.svc.importarItens(id, body.origem);
+    return this.svc.importarItens(id, body.origem, body.codnf ?? null);
+  }
+
+  /** o produto pelo código digitado na grade (F2 código de barras/auxiliar, F12 referência do fornecedor, Ctrl+P PLU) */
+  @Get('apoio/produto')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNADICIONARI')
+  produtoPorCodigo(@Query('codigo') codigo: string, @Query('modo') modo?: string, @Query('codparceiro') codparceiro?: string) {
+    const m = modo === 'ref' || modo === 'plu' ? modo : 'barra';
+    return this.svc.produtoPorCodigo(codigo, m, codparceiro ? Number(codparceiro) : null);
+  }
+
+  /** a aba "Últimas compras" do item */
+  @Get('produto/:idproduto/ultimas-compras')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  ultimasCompras(@Param('idproduto', ParseIntPipe) idproduto: number) {
+    return this.svc.ultimasCompras(idproduto);
+  }
+
+  /** a aba "Categorias": os produtos do subgrupo do item na loja */
+  @Get('categoria/:codsubgrupo')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  categoria(@Param('codsubgrupo', ParseIntPipe) codsubgrupo: number, @Query('idempresa') idempresa?: string) {
+    return this.svc.categoria(codsubgrupo, idempresa ? Number(idempresa) : null);
+  }
+
+  /** "Desativar produto" da grade: inativa a compra nas lojas escolhidas */
+  @Post(':id/itens/:idproduto/desativar')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  desativarProduto(@Param('id', ParseIntPipe) id: number, @Param('idproduto', ParseIntPipe) idproduto: number, @Body(new ZodValidationPipe(desativarProdutoPedidoSchema)) body: DesativarProdutoPedidoDto) {
+    return this.svc.desativarProduto(id, idproduto, body.empresas);
+  }
+
+  /** a aba "Fluxo de caixa geral": a janela de desembolso de cada condição de pagamento */
+  @Get(':id/fluxo-caixa')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'FRMPEDIDOCOMPRA')
+  fluxoCaixa(@Param('id', ParseIntPipe) id: number, @Query('dtfaturamento') dtfaturamento?: string, @Query('cds') cds?: string) {
+    const lista = cds == null ? undefined : String(cds).split(',').map((x) => (x.trim() === '' ? null : Number(x)));
+    return this.svc.fluxoCaixa(id, { dtfaturamento: dtfaturamento || null, cds: lista });
   }
 
   /** mig 314: "Desassociar fornecedor do produto" (uPedidoCompra.pas:2297) — as importações passam a pular o produto. */
