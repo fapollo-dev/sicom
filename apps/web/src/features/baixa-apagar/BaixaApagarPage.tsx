@@ -9,6 +9,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import {
   contasBaixa, gravarBaixa, iniciarBaixa, manutencaoBaixa, padroesBaixa, titulosBaixa,
   type ContaBaixa, type PadroesBaixa, type TituloBaixa,
@@ -41,6 +42,9 @@ export function BaixaApagarPage() {
   const mensagem = useMensagem();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  // as PERMISSÕES DE CONTROLE da tela (UBaixaApagar.dfm, Tag 1): Iniciar, Gravar, Consulta títulos, Adicionar/Salvar/Excluir recurso
+  // (produção 14/10/2026: 122 concessões; 98 para excluir recurso)
+  const { tem: pode } = useOpcoesDoForm('FRMBAIXAAPAGAR');
   const [padroes, setPadroes] = useState<PadroesBaixa | null>(null);
   const [contas, setContas] = useState<ContaBaixa[]>([]);
   const [lote, setLote] = useState<number | null>(null);
@@ -83,6 +87,9 @@ export function BaixaApagarPage() {
   const totalDocs = useMemo(() => r2(docs.reduce((s, d) => s + d.base + jurosDoc(d, dtpgto) + d.acreDesc, 0)), [docs, dtpgto]);
   const totalJuros = useMemo(() => r2(docs.reduce((s, d) => s + jurosDoc(d, dtpgto), 0)), [docs, dtpgto]);
   const totalRecursos = r2(recursos.reduce((s, r) => s + r.valor, 0));
+  // "Total de Recursos consolidados" (TOTALSALDO): o SALDO que o `InformarRecurso` consolida — no DINHEIRO o próprio valor; os
+  // demais tipos (DOC/TRANSFERÊNCIA/DÉBITO) só se consolidam na baixa (saldo 0 na tela, como o legado)
+  const totalConsolidado = r2(recursos.filter((r) => r.tipo === 0).reduce((s, r) => s + r.valor, 0));
   const restante = r2(totalDocs - totalRecursos);
 
   // os avisos de data do legado (`edtDataBaixaExit`, :1586-1639): só avisam, não impedem gravar
@@ -205,7 +212,9 @@ export function BaixaApagarPage() {
       <PageHeader title="Baixa de contas a pagar" />
 
       <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado} />}
+        {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado || !pode('BTNADICIONARREGISTRO')} />}
+        {/* "Consulta títulos" (btnConsulta, Tag 1): a consulta de baixas (FRMCONSAPGBX) — só fora de um lote, como o legado desabilita */}
+        {!lote && <Button label="Consulta &títulos" variant="soft" onClick={() => navigate('/cobranca/cons-apg-bx')} disabled={ocupado || !pode('BTNCONSULTA')} />}
         {!lote && ultimoLote && <Button label={`Imprimir &recibo do lote ${ultimoLote}`} variant="ghost" onClick={() => imprimirReciboLote(ultimoLote)} disabled={ocupado} />}
         {lote && (
           <>
@@ -214,7 +223,7 @@ export function BaixaApagarPage() {
             {avisoData && <small className="text-warning">{avisoData}</small>}
             <div className="flex-1" />
             <Button label="&Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
-            <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length} />
+            <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length || !pode('BTNGRAVAR')} />
           </>
         )}
       </section>
@@ -282,6 +291,8 @@ export function BaixaApagarPage() {
           )}
           <div className="flex flex-wrap gap-gp-md text-sm">
             <span>Total a baixar <strong className="tabular-nums">{moeda(totalDocs)}</strong></span>
+            <span>Total de recursos <strong className="tabular-nums">{moeda(totalRecursos)}</strong></span>
+            <span>Total de recursos consolidados <strong className="tabular-nums">{moeda(totalConsolidado)}</strong></span>
             <span>Total de juros <strong className="tabular-nums">{moeda(totalJuros)}</strong></span>
           </div>
           <div className="grid grid-cols-1 gap-gp-sm sm:grid-cols-3">
@@ -298,7 +309,7 @@ export function BaixaApagarPage() {
             <strong className="text-sm">Recursos</strong>
             <span className="text-sm">Restante <strong className="tabular-nums">{moeda(restante)}</strong></span>
             <div className="flex-1" />
-            {!novo && <Button label="&Adicionar recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} />}
+            {!novo && <Button label="&Adicionar recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado || !pode('BTNADDRECURSO')} />}
           </div>
           {novo && (
             <div className="grid grid-cols-1 gap-gp-sm rounded-md border border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -310,7 +321,7 @@ export function BaixaApagarPage() {
               <div className="sm:col-span-2 lg:col-span-4"><Field label="Histórico" value={novo.historico} onChange={(e) => setNovo({ ...novo, historico: e.target.value })} /></div>
               <div className="flex justify-end gap-gp-sm sm:col-span-2 lg:col-span-4">
                 <Button label="&Cancelar" variant="ghost" onClick={() => setNovo(null)} />
-                <Button label="&Salvar recurso" onClick={salvarRecurso} />
+                <Button label="&Salvar recurso" onClick={salvarRecurso} disabled={!pode('BTNPOSTRECURSO')} />
               </div>
             </div>
           )}
@@ -327,7 +338,7 @@ export function BaixaApagarPage() {
                         <td className="px-2 py-1">{c ? nomeConta(c) : r.codconta}</td>
                         <td className="px-2 py-1">{r.historico}</td>
                         <td className="px-2 py-1 text-right tabular-nums">{moeda(r.valor)}</td>
-                        <td className="px-2 py-1"><Button label="Excluir" variant="ghost" onClick={() => setRecursos(recursos.filter((_, k) => k !== i))} /></td>
+                        <td className="px-2 py-1"><Button label="Excluir" variant="ghost" onClick={() => setRecursos(recursos.filter((_, k) => k !== i))} disabled={!pode('BTNDELRECURSO')} /></td>
                       </tr>
                     );
                   })}

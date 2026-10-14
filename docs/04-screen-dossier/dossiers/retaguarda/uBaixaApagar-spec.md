@@ -626,3 +626,20 @@ fornecedor no lote. O lote revertido lê a `GET_APAGARBX_REVERTIDAS` / `GET_AREC
 mesmo nome existe no lote de `Relatorios\` com outro desenho; o de Config é o de código menor (`modeloFr3(…, { pasta: 'Config' })`). O
 recibopagar de Config pergunta o "Layout de impressão" (Recibo — um por fornecedor — × Lista de recibos): o diálogo do FastReport sai na
 janela de impressão e o OnClick do layout escolhe a página. O HTML próprio (`imprimirRecibo.ts`) saiu. Smoke §295.
+
+## Auditoria controle a controle do `UBaixaApagar.dfm` (14/10/2026)
+
+Os 53 controles do dfm contra a tela (`/cobranca/baixa-apagar`), com a produção (2026: 8.826 baixas em 1.166 lotes; 838 revertidas):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| `btnConsulta` "Consulta títulos" (Tag 1, BTNCONSULTA 122) → `frmConsAPGbx` com as lojas do `GetMultiEmpresa` | — | ✅ botão fora do lote → `/cobranca/cons-apg-bx` (o legado o desabilita durante um lote) |
+| As permissões de controle (Tag 1): BTNADICIONARREGISTRO, BTNGRAVAR, BTNCONSULTA, BTNADDRECURSO, BTNPOSTRECURSO (122) e BTNDELRECURSO (98) | 24 operador×loja sem excluir recurso | ✅ a tela desabilita os botões sem a opção (a API já recusava iniciar/gravar) |
+| `PnlTopo`: Total a baixar · Total de Recursos · Total de Recursos consolidados (TOTALSALDO — o SALDO que o `InformarRecurso` consolida, só o DINHEIRO na tela) · Data da baixa · Total de Juros | — | ✅ os cinco (faltavam os dois de recursos) |
+| `edtRestante`, `cbbTpRecurso`, `edtCodConta`/`edtDescConta`, `edtVlrBaixa`, `dbmObs`, Adicionar/Salvar/Excluir/Cancelar recurso, CCs de juros/acréscimo/desconto, grade (Documento … Vencimento), Novo/Excluir documento, parcial, manutenção, recibo | — | ✅ já havia (§7/§8, smoke §196/§295) |
+| `cbbTpRecurso` 2 CHEQUE TERCEIROS · 6 CHEQUE PROPRIO · 7 DEVOLUÇÃO (`InformarRecurso`, `ImprimeCheque`, `frmLancaChequesBXapg`) | CHQ_PROPRIO 0 · CHEQUE_REP 0 · RELACAO_CHQ_PROP 0 · BX_APAGAR_CRT_PROPRIO 0; a devolução exige `FORMAS_PGTO.DESTINO='DEV'`, que não existe | ✗ fora (§5 cortes B/C/D) |
+| `btnImportaArqRetorno` "Importar Arquivo Retorno" + `itemPreviaRetorno` (CNAB 240 de pagamentos, `ProcessarArquivoRetorno`) | RETORNO_DIRETORIO nulo; RETORNO_OP nunca preenchido | ✗ fora (§5 corte E) |
+| `SetOperadorObs` (o " - Baixa das contas a pagar realizada pelo(a) usuário(a) X." no histórico do MCB) | 623 de 1.113 movimentos de 2026 levam o texto (os demais — "TAXA REDE", … — vêm do binário novo sem o sufixo) | ✅ como o fonte (§7) |
+| `GrdParcelasDBTableView1KeyDown` (Enter → próxima linha) | — | — (teclado nativo da tabela) |
+
+Web `baixaApagarPage.spec.tsx`.
