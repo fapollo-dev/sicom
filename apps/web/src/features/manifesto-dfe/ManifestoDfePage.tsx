@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
@@ -22,6 +22,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 const post = <T,>(path: string, body: unknown) => req<T>(path, { method: 'POST', body: JSON.stringify(body) });
+
+/** "Consultar NF-e pelo site" (TfrmRecuperarXML, uRecuperarXML.pas:264): a consulta completa do portal nacional — a chave vai para a área de transferência */
+const URL_PORTAL_NFE = 'https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&tipoConteudo=XbSeqxE8pl8=';
 
 const brl = (n: unknown) => (n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -227,6 +230,109 @@ export function ManifestoDfePage() {
   useShortcut('t', marcarDesmarcarTodos);
   useShortcut('shift+t', marcarDesmarcarTodos);
 
+  // "[F5] - Buscar últimas NF's" (btnPesquisarUltimas → PesquisarNotasFiscais sem filtro): a grade da loja na janela do manifesto
+  const buscarUltimas = () => {
+    setDtini(''); setDtfim(''); setFornecedor(''); setCnpj(''); setChave(''); setCanceladas('TODOS'); setPendentes(false);
+    setTimeout(() => void consultarCom({}), 0);
+  };
+  const consultarCom = async (extra: Record<string, unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await post<{ linhas: Linha[]; totais: Record<string, unknown> }>('/compras/manifesto-dfe/listar', { canceladas: 'TODOS', ...extra });
+      setLinhas(r.linhas); setTotais(r.totais); setEventos(null); setSel(new Set());
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  useShortcut('f5', () => { buscarUltimas(); return undefined; }, { when: !busy });
+  // o "[F2]" com "Consultar nota fiscal pela chave de acesso" (BuscarNotaPorChave): a chave, a SEFAZ e a grade só com ela
+  const consultarPelaChave = async () => {
+    if (busy) return;
+    const ch = window.prompt('Manifestação de Destinatário\nInforme a CHAVE DE ACESSO para a pesquisa.')?.replace(/\s/g, '');
+    if (!ch) return;
+    setBusy(true);
+    try {
+      const r = await post<{ cStat: string; xMotivo: string | null; completas: number; resumos: number; eventos: number }>('/compras/manifesto-dfe/sincronizar-chave', { chave: ch });
+      mensagem.sucesso(`SEFAZ: ${r.xMotivo ?? r.cStat} — ${r.completas} nota(s) completa(s), ${r.resumos} resumo(s), ${r.eventos} evento(s).`);
+      setChave(ch.slice(-10));
+      setBusy(false);
+      await consultarCom({ chave: ch });
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  // "Realizar consulta forçada de NF-e (selecionadas)": a consulta por chave das marcadas sem XML; o retorno no Log
+  const consultaForcada = async () => {
+    if (busy) return;
+    const chaves = [...sel];
+    if (!chaves.length) { mensagem.erro(new Error('Selecione pelo menos uma nota fiscal para realizar a consulta.')); return; }
+    setBusy(true);
+    try {
+      const r = await post<{ consultadas: number; puladas: number; log: Array<{ tipo: string; chave: string; descricao: string }>; mensagem: string }>('/compras/manifesto-dfe/consulta-forcada', { chaves });
+      setLog(r.log);
+      mensagem.sucesso(`${r.mensagem} ${r.consultadas} consultada(s), ${r.puladas} já com o XML.`);
+      setBusy(false);
+      await consultar();
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  // "Importar NF-e (XML)" (TFrmImportaNfeManifesto): os arquivos .xml escolhidos vão para a fila; depois, "Deseja carregar as notas fiscais importadas?"
+  const arquivoRef = useRef<HTMLInputElement | null>(null);
+  const importarArquivos = async (files: FileList | null) => {
+    if (!files?.length || busy) return;
+    setBusy(true);
+    try {
+      const arquivos = await Promise.all([...files].map(async (f) => ({ nome: f.name, xml: await f.text() })));
+      const r = await post<{ resultados: Array<{ nome: string; chave: string | null; importado: 'S' | 'E'; erro: string }>; chaves: string[]; importadas: number }>('/compras/manifesto-dfe/importar-xml', { arquivos });
+      setLog(r.resultados.map((x) => ({ tipo: x.importado === 'S' && !x.erro ? 'A' : 'E', chave: x.chave ?? x.nome, descricao: x.erro || `Importada para o manifesto (${x.nome}).` })));
+      mensagem.sucesso(`${r.importadas} nota(s) importada(s) para o manifesto.`);
+      setBusy(false);
+      if (r.chaves.length && window.confirm('Deseja carregar as notas fiscais importadas?')) await consultarCom({ chaves: r.chaves });
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); if (arquivoRef.current) arquivoRef.current.value = ''; }
+  };
+  // "Exportar Arquivos .XML": o XML das marcadas num .zip (o legado grava nos diretórios da estação)
+  const exportarXml = async () => {
+    if (busy) return;
+    const chaves = [...sel];
+    if (!chaves.length) { mensagem.erro(new Error('Selecione pelo menos uma nota fiscal para exportar.')); return; }
+    setBusy(true);
+    try {
+      const r = await post<{ zip: string; nome: string; exportadas: number; faltantes: string[] }>('/compras/manifesto-dfe/xml-lote', { chaves });
+      const bin = atob(r.zip); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' })); a.download = r.nome; a.click();
+      URL.revokeObjectURL(a.href);
+      mensagem.sucesso(`${r.exportadas} XML exportado(s).${r.faltantes.length ? ` Sem XML: ${r.faltantes.length}.` : ''}`);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  // "&Exportar Grid [F9]" (ExportarGridF101Click): a grade como está, em CSV
+  const exportarGrid = () => {
+    if (!linhas.length) return;
+    const cols: Array<[string, (l: Linha) => unknown]> = [['Importada', (l) => l.cadastrada], ['Processada', (l) => l.processada], ['Ciencia', (l) => l.ciencia], ['Confirmacao', (l) => l.confirmacao],
+      ['Tipo', (l) => l.tipo], ['Cod.NF', (l) => (l.cadastrada === 'NAO' ? '' : l.codigo)], ['Nro.NF', (l) => l.numero_nf], ['Emissao', (l) => dia(l.data_emissao)], ['CNPJ', (l) => l.cnpj_cpf],
+      ['Razao', (l) => l.razao], ['Processo atual', (l) => l.processo_atual], ['Chave', (l) => l.chave], ['Total NF', (l) => l.total_nf], ['Nao Realizada', (l) => l.naorealizada],
+      ['Desconhecimento', (l) => l.desconhecimento], ['Cancelado', (l) => l.cancelamento], ['Outros Eventos', (l) => l.outros_eventos]];
+    const cel = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+    const corpo = linhas.map((l) => cols.map(([, f]) => cel(f(l))).join(';'));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + [cols.map(([c]) => c).join(';'), ...corpo].join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'manifesto-destinatario.csv'; a.click();
+    URL.revokeObjectURL(a.href);
+    mensagem.sucesso('Dados exportados com sucesso.');
+  };
+  useShortcut('f9', () => { exportarGrid(); return undefined; }, { when: !busy && linhas.length > 0 });
+  // "Imprimir DANFE" da linha: a cadastrada sai no DANFE da NF; a da fila recebe o aviso do legado
+  const imprimirDanfe = async (l: Linha) => {
+    try {
+      const r = await req<{ cadastrada: boolean; codnf: number }>(`/compras/manifesto-dfe/danfe/${String(l.chave)}`);
+      if (r.cadastrada) await imprimirRelatorio(`/fiscal/nf/${r.codnf}/danfe`);
+    } catch (e) { mensagem.erro(e); }
+  };
+  // "Abrir" (Abrir1Click): a NF cadastrada na tela de notas (entrada ou saída, pelo TIPO)
+  const abrirNf = (l: Linha) => navigate(`/fiscal/notas/${l.tipo === 'ENTRADA' ? 'entrada' : 'saida'}?codigo=${String(l.codigo)}`);
+  // "Consultar NF-e pelo site": o portal nacional com a chave copiada
+  const consultarNoSite = (l: Linha) => {
+    void navigator.clipboard?.writeText(String(l.chave)).catch(() => undefined);
+    window.open(URL_PORTAL_NFE, '_blank');
+  };
+
   const baixarXml = async (chave: string) => {
     try {
       const r = await req<{ xml: string }>(`/compras/manifesto-dfe/xml/${chave}`);
@@ -255,7 +361,11 @@ export function ManifestoDfePage() {
           Só não importadas
         </label>
         <Button label="&Pesquisar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <Button label="Buscar últimas NF's [F5]" variant="ghost" disabled={busy} onClick={buscarUltimas} />
         <Button label="&Buscar notas (SEFAZ)" variant="soft" disabled={busy} onClick={() => void sincronizar()} />
+        <Button label="Consultar pela c&have (SEFAZ)" variant="ghost" disabled={busy} onClick={() => void consultarPelaChave()} />
+        <Button label="Importar NF-e (&XML)" variant="ghost" disabled={busy} onClick={() => arquivoRef.current?.click()} />
+        <input ref={arquivoRef} type="file" accept=".xml,text/xml,application/xml" multiple className="hidden" aria-label="Arquivos XML" onChange={(e) => void importarArquivos(e.target.files)} />
         <small className="w-full text-fg-muted">
           As NF-e da loja nos últimos dias do manifesto (as cadastradas e as que a SEFAZ trouxe). <b className="text-danger">Vermelho</b> = cancelada;
           <b> negrito</b> = não importada; <b className="text-success">verde</b> = processada. As manifestações vão para as notas marcadas.
@@ -285,6 +395,9 @@ export function ManifestoDfePage() {
           <Button label="Con&firmar operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('CONFIRMACAO')} />
           <Button label="&Desconhecer operação" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('DESCONHECIMENTO')} />
           <Button label="&Operação não realizada" variant="soft" disabled={busy || !sel.size} onClick={() => void manifestarMarcadas('OPERACAO_NAO_REALIZADA')} />
+          <Button label="Consulta forçada (marcadas)" variant="ghost" disabled={busy || !sel.size} onClick={() => void consultaForcada()} />
+          <Button label="Exportar XML (marcadas)" variant="ghost" disabled={busy || !sel.size} onClick={() => void exportarXml()} />
+          <Button label="Exportar grid [F9]" variant="ghost" disabled={busy} onClick={exportarGrid} />
         </div>
       )}
 
@@ -337,6 +450,9 @@ export function ManifestoDfePage() {
                     {/* os botões da grade com a nota cadastrada: a conferência da nota (TfrmConferenciaNota) e a de preço (cxbtnConfpr) */}
                     {!naoCad && <>{' · '}<button className="underline" onClick={() => navigate(`/compras/conferencia-nota?codnf=${String(l.codigo)}`)}>conferência</button></>}
                     {!naoCad && <>{' · '}<button className="underline" onClick={() => { imprimirRelatorio(`/fiscal/nf/${String(l.codigo)}/conferencia-preco-manifesto`).catch((e) => mensagem.erro(e)); }}>conf. preço</button></>}
+                    {' · '}<button className="underline" onClick={() => void imprimirDanfe(l)}>DANFE</button>
+                    {!naoCad && <>{' · '}<button className="underline" onClick={() => abrirNf(l)}>abrir</button></>}
+                    {' · '}<button className="underline" title="Consultar NF-e pelo site (a chave vai para a área de transferência)" onClick={() => consultarNoSite(l)}>site</button>
                   </td>
                 </tr>
               );

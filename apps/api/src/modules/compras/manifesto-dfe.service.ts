@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { zipSync, strToU8 } from 'fflate';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { RecebimentoService } from './recebimento.service';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
@@ -14,6 +15,8 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 export interface FiltroManifesto {
   dtini?: string; dtfim?: string;
   fornecedor?: string; chave?: string;
+  /** as chaves importadas pelo XML ("Deseja carregar as notas fiscais importadas?") */
+  chaves?: string[];
   /** CNPJ do emitente (o EdtCNPJFornecedor do legado: `CNPJ_CPF = '…'`) */
   cnpj?: string;
   /** TTipoFiltro do legado: TODOS | CANCELADAS | NAO_CANCELADAS (cancelada = tem evento 110111 do emitente) */
@@ -83,6 +86,7 @@ export class ManifestoDfeService {
          ${f.fornecedor?.trim() ? sql`AND upper(v.razao) LIKE ${`%${f.fornecedor.trim().toUpperCase()}%`}` : sql``}
          ${f.canceladas === 'CANCELADAS' ? sql`AND v.cancelamento = 'SIM'` : f.canceladas === 'NAO_CANCELADAS' ? sql`AND v.cancelamento = 'NAO'` : sql``}
          ${f.pendentes ? sql`AND v.cadastrada = 'NAO' AND coalesce(q.ignorar_manifesto, 'N') = 'N'` : sql``}
+         ${f.chaves?.length ? sql`AND v.chave = ANY(${f.chaves}::text[])` : sql``}
        ORDER BY v.data_emissao DESC, v.razao, v.chave
        LIMIT 5001`.execute(db)).rows;
     // o LEFT JOIN da view com NFE_REF_DEV_ENT_VINCULO repete a nota que tem dois vínculos de devolução — uma linha só, com as
@@ -272,6 +276,48 @@ export class ManifestoDfeService {
   }
 
   /** o XML completo da chave (p/ exportar ou encaminhar à importação de NF-e — mig 062). */
+  /**
+   * "Exportar Arquivos .XML" (btnExportarXML → `SalvarXMLNosDiretorios(true)`, UManifestoDFe.pas:2859-3048): o XML completo de cada nota
+   * marcada, um arquivo `<chave>-nfe.xml` por nota — o legado grava nos diretórios da estação (DirDistribuicaoDFe); aqui vai num .zip.
+   */
+  async xmlLote(chaves: string[]) {
+    const lista = [...new Set((chaves ?? []).map((c) => String(c ?? '').trim()).filter((c) => /^\d{44}$/.test(c)))];
+    if (!lista.length) throw new BusinessRuleError('MANIFESTO_SEM_SELECAO', {}, 'Selecione pelo menos uma nota fiscal para exportar.');
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const rows = (await sql<{ chavenfe: string; xml: string }>`
+      SELECT DISTINCT ON (chavenfe) chavenfe, xml FROM nfe_xml WHERE chavenfe = ANY(${lista}::text[]) ORDER BY chavenfe, codnfexml DESC`.execute(db)).rows;
+    const arquivos: Record<string, Uint8Array> = {};
+    for (const r of rows) arquivos[`${r.chavenfe}-nfe.xml`] = strToU8(String(r.xml ?? ''));
+    const faltantes = lista.filter((c) => !rows.some((r) => r.chavenfe === c));
+    if (!rows.length) throw new BusinessRuleError('XML_NAO_ENCONTRADO', { chaves: faltantes });
+    return { zip: Buffer.from(zipSync(arquivos)).toString('base64'), nome: 'manifesto-xml.zip', exportadas: rows.length, faltantes };
+  }
+
+  /**
+   * "Imprimir DANFE" da linha (`ImprimirDANFE1Click`, :1901-1928): a nota cadastrada sai no DANFE da NF do Apollo; sem o XML no sistema o
+   * legado tenta a SEFAZ (consulta por chave) e, se nada vem, avisa — sem ciência nem confirmação, "Realize a ciência da operação…";
+   * senão, "…ainda não foi liberado pela SEFAZ". O DANFE do XML de uma nota ainda não importada é do ACBr (fora): fica o aviso.
+   */
+  async danfe(chave: string) {
+    const ch = String(chave ?? '').trim();
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nf = (await sql<{ codnf: number; tipo: string }>`SELECT codnf, tipo FROM nf WHERE chavenfe = ${ch} AND idempresa = ${emp} ORDER BY codnf LIMIT 1`.execute(db)).rows[0];
+    if (nf) return { cadastrada: true, codnf: Number(nf.codnf), tipo: nf.tipo };
+    const temXml = async () => !!(await sql<{ c: number }>`SELECT 1 AS c FROM nfe_xml WHERE chavenfe = ${ch} LIMIT 1`.execute(db)).rows[0];
+    let xml = await temXml();
+    if (!xml) {
+      // BuscarXMLNaSefaz: a consulta por chave, se o certificado estiver configurado (o erro dela não derruba o aviso)
+      try { await this.sefaz.consultarPorChave(ch); xml = await temXml(); } catch { /* sem certificado ou sem retorno: segue para o aviso */ }
+    }
+    if (!xml) {
+      const ev = (await sql<{ t: number }>`SELECT DISTINCT tipo_evento AS t FROM nfe_eventos WHERE chave_acesso = ${ch} AND tipo_evento IN (210200, 210210)`.execute(db)).rows;
+      if (!ev.length) throw new BusinessRuleError('DANFE_SEM_CIENCIA', {}, 'Realize a ciência da operação para imprimir o DANFE.');
+      throw new BusinessRuleError('DANFE_NAO_LIBERADO', {}, 'O acesso a esta nota fiscal e a impressão do DANFE ainda não foi liberado pela SEFAZ (através do manifesto destinatário). Será necessário aguardar a liberação da SEFAZ.');
+    }
+    throw new BusinessRuleError('DANFE_NOTA_NAO_IMPORTADA', {}, 'O DANFE desta NF-e ainda não importada não é gerado pelo Apollo: baixe o XML (Download do documento) ou importe a nota.');
+  }
+
   async xml(chave: string) {
     const db = this.dbp.forTenantRead() as AnyDB;
     const row = await db.selectFrom('nfe_xml')

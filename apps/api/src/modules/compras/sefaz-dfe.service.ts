@@ -198,7 +198,7 @@ export class SefazDfeService {
   }
 
   /** a linha da fila do manifesto; devolve false quando a chave já é NF ou já está na fila da empresa */
-  private async registrarNaFila(db: AnyDB, emp: number, op: number | null, chave: string, xml: string): Promise<boolean> {
+  private async registrarNaFila(db: AnyDB, emp: number, op: number | null, chave: string, xml: string, extra: { importacao_manual?: 'S' | 'N'; arquivo?: string } = {}): Promise<boolean> {
     const nf = (await sql<{ c: number }>`SELECT codnf AS c FROM nf WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
     if (nf) return false;
     const fila = (await sql<{ c: number }>`SELECT codnfe_naocad AS c FROM nfe_nao_cadastradas WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
@@ -211,8 +211,8 @@ export class SefazDfeService {
       // "existe uma inversão para que o usuário entenda que a nota de saída é uma nota de entrada para o sistema"
       tipo: tpNF === '0' ? 'S' : 'E',
       totalnf: Number(tag(xml, 'vNF') ?? 0), dtrecbo: tag(xml, 'dhRecbto'), protocolo: tag(xml, 'nProt'),
-      situacao: Number(tag(xml, 'cSitNFe') ?? 1), modelo: 55, arquivo: '', dtconsulta: sql`now()`, codoperador: op, idempresa: emp,
-      xml_resumido: xml, importacao_manual: 'N', nronf: String(Number(chave.substring(25, 34))), nfe_importada_sistema: 'N',
+      situacao: Number(tag(xml, 'cSitNFe') ?? 1), modelo: 55, arquivo: extra.arquivo ?? '', dtconsulta: sql`now()`, codoperador: op, idempresa: emp,
+      xml_resumido: xml, importacao_manual: extra.importacao_manual ?? 'N', nronf: String(Number(chave.substring(25, 34))), nfe_importada_sistema: 'N',
       ...destinatarioDoXml(xml),
     }).execute();
     if (tpNF !== '0') await registrarProcessoNf(db, 'stManifesto', chave, emp, op);
@@ -281,6 +281,99 @@ export class SefazDfeService {
       ultNsu = novoUlt;
     }
     return { ok: true, lotes, ...tot, ultimo_nsu: ultNsu };
+  }
+
+  /**
+   * A consulta por CHAVE DE ACESSO (`BuscarNotaPorChave`, UManifestoDFe.pas:1161-1229 — o "[F2] - Consultar NF-e" com "Consultar nota
+   * fiscal pela chave de acesso"): o mesmo distDFeInt, com <consChNFe> no lugar do NSU e sem mexer no cursor da empresa; o retorno passa
+   * pelo mesmo `processarDocs` (a nota completa vai para a fila e o XML para NFE_XML).
+   */
+  async consultarPorChave(chave: string) {
+    const ch = String(chave ?? '').replace(/\s/g, '');
+    if (!/^\d{44}$/.test(ch)) throw new BusinessRuleError('CHAVE_NFE_INVALIDA', { chave });
+    const emp = this.emp();
+    const cred = await this.credenciais(emp, false);
+    const ctx = await this.contexto(emp);
+    const corpo = `<nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg>`
+      + `<distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>${ctx.amb}</tpAmb>`
+      + `<cUFAutor>${ctx.uf === 'GO' ? '52' : '31'}</cUFAutor><CNPJ>${ctx.cnpj}</CNPJ>`
+      + `<consChNFe><chNFe>${ch}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse>`;
+    const resp = await this.soap(URLS.dist[ctx.amb as '1' | '2'], 'nfeDistDFeInteresse', corpo, this.agent(cred));
+    const cStat = tag(resp, 'cStat');
+    const xMotivo = tag(resp, 'xMotivo');
+    if (cStat === '137') return { chave: ch, cStat, xMotivo, resumos: 0, completas: 0, eventos: 0 };
+    if (cStat !== '138') throw new BusinessRuleError('SEFAZ_REJEITOU', { cStat, xMotivo });
+    const docs: { nsu: string; schema: string; xml: string }[] = [];
+    for (const m of resp.matchAll(/<docZip NSU="(\d+)" schema="([^"]+)">([^<]+)<\/docZip>/g)) {
+      docs.push({ nsu: m[1], schema: m[2], xml: gunzipSync(Buffer.from(m[3], 'base64')).toString('utf8') });
+    }
+    const r = await this.processarDocs(emp, docs);
+    return { chave: ch, cStat, xMotivo, ...r };
+  }
+
+  /**
+   * "Realizar consulta forçada de NF-e (selecionadas)" (:1481-1490 → `RealizaDownloadArquivosViaConsChave`, :1375-1480): a consulta por
+   * chave de cada nota marcada, pulando a que já tem o XML completo em NFE_XML; o erro de uma vai para o Log e as outras seguem.
+   */
+  async consultaForcada(chaves: string[]) {
+    const lista = [...new Set((chaves ?? []).map((c) => String(c ?? '').replace(/\s/g, '')).filter((c) => /^\d{44}$/.test(c)))];
+    if (!lista.length) throw new BusinessRuleError('MANIFESTO_SEM_SELECAO_CONSULTA', {}, 'Selecione pelo menos uma nota fiscal para realizar a consulta.');
+    const emp = this.emp();
+    await this.credenciais(emp, false); // o `CriaNFE` do legado: sem o certificado nada é consultado
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const log: Array<{ tipo: 'A' | 'E'; chave: string; descricao: string; info?: string }> = [];
+    let consultadas = 0; let puladas = 0;
+    for (const ch of lista) {
+      const ja = (await sql<{ c: number }>`SELECT codnfexml AS c FROM nfe_xml WHERE chavenfe = ${ch} LIMIT 1`.execute(db)).rows[0];
+      if (ja) { puladas++; continue; }
+      try {
+        const r = await this.consultarPorChave(ch);
+        consultadas++;
+        log.push({ tipo: 'A', chave: ch, descricao: `Consulta realizada (cStat ${r.cStat}): ${r.completas} nota(s) completa(s), ${r.resumos} resumo(s), ${r.eventos} evento(s).` });
+      } catch (e) {
+        log.push({ tipo: 'E', chave: ch, descricao: 'Erro ao realizar consulta de NF-e via chave de acesso.', info: `Erro: ${(e as Error).message}` });
+      }
+    }
+    return { consultadas, puladas, log, mensagem: 'Processo de consulta concluído.' };
+  }
+
+  /**
+   * "Importar NF-e (XML)" (`TFrmImportaNfeManifesto` → `TDMManifestoDFe.ImportarNFEParaManifesto`, uDMManifestoDFe.pas:503-660): cada
+   * arquivo vira a linha da fila (IMPORTACAO_MANUAL 'S', o nome do arquivo em ARQUIVO) e o XML completo em NFE_XML, com os avisos do
+   * legado por arquivo — a estrutura que não é NF-e, a nota que não é da empresa (nem emitente nem destinatário), a que já é NF do sistema
+   * e a que já está na fila (as duas últimas contam como "importadas" e entram na lista para carregar, como lá).
+   */
+  async importarXml(arquivos: Array<{ nome: string; xml: string }>) {
+    const emp = this.emp();
+    const ctx = await this.contexto(emp);
+    const db = this.dbp.forTenant() as AnyDB;
+    const op = currentTenant().operadorId ?? null;
+    const digitos = (v: string | null | undefined) => String(v ?? '').replace(/\D/g, '');
+    const resultados: Array<{ nome: string; chave: string | null; importado: 'S' | 'E'; erro: string }> = [];
+    const chaves: string[] = [];
+    for (const a of arquivos ?? []) {
+      const nome = String(a?.nome ?? '').slice(0, 255);
+      const xml = String(a?.xml ?? '');
+      const chave = xml.match(/<infNFe[^>]*Id="NFe(\d{44})"/)?.[1] ?? null;
+      if (!chave) { resultados.push({ nome, chave: null, importado: 'E', erro: 'Estrutura de arquivo não correspondente com a estrutura de NF-e' }); continue; }
+      const emit = digitos(tag(xml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? '', 'CNPJ'));
+      const dest = digitos(tag(xml.match(/<dest>([\s\S]*?)<\/dest>/)?.[1] ?? '', 'CNPJ'));
+      if (emit !== ctx.cnpj && dest !== ctx.cnpj) { resultados.push({ nome, chave, importado: 'E', erro: 'Nota fiscal não pertence a empresa informada na tela no Manifesto.' }); continue; }
+      const nf = (await sql<{ c: number }>`SELECT codnf AS c FROM nf WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
+      if (nf) { resultados.push({ nome, chave, importado: 'S', erro: 'Nota fiscal consta no sistema como "Importada". Pesquise a NF na tela de notas fiscais. Importação não realizada.' }); chaves.push(chave); continue; }
+      const fila = (await sql<{ c: number }>`SELECT codnfe_naocad AS c FROM nfe_nao_cadastradas WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
+      if (fila) { resultados.push({ nome, chave, importado: 'S', erro: 'Nota fiscal consta no sistema como manifestada mas ainda não foi importada. Pesquise a NF na tela de Manifesto Destinatário. Importação não realizada.' }); chaves.push(chave); continue; }
+      await sql`SELECT setval('seq_nfe_nao_cadastradas', greatest((SELECT last_value FROM seq_nfe_nao_cadastradas),
+                        (SELECT coalesce(max(codnfe_naocad), 0) FROM nfe_nao_cadastradas))::bigint, true)`.execute(db);
+      await this.registrarNaFila(db, emp, op, chave, xml, { importacao_manual: 'S', arquivo: nome });
+      const ja = (await sql<{ id: number }>`SELECT codnfexml AS id FROM nfe_xml WHERE chavenfe = ${chave} ORDER BY codnfexml LIMIT 1`.execute(db)).rows[0];
+      if (ja) await sql`UPDATE nfe_xml SET xml = ${xml}, modelo = 55, dtcadastro = now(), codoperador = ${op}, arquivo_exportado = 'N' WHERE codnfexml = ${Number(ja.id)}`.execute(db);
+      else await db.insertInto('nfe_xml').values({ chavenfe: chave, xml, modelo: 55, dtcadastro: sql`now()`, codoperador: op, arquivo_exportado: 'N' }).execute();
+      await this.vincularDevolucao(db, chave, xml);
+      resultados.push({ nome, chave, importado: 'S', erro: '' });
+      chaves.push(chave);
+    }
+    return { resultados, chaves, importadas: resultados.filter((r) => r.importado === 'S' && !r.erro).length };
   }
 
   /** assinatura XML-DSig enveloped do infEvento (RSA-SHA1, perfil NF-e) — XML gerado já canônico. */

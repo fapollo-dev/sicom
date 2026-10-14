@@ -7719,6 +7719,68 @@ async function main() {
           && (evs.linhas ?? []).length === 2 && xmlR.status === 200,
           { sem: igSem.status, imp: igImp.status, ok: igOk.status, pend2: (mdPend2.linhas ?? []).length, evs: (evs.linhas ?? []).length, xml: xmlR.status });
 
+        // 47ap.2) os controles da tela que faltavam (auditoria 14/10): "Importar NF-e (XML)", "Exportar Arquivos .XML", "Imprimir DANFE",
+        // a consulta por chave / forçada (sem certificado param no CERTIFICADO) e a grade das chaves importadas
+        const cnpjEmp1 = String((await pgRv.query(`SELECT regexp_replace(coalesce(cnpj,''), '\\D', '', 'g') c FROM empresas WHERE idempresa = 1`)).rows[0]?.c ?? '');
+        const chImp = '52991201000000000004550010000010004000010004';
+        const xmlManif = (chave: string, cnpjDest: string, emit = '11222333000181') => `<?xml version="1.0" encoding="UTF-8"?><nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">`
+          + `<ide><nNF>${Number(chave.substring(25, 34))}</nNF><mod>55</mod><dhEmi>${dM1}T10:00:00-03:00</dhEmi><tpNF>1</tpNF></ide>`
+          + `<emit><CNPJ>${emit}</CNPJ><xNome>FORN XML MANIF</xNome><IE>123</IE></emit><dest><CNPJ>${cnpjDest}</CNPJ><xNome>A LOJA</xNome></dest>`
+          + `<total><ICMSTot><vNF>4000.00</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><nProt>131260000000004</nProt><dhRecbto>${dM1}T10:05:00-03:00</dhRecbto></infProt></protNFe></nfeProc>`;
+        // a sequência da fila: o importador a alinha ao maior id (as fixtures usam 97001-97010) — volta ao fim para não colidir com os ids fixos das seções seguintes
+        const seqFilaAntes = Number((await pgRv.query(`SELECT last_value FROM seq_nfe_nao_cadastradas`)).rows[0].last_value);
+        const impXml = async (arquivos: Array<{ nome: string; xml: string }>) => { const r = await fetch(`${base}/${MD}/importar-xml`, { method: 'POST', headers: H, body: JSON.stringify({ arquivos }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const ix = await impXml([
+          { nome: 'nova.xml', xml: xmlManif(chImp, cnpjEmp1) },
+          { nome: 'outra-empresa.xml', xml: xmlManif('52991201000000000005550010000010005000010005', '99888777000166', '55666777000188') },
+          { nome: 'ja-nf.xml', xml: xmlManif('52991201000000000003550010000010003000010003', cnpjEmp1) },
+          { nome: 'lixo.xml', xml: '<html>nada</html>' },
+        ]);
+        const ixDeNovo = await impXml([{ nome: 'nova.xml', xml: xmlManif(chImp, cnpjEmp1) }]);
+        const filaImp = (await pgRv.query(`SELECT importacao_manual, arquivo, tipo, razao, totalnf::float AS totalnf, nronf, protocolo FROM nfe_nao_cadastradas WHERE chavenfe = $1 AND idempresa = 1`, [chImp])).rows[0] as any;
+        const xmlImp = Number((await pgRv.query(`SELECT count(*)::int n FROM nfe_xml WHERE chavenfe = $1`, [chImp])).rows[0].n);
+        const mdChaves = await mdQ({ chaves: [chImp, '52991201000000000001550010000010001000010001'] });
+        const r = (nome: string) => (ix.j.resultados ?? []).find((x: any) => x.nome === nome) ?? {};
+        check('MANIFESTO §47ap.2 [Importar NF-e (XML)]: a NF-e da loja (destinatário) entra na fila com IMPORTACAO_MANUAL S, o arquivo, TIPO E (tpNF 1 invertido), razão, total, número e protocolo, e o XML em NFE_XML; a de outra empresa → "não pertence a empresa"; a que já é NF → "consta no sistema como Importada" (entra na lista para carregar); o arquivo que não é NF-e → "Estrutura de arquivo…"; a mesma de novo → "consta no sistema como manifestada"; a grade carrega as chaves importadas',
+          ix.status === 200 && ix.j.importadas === 1 && r('nova.xml').importado === 'S' && r('nova.xml').erro === ''
+          && r('outra-empresa.xml').importado === 'E' && r('outra-empresa.xml').erro === 'Nota fiscal não pertence a empresa informada na tela no Manifesto.'
+          && r('ja-nf.xml').importado === 'S' && String(r('ja-nf.xml').erro).startsWith('Nota fiscal consta no sistema como "Importada"')
+          && r('lixo.xml').importado === 'E' && r('lixo.xml').erro === 'Estrutura de arquivo não correspondente com a estrutura de NF-e'
+          && JSON.stringify(ix.j.chaves) === JSON.stringify([chImp, '52991201000000000003550010000010003000010003'])
+          && filaImp?.importacao_manual === 'S' && filaImp?.arquivo === 'nova.xml' && filaImp?.tipo === 'E' && filaImp?.razao === 'FORN XML MANIF' && filaImp?.totalnf === 4000
+          && String(filaImp?.nronf) === String(Number(chImp.substring(25, 34))) && filaImp?.protocolo === '131260000000004' && xmlImp === 1
+          && ixDeNovo.status === 200 && String(ixDeNovo.j.resultados?.[0]?.erro).startsWith('Nota fiscal consta no sistema como manifestada')
+          && (mdChaves.linhas ?? []).length === 2,
+          { ix: [ix.status, ix.j.code, ix.j.importadas, ix.j.resultados, ix.j.chaves], filaImp, xmlImp, deNovo: ixDeNovo.j.resultados, mdChaves: (mdChaves.linhas ?? []).length });
+
+        const { unzipSync: unzipM, strFromU8: strM } = await import('fflate');
+        const lote = await fetch(`${base}/${MD}/xml-lote`, { method: 'POST', headers: H, body: JSON.stringify({ chaves: ['52991201000000000001550010000010001000010001', '52991201000000000002550010000010002000010002'] }) });
+        const loteJ = (await lote.json().catch(() => ({}))) as any;
+        const zipM = loteJ.zip ? unzipM(new Uint8Array(Buffer.from(String(loteJ.zip), 'base64'))) : {};
+        const xmlLoteSemXml = await fetch(`${base}/${MD}/xml-lote`, { method: 'POST', headers: H, body: JSON.stringify({ chaves: ['52991201000000000002550010000010002000010002'] }) });
+        const danfe = async (ch: string) => { const x = await fetch(`${base}/${MD}/danfe/${ch}`, { headers: H }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
+          (97005,'52991201000000000006550010000010006000010006','11222333000181','FORN SEM NADA','${dM1} 10:00:00-03','E',60,1,1,55,'N')`);
+        const [dC, dA, dB, dNada] = [await danfe('52991201000000000003550010000010003000010003'), await danfe('52991201000000000001550010000010001000010001'),
+          await danfe('52991201000000000002550010000010002000010002'), await danfe('52991201000000000006550010000010006000010006')];
+        const forc = async (chaves: string[]) => { const x = await fetch(`${base}/${MD}/consulta-forcada`, { method: 'POST', headers: H, body: JSON.stringify({ chaves }) }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const [forcVazio, forcB] = [await forc([]), await forc(['52991201000000000002550010000010002000010002'])];
+        const sefazPorChave = async (chave: string) => { const x = await fetch(`${base}/${MD}/sincronizar-chave`, { method: 'POST', headers: H, body: JSON.stringify({ chave }) }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const [chRuim, chBoa] = [await sefazPorChave('52991201000000000002550010000010002000010002X'), await sefazPorChave('52991201000000000002550010000010002000010002')];
+        check('MANIFESTO §47ap.3 [Exportar XML, DANFE, consulta por chave/forçada]: o .zip traz o <chave>-nfe.xml da A e lista a B sem XML; só sem XML → 422 XML_NAO_ENCONTRADO; o DANFE da C cadastrada devolve o CODNF, o da A (XML, não importada) avisa, o da B (ciência, sem XML) "ainda não foi liberado pela SEFAZ", o da sem evento "Realize a ciência"; a consulta forçada sem marcadas → 422 e com marcada (sem XML) esbarra no certificado; a consulta por chave inválida → 422 CHAVE_NFE_INVALIDA e a válida no certificado',
+          lote.status === 200 && loteJ.exportadas === 1 && Object.keys(zipM).join(',') === '52991201000000000001550010000010001000010001-nfe.xml' && strM(zipM['52991201000000000001550010000010001000010001-nfe.xml']) === '<nfeProc>A</nfeProc>'
+          && JSON.stringify(loteJ.faltantes) === JSON.stringify(['52991201000000000002550010000010002000010002']) && xmlLoteSemXml.status === 422
+          && dC.status === 200 && dC.j.cadastrada === true && Number(dC.j.codnf) === Number(nfManC.rows[0].codnf)
+          && dA.status === 422 && dA.j.code === 'DANFE_NOTA_NAO_IMPORTADA' && dB.status === 422 && dB.j.code === 'DANFE_NAO_LIBERADO' && dNada.status === 422 && dNada.j.code === 'DANFE_SEM_CIENCIA'
+          && forcVazio.status === 422 && forcB.status === 422 && String(forcB.j.code).includes('CERTIFICADO')
+          && chRuim.status === 422 && chRuim.j.code === 'CHAVE_NFE_INVALIDA' && chBoa.status === 422 && String(chBoa.j.code).includes('CERTIFICADO'),
+          { lote: [lote.status, loteJ.code, loteJ.exportadas, Object.keys(zipM), loteJ.faltantes], xmlLoteSemXml: xmlLoteSemXml.status, dC: [dC.status, dC.j], dA: [dA.status, dA.j.code], dB: [dB.status, dB.j.code], dNada: [dNada.status, dNada.j.code],
+            forc: [forcVazio.status, forcB.status, forcB.j.code], chave: [chRuim.status, chRuim.j.code, chBoa.status, chBoa.j.code] });
+        await pgRv.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe LIKE '5299%' OR chavenfe_dev LIKE '5299%'`);
+        await pgRv.query(`DELETE FROM nf_status_processo WHERE chavenfe LIKE '5299%'`).catch(() => undefined);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE chavenfe LIKE '5299%' AND codnfe_naocad NOT BETWEEN 97001 AND 97010`);
+        await pgRv.query(`SELECT setval('seq_nfe_nao_cadastradas', $1::bigint, true)`, [seqFilaAntes]);
+
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfManC.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nfe_eventos WHERE chave_acesso LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);

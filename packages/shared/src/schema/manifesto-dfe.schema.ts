@@ -9,8 +9,24 @@ export const manifestoListarSchema = z.object({
   cnpj: z.string().max(30).optional(),
   canceladas: z.enum(['TODOS', 'CANCELADAS', 'NAO_CANCELADAS']).optional(),
   pendentes: z.boolean().optional(),
+  /** as chaves das notas recém-importadas pelo XML (`WHERE CHAVE IN (…)`) */
+  chaves: z.array(z.string().min(44).max(50)).max(500).optional(),
 });
 export type ManifestoListarDto = z.infer<typeof manifestoListarSchema>;
+
+/** a consulta por chave na SEFAZ (o "Consultar nota fiscal pela chave de acesso" do [F2]) */
+export const manifestoChaveSchema = z.object({ chave: z.string().min(44).max(50) });
+export type ManifestoChaveDto = z.infer<typeof manifestoChaveSchema>;
+
+/** as notas marcadas (consulta forçada / exportar XML) */
+export const manifestoChavesSchema = z.object({ chaves: z.array(z.string().min(44).max(50)).max(500) });
+export type ManifestoChavesDto = z.infer<typeof manifestoChavesSchema>;
+
+/** "Importar NF-e (XML)": os arquivos lidos no navegador */
+export const manifestoImportarXmlSchema = z.object({
+  arquivos: z.array(z.object({ nome: z.string().max(255), xml: z.string().max(4_000_000) })).min(1, 'Selecione pelo menos um registro para realizar a importação.').max(200),
+});
+export type ManifestoImportarXmlDto = z.infer<typeof manifestoImportarXmlSchema>;
 
 export const manifestoIgnorarSchema = z.object({
   codnfe_naocad: z.coerce.number().int().positive(),

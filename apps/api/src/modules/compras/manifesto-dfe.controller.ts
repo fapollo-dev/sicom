@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { AcessoService } from '../../shared/acesso/acesso.service';
-import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
+import { manifestoListarSchema, manifestoIgnorarSchema, manifestoChaveSchema, manifestoChavesSchema, manifestoImportarXmlSchema,
+  type ManifestoListarDto, type ManifestoIgnorarDto, type ManifestoChaveDto, type ManifestoChavesDto, type ManifestoImportarXmlDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { ManifestoPrevisaoService } from './manifesto-previsao.service';
 import { ManifestoItensService } from './manifesto-itens.service';
@@ -76,6 +77,45 @@ export class ManifestoDfeController {
   @RequerAcesso('FRMMANIFESTODFE', 'BTNBUSCARNOTAS')
   sincronizar() {
     return this.sefaz.sincronizar();
+  }
+
+  /** o "[F2] - Consultar NF-e" com "Consultar nota fiscal pela chave de acesso" (BuscarNotaPorChave) */
+  @Post('sincronizar-chave')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNBUSCARNOTAS')
+  sincronizarChave(@Body(new ZodValidationPipe(manifestoChaveSchema)) dto: ManifestoChaveDto) {
+    return this.sefaz.consultarPorChave(dto.chave);
+  }
+
+  /** "Realizar consulta forçada de NF-e (selecionadas)": a consulta por chave das marcadas que ainda não têm o XML */
+  @Post('consulta-forcada')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNBUSCARNOTAS')
+  consultaForcada(@Body(new ZodValidationPipe(manifestoChavesSchema)) dto: ManifestoChavesDto) {
+    return this.sefaz.consultaForcada(dto.chaves);
+  }
+
+  /** "Importar NF-e (XML)" (TFrmImportaNfeManifesto): os arquivos .xml para a fila do manifesto */
+  @Post('importar-xml')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
+  importarXml(@Body(new ZodValidationPipe(manifestoImportarXmlSchema)) dto: ManifestoImportarXmlDto) {
+    return this.sefaz.importarXml(dto.arquivos);
+  }
+
+  /** "Exportar Arquivos .XML": o XML das notas marcadas num .zip */
+  @Post('xml-lote')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
+  xmlLote(@Body(new ZodValidationPipe(manifestoChavesSchema)) dto: ManifestoChavesDto) {
+    return this.svc.xmlLote(dto.chaves);
+  }
+
+  /** "Imprimir DANFE" da linha: a nota cadastrada (o DANFE da NF) ou os avisos do legado */
+  @Get('danfe/:chave')
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  danfe(@Param('chave') chave: string) {
+    return this.svc.danfe(chave);
   }
 
   /** corte 2 — envia o evento de manifestação (ciência/confirmação/desconhecimento/op. não realizada). */

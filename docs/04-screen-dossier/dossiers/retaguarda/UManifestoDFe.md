@@ -66,3 +66,33 @@ NFE_NAO_CADASTRADAS_ITENS na ordem do NROITEM (o filtro `ProdutoCadastrado = 'S'
 nota na grade (GET_NF_MANIFESTO: CHAVE, CNPJ_CPF, DATA_EMISSAO, NUMERO_NF, RAZAO, TOTAL_NF), `frxDBDatasetDadosEmpresa` = a empresa do
 login. Sem item: "Não existem produtos listados para construir o relatório.". O HTML próprio saiu. A conferência de preço da grade já usava
 o `conf - conferencia de preco simples nf.fr3`; o DANFE_ManifestoDest.fr3 é do ACBr (SEFAZ) e fica fora.
+
+## A auditoria controle a controle (14/10/2026)
+
+`UManifestoDFe.pas` (3.187 linhas) + `.dfm` revistos contra a tela do Apollo. Convertido agora:
+
+| Controle do legado | Apollo |
+|---|---|
+| **[F5] - Buscar últimas NF's** (`btnPesquisarUltimas` → `PesquisarNotasFiscais` sem filtro, FormKeyDown :1630) | F5 e o botão: limpa os filtros e lista a loja na janela do manifesto |
+| **[F2]** com "Consultar nota fiscal pela chave de acesso" (`BuscarNotaPorChave` :1161-1229 — `DistribuicaoDFePorChaveNFe`) | "Consultar pela chave (SEFAZ)": `POST sincronizar-chave` — o distDFeInt com `<consChNFe>`, sem mexer no cursor; a grade fica só com a chave |
+| **Realizar consulta forçada de NF-e (selecionadas)** (:1481-1490 → `RealizaDownloadArquivosViaConsChave` :1375-1480) | "Consulta forçada (marcadas)": `POST consulta-forcada` — a consulta por chave das marcadas, pulando a que já tem o XML em NFE_XML; o erro de uma no Log, as outras seguem; "Selecione pelo menos uma nota fiscal para realizar a consulta." |
+| **Importar NF-e (XML)** (`TFrmImportaNfeManifesto` → `ImportarNFEParaManifesto`, uDMManifestoDFe.pas:503-660) | o botão abre os arquivos .xml; `POST importar-xml` com as regras do legado por arquivo: estrutura que não é NF-e; emitente/destinatário ≠ CNPJ da loja ("não pertence a empresa…"); a que já é NF ("consta no sistema como Importada"); a que já está na fila ("consta no sistema como manifestada…") — as duas últimas entram na lista para carregar, como lá. A nova vira a linha da fila com IMPORTACAO_MANUAL 'S', o nome do arquivo, o TIPO invertido pelo tpNF, e o XML em NFE_XML. Depois, "Deseja carregar as notas fiscais importadas?" → a grade pelas chaves (`chaves` no listar) |
+| **Exportar Arquivos .XML** (`btnExportarXML` → `SalvarXMLNosDiretorios(true)` :2859-3048) | "Exportar XML (marcadas)": `POST xml-lote` — um `<chave>-nfe.xml` por nota num .zip (o legado grava nos diretórios da estação; o "Diretório .XML de NF-e" é o Explorer dela) |
+| **Imprimir DANFE** (`ImprimirDANFE1Click` :1901-1928) | a linha "DANFE": a nota cadastrada sai no DANFE da NF do Apollo (`/fiscal/nf/:id/danfe`); sem o XML, tenta a SEFAZ pela chave e avisa como o legado — "Realize a ciência da operação para imprimir o DANFE." (sem ciência nem confirmação) ou "…ainda não foi liberado pela SEFAZ". ⛔ O DANFE do XML de uma nota **ainda não importada** é do ACBr (`DANFE_ManifestoDest.fr3` não está na RELATORIOS): fica o aviso para baixar o XML ou importar |
+| **Abrir** (`Abrir1Click` :2806-2836 — a `TfrmNF` da chave, 35/36 pelo tipo) | a linha "abrir": a tela de notas de entrada/saída com `?codigo=` |
+| **Consultar NF-e pelo site** (`TfrmRecuperarXML`, uRecuperarXML.pas:264 — o portal nacional num TWebBrowser com automação do captcha) | a linha "site": o portal (consulta completa, o mesmo `tipoConteudo`) numa aba, com a chave na área de transferência |
+| **&Exportar Grid [F9]** (`ExportarGridF101Click` :1552-1585 — xlsx/xml/txt/html) | F9 e o botão: a grade em CSV |
+
+Com prova, sem código:
+- **Empresa** (`edtCODEMPRESA`, "A empresa selecionada será a destinatária dos eventos"): o Apollo usa a loja da sessão — trocar de loja é o Ctrl+E.
+- **`VerificarNF`** (:3130-3187, o gate das ações da linha): `QTD_DIAS_LIMITE_NF_ENTRADA/SAIDA` = 0 na base e **365** no override Módulo/Retaguarda; com 365 a
+  consulta exige a nota com mais de 365 dias **e** emitida nos últimos 90 — nunca há linha. O gate não bloqueia nada na produção.
+- **`FILTRO_PREVIO_MANIFESTO` = 'S'**: o legado abre com a janela de fornecedor/chave antes de listar (para não carregar as ~1.400 linhas); o Apollo
+  abre com os filtros vazios e lista no Pesquisar — o mesmo efeito.
+- **Pesquisa avançada [F3]** (:572-718): a Pesquisa genérica da GET_NF_MANIFESTO com a legenda de cores, em multisseleção, transferindo as marcadas
+  para a grade — o Apollo tem os mesmos filtros na própria tela (F3 pesquisa).
+- Aba **Retorno Webservice** (o XML cru da SEFAZ) e "Salvar/Carregar configurações do grid": fora; "Análise pedidos x lote NF": morta desde 09/01/2025 (§ acima).
+- A LOG da produção não registra nada do manifesto em 2026 (0 linhas): o uso de cada ação não é mensurável por ela.
+
+Smoke §47ap.2/§47ap.3; jsdom `manifestoDfe.spec.tsx`.
+
