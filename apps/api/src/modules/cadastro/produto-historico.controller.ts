@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
 import { ABAS_HISTORICO, ProdutoHistoricoService, type AbaHistorico, type FiltroHistorico } from './produto-historico.service';
+import { ProdutoPosicaoService, type OrigemPosicao } from './produto-posicao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -21,7 +22,14 @@ const filtro = (q: Record<string, string | undefined>): FiltroHistorico => ({
 @Controller('cadastro/produtos')
 @UseGuards(AcessoGuard)
 export class ProdutoHistoricoController {
-  constructor(private readonly svc: ProdutoHistoricoService) {}
+  constructor(private readonly svc: ProdutoHistoricoService, private readonly posicao: ProdutoPosicaoService) {}
+
+  /** "[F7] - Análise geral do produto" (TfrmPosicaoProduto): a posição do produto nas lojas (`empresas`) pela origem V (vendas) | P (pedidos) | T (todos) */
+  @Get(':id/posicao')
+  @RequerAcesso('FRMCADPRODUTO', 'FRMCADPRODUTO')
+  posicaoDoProduto(@Param('id', ParseIntPipe) id: number, @Query('empresas') empresas?: string, @Query('origem') origem?: string) {
+    return this.posicao.posicao(id, { empresas: filtro({ empresas }).empresas, origem: (origem ?? 'V') as OrigemPosicao });
+  }
 
   /** o "Detalhar" de uma linha do kardex: a tela (e a chave) que o legado abre para o movimento */
   @Get(':id/historico/estoque/:codmov/detalhe')

@@ -123,6 +123,7 @@ import { ProdutoEstoqueController } from './produto-estoque.controller';
 import { ProdutoEstoqueService } from './produto-estoque.service';
 import { ProdutoHistoricoController } from './produto-historico.controller';
 import { ProdutoHistoricoService } from './produto-historico.service';
+import { ProdutoPosicaoService } from './produto-posicao.service';
 import { NfAggregateController } from './nf.aggregate';
 import { UnidadeCrudController } from './unidade.crud';
 import { FamiliasCrudController } from './familias.crud';
@@ -297,6 +298,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     ProdutoFilhosService,
     ProdutoEstoqueService,
     ProdutoHistoricoService,
+    ProdutoPosicaoService,
     DatabaseProvider,
     ConfigService,
     ConfiguracoesAdminService,

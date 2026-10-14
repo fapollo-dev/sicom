@@ -529,3 +529,29 @@ O Apollo não tinha o menu além do Registro de log.
 | Histórico (form-base) | `TfrmHistoricoDinamico` do MULTI_PRECO, aberto no VRVENDA, item "código-descrição" | ✅ (`historico` do CadMaster) |
 
 Smoke §302, §306; jsdom `cadMasterHistorico.spec.tsx`, `cadMasterOutrosCtx.spec.tsx`.
+
+## A auditoria controle a controle (14/10/2026)
+
+O `.dfm` (18.423 linhas) e as 40 opções de permissão da produção (`PERMISSOES`, FORM = FRMCADPRODUTO) revistos contra o Apollo. Convertido:
+
+- ⛔→✅ **"[F7] - Análise geral do produto"** (`btnAnaliseProduto` :2157 → `TfrmPosicaoProduto`, UPosicaoProduto.pas 1.092 linhas +
+  UdmPosicaoProduto.dfm): a posição do produto nas lojas escolhidas (Ctrl+E) — dados do produto (código, descrição, fornecedor, família, UN), preço
+  de custo (frete, IPI, seguro, ICMS-ST, acessórias, ICM efetivo da DET_ALIQUOTA da UF da loja, crédito ICMS, PIS/COFINS) e de venda (débitos,
+  venda líquida, lucro bruto, despesa operacional, lucro líquido, IR, CSLL, lucro final % e $ — as colunas do MULTI_PRECO), custo/venda e estoques
+  (loja + depósito) por loja, e os resumos: mensal de saídas (de 12 meses atrás ao fim do mês, VENDAS cancelado N e/ou PEDIDOS pelo rádio
+  Vendas/Pedidos/Todos — `AbreDataset`/`ProcessarOpcaoTodos`), mensal de entradas (NF de entrada processada, qtde × fator), últimas 5 semanas
+  (domingo a sábado), últimos 7 dias, média anual (do 1º de janeiro do ano anterior), compras (pedidos de compra, as quantidades da loja) e os
+  pedidos de compra pendentes. `GET cadastro/produtos/:id/posicao?origem=V|P|T&empresas=`, tela `/cadastro/produtos/posicao?idproduto=`, no
+  menu Outros do cadastro. Os botões Notas/Vendas/Kardex (Pesquisas do produto que abrem a NF, o cupom e a ficha kardex) levam ao Histórico
+  das Movimentações do cadastro; com "Todos" ficam desabilitados, como lá. O dia é o da loja (`FUSO_HORARIO_ACESSO`).
+- ✅ **"Ajustar estoque"** (`BitBtn2` :1571, Tag 1 `BITBTN2` — 53 operadores): abre o ajuste de estoque no produto (`/estoque/ajuste?idproduto=`), no Outros.
+
+Com prova, sem código:
+- **Indústria** (`TbsIndustria`: "Programação de Produção" + `PRODUZ_ESCALA_NAO_REL`): a coluna é nula nos 47.827 produtos e `PRODUCAO` tem 43 linhas.
+- **"Abrir Caixa"**, modos Balcão/OS etc. não são desta tela. As opções `BITBTN5` (4 operadores), `BTNPERMISSAOEDTCODBARRA` (36) e as
+  `BTN*SUGESTAOPRODUTOS*` (14/7) **não existem no `.dfm` de 2020** — são do binário novo, sem fonte; registradas.
+- As demais abas (Descrições, Tributação com códigos auxiliares/referência/fator de conversão/FCP/outros/fornecedores desassociados/produção,
+  Produtos filhos, Composição, Decomposição, Balança, Receita, Histórico, Cadastro logístico, Estoque) e os itens do Outros já estavam.
+
+Smoke §313; jsdom `posicaoProduto.spec.tsx`.
+

@@ -117,6 +117,7 @@ export const ROTA_MODULO: Record<string, Destino> = {
   '/cobranca/lancamento-caixa': { modulo: 'financeiro' }, // FRMMOVCAIXA · 5058 acessos · Movimentacao financeira
   '/financeiro/cartoes': { modulo: 'financeiro' }, // FRMCADCARTAO · 4346 acessos · Movimentacao financeira
   '/financeiro/cartoes/baixa': { modulo: 'financeiro' }, // FRMBAIXACARTAO · 7623 acessos · Movimentacao financeira
+  '/cadastro/produtos/posicao': { modulo: 'produtos' }, // TfrmPosicaoProduto — o [F7] do cadastro de produtos
   '/cadastro/areceber': { modulo: 'financeiro' }, // FRMCADARECEBER · 4301 acessos · Movimentacao financeira
   '/cobranca/baixa-receber': { modulo: 'financeiro' }, // FRMBAIXAARECEBER · 3194 acessos · Movimentacao financeira
   '/cobranca/cnab': { modulo: 'financeiro' }, // FRMCONFBOLETO · 867 acessos · Movimentacao financeira

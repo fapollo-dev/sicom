@@ -222,6 +222,12 @@ export function ProdutoCadMaster() {
         { label: 'Precificação do Custo', requerRegistro: true, desabilitado: !acesso.tem('PRECIFICAODOCUSTO1'),
           onClick: ({ registro }) => { if (registro) navigate(`/estoque/precificacao?codbarra=${encodeURIComponent(String(registro.codbarra ?? ''))}`); } },
         { label: 'Verificar NCM dos produtos ativos', onClick: () => void verificarNcm() },
+        // btnAnaliseProduto "[F7] - Análise geral do produto" (UCadProduto.pas:2157 → TfrmPosicaoProduto) e o "Ajustar estoque" (BitBtn2 :1571 →
+        // TfrmAjusteEstoque com o produto; Tag 1 BITBTN2, 53 operadores)
+        { label: 'Análise geral do produto [F7]', requerRegistro: true,
+          onClick: ({ registro }) => { if (registro?.idproduto != null) navigate(`/cadastro/produtos/posicao?idproduto=${Number(registro.idproduto)}`); } },
+        { label: 'Ajustar estoque', requerRegistro: true, desabilitado: !acesso.tem('BITBTN2'),
+          onClick: ({ registro }) => { if (registro?.idproduto != null) navigate(`/estoque/ajuste?idproduto=${Number(registro.idproduto)}`); } },
         { label: 'Imprime Etiqueta', requerRegistro: true,
           onClick: ({ registro }) => { if (registro?.idproduto != null) abrirEtiquetasCom({ fonte: 'cadastro', itens: [{ idproduto: Number(registro.idproduto) }] }, navigate); } },
       ]}

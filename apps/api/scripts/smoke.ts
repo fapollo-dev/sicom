@@ -19974,6 +19974,69 @@ async function main() {
         await pgD.end();
       }
     }
+    // ══ §313 POSIÇÃO DO PRODUTO — o "[F7] - Análise geral do produto" do cadastro (TfrmPosicaoProduto) ══
+    {
+      const pgPo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PO = 992860;
+      let pcPo = 0;
+      const tinhaRel2Po = Number((await pgPo.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      try {
+        const ufEmp = String((await pgPo.query(`SELECT uf FROM empresas WHERE idempresa = 1`)).rows[0]?.uf ?? 'MG');
+        await pgPo.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo, base, cst) VALUES ('T01', $1, 18, 18, 100, 0) ON CONFLICT DO NOTHING`, [ufEmp]);
+        const icmEsperado = Number((await pgPo.query(`SELECT icm_efetivo FROM det_aliquota WHERE aliquota = 'T01' AND uf = $1`, [ufEmp])).rows[0]?.icm_efetivo);
+        if (!tinhaRel2Po) await pgPo.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgPo.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES ($1, '7899009928601', 'POSICAO SMOKE', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`, [PO]);
+        await pgPo.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [PO]);
+        await pgPo.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, frete, ipi, creditoicm, vendaliq, margeml2, margeml2v) VALUES ($1, 1, 5, 10, 1, 0.5, 0.9, 7.28, 16.3, 1.63), ($1, 2, 6, 12, 0, 0, 0, 0, 0, 0)`, [PO]);
+        await pgPo.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1, 1, 20) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = 20`, [PO]);
+        await pgPo.query(`DELETE FROM estoque_dep WHERE idproduto = $1`, [PO]);
+        await pgPo.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES ($1, 1, 5)`, [PO]);
+        // as saídas: 2 vendas de hoje (3 + 4), uma cancelada (fora), uma da loja 2 (só com a loja 2); os pedidos: tipo P (2) e tipo O (9)
+        await pgPo.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1, now(), 9, 313001, 1, $1, 3, 10, 5, 'A', '5102', 'N', 'S', 'P'), (1, now(), 9, 313002, 1, $1, 4, 10, 5, 'A', '5102', 'N', 'S', 'P'),
+          (1, now(), 9, 313003, 1, $1, 100, 10, 5, 'A', '5102', 'S', 'S', 'P'), (2, now(), 9, 313004, 1, $1, 50, 10, 5, 'A', '5102', 'N', 'S', 'P')`, [PO]);
+        await pgPo.query(`DELETE FROM pedidos WHERE nropedido IN ('313P', '313O')`);
+        await pgPo.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, desc_acre_item, vrcusto, dtvenda, cancelado, tipo, codparceiro) VALUES
+          ('313P', 1, 1, $1, 'POSICAO SMOKE', 'UN', 2, 10, 0, 5, now(), 'N', 'P', 2), ('313O', 1, 1, $1, 'POSICAO SMOKE', 'UN', 9, 10, 0, 5, now(), 'N', 'O', 2)`, [PO]);
+        // a entrada: NF de entrada processada deste mês (12 × fator 2 = 24); a de saída fica fora
+        const nfPo = Number((await pgPo.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop) VALUES (1, 2, '313001', 55, '1', 'E', 'S', 'N', current_date, current_date, 1102) RETURNING codnf`)).rows[0].codnf);
+        const nfPoS = Number((await pgPo.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop) VALUES (1, 2, '313002', 55, '1', 'S', 'S', 'N', current_date, current_date, 5102) RETURNING codnf`)).rows[0].codnf);
+        await pgPo.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, descricao, quantidade, vrvenda, vrcusto, fatorembal, cfop) VALUES ($1, 1, $3, 'POSICAO SMOKE', 12, 10, 5, 2, '1102'), ($2, 1, $3, 'POSICAO SMOKE', 30, 10, 5, 1, '5102')`, [nfPo, nfPoS, PO]);
+        // a compra: um pedido de compra deste mês em aberto (7 unidades)
+        pcPo = Number((await pgPo.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro) VALUES (2, 1, current_date, 7, 7) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        await pgPo.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto) VALUES ($1, $2, 5, 7, 1, 7, 5, 35)`, [pcPo, PO]);
+        await pgPo.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, qtde, qtdtotal, totalcusto) SELECT codpedcompi, 1, qtde, qtdtotal, totalcusto FROM pedidocompra_i WHERE codpedcomp = $1`, [pcPo]);
+        const po = async (q: string, h = H) => { const r = await fetch(`${base}/cadastro/produtos/${PO}/posicao${q}`, { headers: h }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const [pV, pP, pT, p12, pSem] = [await po('?origem=V'), await po('?origem=P'), await po('?origem=T'), await po('?origem=V&empresas=1,2'), await po('?origem=V', H_SEM_ACESSO)];
+        const mesAtual = `${new Date().getMonth() + 1}/${new Date().getFullYear()}`;
+        const mensal = (x: any) => (x.j.mensal ?? []).find((m: any) => m.data === mesAtual)?.qtde;
+        check('POSIÇÃO DO PRODUTO §313 [o F7 do cadastro — TfrmPosicaoProduto]: os dados do produto e do preço (MULTI_PRECO da loja + ICM efetivo da DET_ALIQUOTA da UF da loja), custo/venda e estoques por loja (20 + 5 no depósito), o resumo mensal de saídas (Vendas: 3 + 4 = 7, a cancelada fora; Pedidos: só o tipo P = 2; Todos: vendas + pedidos de qualquer tipo = 18), as últimas semanas/dias/média anual, as entradas do mês (12 × fator 2 = 24), as compras (7) e o pedido pendente; com a loja 2 a venda dela entra (57); sem a tela → 403',
+          pV.status === 200 && pV.j.produto?.codbarra === '7899009928601' && Number(pV.j.produto?.vrvenda) === 10 && Number(pV.j.produto?.frete) === 1 && Number(pV.j.produto?.vendaliq) === 7.28
+          && Number(pV.j.produto?.icm_efetivo) === icmEsperado && Number(pV.j.produto?.margeml2) === 16.3
+          && pV.j.lojas?.length === 2 && Number(pV.j.lojas[1].vrvenda) === 12 && pV.j.estoques?.length === 1 && Number(pV.j.estoques[0].qtde) === 20 && Number(pV.j.estoques[0].qtde_dep) === 5
+          && mensal(pV) === 7 && pV.j.total_mensal === 7 && pV.j.semanas?.[0]?.semana === '1º SEMANA' && pV.j.semanas[0].qtde === 7 && pV.j.semanas.length === 5
+          && pV.j.dias?.[0]?.qtde === 7 && pV.j.anual?.[0]?.qtde === 7 && pV.j.anual[0].ano === new Date().getFullYear()
+          && (pV.j.entradas ?? []).find((e: any) => e.data === mesAtual)?.qtde === 24 && pV.j.total_entradas === 24
+          && (pV.j.compras ?? []).find((e: any) => e.data === mesAtual)?.qtde === 7 && pV.j.pendentes?.length === 1 && Number(pV.j.pendentes[0].qtde) === 7 && Number(pV.j.pendentes[0].nropedido) === pcPo
+          && mensal(pP) === 2 && pP.j.origem === 'P' && mensal(pT) === 18 && mensal(p12) === 57 && JSON.stringify(p12.j.empresas) === '[1,2]'
+          && pSem.status === 403,
+          { pV: [pV.status, pV.j.code, pV.j.produto, pV.j.lojas, pV.j.estoques, pV.j.mensal, pV.j.semanas, pV.j.dias, pV.j.anual, pV.j.entradas, pV.j.compras, pV.j.pendentes], pP: [pP.status, pP.j.mensal], pT: pT.j.mensal, p12: [p12.j.mensal, p12.j.empresas], pSem: pSem.status, icmEsperado });
+      } finally {
+        await pgPo.query(`DELETE FROM pedido_compra_qtde WHERE codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [pcPo || -1]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [pcPo || -1]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pcPo || -1]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM nf_prod WHERE codproduto = $1`, [PO]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM nf WHERE nronf IN ('313001', '313002') AND idempresa = 1`).catch(() => undefined);
+        await pgPo.query(`DELETE FROM pedidos WHERE nropedido IN ('313P', '313O')`).catch(() => undefined);
+        await pgPo.query(`DELETE FROM vendas WHERE codproduto = $1`, [PO]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM estoque_dep WHERE idproduto = $1`, [PO]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM estoque WHERE idproduto = $1`, [PO]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [PO]).catch(() => undefined);
+        await pgPo.query(`DELETE FROM produtos WHERE idproduto = $1`, [PO]).catch(() => undefined);
+        if (!tinhaRel2Po) await pgPo.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgPo.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

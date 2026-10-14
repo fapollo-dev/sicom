@@ -32,6 +32,7 @@ import { OperadoresCadMaster } from '../features/operadores/OperadoresCadMaster'
 import { FormasPgtoCadMaster } from '../features/formas-pgto/FormasPgtoCadMaster';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
+import { PosicaoProdutoPage } from '../features/produtos/PosicaoProdutoPage';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
 import { PedidoCompraCadMaster } from '../features/pedido-compra/PedidoCompraCadMaster';
 import { CondicoesPagtoCadMaster } from '../features/condicoes-pagto/CondicoesPagtoCadMaster';
@@ -203,6 +204,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/clientes', element: <ParceirosCadMaster papel="cliente" /> },
       { path: '/cadastro/fornecedores', element: <ParceirosCadMaster papel="fornecedor" /> },
       { path: '/cadastro/produtos', element: <ProdutoCadMaster /> },
+      { path: '/cadastro/produtos/posicao', element: <PosicaoProdutoPage /> }, // "[F7] - Análise geral do produto" (TfrmPosicaoProduto)
       { path: '/cobranca/lotes', element: <LotesCobrancaCadMaster /> }, // mestre-detalhe
       { path: '/cadastro/areceber', element: <ContasReceberCadMaster /> }, // contas a receber (cortes 1+2)
       { path: '/cadastro/apagar', element: <ContasPagarCadMaster /> }, // contas a pagar (gêmea)
