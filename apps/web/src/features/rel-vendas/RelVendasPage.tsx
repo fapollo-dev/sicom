@@ -3,6 +3,8 @@ import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
+import { NumberField } from '../../shared/ui/NumberField';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
@@ -50,6 +52,25 @@ export function RelVendasPage() {
   const [produto, setProduto] = useState('');
   const [fornecedor, setFornecedor] = useState('');
   const [custoRep, setCustoRep] = useState(false);
+  // a auditoria do URelVendas.dfm (14/10/2026): os filtros do rel 01 que a tela não mostrava (rgDescontos, CkbExibirProdutosFilhos,
+  // chkAgruparEmpresas "Desagrupar Empresas", edtNrocupom/edtNropedido/edtNroPDV/cbAliq, RGpis, CkbDescontoScanntech, cliente/vendedor/operador, gpbLucro)
+  const [descontos, setDescontos] = useState('T');
+  const [exibirFilhos, setExibirFilhos] = useState(false);
+  const [desagrupar, setDesagrupar] = useState(false);
+  const [nrocupom, setNrocupom] = useState<number | undefined>();
+  const [nropedido, setNropedido] = useState('');
+  const [nropdv, setNropdv] = useState<number | undefined>();
+  const [aliquota, setAliquota] = useState('');
+  const [pis, setPis] = useState('T');
+  const [descScanntech, setDescScanntech] = useState(false);
+  const [cliente, setCliente] = useState('');
+  const [vendedor, setVendedor] = useState('');
+  const [operador, setOperador] = useState('');
+  const [lucroCampo, setLucroCampo] = useState('');
+  const [lucroOp, setLucroOp] = useState('>');
+  const [lucroValor, setLucroValor] = useState<number | undefined>();
+  const [lucroValor2, setLucroValor2] = useState<number | undefined>();
+  const [maisFiltros, setMaisFiltros] = useState(false);
   const [horaIni, setHoraIni] = useState('00:00');
   const [horaFim, setHoraFim] = useState('23:59');
   const [filtrarHora, setFiltrarHora] = useState(false);
@@ -75,6 +96,11 @@ export function RelVendasPage() {
     produto: produto || undefined, fornecedor: fornecedor || undefined,
     custoReposicao: custoRep, filtrarHora, horaIni, horaFim, ...familias,
     ...(produtos?.length ? { produtos } : {}),
+    descontos: descontos === 'T' ? undefined : descontos, exibirFilhos, agruparEmpresas: desagrupar,
+    nrocupom: nrocupom || undefined, nropedido: nropedido || undefined, nropdv: nropdv || undefined, aliquota: aliquota || undefined,
+    pis: pis === 'T' ? undefined : pis, descontoScanntech: descScanntech || undefined,
+    cliente: cliente || undefined, vendedor: vendedor || undefined, operador: operador || undefined,
+    ...(lucroCampo && lucroValor != null ? { lucro: { campo: lucroCampo, operacao: lucroOp, valor: lucroValor, ...(lucroOp === 'ENTRE' ? { valor2: lucroValor2 ?? lucroValor } : {}) } } : {}),
   });
   const imprimir = () => {
     imprimirRelatorio('/relatorios/vendas/produtos-vendidos/impressao', { ...filtroAtual(), layout }).catch((e) => mensagem.erro(e));
@@ -130,6 +156,31 @@ export function RelVendasPage() {
         <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={filtrarHora} onChange={(e) => setFiltrarHora(e.target.checked)} /> Filtrar hora</label>
         {filtrarHora && <><div className="w-24"><Field label="De" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} /></div><div className="w-24"><Field label="Até" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} /></div><small className="text-fg-muted">janela contínua: {dtini} {horaIni} → {dtfim} {horaFim}</small></>}
         <FiltroFamilias value={familias} onChange={setFamilias} />
+        <Button label={maisFiltros ? 'Menos filtros' : 'Mais filtros'} variant="ghost" onClick={() => setMaisFiltros((v) => !v)} />
+        {maisFiltros && (
+          <div className="flex w-full flex-wrap items-end gap-gp-sm border-t border-border pt-pad-sm">
+            {/* rgDescontos (SIM/NÃO/Todos), CkbExibirProdutosFilhos, "Desagrupar Empresas" (chkAgruparEmpresas, visível no rel 01), cupom/pedido/PDV/alíquota */}
+            <div className="w-36"><SelectField label="Descontos" value={descontos} onChange={setDescontos} options={[{ value: 'T', label: 'Todos' }, { value: 'COM', label: 'SIM' }, { value: 'SEM', label: 'NÃO' }]} /></div>
+            <CheckboxField label="Exibir produtos filhos" value={exibirFilhos ? 'S' : 'N'} onChange={(v) => setExibirFilhos(v === 'S')} />
+            <CheckboxField label="Desagrupar Empresas" value={desagrupar ? 'S' : 'N'} onChange={(v) => setDesagrupar(v === 'S')} />
+            <div className="w-28"><NumberField label="Nro Cupom" value={nrocupom} decimais={0} min={0} onChange={setNrocupom} /></div>
+            <div className="w-32"><Field label="Nro Pedido" value={nropedido} onChange={(e) => setNropedido(e.target.value)} /></div>
+            <div className="w-24"><NumberField label="Nro PDV" value={nropdv} decimais={0} min={0} onChange={setNropdv} /></div>
+            <div className="w-28"><SelectField label="Aliquota" value={aliquota} onChange={setAliquota} placeholder="(todas)"
+              options={['IST', 'NTB', 'STB', ...Array.from({ length: 20 }, (_, i) => `T${String(i + 1).padStart(2, '0')}`)].map((a) => ({ value: a, label: a }))} /></div>
+            {/* RGpis e "Desconto Scanntech" (a venda com promoção identificada — V.IDPROMOCAO) */}
+            <div className="w-32"><SelectField label="PIS" value={pis} onChange={setPis} options={[{ value: 'T', label: 'Todos' }, { value: 'COM', label: 'Com PIS' }, { value: 'SEM', label: 'Sem PIS' }]} /></div>
+            <CheckboxField label="Desconto Scanntech" value={descScanntech ? 'S' : 'N'} onChange={(v) => setDescScanntech(v === 'S')} />
+            <div className="w-44"><Field label="Cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="contém…" /></div>
+            <div className="w-44"><Field label="Vendedor" value={vendedor} onChange={(e) => setVendedor(e.target.value)} placeholder="contém…" /></div>
+            <div className="w-40"><Field label="Operador (login)" value={operador} onChange={(e) => setOperador(e.target.value)} placeholder="contém…" /></div>
+            {/* gpbLucro: Campo Lucro (Todos / Lucro Bruto / Lucro Bruto %), a operação e o valor (ENTRE pede os dois) */}
+            <div className="w-40"><SelectField label="Campo Lucro" value={lucroCampo} onChange={setLucroCampo} placeholder="Todos" options={[{ value: 'BRUTO', label: 'Lucro Bruto' }, { value: 'BRUTO_PCT', label: 'Lucro Bruto %' }]} /></div>
+            <div className="w-28"><SelectField label="Operação" value={lucroOp} onChange={setLucroOp} options={['=', '<>', '>', '<', '>=', '<=', 'ENTRE'].map((o) => ({ value: o, label: o }))} disabled={!lucroCampo} /></div>
+            <div className="w-32"><NumberField label="Valor" value={lucroValor} decimais={2} onChange={setLucroValor} disabled={!lucroCampo} /></div>
+            {lucroOp === 'ENTRE' && <div className="w-32"><NumberField label="à" value={lucroValor2} decimais={2} onChange={setLucroValor2} disabled={!lucroCampo} /></div>}
+          </div>
+        )}
         <Button label="&Gerar" variant="soft" disabled={busy} onClick={gerarClick} />
         {filtroProdutos.elemento}
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />

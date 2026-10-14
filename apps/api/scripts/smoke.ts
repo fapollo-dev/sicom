@@ -20384,6 +20384,47 @@ async function main() {
         await pgPc.end();
       }
     }
+    // ══ §317 RELATÓRIO DE VENDAS rel 01 — OS FILTROS AUDITADOS DO URelVendas.dfm: PIS, desconto Scanntech, cliente/vendedor/operador, lucro ══
+    {
+      const pgRl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const P2 = 993171; const DIA = '2026-03-03';
+      const pisAntes = (await pgRl.query(`SELECT idpiscofins FROM produtos WHERE idproduto = 1`)).rows[0] as any;
+      const rel = async (extra: Record<string, unknown>) => { const r = await fetch(`${base}/relatorios/vendas/produtos-vendidos`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: DIA, dtfim: DIA, canceladas: 'T', ...extra }) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+      const prods = (r: { j: any }) => ((r.j.linhas ?? []) as any[]).map((l) => Number(l.idproduto)).sort((a, b) => a - b);
+      try {
+        await pgRl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES ($1, '7899009931716', 'RELV SEM PIS', 'UN', 22, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`, [P2]);
+        await pgRl.query(`UPDATE produtos SET idpiscofins = 1 WHERE idproduto = 1`);
+        await pgRl.query(`UPDATE produtos SET idpiscofins = NULL WHERE idproduto = $1`, [P2]);
+        const razao20 = String((await pgRl.query(`SELECT razao FROM parceiros WHERE codparceiro = 20`)).rows[0]?.razao ?? '');
+        const razao22 = String((await pgRl.query(`SELECT razao FROM parceiros WHERE codparceiro = 22`)).rows[0]?.razao ?? '');
+        const login7 = String((await pgRl.query(`SELECT login FROM operadores WHERE codoperador = 7`)).rows[0]?.login ?? '');
+        await pgRl.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, idpromocao, codparceiro, codvendedor, operador) VALUES
+          (1, $1::date + interval '10 hours', 9, 317001, 1, 1, 2, 10, 4, 'A', '5102', 'N', 'S', 'P', 1, 20, 22, 7),
+          (1, $1::date + interval '11 hours', 9, 317002, 1, $2, 1, 10, 9, 'A', '5102', 'N', 'S', 'P', NULL, 22, 20, 1)`, [DIA, P2]);
+        const todos = await rel({});
+        const pisCom = await rel({ pis: 'COM' });
+        const pisSem = await rel({ pis: 'SEM' });
+        const scann = await rel({ descontoScanntech: true });
+        // a 2ª palavra da razão (ALFA / GAMA): a 1ª ("CLIENTE") é comum às duas
+        const cli = await rel({ cliente: razao20.split(' ')[1] ?? razao20 });
+        const vend = await rel({ vendedor: razao22.split(' ')[1] ?? razao22 });
+        const oper = await rel({ operador: login7.slice(0, 4) });
+        const lucroBruto = await rel({ lucro: { campo: 'BRUTO', operacao: '>', valor: 10 } });
+        const lucroPct = await rel({ lucro: { campo: 'BRUTO_PCT', operacao: 'ENTRE', valor: 100, valor2: 200 } });
+        const lucroNada = await rel({ lucro: { campo: 'BRUTO', operacao: '>', valor: 999 } });
+        check('REL VENDAS 01 §317 [os filtros do URelVendas.dfm — RGpis :911, CkbDescontoScanntech :1234, edtCliente :980, edtVendedor :1111, edtOperador :1120, gpbLucro :834]: sem filtro as 2 linhas; "Com PIS" só o produto com PIS/COFINS de saída (o 1) e "Sem PIS" só o outro; "Desconto Scanntech" só a venda com IDPROMOCAO; o cliente pela razão do parceiro, o vendedor pela razão e o operador pelo login; o lucro bruto > 10 (12 contra 1) e o % ENTRE 100 e 200 (150 contra 11) deixam só o produto 1, e o total acompanha; um corte sem linhas devolve zero',
+          todos.status === 200 && JSON.stringify(prods(todos)) === JSON.stringify([1, P2]) && JSON.stringify(prods(pisCom)) === '[1]' && JSON.stringify(prods(pisSem)) === JSON.stringify([P2])
+          && JSON.stringify(prods(scann)) === '[1]' && JSON.stringify(prods(cli)) === '[1]' && JSON.stringify(prods(vend)) === '[1]' && JSON.stringify(prods(oper)) === '[1]'
+          && JSON.stringify(prods(lucroBruto)) === '[1]' && Number(lucroBruto.j.totais?.lucro_bruto) === 12 && Number(lucroBruto.j.totais?.linhas) === 1
+          && JSON.stringify(prods(lucroPct)) === '[1]' && lucroNada.status === 200 && (lucroNada.j.linhas ?? []).length === 0 && Number(lucroNada.j.totais?.total_venda) === 0,
+          { todos: [todos.status, todos.j.code, prods(todos)], pisCom: prods(pisCom), pisSem: prods(pisSem), scann: prods(scann), cli: [razao20, prods(cli)], vend: [razao22, prods(vend)], oper: [login7, prods(oper)], lucroBruto: [prods(lucroBruto), lucroBruto.j.totais], lucroPct: [prods(lucroPct), (lucroPct.j.linhas ?? []).map((l: any) => [l.idproduto, l.lucro_bruto_perc])], lucroNada: [lucroNada.status, lucroNada.j.totais] });
+      } finally {
+        await pgRl.query(`DELETE FROM vendas WHERE nroserie = 9 AND nrocupom IN (317001, 317002)`).catch(() => undefined);
+        await pgRl.query(`UPDATE produtos SET idpiscofins = $1 WHERE idproduto = 1`, [pisAntes?.idpiscofins ?? null]).catch(() => undefined);
+        await pgRl.query(`DELETE FROM produtos WHERE idproduto = $1`, [P2]).catch(() => undefined);
+        await pgRl.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

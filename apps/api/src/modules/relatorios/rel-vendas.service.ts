@@ -28,6 +28,11 @@ export interface FiltroRelVendas {
   exibirFilhos?: boolean;
   // os produtos da agenda de promoção (`AND V.CODPRODUTO IN (…)`, uCadAgendaPromocao.GeralRel) — lista vazia = nenhum
   produtos?: number[];
+  // a auditoria do URelVendas.dfm (14/10/2026): RGpis, CkbDescontoScanntech (= V.IDPROMOCAO IS NOT NULL), edtCliente/edtVendedor/edtOperador e o gpbLucro
+  pis?: 'COM' | 'SEM' | 'T';
+  descontoScanntech?: boolean;
+  cliente?: string; vendedor?: string; operador?: string;
+  lucro?: { campo: 'BRUTO' | 'BRUTO_PCT'; operacao: '=' | '<>' | '>' | '<' | '>=' | '<=' | 'ENTRE'; valor: number; valor2?: number };
 }
 
 /**
@@ -103,6 +108,11 @@ export class RelVendasService {
       .leftJoin('familias_prod as sg', 'sg.codfamilia', 'p.codsubgrupo')
       .leftJoin('familias_prod as sc', 'sc.codfamilia', 'p.codsecao')
       .leftJoin('parceiros as forn', 'forn.codparceiro', 'p.codfor')
+      // os filtros da auditoria (URelVendas.pas:911/980/1111/1120): o cliente (a razão do cupom, senão a do parceiro), o vendedor, o operador (login) e o PIS do produto
+      .leftJoin('parceiros as cli', 'cli.codparceiro', 'v.codparceiro')
+      .leftJoin('parceiros as ve', 've.codparceiro', 'v.codvendedor')
+      .leftJoin('operadores as o', 'o.codoperador', 'v.operador')
+      .leftJoin('piscofins as pc', 'pc.idpiscofins', 'p.idpiscofins')
       .select([
         f.agruparEmpresas ? sql`0` .as('idempresa') : sql`v.idempresa`.as('idempresa'),
         'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), 'p.unidade',
@@ -162,6 +172,15 @@ export class RelVendasService {
         : q.where('v.nropedido', '=', f.nropedido);
     }
     if (f.aliquota) q = q.where(sql`v.aliquota`, 'like', `%${f.aliquota}%`);
+    // RGpis (URelVendas.pas:911): com PIS = produto com PIS/COFINS de alíquota de saída > 0; sem = produto sem PIS/COFINS
+    if (f.pis === 'COM') q = q.where(sql<boolean>`coalesce(p.idpiscofins, 0) > 0 AND coalesce(pc.aliq_pis_sai, 0) > 0`);
+    if (f.pis === 'SEM') q = q.where(sql<boolean>`coalesce(p.idpiscofins, 0) = 0`);
+    // "Desconto Scanntech" (:1234): o legado filtra V.IDPROMOCAO IS NOT NULL (a venda com promoção identificada — 6.977 linhas em 2026)
+    if (f.descontoScanntech) q = q.where(sql<boolean>`v.idpromocao IS NOT NULL`);
+    // cliente (:980): UPPER(V.RAZAO) LIKE, ou a razão do parceiro quando o cupom não tem; vendedor (:1111) e operador pelo login (:1120)
+    if (f.cliente) q = q.where(sql<boolean>`upper(coalesce(v.razao, cli.razao, '')) LIKE ${`%${f.cliente.toUpperCase()}%`}`);
+    if (f.vendedor) q = q.where(sql`upper(ve.razao)`, 'like', `%${f.vendedor.toUpperCase()}%`);
+    if (f.operador) q = q.where(sql`upper(o.login)`, 'like', `%${f.operador.toUpperCase()}%`);
     if (f.nropdv != null) q = q.where(sql`v.nropedido`, 'like', `${String(f.nropdv).padStart(2, '0')}%`); // fiel: prefixo
 
     const grupoBase = ['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'd.descricao', 'g.descricao', 'sg.descricao', 'sc.descricao', 'p.coddpto', 'p.codgrupo', 'p.codsubgrupo', 'p.codsecao'];
@@ -206,12 +225,23 @@ export class RelVendasService {
       };
     });
 
+    // gpbLucro (URelVendas.pas:834-860): o WHERE EXTERNO sobre (TOTAL_VENDA − TOTAL_CUSTO) ou o % de lucro bruto pela config
+    // (`lucro_bruto_perc`), com a operação e o valor (ENTRE = BETWEEN). Aqui sobre as linhas já calculadas — depois do teto de linhas.
+    const linhasFiltradas = f.lucro ? linhas.filter((l) => {
+      const v = f.lucro!.campo === 'BRUTO' ? num((l as any).lucro) : num((l as any).lucro_bruto_perc);
+      const a = num(f.lucro!.valor); const b = num(f.lucro!.valor2);
+      switch (f.lucro!.operacao) {
+        case '=': return v === a; case '<>': return v !== a; case '>': return v > a; case '<': return v < a;
+        case '>=': return v >= a; case '<=': return v <= a; case 'ENTRE': return v >= Math.min(a, b) && v <= Math.max(a, b);
+        default: return true;
+      }
+    }) : linhas;
     // ---- GRAND TOTAL: somas simples nas medidas e RECÁLCULO nas razões (fiel a uRelVendasGrid1.pas:327-341) ----
-    const somar = (k: string) => r2(linhas.reduce((s, l) => s + num((l as any)[k]), 0));
+    const somar = (k: string) => r2(linhasFiltradas.reduce((s, l) => s + num((l as any)[k]), 0));
     const totalVenda = somar('total_venda');
     const totalCusto = somar('total_custo');
     const totais = {
-      qtde: r2(linhas.reduce((s, l) => s + num((l as any).qtde), 0)),
+      qtde: r2(linhasFiltradas.reduce((s, l) => s + num((l as any).qtde), 0)),
       total_venda: totalVenda,
       total_custo: totalCusto,
       acrescimo: somar('acrescimo'),
@@ -220,11 +250,11 @@ export class RelVendasService {
       margem: totalCusto > 0 ? r2((totalVenda / totalCusto - 1) * 100) : null, // markup — footer[4]
       rentabilidade: totalVenda !== 0 ? r2(((totalVenda - totalCusto) / totalVenda) * 100) : null, // markdown — footer[3]
       lucro_bruto_perc: porCusto ? (totalCusto > 0 ? r2((totalVenda / totalCusto - 1) * 100) : 0) : (totalVenda > 0 ? r2(((totalVenda - totalCusto) / totalVenda) * 100) : 0),
-      linhas: linhas.length,
-      sem_custo: linhas.filter((l) => (l as any).sem_custo).length,
+      linhas: linhasFiltradas.length,
+      sem_custo: linhasFiltradas.filter((l) => (l as any).sem_custo).length,
     };
     return {
-      linhas, totais,
+      linhas: linhasFiltradas, totais,
       // truncado: o total acima cobre SÓ as linhas devolvidas — a tela tem de avisar em vez de exibir um total menor.
       filtro: { ...f, empresas, custo: usarRep ? 'REPOSICAO' : 'CUSTO', margem_por: porCusto ? 'TOTAL CUSTO' : 'TOTAL VENDA', truncado, max_linhas: MAX_LINHAS },
     };

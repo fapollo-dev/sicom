@@ -35,5 +35,18 @@ export const relVendasSchema = z.object({
   nropedido: z.string().trim().max(20).optional(),
   aliquota: z.string().trim().max(6).optional(),
   nropdv: z.coerce.number().int().nonnegative().optional(),
+  // a auditoria do URelVendas.dfm (14/10/2026): os filtros do rel 01 que faltavam
+  pis: z.enum(['COM', 'SEM', 'T']).optional(), // RGpis: P.IDPISCOFINS > 0 e ALIQ_PIS_SAI > 0 / COALESCE(IDPISCOFINS,0) = 0
+  descontoScanntech: z.boolean().optional(), // CkbDescontoScanntech: V.IDPROMOCAO IS NOT NULL (é o que o legado filtra)
+  cliente: z.string().trim().max(60).optional(), // edtCliente: UPPER(razão do cliente) LIKE
+  vendedor: z.string().trim().max(60).optional(), // edtVendedor: UPPER(VE.RAZAO) LIKE
+  operador: z.string().trim().max(60).optional(), // edtOperador: O.LOGIN LIKE
+  // gpbLucro: o WHERE externo sobre (TOTAL_VENDA − TOTAL_CUSTO) ou o % de lucro bruto (pela config), com a operação e o valor
+  lucro: z.object({
+    campo: z.enum(['BRUTO', 'BRUTO_PCT']),
+    operacao: z.enum(['=', '<>', '>', '<', '>=', '<=', 'ENTRE']),
+    valor: z.coerce.number(),
+    valor2: z.coerce.number().optional(),
+  }).optional(),
 });
 export type RelVendasDto = z.infer<typeof relVendasSchema>;
