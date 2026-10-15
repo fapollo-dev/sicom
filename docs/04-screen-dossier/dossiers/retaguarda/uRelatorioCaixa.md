@@ -130,6 +130,16 @@ cada troca do combo. Pernas (ORDER BY 1, 2 no fim):
 **Diferença deliberada**: C.M.V. marcado com a empresa sem conta de CMV → o legado monta `AND P.CODPLC <> ` vazio (ORA-00936); o Apollo
 só aplica a exclusão quando há conta. Prova: smoke §336 (5 checks), `relatorioCaixa.spec.tsx` (Aberto).
 
-## 5. Pendente
+## 5. Anual (a D.R.E. de caixa, `GetCaixaAnual`) — correção do rateio (corte 4)
+
+A perna 1 das despesas (`aqqCaixaAnualDesp`, uDmRelatorioCaixa.dfm) junta `CX_APAGAR C ON C.CODGRUPO = G.CODGRUPO` e divide pela soma do
+grupo `W.CODGRUPO = G.CODGRUPO`. O Apollo (mig 137) tinha lido o CODGRUPO do legado como `codgrupo_agrupamento_apg` e juntava o CX_APAGAR
+pelo `codapg` — mas são colunas diferentes na produção (CODGRUPO em 56.339 títulos; CODGRUPO_AGRUPAMENTO_APG em 725, nunca iguais).
+Efeito, medido em 2026: **1.172 baixas de títulos sem NF (R$ 2.879.812,02) ficavam com a base nula e sumiam das despesas**, e **5.775
+títulos** (as parcelas 2..n de um grupo, que não têm linha própria no CX_APAGAR) não casavam com o rateio. Corrigido para o CODGRUPO.
+O resultado por conta (`sqqResultado`) junta mesmo pelo `codapg` no legado — fica. O `AND ((G.OBS LIKE '%%')` fixo do legado (resto do
+filtro de observação: deixa de fora o título sem observação) não entra. Prova: smoke §47t com o título no CODGRUPO.
+
+## 6. Pendente
 
 - A impressão do Anual (`Rel_CaixaAnual.fr3`) — se a produção mostrar o modelo acessível.

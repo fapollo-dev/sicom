@@ -146,11 +146,15 @@ export class RelCaixaDreService {
 
     // ---- DESPESAS, perna 1: rateio por centro de custo ----
     // p = (cx_apagar.valor × 100 / BASE) / 100 — as 3 parcelas (pago, juros, acre_desc) usam o MESMO divisor.
+    // O grupo é o APAGAR.CODGRUPO (`LEFT JOIN CX_APAGAR C ON C.CODGRUPO = G.CODGRUPO` e `W.CODGRUPO = G.CODGRUPO`, aqqCaixaAnualDesp do
+    // uDmRelatorioCaixa.dfm) — NÃO o CODGRUPO_AGRUPAMENTO_APG, que é outra coluna (725 de 56.342 títulos preenchidos na produção, nunca
+    // iguais ao CODGRUPO): com ele a base dos títulos sem NF ficava nula e a despesa sumia. O `AND ((G.OBS LIKE '%%')` fixo do legado
+    // (deixa de fora o título sem observação) é resto do filtro de observação, não regra — não entra.
     const base = sql`
       case when coalesce(g.idnf,0) > 0
              then (select case when coalesce(n.totalnf,0) = 0 then 1 else n.totalnf end from nf n where n.codnf = g.idnf)
              else (select nullif(sum(coalesce(w.valor,0)) + sum(coalesce(w.vendor,0)), 0)
-                     from apagar w where w.codgrupo_agrupamento_apg = g.codgrupo_agrupamento_apg)
+                     from apagar w where w.codgrupo = g.codgrupo)
         end`;
     const despRateio = (await db.executeQuery(sql<Conta & { valor: string }>`
       select p.desccodplc, p.descricao, ${hier},
@@ -161,7 +165,7 @@ export class RelCaixaDreService {
              ))::numeric, 2) as valor
         from apagar_bx b
         join apagar g    on g.codapg = b.codapg
-        join cx_apagar c on c.codapg = g.codapg
+        join cx_apagar c on c.codgrupo = g.codgrupo
         join plc p       on p.codplc = c.codcc
        where coalesce(b.indr,'I') = 'I'
          and b.dtpgto >= ${de} and b.dtpgto < ${ateTs}

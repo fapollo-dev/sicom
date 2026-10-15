@@ -8561,7 +8561,8 @@ async function main() {
           ON CONFLICT (codoperadoras) DO NOTHING`);
         await pgRv.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, dtbaixa)
           VALUES (1,9091,'2026-08-25',90.00,1,'S','2029-09-01 10:00:00-03')`);
-        const apgD = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, codgrupo_agrupamento_apg)
+        // o grupo do rateio é o APAGAR.CODGRUPO (aqqCaixaAnualDesp: C.CODGRUPO = G.CODGRUPO), não o CODGRUPO_AGRUPAMENTO_APG
+        const apgD = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, codgrupo)
           VALUES (1,2,'DRE-D1','2029-09-01',300.00,0,'N','DP',77001) RETURNING codapg`);
         await pgRv.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
           (9101,$1,9410,180.00,77001,'V'), (9102,$1,9188,120.00,77001,'V')`, [apgD.rows[0].codapg]);
