@@ -540,8 +540,8 @@ async function main() {
     });
     const histPar = (await histParResp.json()) as any;
     const histCod = Number(histPar.codparceiro);
-    await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) });
-    await fetch(`${base}/cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 40 }) });
+    await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, idpgto: 1 }) });
+    await fetch(`${base}/cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 40 }) });
     const histTodos = (await (await fetch(`${base}/cadastro/parceiros/${histCod}/historico-financeiro?status=todos`, { headers: H })).json()) as any;
     const ultimo = histTodos.linhas?.[histTodos.linhas.length - 1];
     check(
@@ -2664,16 +2664,16 @@ async function main() {
     // 31.2) criar título MANUAL → 201, quitada=N, cadastrado_manualmente=S.
     const arNovo = await fetch(`${base}/${AR}`, {
       method: 'POST', headers: H,
-      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 350.5, duplicata: 'CR-NOVA', tipodoc: 'DUPLICATA' }),
+      body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 350.5, duplicata: 'CR-NOVA', tipodoc: 'DUPLICATA' }),
     });
     const arNovoBody = (await arNovo.json().catch(() => ({}))) as any;
     check('CR: POST cria título manual (201, quitada=N, manual=S)', arNovo.status === 201 && arNovoBody.quitada === 'N' && arNovoBody.cadastrado_manualmente === 'S' && Number(arNovoBody.valor) === 350.5, { status: arNovo.status, body: arNovoBody });
     const novoId = Number(arNovoBody.codrcb);
 
     // 31.3) validações: valor ≤ 0 → 400; venc < venda → 400.
-    const arVal0 = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 0 }) });
+    const arVal0 = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 0 }) });
     check('CR: POST valor 0 → 400 VALIDACAO', arVal0.status === 400 && ((await arVal0.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: arVal0.status });
-    const arData = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-08-01', dtvenc: '2026-07-01', valor: 10 }) });
+    const arData = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-08-01', dtvenc: '2026-07-01', valor: 10 }) });
     check('CR: POST venc < venda → 400 VALIDACAO', arData.status === 400 && ((await arData.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: arData.status });
 
     // 31.4) editar o título manual → 200, valor atualizado.
@@ -2723,13 +2723,14 @@ async function main() {
         await fetch(`${base}/${AR}/${t1Id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 150 }) });
         const c2 = await cxRcb(t1Id);
         const semForma = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-02', dtvenc: '2026-08-02', valor: 10, codplc: 3 }) });
-        const c3 = await cxRcb(Number(((await semForma.json().catch(() => ({}))) as any).codrcb));
+        const semFormaJ = (await semForma.json().catch(() => ({}))) as any;
+        const c3: any[] = semForma.status === 422 && semFormaJ.code === 'ARECEBER_FORMA_OBRIGATORIA' ? [] : [{ erro: semForma.status, code: semFormaJ.code }];
         const gp = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-03', total: 90, numparc: 3, venc1: '2026-07-10', intervalo: 30, codplc: 3, idpgto: 1 }) });
         const gpJ = (await gp.json().catch(() => ({}))) as any;
         const cGp = (await pgArC.query(`SELECT codrcb, valor::float AS valor FROM caixa WHERE codrcb = ANY($1::int[])`, [gpJ.codrcbs ?? []])).rows as any[];
         const del = await fetch(`${base}/${AR}/${t1Id}`, { method: 'DELETE', headers: H });
         const c4 = await cxRcb(t1Id);
-        check('CR na CAIXA: título com centro de custo e forma → linha 120 (DINHEIRO, CC 3, data e vencimento = a venda 02/07) · editar para 150 relança (uma linha, 150) · sem forma não lança · 3 parcelas de 90 → UMA linha de 90 no 1º título · excluir apaga',
+        check('CR na CAIXA: título com centro de custo e forma → linha 120 (DINHEIRO, CC 3, data e vencimento = a venda 02/07) · editar para 150 relança (uma linha, 150) · sem forma o Gravar recusa (422 ARECEBER_FORMA_OBRIGATORIA, uCadAReceber.pas:953) · 3 parcelas de 90 → UMA linha de 90 no 1º título · excluir apaga',
           t1.status === 201 && c1.length === 1 && c1[0].valor === 120 && c1[0].tiporecurso === 'DINHEIRO' && Number(c1[0].codplc) === 3 && c1[0].origem === 'ARECEBER'
           && c1[0].data === '2026-07-02' && c1[0].dtvenc === '2026-07-02'
           && c2.length === 1 && c2[0].valor === 150 && c3.length === 0
@@ -2746,25 +2747,25 @@ async function main() {
     //     venc = venc1, +30d, +60d; duplicata "i/N"; cadastrado_manualmente='S'.
     const gp1 = await fetch(`${base}/${AR}/gerar-parcelas`, {
       method: 'POST', headers: H,
-      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 100, numparc: 3, venc1: '2026-07-10', intervalo: 30, tipodoc: 'DUPLICATA' }),
+      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 100, numparc: 3, venc1: '2026-07-10', intervalo: 30, tipodoc: 'DUPLICATA', idpgto: 1 }),
     });
     const gp1b = (await gp1.json().catch(() => ({}))) as any;
     const gp1v = (gp1b.titulos ?? []).map((t: any) => Number(t.valor));
     const gp1soma = gp1v.reduce((a: number, b: number) => a + b, 0);
     const gp1venc = (gp1b.titulos ?? []).map((t: any) => String(t.dtvenc).slice(0, 10));
     const gp1dup = (gp1b.titulos ?? []).map((t: any) => t.duplicata);
-    check('AR T1.6: gerar 3× de 100 (intervalo 30d) → [33.34,33.33,33.33] Σ=100; venc +30d; duplicata i/N; manual=S',
+    check('AR T1.6: gerar 3× de 100 (intervalo 30d) → [33.34,33.33,33.33] Σ=100; venc +30d; a duplicata fica VAZIA sem a digitada, NRODUP = 3 e TOTAL = 100 em todas (o legado: 566 de 771 parcelados de 2026 sem duplicata); manual=S',
       gp1.status === 201 && gp1b.parcelas === 3 && Math.abs(gp1soma - 100) < 0.001
       && gp1v[0] === 33.34 && gp1v[1] === 33.33 && gp1v[2] === 33.33
       && gp1venc[0] === '2026-07-10' && gp1venc[1] === '2026-08-09' && gp1venc[2] === '2026-09-08'
-      && gp1dup[0] === '001/003' && gp1dup[2] === '003/003'
+      && gp1dup[0] == null && gp1dup[2] == null && (gp1b.titulos ?? []).every((t: any) => Number(t.nrodup) === 3 && Number(t.total_documento) === 100)
       && (gp1b.titulos ?? []).every((t: any) => t.cadastrado_manualmente === 'S' && t.quitada === 'N'),
       { status: gp1.status, v: gp1v, soma: gp1soma, venc: gp1venc, dup: gp1dup });
 
     // (b) modo DIA-FIXO (intervalo omitido → mensal): venc1=31/jan/2026 → 31/01, 28/02 (clamp fim-de-mês), 31/03.
     const gp2 = await fetch(`${base}/${AR}/gerar-parcelas`, {
       method: 'POST', headers: H,
-      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-15', total: 90, numparc: 3, venc1: '2026-01-31' }),
+      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-15', total: 90, numparc: 3, venc1: '2026-01-31', idpgto: 1 }),
     });
     const gp2b = (await gp2.json().catch(() => ({}))) as any;
     const gp2venc = (gp2b.titulos ?? []).map((t: any) => String(t.dtvenc).slice(0, 10));
@@ -2781,11 +2782,11 @@ async function main() {
       gpBadT.status === 400 && gpBadN.status === 400 && gpBadV.status === 400,
       { t: gpBadT.status, n: gpBadN.status, v: gpBadV.status });
     // (d) guarda de rateio: total < N centavos (cada parcela < R$0,01) → 422 PARCELA_VALOR_INSUFICIENTE (evita parcela 0).
-    const gpBadR = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 0.02, numparc: 3, venc1: '2026-07-10' }) });
+    const gpBadR = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 0.02, numparc: 3, venc1: '2026-07-10', idpgto: 1 }) });
     check('AR T1.6: total 0,02 em 3 parcelas (< 1 centavo/parcela) → 422 PARCELA_VALOR_INSUFICIENTE (sem parcela zero)',
       gpBadR.status === 422 && ((await gpBadR.json().catch(() => ({}))) as any).code === 'PARCELA_VALOR_INSUFICIENTE', { status: gpBadR.status });
     // (e) fold [MÉDIA]: dia-fixo com diafixo ANTES do dia de venc1 joga a 1ª parcela p/ antes da dtvenda → 422.
-    const gpBadDia = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-18', venc1: '2026-01-20', numparc: 3, total: 300, diafixo: 15 }) });
+    const gpBadDia = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-18', venc1: '2026-01-20', numparc: 3, total: 300, diafixo: 15, idpgto: 1 }) });
     check('AR T1.6: dia-fixo com diafixo(15) < dia de venc1 → 1ª venc antes da venda → 422 PARCELA_VENC_ANTERIOR_VENDA',
       gpBadDia.status === 422 && ((await gpBadDia.json().catch(() => ({}))) as any).code === 'PARCELA_VENC_ANTERIOR_VENDA', { status: gpBadDia.status });
 
@@ -2797,7 +2798,7 @@ async function main() {
     // o gatilho CHECK_REMESSAS_BOLETOS_CONTAS: o título que está numa remessa de boleto ativa não sai; com a linha da remessa excluída (INDR E), sai
     {
       const arRem = (await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H,
-        body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 12.5, duplicata: 'CR-REMESSA', tipodoc: 'DUPLICATA' }) })).json().catch(() => ({}))) as any;
+        body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 12.5, duplicata: 'CR-REMESSA', tipodoc: 'DUPLICATA' }) })).json().catch(() => ({}))) as any;
       const idRem = Number(arRem.codrcb);
       pgParcelas ??= new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       const codRemessa = Number((await pgParcelas.query(`INSERT INTO remessas_boletos (nomearquivoremessa, tiporemessa, codbanco, nomebanco, nroconta, agencia, codremessabanco)
@@ -2828,7 +2829,7 @@ async function main() {
     }
 
     // 31.7) RBAC: operador sem grant não cria.
-    const arRbac = await fetch(`${base}/${AR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10 }) });
+    const arRbac = await fetch(`${base}/${AR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10 }) });
     check('CR: POST sem grant RBAC → 403', arRbac.status === 403, { status: arRbac.status });
 
     // 31.8) IDOR multi-tenant: empresa 2 NÃO enxerga/edita título da empresa 1 (999).
@@ -2841,7 +2842,7 @@ async function main() {
     // 31.9) AGRUPAMENTO (uAgrupaContasAReceber; dossiê uAgrupaContas.md) no MODELO DO LEGADO: o consolidado é AGRUPAMENTO='S'
     // (ORIGEM nula) com CODGRUPO novo, e os membros apontam esse CODGRUPO; a baixa do consolidado quita os membros.
     const pgAgr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
-    const crAR = async (valor: number, parc = 20) => Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: parc, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor }) })).json()) as any).codrcb);
+    const crAR = async (valor: number, parc = 20) => Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: parc, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor, idpgto: 1 }) })).json()) as any).codrcb);
     const agrRow = async (id: number) => (await pgAgr.query(`SELECT agrupado, agrupamento, origem, valor, codgrupo, codgrupo_agrupamento_rcb, quitada, duplicata, idpgto FROM areceber WHERE codrcb=$1`, [id])).rows[0] as any;
     const agrupar = async (body: Record<string, unknown>, headers = H) => {
       const r = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers, body: JSON.stringify({ idpgto: 4, ...body }) });
@@ -2915,8 +2916,8 @@ async function main() {
       fQuit.every((m) => m.quitada === 'S') && revBx.status === 422 && ((await revBx.json().catch(() => ({}))) as any).code === 'AGRUPAMENTO_PARCELAS_QUITADAS' && agrRbac.status === 403,
       { fQuit, revBx: revBx.status, rbac: agrRbac.status });
     // (g) consolidado de títulos VENCIDOS nasce com venc=hoje → sem juros-fantasma
-    const gv1 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 100 }) })).json()) as any).codrcb);
-    const gv2 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 50 }) })).json()) as any).codrcb);
+    const gv1 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 100 }) })).json()) as any).codrcb);
+    const gv2 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 50 }) })).json()) as any).codrcb);
     const gCons = Number((await agrupar({ codrcbs: [gv1, gv2] })).j.consolidado);
     const gConsView = (await (await fetch(`${base}/${AR}/${gCons}`, { headers: H })).json()) as any;
     check('AR-agrup fold: consolidado de títulos VENCIDOS nasce com venc=hoje → total==valor==150 (sem juros-fantasma)',
@@ -2937,7 +2938,7 @@ async function main() {
     const bxDe = async (id: number) => (await pgBx.query(`SELECT indr, valorpg FROM areceber_bx WHERE codrcb=$1 ORDER BY codrcbbx`, [id])).rows as any[];
     const quitOf = async (id: number) => (await pgBx.query(`SELECT quitada FROM areceber WHERE codrcb=$1`, [id])).rows[0]?.quitada;
     const crNovo = async (extra: Record<string, unknown> = {}) => {
-      const r = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, ...extra }) });
+      const r = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, ...extra }) });
       return Number(((await r.json()) as any).codrcb);
     };
 
@@ -3251,8 +3252,8 @@ async function main() {
     await pgPer.query(`INSERT INTO periodo_contabil (codempresa, competencia_contabil, data_inicio, data_fim, status, bloq_nf, bloq_rcb, bloq_baixa_rcb, bloq_apg, bloq_baixa_apg) VALUES (1, '2026-03', '2026-03-01', '2026-03-31', 'S', 'N', 'S', 'S', 'S', 'S')`);
     const codePer = async (r: any) => ((await r.json().catch(() => ({}))) as any).code;
     // 33b.1) AR criar: DTVENDA no período fechado → 422; DTVENDA fora (aberto) → 201.
-    const arPfIn = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
-    const arPfOut = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-15', dtvenc: '2026-08-01', valor: 50 }) });
+    const arPfIn = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
+    const arPfOut = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-15', dtvenc: '2026-08-01', valor: 50 }) });
     check('AR-período: criar em período FECHADO → 422 PERIODO_FECHADO; aberto → 201',
       arPfIn.status === 422 && (await codePer(arPfIn)) === 'PERIODO_FECHADO' && arPfOut.status === 201, { in: arPfIn.status, out: arPfOut.status });
     const arPfAbertoId = Number(((await arPfOut.json().catch(() => ({}))) as any).codrcb);
@@ -3282,7 +3283,7 @@ async function main() {
     const arPfEst = await fetch(`${base}/${AR}/${arPfEstId}/estornar-baixa`, { method: 'POST', headers: H });
     check('AR-período: estornar baixa com DTPGTO em período FECHADO → 422 PERIODO_FECHADO', arPfEst.status === 422 && (await codePer(arPfEst)) === 'PERIODO_FECHADO', { status: arPfEst.status });
     // 33b.5) AP criar: DTVENDA no período fechado → 422 BLOQ_APG.
-    const apPfIn = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
+    const apPfIn = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
     check('AP-período: criar em período FECHADO → 422 PERIODO_FECHADO', apPfIn.status === 422 && (await codePer(apPfIn)) === 'PERIODO_FECHADO', { status: apPfIn.status });
     // 33b.6) AP baixa: DTPGTO no período fechado → 422 BLOQ_BAIXA_APG (título aberto via crAp, ainda no escopo).
     const apPfOpenId = await crAp({ dtvenda: '2026-07-15' });
@@ -3535,9 +3536,9 @@ async function main() {
     // 37) WIRE da baixa A Receber / A Pagar → CAIXA (corte-2). Recurso DINHEIRO lança no caixa aberto.
     const wSaldo = async () => Number(((await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any)?.sessao?.saldo_corrente);
     const wNovoAR = async (valor: number) =>
-      Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codrcb);
+      Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codrcb);
     const wNovoAP = async (valor: number) =>
-      Number(((await (await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codapg);
+      Number(((await (await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codapg);
     // 37.0) setup: caixa aberto limpo (fecha o que sobrou do §36.19) com fundo 1000.
     const wPre = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
     if (wPre?.sessao?.codcaixa) await fetch(`${base}/${CX}/${wPre.sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
@@ -3889,8 +3890,8 @@ async function main() {
     // 43) AR/AP corte-3a — BAIXA/PAGAMENTO PARCIAL (valorpg < total → gera título-saldo ORIGEM='B').
     const pgPar = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const ARp = 'cadastro/areceber', APp = 'cadastro/apagar';
-    const crParAR = async () => Number(((await (await fetch(`${base}/${ARp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
-    const crParAP = async () => Number(((await (await fetch(`${base}/${APp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codapg);
+    const crParAR = async () => Number(((await (await fetch(`${base}/${ARp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crParAP = async () => Number(((await (await fetch(`${base}/${APp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codapg);
     const arRow = async (cod: number) => (await pgPar.query(`SELECT valor, origem, gerado, quitada, tipodoc, cadastrado_manualmente, to_char(dtvenc,'YYYY-MM-DD') dtvenc FROM areceber WHERE codrcb=$1 AND codempresa=1`, [cod])).rows[0] as any;
     const apRow = async (cod: number) => (await pgPar.query(`SELECT valor, origem, gerado, quitada, tipodoc, cadastrado_manualmente, to_char(dtvenc,'YYYY-MM-DD') dtvenc FROM apagar WHERE codapg=$1 AND codempresa=1`, [cod])).rows[0] as any;
 
@@ -3989,8 +3990,8 @@ async function main() {
     // precondição do teste: o cliente (parceiro 20) precisa de conta contábil (migração 055 seeda, mas
     // os testes de NF editam o parceiro 20 antes daqui) — garante explicitamente, como §42 faz p/ integracao.
     await pgCtb.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=20`);
-    const crCtbAR = async () => Number(((await (await fetch(`${base}/${ARc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
-    const crCtbAP = async () => Number(((await (await fetch(`${base}/${APc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 50 }) })).json()) as any).codapg);
+    const crCtbAR = async () => Number(((await (await fetch(`${base}/${ARc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crCtbAP = async () => Number(((await (await fetch(`${base}/${APc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 50 }) })).json()) as any).codapg);
 
     // 44.1) AR baixa DINHEIRO → DIÁRIO D183/C211 valor 100 codoperacao 2009 + areceber_bx.contabilizado='S'.
     const ctbAr = await crCtbAR();
@@ -4138,8 +4139,8 @@ async function main() {
       if ((pre as any)?.sessao?.codcaixa) await fetch(`${base}/${CXt}/${(pre as any).sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
       return Number(((await (await fetch(`${base}/${CXt}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: fundo }) })).json()) as any).codcaixa);
     };
-    const crART = async (v: number) => Number(((await (await fetch(`${base}/${ARt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v }) })).json()) as any).codrcb);
-    const crAPT = async (v: number) => Number(((await (await fetch(`${base}/${APt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v }) })).json()) as any).codapg);
+    const crART = async (v: number) => Number(((await (await fetch(`${base}/${ARt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v, idpgto: 1 }) })).json()) as any).codrcb);
+    const crAPT = async (v: number) => Number(((await (await fetch(`${base}/${APt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v }) })).json()) as any).codapg);
     const baixarDin = async (path: string, id: number) => fetch(`${base}/${path}/${id}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-06' }) });
 
     // 45.1) caixa com baixa AR dinheiro 100 → tesouraria WASH D183/C183 (codoperacao 2020, CODORIGEM 19) + MCB FCP.
@@ -4206,8 +4207,8 @@ async function main() {
     const bxAR = async (codrcb: number) => Number((await pgBco.query(`SELECT codrcbbx FROM areceber_bx WHERE codrcb=$1 AND coalesce(indr,'I')='I'`, [codrcb])).rows[0]?.codrcbbx);
     const bxAP = async (codapg: number) => Number((await pgBco.query(`SELECT codapgbx FROM apagar_bx WHERE codapg=$1 AND coalesce(indr,'I')='I'`, [codapg])).rows[0]?.codapgbx);
     const movDe = async (codrcbbx: number) => Number((await pgBco.query(`SELECT count(*)::int n FROM caixa_mov WHERE codrcbbx=$1`, [codrcbbx])).rows[0].n);
-    const crBcoAR = async () => Number(((await (await fetch(`${base}/${ARb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
-    const crBcoAP = async () => Number(((await (await fetch(`${base}/${APb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 80 }) })).json()) as any).codapg);
+    const crBcoAR = async () => Number(((await (await fetch(`${base}/${ARb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crBcoAP = async () => Number(((await (await fetch(`${base}/${APb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, idpgto: 1, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 80 }) })).json()) as any).codapg);
 
     // 46.1) AR baixa BANCO (conta 1 → codlanccontabil 186) → DIÁRIO D186/C211 valor 100 (CODORIGEM 16, sit 2009); SEM caixa_mov.
     const bcoAr = await crBcoAR();
@@ -20588,6 +20589,72 @@ async function main() {
         await pg9.end();
       }
     }
+    // ══ §320 CONTAS A RECEBER — OS CONTROLES AUDITADOS DO uCadAReceber.dfm: o "&Parcelas" (Valor total, intervalo/dia de venc.), a duplicata do legado, a forma obrigatória, cliente/fornecedor, a NF da conta, o motivo da troca do cliente e a grade das parcelas ══
+    {
+      const pg0 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AR0 = 'cadastro/areceber';
+      const jr0 = async (r: Response) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any });
+      const post0 = (path: string, body: unknown) => fetch(`${base}/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) }).then(jr0);
+      const put0 = (path: string, body: unknown) => fetch(`${base}/${path}`, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(jr0);
+      const get0 = (path: string) => fetch(`${base}/${path}`, { headers: H }).then(jr0);
+      const diasDo0 = async (g: number) => (await pg0.query(`SELECT to_char(dtvenc, 'YYYY-MM-DD') AS d FROM areceber WHERE codgrupo = $1 ORDER BY codrcb`, [g])).rows.map((r: any) => r.d).join();
+      try {
+        // 320.1 o documento parcelado: Vr. parcela 100 × 4 (o "Valor total" vazio é valor × parcelas — edtVlrDocExit :2506), dia de venc. 12 a partir de 12/10
+        const doc = await post0(AR0, { codparceiro: 20, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 100, nrodup: 4, tipodoc: 'BOLETO', idpgto: 1, codplc: 3, geracao: { dia_fixo: 12 } });
+        const p1 = await get0(`${AR0}/${doc.j.codrcb}/parcelas`);
+        const P = (p1.j.parcelas ?? []) as any[];
+        const cx = (await pg0.query(`SELECT codrcb, valor::float AS valor FROM caixa WHERE codrcb = ANY($1::numeric[])`, [P.map((x) => Number(x.codrcb))])).rows as any[];
+        check('CONTAS A RECEBER §320.1 [btnGeraParcelasClick :700 / edtVlrDocExit :2506]: 4 parcelas de 100 no mesmo grupo, NRODUP 4 e TOTAL 400 em todas, duplicata VAZIA (como os 4 × 900 = 3.600 da produção), vencimentos 12/10, 12/11, 12/12 e 12/01; a aba Parcelas traz o total do documento; UMA linha de CAIXA (400) no 1º título',
+          doc.status === 201 && Number(doc.j.nrodup) === 4 && Number(doc.j.total_documento) === 400 && doc.j.duplicata == null && P.length === 4 && P.every((x) => Number(x.valor) === 100 && Number(x.nrodup) === 4 && Number(x.total) === 400 && x.duplicata == null)
+          && (await diasDo0(Number(p1.j.codgrupo))) === '2026-10-12,2026-11-12,2026-12-12,2027-01-12' && Number(p1.j.totais?.total_documento) === 400 && Number(p1.j.totais?.total_parcelas) === 400
+          && cx.length === 1 && Number(cx[0].valor) === 400 && Number(cx[0].codrcb) === Number(P[0].codrcb),
+          { doc: [doc.status, doc.j.code, doc.j.message, doc.j.nrodup, doc.j.total, doc.j.duplicata], P: P.map((x) => [x.codrcb, x.valor, x.nrodup, x.total, x.duplicata, x.dtvenc]), cx, totais: p1.j.totais });
+        // 320.2 a parcela única e as travas do Gravar
+        const uni = await post0(AR0, { codparceiro: 20, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 350.51, idpgto: 1 });
+        const semForma = await post0(AR0, { codparceiro: 20, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 10 });
+        const fun = await post0('cadastro/parceiros', { razao: 'FUNCIONARIO 320', tipofj: 'F', fun: 'S', cli: 'N', frn: 'N', enderecos: [{ ...END_OK, endereco_padrao: 'S' }] });
+        const naoCli = await post0(AR0, { codparceiro: fun.j.codparceiro, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 10, idpgto: 1 });
+        const nfX = await post0(AR0, { codparceiro: 20, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 10, idpgto: 1, docnf: '9999320' });
+        const tot = await post0(AR0, { codparceiro: 20, dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 33.33, total: 100, nrodup: 3, idpgto: 1, duplicata: 'DOC', geracao: { intervalo: 30 } });
+        const pT = await get0(`${AR0}/${tot.j.codrcb}/parcelas`);
+        const PT = (pT.j.parcelas ?? []) as any[];
+        check('CONTAS A RECEBER §320.2 [btnGravarClick :920-960; NumDuplicataUnicaParcela; VerificarClienteFornecedor :1673; edtNumeNotaExit :2269]: parcela única sem duplicata nem NF → " - 001/001"; sem forma → 422 ARECEBER_FORMA_OBRIGATORIA; o funcionário (nem cliente nem fornecedor) → 422 ARECEBER_PARCEIRO_NAO_CLIENTE; NF que não existe → 422 ARECEBER_NF_NAO_EXISTE; "Valor total" 100 em 3 (33,34/33,33/33,33, o resíduo na 1ª) com a duplicata digitada → " 001/003"…',
+          uni.status === 201 && uni.j.duplicata === ' - 001/001' && Number(uni.j.total) === 350.51 && semForma.status === 422 && semForma.j.code === 'ARECEBER_FORMA_OBRIGATORIA'
+          && fun.status === 201 && naoCli.status === 422 && naoCli.j.code === 'ARECEBER_PARCEIRO_NAO_CLIENTE' && nfX.status === 422 && nfX.j.code === 'ARECEBER_NF_NAO_EXISTE'
+          && tot.status === 201 && PT.length === 3 && PT.map((x) => Number(x.valor)).join() === '33.34,33.33,33.33' && PT.map((x) => x.duplicata).join('|') === ' 001/003| 002/003| 003/003' && PT.every((x) => Number(x.total) === 100),
+          { uni: [uni.status, uni.j.code, uni.j.duplicata, uni.j.total], semForma: [semForma.status, semForma.j.code], fun: [fun.status, fun.j.code], naoCli: [naoCli.status, naoCli.j.code], nfX: [nfX.status, nfX.j.code], tot: [tot.status, tot.j.code], PT: PT.map((x) => [x.valor, x.duplicata, x.total]) });
+        // 320.3 a NF da conta pelo número; o "&Parcelas" sobre o gravado; a parcela recebida trava
+        const nfRow = (await pg0.query(`SELECT codnf, nronf::text AS nronf, codparceiro FROM nf WHERE idempresa = 1 AND proc = 'S' AND codparceiro IS NOT NULL ORDER BY codnf DESC LIMIT 1`)).rows[0] as any;
+        let nfOk: any = { status: 0, j: {} }; let apoio: any = { status: 0, j: [] };
+        if (nfRow) {
+          apoio = await get0(`${AR0}/apoio/nf?nronf=${encodeURIComponent(nfRow.nronf)}`);
+          nfOk = await post0(AR0, { codparceiro: Number(nfRow.codparceiro), dtvenda: '2026-09-30', dtvenc: '2026-10-12', valor: 10, idpgto: 1, docnf: nfRow.nronf });
+        }
+        const reg = await post0(`${AR0}/${P[1].codrcb}/gerar-parcelas`, { nrodup: 2, dtvenc: '2026-11-01', intervalo: 15 });
+        const pR = await get0(`${AR0}/${reg.j.codrcbs?.[0]}/parcelas`);
+        const PR = (pR.j.parcelas ?? []) as any[];
+        const sobrou = (await pg0.query(`SELECT count(*)::int AS n FROM areceber WHERE codrcb = ANY($1::numeric[])`, [P.map((x) => Number(x.codrcb))])).rows[0]?.n;
+        const bx = await fetch(`${base}/${AR0}/${reg.j.codrcbs?.[0]}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-10-05' }) });
+        const regPago = await post0(`${AR0}/${reg.j.codrcbs?.[1]}/gerar-parcelas`, { nrodup: 3, dtvenc: '2026-11-01', intervalo: 15 });
+        check('CONTAS A RECEBER §320.3 [edtNumeNotaExit :2269; btnGeraParcelasClick no gravado]: o apoio traz a NF do número e o título gravado com ela fica com IDNF e a duplicata "<NF> - 001/001"; o "&Parcelas" sobre o documento troca as 4 por 2 no MESMO grupo (01/11 e 16/11, 200/200, total 400); depois de receber uma parcela, 422 TITULO_JA_BAIXADO',
+          (!nfRow || (apoio.status === 200 && (apoio.j as any[]).some((o) => Number(o.codnf) === Number(nfRow.codnf)) && nfOk.status === 201 && Number(nfOk.j.idnf) === Number(nfRow.codnf) && nfOk.j.duplicata === `${nfRow.nronf} - 001/001`))
+          && reg.status === 200 && reg.j.parcelas === 2 && PR.length === 2 && Number(pR.j.codgrupo) === Number(p1.j.codgrupo) && sobrou === 0 && (await diasDo0(Number(p1.j.codgrupo))) === '2026-11-01,2026-11-16'
+          && PR.map((x) => Number(x.valor)).join() === '200,200' && PR.every((x) => Number(x.total) === 400 && Number(x.nrodup) === 2) && bx.status === 200 && regPago.status === 422 && regPago.j.code === 'TITULO_JA_BAIXADO',
+          { nfRow, apoio: [apoio.status, apoio.j?.length], nfOk: [nfOk.status, nfOk.j.code, nfOk.j.idnf, nfOk.j.duplicata], reg: [reg.status, reg.j.code, reg.j.parcelas], PR: PR.map((x) => [x.valor, x.dtvenc, x.total, x.nrodup]), sobrou, bx: bx.status, regPago: [regPago.status, regPago.j.code] });
+        // 320.4 a troca do cliente: o motivo CR obrigatório, a LOG e as outras parcelas do grupo
+        const alvo = Number(PT[0].codrcb);
+        const semMotivo = await put0(`${AR0}/${alvo}`, { codparceiro: 22 });
+        const comMotivo = await put0(`${AR0}/${alvo}`, { codparceiro: 22, codmotivoop: 21 });
+        const outras = (await pg0.query(`SELECT count(*)::int AS n FROM areceber WHERE codgrupo = $1 AND codparceiro = 22`, [pT.j.codgrupo])).rows[0]?.n;
+        const logs = (await pg0.query(`SELECT historico FROM log WHERE tabela = 'ARECEBER' AND chave = 'CODRCB' AND valor = $1 AND historico LIKE 'ALTERACAO DO CLIENTE%' ORDER BY idlog DESC LIMIT 1`, [alvo])).rows as any[];
+        check('CONTAS A RECEBER §320.4 [VerificaAlteracaoCliente :881; InsereLogAlteracaoCliente :836]: trocar o cliente sem o motivo → 422 ARECEBER_MOTIVO_OBRIGATORIO com os motivos CR; com o motivo 21 grava, as 3 parcelas do grupo passam ao cliente 22 (ATUALIZA_CLIENTE_OUTRAS_CR) e a LOG do título leva "Alteração do cliente, de … para …. Motivo: QUEBRA DE CAIXA"',
+          semMotivo.status === 422 && semMotivo.j.code === 'ARECEBER_MOTIVO_OBRIGATORIO' && (semMotivo.j.detalhe?.motivos ?? []).some((m: any) => Number(m.codmotivoop) === 21)
+          && comMotivo.status === 200 && Number(comMotivo.j.codparceiro) === 22 && outras === 3 && logs.length === 1 && /MOTIVO: QUEBRA DE CAIXA/.test(String(logs[0].historico)),
+          { semMotivo: [semMotivo.status, semMotivo.j.code, semMotivo.j.detalhe], comMotivo: [comMotivo.status, comMotivo.j.code, comMotivo.j.codparceiro], outras, logs });
+      } finally {
+        await pg0.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
@@ -23842,7 +23909,7 @@ async function main() {
       const admHash0 = ((await pgR.query(`SELECT senha_admin_hash FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.senha_admin_hash ?? null;
       let id = -1;
       try {
-        const cr = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2039-05-02', dtvenc: '2039-06-02', valor: 80, duplicata: 'SMK175' }) });
+        const cr = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, idpgto: 1, dtvenda: '2039-05-02', dtvenc: '2039-06-02', valor: 80, duplicata: 'SMK175' }) });
         id = Number(((await cr.json().catch(() => ({}))) as any).codrcb);
         const ed = await fetch(`${base}/${AR}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtvenc: '2039-06-12', valor: 85.5 }) });
         const hist = ((await pgR.query(`SELECT historico FROM historico WHERE tabela = 'ARECEBER' AND coddoc = $1 ORDER BY codhist`, [String(id)])).rows as any[]).map((r) => r.historico);
@@ -24836,7 +24903,7 @@ async function main() {
         await fetch(`${base}/cadastro/apagar/${codapg}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 300 }) });
         const logsAp = (await pgLg.query(`SELECT acao, formulario, tabela, chave, historico FROM log WHERE tabela = 'APAGAR' AND valor = $1 ORDER BY idlog`, [codapg])).rows as any[];
         const form = ((await pgLg.query(`SELECT form FROM apagar WHERE codapg = $1`, [codapg])).rows[0] as any)?.form;
-        const ar = (await (await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2041-09-21', dtvenc: '2041-10-21', valor: 770.14 }) })).json()) as any;
+        const ar = (await (await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2041-09-21', dtvenc: '2041-10-21', valor: 770.14, idpgto: 1 }) })).json()) as any;
         codrcb = Number(ar.codrcb);
         await fetch(`${base}/cadastro/areceber/${codrcb}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 800 }) });
         const logsAr = (await pgLg.query(`SELECT acao, formulario, chave, historico FROM log WHERE tabela = 'ARECEBER' AND valor = $1 ORDER BY idlog`, [codrcb])).rows as any[];

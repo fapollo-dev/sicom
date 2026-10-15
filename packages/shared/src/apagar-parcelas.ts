@@ -40,7 +40,8 @@ export interface ParcelaApagarPlanejada {
 }
 
 export class ErroPlanoParcelas extends Error {
-  constructor(public readonly code: 'APAGAR_PARCELAS_SEM_CONFIG' | 'APAGAR_PARCELAS_SEM_VENCIMENTO' | 'PARCELA_VALOR_INSUFICIENTE' | 'APAGAR_PARCELAS_NRODUP') {
+  constructor(public readonly code: 'APAGAR_PARCELAS_SEM_CONFIG' | 'APAGAR_PARCELAS_SEM_VENCIMENTO' | 'PARCELA_VALOR_INSUFICIENTE' | 'APAGAR_PARCELAS_NRODUP'
+    | 'ARECEBER_PARCELAS_LIMITE' | 'ARECEBER_TOTAL_OBRIGATORIO') {
     super(code);
   }
 }
@@ -131,6 +132,57 @@ export function planejarParcelasApagar(e: PlanoParcelasApagarEntrada): ParcelaAp
       desconto: ultima ? r2(descTotal - descPor * (n - 1)) : descPor,
       vendor: ultima ? r2(vendTotal - vendPor * (n - 1)) : vendPor,
       obs: obsDaParcelaApagar(e.obs, i + 1, n, nronf || null, e.dtcompra),
+    });
+  }
+  return out;
+}
+
+// ── CONTAS A RECEBER (uCadAReceber `btnGeraParcelasClick` :700 + `NumDuplicataUnicaParcela` :3695) ─────────────────────────────
+/**
+ * O "&Parcelas" da tela de Contas a Receber: o mesmo `BuildParcelas` (intervalo ou dia fixo — sem intervalo, o dia é o do
+ * "Dia de Venc." ou o do 1º vencimento; o resíduo na 1ª), o VALOR TOTAL repartido e a DUPLICATA:
+ *  - parcela única com a duplicata vazia → `<nº da NF> - 001/001` (produção: `744 - 001/001`; sem NF, ` - 001/001`);
+ *  - N parcelas: fica VAZIA quando a digitada está vazia (566 de 771 títulos manuais de 2026); digitada → `<NF - > 001/00N`
+ *    (o `FormatFloat(' 000')` do legado deixa um espaço antes do número).
+ * NRODUP é o N em todas as parcelas (o legado só renumera no faturamento) e TOTAL é o total do documento em todas.
+ */
+export interface PlanoParcelasAreceberEntrada {
+  total: number;
+  nrodup: number;
+  venc1: string;
+  intervalo?: number | null;
+  diaFixo?: number | null;
+  duplicata?: string | null;
+  docnf?: string | number | null;
+}
+export interface ParcelaAreceberPlanejada { duplicata: string | null; dtvenc: string; valor: number }
+
+export function duplicataAreceber(n: number, i: number, digitada?: string | null, docnf?: string | number | null): string | null {
+  const nf = docnf == null ? '' : String(docnf).trim();
+  const dig = String(digitada ?? '').trim();
+  if (n === 1) return dig || `${nf} - 001/001`;
+  if (!dig) return null;
+  return `${nf ? nf + ' - ' : ''} ${pad3(i)}/${pad3(n)}`;
+}
+
+export function planejarParcelasAreceber(e: PlanoParcelasAreceberEntrada): ParcelaAreceberPlanejada[] {
+  const n = Math.trunc(Number(e.nrodup) || 0);
+  if (n < 1 || n > 200) throw new ErroPlanoParcelas('ARECEBER_PARCELAS_LIMITE');
+  if (!e.venc1 || !/^\d{4}-\d{2}-\d{2}/.test(e.venc1)) throw new ErroPlanoParcelas('APAGAR_PARCELAS_SEM_VENCIMENTO');
+  const totalCents = Math.round(Number(e.total) * 100);
+  if (!(totalCents > 0)) throw new ErroPlanoParcelas('ARECEBER_TOTAL_OBRIGATORIO');
+  if (totalCents < n) throw new ErroPlanoParcelas('PARCELA_VALOR_INSUFICIENTE');
+  const venc1 = e.venc1.slice(0, 10);
+  const intervalo = Math.trunc(Number(e.intervalo) || 0);
+  const diaFixo = Math.trunc(Number(e.diaFixo) || 0);
+  const por = Math.floor(totalCents / n);
+  const residuo = totalCents - por * n;
+  const out: ParcelaAreceberPlanejada[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({
+      duplicata: duplicataAreceber(n, i + 1, e.duplicata, e.docnf),
+      dtvenc: intervalo > 0 ? somarDiasIso(venc1, i * intervalo) : somarMesesIso(venc1, i, diaFixo > 0 ? diaFixo : null),
+      valor: (por + (i === 0 ? residuo : 0)) / 100,
     });
   }
   return out;

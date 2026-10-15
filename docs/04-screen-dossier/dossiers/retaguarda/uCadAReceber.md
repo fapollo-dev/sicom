@@ -97,3 +97,29 @@ editavam). Agora, como o `uCadAReceber.pas`:
   adiantamento; saem o HISTARECEBER, o título e a CAIXA dele, com `EXCLUSAO DO REGISTRO CLIENTE: …, DOCUMENTO: …, VALOR: 086`.
 
 Smoke §31.5 (as travas) e §175 (histórico, senha administrativa na exclusão do conciliado).
+
+## Auditoria controle a controle do `uCadAReceber.dfm` (14/10/2026)
+
+Os 77 controles e 3 abas do dfm contra a tela do Apollo, com a produção decidindo (leitura só-leitura em 14/10/2026; 1.485 títulos em
+2026, 771 manuais — 417 deles em documentos parcelados):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| **"&Parcelas"** (`btnGeraParcelasClick` :700 + `BuildParcelas`; `grbConfiguracao`: Intervalo, Dia de Venc., Venc. 1ª parcela) + a grade `dbgParcelas` | 417 títulos manuais em documentos parcelados; o documento guarda NRODUP = N em todas as parcelas, TOTAL = total em todas e a DUPLICATA **vazia** (566 de 771) — só a digitada vira `<NF - > 001/00N`; a parcela única sem duplicata leva `<NF> - 001/001` (`744 - 001/001`; sem NF ` - 001/001`) | ✅ `planejarParcelasAreceber`/`duplicataAreceber` (shared, puro: a prévia da tela = o gravar da API); `POST cadastro/areceber` com `nrodup`>1 (+`total`, +`geracao`) grava as N num grupo; `GET :id/parcelas`; `POST :id/gerar-parcelas` refaz o grupo (só manual sem parcela recebida/agrupada: "Não é permitido alterar a quantidade de parcelas vindas do faturamento"). ⚠️ o `gerar-parcelas` antigo (T1.6) gravava NRODUP = i e `001/00N` sempre — corrigido para o contrato do legado. "Preservar dia de vencimento" e "Incluir restantes na última parcela" existem no dfm, mas o fonte não os lê. O "vencimento anterior a hoje → próximo mês?" interativo não é replicado (como no A Pagar). |
+| `edtTOTAL` "Valor total" (`edtVlrDocExit` :2506 — vazio = Vr. parcela × Parcelas; `edtTOTALExit` reparte) | 380 de 771 com TOTAL ≠ VALOR (os parcelados) | ✅ campo (só com N > 1) e a regra do vazio |
+| `edtModalidade` "Forma de pagamento" (obrigatória: :953) | **771 de 771** com IDPGTO (8: 692) | ✅ lookup + 422 ARECEBER_FORMA_OBRIGATORIA — também no PUT e no gerar-parcelas |
+| `VerificarClienteFornecedor` :1673 ("Informe um Cliente ou Fornecedor !") | 0 violações | ✅ 422 ARECEBER_PARCEIRO_NAO_CLIENTE |
+| `INFORMA_SITUACAO_DOC_CONTAS_RECEBER` (`InformaSituacaoDocumento` :3076) | N com o módulo Retaguarda = S; 743 de 771 com situação; 6 situações F05 | ✅ mig 423: uma só entra sozinha, várias exigem (422 ARECEBER_SITUACAO_OBRIGATORIA) |
+| `edtNumeNota` "Nota fiscal (nº)" + `btnNRONF` (`edtNumeNotaExit` :2269: a NF processada da loja, do cliente; várias → "SELECIONE A NOTA FISCAL CORRETA"; nenhuma → "Nota fiscal não existe. Verifique!"; NFADICMANUAL) | 37 manuais com NF em 2026 (`744 - 001/001`) | ✅ `GET apoio/nf`, `docnf`/`idnf` no gravar (422 ARECEBER_NF_NAO_EXISTE / ARECEBER_NF_AMBIGUA com as opções), a Pesquisa da `fiscal/nf` |
+| `VerificaAlteracaoCliente` :881 / `InsereLogAlteracaoCliente` :836 (EXIGE_MOTIVO_ALTERACAO_CLIENTE_CR; MOTIVOS_OPERACAO 'CR'; ATUALIZA_CLIENTE_OUTRAS_CR) | N com o módulo Retaguarda = S; S; 2 LOGs "Alteração do cliente" desde 2025; 1 motivo CR (21 QUEBRA DE CAIXA) | ✅ mig 423; 422 ARECEBER_MOTIVO_OBRIGATORIO (com os motivos); a LOG "Alteração do cliente, de X para Y. Motivo: Z" e as outras parcelas do grupo |
+| `SetaBancoPadrao` :4041 (BANCO_PADRAO_CR) | vazio (690 de 771 com o banco 526 — não vem da config) | ✅ a config (sem efeito na produção) |
+| `cbbTpCob` "Cobrança" (10 itens) | null 774 · BOLETO 706 · DUPLICATA 5 | ✅ `AR_TIPODOC_OPCOES` com os 10 (faltavam JURIDICA, VALE, DINHEIRO) |
+| `edtVlrDescontoBoleto` "Desc. boleto (%)" · `EDTMULTA` (permissão 111; binário) | 0 · 0 | ✅ campos (a multa gated por EDTMULTA) |
+| `DbtOrigem` "Origem do documento" + `AbreTelaCorrespondente` :489 (NF / adiantamento / venda do pedido) · `lblAgrupamento` (`CarregaDocumentoAgrupamento` :4207) | — | ✅ a linha da origem com o link; "agrupado no documento X" (RCB) ou "na conta a pagar X" (APG) |
+| Aba **Histórico** (`cxgridHistorico` = os agrupados; Reverter / Adicionar título / Remover título; `btnImprimir` + `rgTipoRel` Analítico/Sintético/Extrato funcionário; `GrdCCAgrupados`) | 15 agrupados / 27 agrupamentos em 2026 | ✅ aba Agrupados (membros, Reverter, Adicionar pela Pesquisa `financeiro/agrupar-receber`, Remover, Imprimir nos 3 modos — rotas já certificadas); a grade dos CCs do agrupamento (`QryCCAgrupados`: Σ VALOR por CODPLC dos membros) fica fora |
+| Aba **Pendências** (`sqqPendencias`, Localizar, Abrir / Pendência Resolvida) | STATUS_PENDENCIA só 'C' (18 títulos, o último em 01/2024) | ✗ fora (documentado) |
+| `btnDuplicata` "Duplicatas" (tag 15) e o "Deseja imprimir o boleto?" do Gravar (`TfrmConfBoleto`) · `LIMPAREMISSAODEBOLETO` (54; binário) | NOSSO_NUMERO_BOLETO em 536 de 771 | — é a tela de boleto (FRMCONFBOLETO, na fila) |
+| `RestanteTesouraria` ("Valor superior ao restante da tesouraria!") | só quando a tela é aberta pela tesouraria | — fora desta tela |
+| Cliente / Duplicata / Cupom / Pedido / Vendedor / Cobrador / Vr. parcela / Juros / Vencimento / Data de venda / Banco / Empresas / Centro de custo / Situação / Observações / Registros de log / Informar situação | — | ✅ já havia |
+
+Smoke §320 (e o T1.6 reescrito para o contrato do legado); web `areceberParcelas.spec.ts`.

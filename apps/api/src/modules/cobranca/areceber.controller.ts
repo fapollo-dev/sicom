@@ -1,7 +1,7 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema, gerarParcelasAreceberSchema, agruparAreceberSchema, adicionarAgrupamentoAreceberSchema } from '@apollo/shared';
+import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema, gerarParcelasAreceberSchema, agruparAreceberSchema, adicionarAgrupamentoAreceberSchema, regerarParcelasAreceberSchema, type RegerarParcelasAreceberDto } from '@apollo/shared';
 import { AreceberService } from './areceber.service';
 import { AreceberBaixaService } from './areceber-baixa.service';
 import { AreceberAgrupamentoService, type AgruparAreceberInput } from './areceber-agrupamento.service';
@@ -29,9 +29,29 @@ export class AreceberController {
     return this.svc.list(query);
   }
 
+  /** "Nota fiscal (nº)": as NFs do número para a escolha (edtNumeNotaExit) — antes do `:id` */
+  @Get('apoio/nf')
+  apoioNf(@Query('nronf') nronf?: string, @Query('codparceiro') codparceiro?: string) {
+    return this.svc.apoioNf(nronf ?? '', codparceiro ? Number(codparceiro) : undefined);
+  }
+
   @Get(':id')
   read(@Param('id', ParseIntPipe) id: number) {
     return this.svc.read(id);
+  }
+
+  /** a grade das parcelas do documento (o grupo) com os totais */
+  @Get(':id/parcelas')
+  parcelas(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.parcelas(id);
+  }
+
+  /** o "&Parcelas" sobre o documento gravado */
+  @Post(':id/gerar-parcelas')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADARECEBER', 'BTNGRAVAR')
+  regerarParcelas(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(regerarParcelasAreceberSchema)) dto: RegerarParcelasAreceberDto) {
+    return this.svc.regerarParcelas(id, dto);
   }
 
   @Post()

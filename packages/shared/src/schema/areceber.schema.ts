@@ -38,15 +38,18 @@ const stripNulls = (v: unknown): unknown => {
   return v === null ? undefined : v;
 };
 
+/** o combo `cbbTpCob` "Cobrança" do uCadAReceber.dfm (10 itens; o valor gravado é o texto) */
 export const AR_TIPODOC_OPCOES = [
-  { value: 'DUPLICATA', label: 'Duplicata' },
   { value: 'BOLETO', label: 'Boleto' },
+  { value: 'DUPLICATA', label: 'Duplicata' },
   { value: 'BANCARIA', label: 'Bancária' },
   { value: 'CARTEIRA', label: 'Carteira' },
-  { value: 'A VISTA', label: 'À vista' },
-  { value: 'CHEQUE', label: 'Cheque' },
-  { value: 'CARTAO', label: 'Cartão' },
+  { value: 'JURIDICA', label: 'Jurídica' },
   { value: 'OUTRA', label: 'Outra' },
+  { value: 'VALE', label: 'Vale' },
+  { value: 'DINHEIRO', label: 'Dinheiro' },
+  { value: 'CARTAO', label: 'Cartão' },
+  { value: 'CHEQUE', label: 'Cheque' },
 ] as const;
 
 const areceberBase = z.object({
@@ -74,7 +77,30 @@ const areceberBase = z.object({
   codplc: opcional(z.number().int()),
   idsituacao_nf: opcional(z.number().int()),
   obs: opcional(z.string()),
+  // ── a auditoria do uCadAReceber.dfm (14/10/2026) ──
+  /** "Valor total" (edtTOTAL — o total do documento parcelado; vazio = Vr. parcela × Parcelas) */
+  total: dec(z.number().positive('Este campo não pode ter valor menor ou igual a zero!')),
+  /** "Nota fiscal (nº)" (edtNumeNota/btnNRONF): o número e, resolvido, o código da NF (NFADICMANUAL) */
+  docnf: opcional(z.string().max(20)),
+  idnf: opcional(z.number().int()),
+  /** o motivo de operação (CR) quando o cliente muda — EXIGE_MOTIVO_ALTERACAO_CLIENTE_CR */
+  codmotivoop: opcional(z.number().int()),
+  /** a Configuração do "&Parcelas": intervalo em dias OU dia de vencimento (vazio = o dia do 1º vencimento) */
+  geracao: z.object({
+    intervalo: opcional(z.coerce.number().int().min(0, 'Intervalo inválido.').max(365, 'Intervalo máximo de 365 dias.')),
+    dia_fixo: opcional(z.coerce.number().int().min(1, 'Dia inválido.').max(31, 'Dia inválido.')),
+  }).optional(),
 });
+
+/** o "&Parcelas" de novo sobre o documento gravado: refaz as parcelas do grupo (nenhuma recebida, nenhuma do faturamento) */
+export const regerarParcelasAreceberSchema = z.object({
+  nrodup: z.coerce.number({ message: 'Informe o número de parcelas.' }).int().min(1, 'Mínimo 1 parcela.').max(200, 'O número de parcelas deve ser menor que 200.'),
+  dtvenc: z.string().min(1, 'Informe o vencimento da 1ª parcela.'),
+  total: dec(z.number().positive('Este campo não pode ter valor menor ou igual a zero!')),
+  intervalo: opcional(z.coerce.number().int().min(0).max(365)),
+  dia_fixo: opcional(z.coerce.number().int().min(1).max(31)),
+});
+export type RegerarParcelasAreceberDto = z.infer<typeof regerarParcelasAreceberSchema>;
 
 /** venc ≥ venda (uCadAReceber.pas:958). */
 const refineDatas = (d: { dtvenda?: string; dtvenc?: string }, ctx: z.RefinementCtx) => {

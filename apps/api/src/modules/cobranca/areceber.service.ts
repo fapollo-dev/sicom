@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
+import { gravarLog, gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
+import { ErroPlanoParcelas, duplicataAreceber, planejarParcelasAreceber, type ParcelaAreceberPlanejada, type RegerarParcelasAreceberDto } from '@apollo/shared';
+import { novoGrupo } from './apagar-caixa';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -136,8 +138,12 @@ export class AreceberService {
     const v = (await db.selectFrom('get_areceber').selectAll().where('codrcb', '=', id).where('codempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!v) return v;
     // os campos que a tela trava neste título (VerificaCRCadastradaAutomaticamente)
-    const x = (await sql<Record<string, unknown>>`SELECT origem, idnf, nfadicmanual, agrupamento FROM areceber WHERE codrcb = ${id}`.execute(db)).rows[0] ?? {};
-    return { ...v, campos_bloqueados: await this.camposBloqueados(db, emp, { ...v, ...x }) };
+    const x = (await sql<Record<string, unknown>>`SELECT a.origem, a.idnf, a.nfadicmanual, a.agrupamento, a.total AS total_documento, a.docnf, a.codgrupo, a.nrodup, a.status_pendencia,
+        a.nropedido, a.codgrupo_agrupamento_rcb, a.codgrupo_agrupamento_apg, a.adfornecedor, a.codadiantamento, n.nronf,
+        (SELECT max(r.codrcb) FROM areceber r WHERE r.codgrupo = a.codgrupo_agrupamento_rcb) AS agrupado_em_rcb,
+        (SELECT max(p.codapg) FROM apagar p WHERE p.codgrupo = a.codgrupo_agrupamento_apg) AS agrupado_em_apg
+        FROM areceber a LEFT JOIN nf n ON n.codnf = a.idnf WHERE a.codrcb = ${id}`.execute(db)).rows[0] ?? {};
+    return { ...v, ...x, campos_bloqueados: await this.camposBloqueados(db, emp, { ...v, ...x }) };
   }
 
   /** Colunas que o usuário edita (delta) — nunca codrcb/codempresa/estado. */
@@ -145,6 +151,8 @@ export class AreceberService {
     'codparceiro', 'dtvenda', 'dtvenc', 'valor', 'txjuros', 'txmulta', 'desconto_boleto',
     'nrodup', 'duplicata', 'tipodoc', 'nroped', 'nrocupom',
     'codvendedor', 'codcobrador', 'idpgto', 'codbco', 'codplc', 'idsituacao_nf', 'obs',
+    // a auditoria do uCadAReceber.dfm (14/10/2026): a "Nota fiscal (nº)" do título (o "Valor total" é do documento: `inserirParcelas`)
+    'docnf', 'idnf',
   ];
   private delta(dto: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
@@ -178,6 +186,8 @@ export class AreceberService {
       const d = this.delta(dto);
       // trava de período contábil fechado (ValidaPeriodoFechado, DTVENDA × BLOQ_RCB).
       await assertPeriodoNaoFechado(trx, emp, d.dtvenda, 'bloq_rcb');
+      // o Gravar da tela (:920-960): a forma de pagamento, o cliente (ou fornecedor) e a situação obrigatória pela configuração
+      await this.validarCadastro(trx, emp, d, undefined);
       // cliente e centro de custo da situação do documento (uCadAReceber.pas:1728/2009; UCadSituacaoNF.md C5)
       await assertRestricoesSituacao(trx, d, {}, { papel: 'cliente' });
       // txjuros default = snapshot da EMPRESAS.TXJUROPADRAO (uCadAReceber: default do padrão da empresa).
@@ -185,29 +195,200 @@ export class AreceberService {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
         d.txjuros = e?.txjuropadrao ?? null;
       }
+      // o banco padrão da configuração no título novo (`SetaBancoPadrao` :4041 — a produção não o define)
+      if (d.codbco == null) {
+        const b = num(await this.cfg(trx, 'BANCO_PADRAO_CR', emp));
+        if (b > 0) d.codbco = b;
+      }
+      // "Nota fiscal (nº)": a NF da conta pelo número (edtNumeNotaExit :2269) ou pelo código (btnNRONF)
+      await this.resolverNf(trx, emp, d, undefined);
+      // o DOCUMENTO: a parcela única como digitada (duplicata `NF - 001/001`), ou as N do "&Parcelas" — todas no mesmo grupo
+      const n = Math.max(1, Math.trunc(num(d.nrodup) || 1));
+      const plano = this.planoDoDocumento({ ...d, total: dto.total }, n, dto.geracao as Record<string, unknown> | undefined);
+      const codgrupo = await novoGrupo(trx);
+      const ids = await this.inserirParcelas(trx, emp, op, d, plano, codgrupo);
+      // uma CAIXA para o DOCUMENTO, com o total das parcelas, no 1º título (GetTotalDoc; uCadAReceber.pas:1075)
+      await lancarCaixaDoAreceber(trx, ids[0], emp, 'incluir', n > 1 ? plano.total : undefined);
+      for (const codrcb of ids) {
+        await this.integrarDocumento(trx, emp, codrcb);
+        await this.logTitulo(trx, 'Inseriu', codrcb, undefined);
+      }
+      return ids;
+    });
+    return this.read(id[0]);
+  }
+
+  // ── a auditoria do uCadAReceber.dfm (14/10/2026): o Gravar, a NF da conta, as parcelas ───────────────────────────
+  /**
+   * O Gravar da tela (:920-960): "A Forma de pagamento deve ser informada" (771 de 771 títulos manuais de 2026 têm IDPGTO),
+   * `VerificarClienteFornecedor` (:1673 — CLI ou FRN) e, com INFORMA_SITUACAO_DOC_CONTAS_RECEBER (N; o módulo Retaguarda = S), a
+   * situação F05 do documento — uma só entra sozinha (`InformaSituacaoDocumento` :3076), várias exigem a escolha.
+   */
+  private async validarCadastro(trx: AnyDB, emp: number, d: Record<string, unknown>, antes: Record<string, unknown> | undefined): Promise<void> {
+    // no título novo sempre; no gravado, quando a tela a zera (os títulos antigos sem forma — da carga ou de outros processos — seguem editáveis)
+    if (antes == null ? !(num(d.idpgto) > 0) : (d.idpgto !== undefined && !(num(d.idpgto) > 0))) throw new BusinessRuleError('ARECEBER_FORMA_OBRIGATORIA');
+    const codparceiro = d.codparceiro !== undefined ? d.codparceiro : antes?.codparceiro;
+    if (num(codparceiro) > 0) {
+      const p = (await sql<{ cli: string | null; frn: string | null }>`SELECT cli, frn FROM parceiros WHERE codparceiro = ${num(codparceiro)}`.execute(trx)).rows[0];
+      if (!p || (p.cli !== 'S' && p.frn !== 'S')) throw new BusinessRuleError('ARECEBER_PARCEIRO_NAO_CLIENTE');
+    }
+    const situacao = d.idsituacao_nf !== undefined ? d.idsituacao_nf : antes?.idsituacao_nf;
+    if (situacao == null && (await this.cfg(trx, 'INFORMA_SITUACAO_DOC_CONTAS_RECEBER', emp)) === 'S') {
+      const f05 = (await sql<{ idsituacao_nf: number }>`SELECT idsituacao_nf FROM situacao_nf WHERE tipo_operacao = 'F05' AND coalesce(tipo, 'S') = 'S' ORDER BY idsituacao_nf`.execute(trx)).rows;
+      if (f05.length === 1) d.idsituacao_nf = num(f05[0].idsituacao_nf);
+      else if (f05.length > 1) throw new BusinessRuleError('ARECEBER_SITUACAO_OBRIGATORIA');
+    }
+  }
+
+  /**
+   * A NF da conta (`edtNumeNotaExit` :2269 / `btnNRONFClick` :1275): pelo número — a NF processada da loja, do cliente informado;
+   * uma só preenche IDNF e o cliente (NFADICMANUAL 'S'); várias pedem a escolha ("SELECIONE A NOTA FISCAL CORRETA"); nenhuma,
+   * "Nota fiscal não existe. Verifique!". Pelo código (a Pesquisa da GET_NF), o cliente vem da nota. O número vazio limpa a NF.
+   */
+  private async resolverNf(trx: AnyDB, emp: number, d: Record<string, unknown>, antes: Record<string, unknown> | undefined): Promise<void> {
+    if (d.idnf !== undefined && num(d.idnf) > 0) {
+      const nf = (await sql<{ codnf: number; nronf: unknown; codparceiro: number | null }>`SELECT codnf, nronf, codparceiro FROM nf WHERE codnf = ${num(d.idnf)} AND idempresa = ${emp}`.execute(trx)).rows[0];
+      if (!nf) throw new BusinessRuleError('ARECEBER_NF_NAO_EXISTE');
+      d.docnf = nf.nronf == null ? null : String(nf.nronf);
+      if (num(nf.codparceiro) > 0) d.codparceiro = num(nf.codparceiro);
+      d.nfadicmanual = 'S';
+      return;
+    }
+    if (d.docnf === undefined) return;
+    const numero = String(d.docnf ?? '').trim();
+    if (!numero) { d.docnf = null; d.idnf = null; return; }
+    if (antes && String(antes.docnf ?? '').trim() === numero && num(antes.idnf) > 0) return;
+    const codparceiro = d.codparceiro !== undefined ? num(d.codparceiro) : num(antes?.codparceiro);
+    const soProcessada = !(num(antes?.idnf) > 0);
+    const nfs = await this.nfsPeloNumero(trx, emp, numero, codparceiro > 0 ? codparceiro : null, soProcessada);
+    if (!nfs.length) throw new BusinessRuleError('ARECEBER_NF_NAO_EXISTE');
+    if (nfs.length > 1) throw new BusinessRuleError('ARECEBER_NF_AMBIGUA', { opcoes: nfs });
+    d.idnf = num(nfs[0].codnf);
+    d.docnf = String(nfs[0].nronf ?? numero);
+    if (num(nfs[0].codparceiro) > 0) d.codparceiro = num(nfs[0].codparceiro);
+    d.nfadicmanual = 'S';
+  }
+
+  private async nfsPeloNumero(db: AnyDB, emp: number, numero: string, codparceiro: number | null, soProcessada: boolean) {
+    return (await sql<{ codnf: number; nronf: unknown; codparceiro: number | null; razao: string | null }>`SELECT n.codnf, n.nronf, n.codparceiro, p.razao
+        FROM nf n LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+       WHERE n.nronf::text = ${numero} AND n.idempresa = ${emp}
+         AND (${codparceiro}::int IS NULL OR n.codparceiro = ${codparceiro}::int)
+         AND (${soProcessada}::boolean = false OR n.proc = 'S')
+       ORDER BY n.codnf LIMIT 50`.execute(db)).rows;
+  }
+
+  /** o apoio da tela: as NFs do número (para a escolha quando há mais de uma) */
+  async apoioNf(nronf: string, codparceiro?: number) {
+    const emp = this.emp();
+    const numero = String(nronf ?? '').trim();
+    if (!numero) return [];
+    return this.nfsPeloNumero(this.dbp.forTenantRead() as AnyDB, emp, numero, codparceiro && codparceiro > 0 ? codparceiro : null, true);
+  }
+
+  /** o plano das parcelas do documento: uma como digitada, N pelo `BuildParcelas` (o total vazio é Vr. parcela × Parcelas — edtVlrDocExit :2506) */
+  private planoDoDocumento(d: Record<string, unknown>, n: number, geracao: Record<string, unknown> | undefined): { total: number; parcelas: ParcelaAreceberPlanejada[] } {
+    const dto_total = (x: Record<string, unknown>) => x.total;
+    const total = n === 1 ? num(d.valor) : (num(dto_total(d)) > 0 ? r2(num(dto_total(d))) : r2(num(d.valor) * n));
+    try {
+      return {
+        total,
+        parcelas: planejarParcelasAreceber({ total, nrodup: n, venc1: String(d.dtvenc), intervalo: num(geracao?.intervalo), diaFixo: num(geracao?.dia_fixo),
+          duplicata: d.duplicata as string | null, docnf: d.docnf as string | null }),
+      };
+    } catch (e) {
+      if (e instanceof ErroPlanoParcelas) throw new BusinessRuleError(e.code);
+      throw e;
+    }
+  }
+
+  private async inserirParcelas(trx: AnyDB, emp: number, op: number | null, cab: Record<string, unknown>, plano: { total: number; parcelas: ParcelaAreceberPlanejada[] }, codgrupo: number): Promise<number[]> {
+    const base: Record<string, unknown> = { ...cab };
+    for (const c of ['duplicata', 'dtvenc', 'valor', 'total', 'nrodup']) delete base[c];
+    const ids: number[] = [];
+    for (const p of plano.parcelas) {
       const ins = await trx
         .insertInto('areceber')
         .values({
-          ...d,
-          codempresa: emp,
-          quitada: 'N',
-          agrupado: 'N',
-          consiliado: 'S',
-          cadastrado_manualmente: 'S',
-          gerado: 'OPERADOR',
-          usultalteracao: op,
-          dtultimalteracao: sql`now()`,
-          dtcadastro: sql`now()`,
+          ...base, nrodup: plano.parcelas.length, duplicata: p.duplicata, dtvenc: p.dtvenc, valor: p.valor, total: plano.total, codgrupo,
+          codempresa: emp, quitada: 'N', agrupado: 'N', consiliado: 'S', cadastrado_manualmente: 'S', gerado: 'OPERADOR',
+          usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
         })
         .returning('codrcb')
         .executeTakeFirstOrThrow();
-      const codrcb = Number((ins as Record<string, unknown>).codrcb);
-      await lancarCaixaDoAreceber(trx, codrcb, emp, 'incluir'); // a CAIXA gerencial do título (uCadAReceber.pas:1075)
-      await this.integrarDocumento(trx, emp, codrcb);
-      await this.logTitulo(trx, 'Inseriu', codrcb, undefined);
-      return codrcb;
+      ids.push(Number((ins as Record<string, unknown>).codrcb));
+    }
+    return ids;
+  }
+
+  /** a grade `dbgParcelas` (o documento inteiro, pelo CODGRUPO) com os totais */
+  async parcelas(id: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const t = (await sql<Record<string, unknown>>`SELECT codgrupo FROM areceber WHERE codrcb = ${id} AND codempresa = ${emp}`.execute(db)).rows[0];
+    if (!t) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO', { codrcb: id });
+    const g = t.codgrupo == null ? null : num(t.codgrupo);
+    const linhas = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.duplicata, r.nrodup, r.dtvenda, r.dtvenc, r.valor, r.total, r.txjuros, r.quitada, r.tipodoc,
+        r.idpgto, f.modalidade, r.codbco, b.banco, r.obs, r.idnf, r.docnf, r.codparceiro, p.razao AS nomecliente, r.codempresa, r.cadastrado_manualmente, r.origem
+        FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro LEFT JOIN formas_pgto f ON f.idpgto = r.idpgto LEFT JOIN bancos b ON b.codbco = r.codbco
+       WHERE ${g == null ? sql`r.codrcb = ${id}` : sql`r.codgrupo = ${g}`} ORDER BY r.codrcb`.execute(db)).rows;
+    return {
+      codgrupo: g,
+      parcelas: linhas,
+      totais: { nrodup: linhas.length, total_parcelas: r2(linhas.reduce((s, l) => s + num(l.valor), 0)), total_documento: num(linhas[0]?.total) || r2(linhas.reduce((s, l) => s + num(l.valor), 0)) },
+    };
+  }
+
+  /**
+   * O "&Parcelas" sobre o documento gravado (btnGeraParcelasClick :700): refaz as parcelas do grupo — nenhuma recebida ou agrupada, e
+   * só o documento manual ("Não é permitido alterar a quantidade de parcelas vindas do faturamento."). A duplicata e a NF são as da 1ª.
+   */
+  async regerarParcelas(id: number, dto: RegerarParcelasAreceberDto) {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const ids = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const t = await this.titulo(trx, id, emp);
+      if (t.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO');
+      if (t.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO');
+      if (t.agrupamento === 'S') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
+      await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb');
+      let codgrupo = t.codgrupo == null ? null : num(t.codgrupo);
+      if (codgrupo == null) {
+        codgrupo = await novoGrupo(trx);
+        await sql`UPDATE areceber SET codgrupo = ${codgrupo} WHERE codrcb = ${id}`.execute(trx);
+      }
+      const grupo = (await sql<Record<string, unknown>>`SELECT * FROM areceber WHERE codgrupo = ${codgrupo} AND codempresa = ${emp} ORDER BY codrcb`.execute(trx)).rows;
+      if (grupo.some((g) => g.quitada === 'S')) throw new BusinessRuleError('TITULO_JA_BAIXADO');
+      if (grupo.some((g) => g.agrupado === 'S')) throw new BusinessRuleError('TITULO_AGRUPADO');
+      if (grupo.some((g) => g.cadastrado_manualmente !== 'S' || String(g.origem ?? '') !== '' || (num(g.idnf) > 0 && g.nfadicmanual !== 'S'))) {
+        throw new BusinessRuleError('ARECEBER_PARCELAS_FATURAMENTO');
+      }
+      const primeiro = grupo[0];
+      const total = dto.total != null ? num(dto.total) : r2(grupo.reduce((s, g) => s + num(g.valor), 0));
+      let plano;
+      try {
+        plano = planejarParcelasAreceber({ total, nrodup: dto.nrodup, venc1: dto.dtvenc, intervalo: dto.intervalo, diaFixo: dto.dia_fixo,
+          duplicata: primeiro.duplicata as string | null, docnf: primeiro.docnf as string | null });
+      } catch (e) {
+        if (e instanceof ErroPlanoParcelas) throw new BusinessRuleError(e.code);
+        throw e;
+      }
+      for (const g of grupo) if (g.contabilizado === 'S') await this.estornarSeContabilizado(trx, emp, g);
+      const cab: Record<string, unknown> = {};
+      for (const c of ['codparceiro', 'dtvenda', 'txjuros', 'txmulta', 'desconto_boleto', 'tipodoc', 'nropedido', 'nrocupom', 'codvendedor', 'codcobrador', 'idpgto',
+        'codbco', 'codplc', 'idsituacao_nf', 'obs', 'docnf', 'idnf', 'nfadicmanual'] as const) cab[c] = primeiro[c] ?? null;
+      const antigos = grupo.map((g) => num(g.codrcb));
+      const novos = await this.inserirParcelas(trx, emp, op, cab, { total, parcelas: plano }, codgrupo);
+      await sql`DELETE FROM caixa WHERE codrcb = ANY(${sql.val(antigos)}::numeric[])`.execute(trx);
+      await sql`DELETE FROM areceber WHERE codrcb = ANY(${sql.val(antigos)}::numeric[])`.execute(trx);
+      await lancarCaixaDoAreceber(trx, novos[0], emp, 'incluir', total);
+      for (const codrcb of novos) {
+        await this.integrarDocumento(trx, emp, codrcb);
+        await this.logTitulo(trx, 'Inseriu', codrcb, undefined);
+      }
+      return novos;
     });
-    return this.read(id);
+    return { codrcbs: ids, parcelas: ids.length, titulo: await this.read(ids[0]) };
   }
 
   /**
@@ -226,6 +407,7 @@ export class AreceberService {
     const dtvenda = String(dto.dtvenda);
     const intervalo = dto.intervalo != null ? Number(dto.intervalo) : 0;
     const diafixo = dto.diafixo != null ? Number(dto.diafixo) : undefined;
+    // a duplicata segue a regra da tela (`duplicataAreceber`): o "prefixo" do contrato antigo é a duplicata digitada
     const prefixo = dto.prefixoDuplicata != null ? String(dto.prefixoDuplicata).trim() : '';
 
     // datas: intervalo>0 → soma dias (diafixo é ignorado); senão → mensal no dia-do-mês de venc1 (ou diafixo),
@@ -263,32 +445,13 @@ export class AreceberService {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
         cab.txjuros = (e as { txjuropadrao?: unknown } | undefined)?.txjuropadrao ?? null;
       }
-      const ids: number[] = [];
-      for (let i = 0; i < numparc; i++) {
-        const dup = `${prefixo ? prefixo + ' - ' : ''}${String(i + 1).padStart(3, '0')}/${String(numparc).padStart(3, '0')}`.slice(0, 20);
-        const ins = await trx
-          .insertInto('areceber')
-          .values({
-            ...cab,
-            dtvenda,
-            dtvenc: vencimentos[i],
-            valor: valores[i],
-            nrodup: i + 1,
-            duplicata: dup,
-            codempresa: emp,
-            quitada: 'N',
-            agrupado: 'N',
-            consiliado: 'S',
-            cadastrado_manualmente: 'S',
-            gerado: 'OPERADOR',
-            usultalteracao: op,
-            dtultimalteracao: sql`now()`,
-            dtcadastro: sql`now()`,
-          })
-          .returning('codrcb')
-          .executeTakeFirstOrThrow();
-        ids.push(Number((ins as Record<string, unknown>).codrcb));
-      }
+      // o Gravar da tela: a forma de pagamento e o cliente/fornecedor valem aqui também
+      await this.validarCadastro(trx, emp, cab, undefined);
+      const codgrupo = await novoGrupo(trx);
+      const ids = await this.inserirParcelas(trx, emp, op, { ...cab, dtvenda }, {
+        total: r2(total),
+        parcelas: vencimentos.map((dtvenc, i) => ({ duplicata: duplicataAreceber(numparc, i + 1, prefixo, null), dtvenc, valor: valores[i] })),
+      }, codgrupo);
       // uma CAIXA para o DOCUMENTO, com o total das parcelas, no primeiro título (GetTotalDoc; uCadAReceber.pas:1075)
       if (ids.length) await lancarCaixaDoAreceber(trx, ids[0], emp, 'incluir', r2(total));
       return ids;
@@ -387,6 +550,23 @@ export class AreceberService {
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb');
       if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_rcb');
       const d = this.delta(dto);
+      await this.validarCadastro(trx, emp, d, t);
+      await this.resolverNf(trx, emp, d, t);
+      // a troca do CLIENTE (VerificaAlteracaoCliente :881 / InsereLogAlteracaoCliente :836): com EXIGE_MOTIVO_ALTERACAO_CLIENTE_CR (N; o módulo
+      // Retaguarda = S) pede o motivo de operação CR; a LOG ganha "Alteração do cliente, de X para Y. Motivo: Z"; com
+      // ATUALIZA_CLIENTE_OUTRAS_CR (S) as outras parcelas do grupo trocam junto (cada uma com a sua LOG)
+      let trocaCliente: { de: string; para: string; motivo: string | null } | null = null;
+      if (d.codparceiro !== undefined && num(d.codparceiro) !== num(t.codparceiro)) {
+        let motivo: string | null = null;
+        if ((await this.cfg(trx, 'EXIGE_MOTIVO_ALTERACAO_CLIENTE_CR', emp)) === 'S') {
+          const motivos = (await sql<{ codmotivoop: number; descricao: string }>`SELECT codmotivoop, descricao FROM motivos_operacao WHERE tipo_operacao = 'CR' ORDER BY codmotivoop`.execute(trx)).rows;
+          const m = motivos.find((x) => num(x.codmotivoop) === num(dto.codmotivoop));
+          if (!m) throw new BusinessRuleError('ARECEBER_MOTIVO_OBRIGATORIO', { motivos });
+          motivo = m.descricao;
+        }
+        const fant = async (cod: unknown) => String((await sql<{ f: string | null }>`SELECT coalesce(nullif(fantasia, ''), razao) AS f FROM parceiros WHERE codparceiro = ${num(cod)}`.execute(trx)).rows[0]?.f ?? '');
+        trocaCliente = { de: await fant(t.codparceiro), para: await fant(d.codparceiro), motivo };
+      }
       // os campos travados (só recusa o que MUDOU); o valor do agrupamento é a soma dos agrupados
       const igual = (a: unknown, b: unknown) => {
         const norm = (v: unknown) => (v == null || v === '' ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? 10 : undefined).trim());
@@ -414,6 +594,17 @@ export class AreceberService {
       await this.historicoDaEdicao(trx, emp, antes, await this.paraHistorico(trx, id, emp));
       await this.integrarDocumento(trx, emp, id);
       if (Object.keys(d).length) await this.logTitulo(trx, 'Alterou', id, antesLog);
+      if (trocaCliente) {
+        const historico = `Alteração do cliente, de ${trocaCliente.de} para ${trocaCliente.para}.${trocaCliente.motivo ? ` \r\nMotivo: ${trocaCliente.motivo}` : ''}`;
+        await gravarLog(trx, { acao: 'Alterou', formulario: 'Contas a receber', tabela: 'ARECEBER', chave: 'CODRCB', valor: id, historico, idempresa: emp });
+        if (t.codgrupo != null && (await this.cfg(trx, 'ATUALIZA_CLIENTE_OUTRAS_CR', emp)) === 'S') {
+          const outras = (await sql<{ codrcb: number }>`SELECT codrcb FROM areceber WHERE codgrupo = ${t.codgrupo} AND codrcb <> ${id} AND codempresa = ${emp} ORDER BY codrcb`.execute(trx)).rows;
+          for (const o of outras) {
+            await sql`UPDATE areceber SET codparceiro = ${num(d.codparceiro)} WHERE codrcb = ${num(o.codrcb)}`.execute(trx);
+            await gravarLog(trx, { acao: 'Alterou', formulario: 'Contas a receber', tabela: 'ARECEBER', chave: 'CODRCB', valor: num(o.codrcb), historico, idempresa: emp });
+          }
+        }
+      }
     });
     return this.read(id);
   }
