@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query,
 import { processarLotesSchema, excluirLotesSchema, atualizarLotePromoSchema, type ProcessarLotesDto, type ExcluirLotesDto, type AtualizarLotePromoDto } from '@apollo/shared';
 import { AjustePrecosService } from './ajuste-precos.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
-import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { RequerAcesso, RequerControle } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -14,17 +14,21 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 export class AjustePrecosController {
   constructor(private readonly svc: AjustePrecosService) {}
 
-  /** fila de lotes pendentes da empresa (período + origem opcionais). */
+  /** o «Pesquisar»: lotes pendentes das lojas (GetMultiEmpresa) no período, com as três caixas de origem do legado (S = marcada). */
   @Get('fila')
-  @RequerAcesso('FRMAJUSTEPRECOS', 'BTNGRAVAR')
-  fila(@Query('dtini') dtini?: string, @Query('dtfim') dtfim?: string, @Query('origem') origem?: 'CADASTRO' | 'PEDIDO' | 'DIVERGENTE') {
-    return this.svc.fila(dtini, dtfim, origem);
+  @RequerAcesso('FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS')
+  fila(
+    @Query('dtini') dtini?: string, @Query('dtfim') dtfim?: string, @Query('empresas') empresas?: string,
+    @Query('cadastro') cadastro?: string, @Query('pedido') pedido?: string, @Query('nf') nf?: string,
+  ) {
+    const lojas = (empresas ?? '').split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+    return this.svc.fila({ dtini, dtfim, empresas: lojas, cadastro: cadastro === 'S', pedido: pedido === 'S', nf: nf === 'S' });
   }
 
   /** processa os lotes selecionados → aplica em MULTI_PRECO (+ grupo de preço + histórico). */
   @Post('processar')
   @HttpCode(200)
-  @RequerAcesso('FRMAJUSTEPRECOS', 'BTNGRAVAR')
+  @RequerAcesso('FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS') // o "Processar" não tem Tag 1: vale o acesso à tela
   processar(@Body(new ZodValidationPipe(processarLotesSchema)) body: ProcessarLotesDto) {
     return this.svc.processar(body.ids);
   }
@@ -32,7 +36,8 @@ export class AjustePrecosController {
   /** exclui (soft) os lotes pendentes selecionados. */
   @Post('excluir')
   @HttpCode(200)
-  @RequerAcesso('FRMAJUSTEPRECOS', 'BTNEXCLUIR')
+  @RequerAcesso('FRMAJUSTEPRECOS', 'FRMAJUSTEPRECOS')
+  @RequerControle('FRMAJUSTEPRECOS', 'BTNEXCLUIR') // o "Excluir" (Tag 1)
   excluir(@Body(new ZodValidationPipe(excluirLotesSchema)) body: ExcluirLotesDto) {
     return this.svc.excluir(body.ids);
   }

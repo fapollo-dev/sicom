@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { empresasDoOperador, todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -21,7 +22,8 @@ const fmtBr = (n: number) => n.toFixed(2).replace('.', ',');
  * empresa). O reset de etiqueta (etq_impressa='N' + dtultprecoalterado) é o TRIGGER trg_multi_preco_preco_alterado
  * (fiel ao ATUALIZAPROD do Oracle). `excluir`: soft indr='E' (fiel ao btnExcluir). `atualizarPromo`: edição dos
  * campos de promo do lote pendente (vrvenda é read-only no grid — fiel). NENHUM cálculo de preço aqui (sem % em
- * massa/arredondamento/trava preço<custo — não existem no legado). Tenant fail-closed (lote.codempresa = emp).
+ * massa/arredondamento/trava preço<custo — não existem no legado). Tenant fail-closed: só lotes das lojas do operador (o lote é
+ * aplicado na loja dele).
  */
 @Injectable()
 export class AjustePrecosService {
@@ -36,10 +38,15 @@ export class AjustePrecosService {
     return currentTenant().operadorId ?? null;
   }
 
-  /** fila de lotes pendentes da empresa (período/origem opcionais), com produto + preço atual. */
-  async fila(dtini?: string, dtfim?: string, origem?: 'CADASTRO' | 'PEDIDO' | 'DIVERGENTE'): Promise<Record<string, unknown>[]> {
-    const emp = this.emp();
+  /**
+   * a fila do «Pesquisar» (btnPesquisarClick + sqqAjustePrecos do udmAjustePrecos): lotes pendentes das lojas do GetMultiEmpresa no período
+   * (`trunc(L.DATALOTE) between :DTINI AND :DTFIM`), com o preço atual da loja do lote. As três caixas do legado combinam: "de cadastro" e
+   * "referentes a pedidos" juntas viram OU entre os dois prefixos do OBS; "de nota fiscal" acrescenta `L.VRVENDA <> M.VRVENDA` (sem linha
+   * de preço na loja o Oracle descarta — NULL). O braço LOTEPRECOATACAREJO do UNION fica de fora: 1 lote na produção, de 2021.
+   */
+  async fila(f: { dtini?: string; dtfim?: string; empresas?: number[]; cadastro?: boolean; pedido?: boolean; nf?: boolean } = {}): Promise<Record<string, unknown>[]> {
     const db = this.dbp.forTenantRead() as AnyDB;
+    const lojas = await empresasDoOperador(db, f.empresas);
     let q = db
       .selectFrom('lote_preco as l')
       .leftJoin('produtos as p', 'p.idproduto', 'l.idproduto')
@@ -50,23 +57,25 @@ export class AjustePrecosService {
         'p.codbarra', 'p.descricao', 'p.codgrupopreco',
         sql`m.vrvenda`.as('preco_atual'), sql`m.vrcusto`.as('vrcusto'), sql`coalesce(m.promocao,'N')`.as('promocao_atual'),
       ])
-      .where('l.codempresa', '=', emp)
+      .where('l.codempresa', 'in', lojas)
       .where(sql`coalesce(l.processado,'N')`, '=', 'N')
       .where(sql`coalesce(l.indr,'I')`, '<>', 'E');
     // fold auditoria: comparar por DATA (::date) — fiel a `trunc(L.DATALOTE) between :DTINI AND :DTFIM`. Sem o cast,
     // dtfim='2026-07-31' virava meia-noite e DERRUBAVA todos os lotes lançados durante o próprio dia.
-    if (dtini) q = q.where(sql`l.datalote::date`, '>=', dtini);
-    if (dtfim) q = q.where(sql`l.datalote::date`, '<=', dtfim);
-    // filtros de origem do legado (por prefixo do OBS; DIVERGENTE = vrvenda do lote ≠ preço atual).
-    if (origem === 'CADASTRO') q = q.where(sql`l.obs`, 'like', 'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO%');
-    if (origem === 'PEDIDO') q = q.where(sql`l.obs`, 'like', 'REFERENTE AO PEDIDO DE NRO%');
-    if (origem === 'DIVERGENTE') q = q.where(sql`l.vrvenda`, '<>', sql`coalesce(m.vrvenda,0)`);
-    return (await q.orderBy('l.datalote').orderBy('l.codlotepreco').limit(2000).execute()) as Record<string, unknown>[];
+    if (f.dtini) q = q.where(sql`l.datalote::date`, '>=', f.dtini);
+    if (f.dtfim) q = q.where(sql`l.datalote::date`, '<=', f.dtfim);
+    const CADASTRO = 'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO%';
+    const PEDIDO = 'REFERENTE AO PEDIDO DE NRO%';
+    if (f.cadastro && f.pedido) q = q.where((eb) => eb.or([eb(sql`l.obs`, 'like', CADASTRO), eb(sql`l.obs`, 'like', PEDIDO)]));
+    else if (f.cadastro) q = q.where(sql`l.obs`, 'like', CADASTRO);
+    else if (f.pedido) q = q.where(sql`l.obs`, 'like', PEDIDO);
+    if (f.nf) q = q.where(sql`l.vrvenda`, '<>', sql`m.vrvenda`);
+    return (await q.orderBy('l.codlotepreco').execute()) as Record<string, unknown>[];
   }
 
   /** processa os lotes selecionados (ordem codlotepreco ASC, fiel). Devolve o resumo por lote. */
   async processar(ids: number[]): Promise<{ processados: number; aplicados: number; propagados: number; pulados_sem_preco: number }> {
-    const emp = this.emp();
+    this.emp();
     const op = this.op();
     const ordenados = Array.from(new Set(ids.map(Number))).sort((a, b) => a - b); // ASC (o mais novo vence por último)
     let processados = 0;
@@ -74,15 +83,18 @@ export class AjustePrecosService {
     let propagados = 0;
     let puladosSemPreco = 0;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // a grade do legado só tem lotes das lojas do GetMultiEmpresa, e cada lote é aplicado na loja DELE (CODEMPRESA do lote)
+      const lojas = await todasAsEmpresasDoOperador(trx);
       for (const id of ordenados) {
         const l = (await trx
           .selectFrom('lote_preco').selectAll()
-          .where('codlotepreco', '=', id).where('codempresa', '=', emp)
+          .where('codlotepreco', '=', id).where('codempresa', 'in', lojas)
           .forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
         if (!l) throw new BusinessRuleError('LOTE_NAO_ENCONTRADO', { codlotepreco: id });
         if (String(l.processado ?? 'N') === 'S') throw new BusinessRuleError('LOTE_JA_PROCESSADO', { codlotepreco: id });
         if (String(l.indr ?? 'I') === 'E') throw new BusinessRuleError('LOTE_EXCLUIDO', { codlotepreco: id });
 
+        const emp = Number(l.codempresa);
         // (a) marca o lote SEMPRE (fiel: o legado marca antes e só aplica se vrvenda>0).
         await trx.updateTable('lote_preco').set({ processado: 'S', processado_manual: 'S', processado_data: sql`now()`, processado_operador: op }).where('codlotepreco', '=', id).execute();
         processados++;
@@ -138,13 +150,15 @@ export class AjustePrecosService {
 
   /** exclui (soft, indr='E') lotes PENDENTES selecionados — fiel ao btnExcluir. */
   async excluir(ids: number[]): Promise<{ excluidos: number }> {
-    const emp = this.emp();
+    this.emp();
     const op = this.op();
-    const res = await (this.dbp.forTenant() as AnyDB)
+    const db = this.dbp.forTenant() as AnyDB;
+    const lojas = await todasAsEmpresasDoOperador(db);
+    const res = await db
       .updateTable('lote_preco')
       .set({ indr: 'E', indr_usuario: op, indr_data: sql`now()` })
       .where('codlotepreco', 'in', ids.map(Number))
-      .where('codempresa', '=', emp)
+      .where('codempresa', 'in', lojas)
       .where(sql`coalesce(processado,'N')`, '=', 'N')
       .executeTakeFirst();
     return { excluidos: Number((res as any)?.numUpdatedRows ?? 0) };

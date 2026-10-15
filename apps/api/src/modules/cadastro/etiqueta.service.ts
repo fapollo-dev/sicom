@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { hojeNaLoja } from '../../shared/tempo/hoje';
 import { decodificarFr3 } from '../../shared/relatorios/modelo-fr3';
 import { ConfigService } from './config.service';
+import { todasAsEmpresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -320,10 +321,13 @@ export class EtiquetaService {
 
   /**
    * AS ETIQUETAS DOS LOTES DO AJUSTE DE PREÇOS (`btnEtiquetasClick`, uAjustePrecos.pas:109-330): os produtos dos lotes
-   * marcados, EXPANDIDOS pelo grupo de preço (os irmãos saem juntos), com o PREÇO DO LOTE (LOTEPRECO.VRVENDA × fator do
-   * produto — o lote ainda nem precisa estar processado) e sem promoção; um código de barras uma vez só, com o preço do
-   * último lote que o trouxe (o ListaProdutos troca o valor quando outro lote do mesmo produto tem preço diferente).
-   * Com "sem promoção", o lote em promoção fica de fora. Produção: 469 das 789 execuções do ajuste imprimiram etiqueta.
+   * marcados, EXPANDIDOS pelo grupo de preço (os irmãos ATIVOS saem juntos — `cdsGrupoPreco`: `P.ATIVO = 'S'`; grupo sem ativo
+   * nenhum cai no produto do lote), com o PREÇO DO LOTE (LOTEPRECO.VRVENDA × fator do produto — o lote ainda nem precisa estar
+   * processado); um código de barras uma vez só, com o preço do último lote que o trouxe (o ListaProdutos troca o valor quando
+   * outro lote do mesmo produto tem preço diferente). "Retirar da etiqueta produtos em promoção" (`ckPromo`) olha a PROMOÇÃO ATUAL
+   * do produto na loja do lote (`COALESCE(M.PROMOCAO,'N') PROMOCAO` do sqqAjustePrecos — não a do lote, que é PROMOCAOLOTEPRECO).
+   * Com DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE = S (a produção: S) o grupo vai a 0 e só o produto do lote sai. Os lotes são
+   * os das lojas do operador (a grade do ajuste traz as do GetMultiEmpresa). Produção: 469 das 789 execuções do ajuste imprimiram.
    */
   async dosLotes(codlotes: number[], semPromocao = false): Promise<Etiqueta[]> {
     const emp = this.emp();
@@ -334,17 +338,23 @@ export class EtiquetaService {
   private async etiquetasDosLotes(db: AnyDB, emp: number, codlotes: number[], semPromocao: boolean): Promise<Etiqueta[]> {
     const ids = Array.from(new Set(codlotes.map(Number).filter((x) => Number.isInteger(x) && x > 0)));
     if (!ids.length) return [];
+    const lojas = await todasAsEmpresasDoOperador(db);
     const lotes = (await sql<{ codlotepreco: number; idproduto: number; vrvenda: unknown; promocao: string | null; g: number | null }>`
-      SELECT l.codlotepreco, l.idproduto, l.vrvenda, l.promocao, p.codgrupopreco AS g FROM lote_preco l JOIN produtos p ON p.idproduto = l.idproduto
-       WHERE l.codlotepreco = ANY(${ids}::int[]) AND l.codempresa = ${emp} ORDER BY l.codlotepreco`.execute(db)).rows;
+      SELECT l.codlotepreco, l.idproduto, l.vrvenda, coalesce(m.promocao, 'N') AS promocao, p.codgrupopreco AS g
+        FROM lote_preco l JOIN produtos p ON p.idproduto = l.idproduto
+        LEFT JOIN multi_preco m ON m.idproduto = l.idproduto AND m.idempresa = l.codempresa
+       WHERE l.codlotepreco = ANY(${ids}::int[]) AND l.codempresa = ANY(${lojas}::int[]) ORDER BY l.codlotepreco`.execute(db)).rows;
+    const semGrupo = ['S', 'SIM'].includes(String((await this.config.resolver('DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE', { empresaId: emp, operadorId: this.op(), modulo: 'Retaguarda' })) ?? 'N').trim().toUpperCase());
     // produto → { lote que manda no preço }, na ordem em que entraram
     const ordem: number[] = [];
     const doLote = new Map<number, { codlotepreco: number; vrvenda: number }>();
     for (const l of lotes) {
       if (semPromocao && str(l.promocao) === 'S') continue;
-      const alvos = l.g != null && Number(l.g) > 0
-        ? (await sql<{ p: number }>`SELECT idproduto AS p FROM produtos WHERE codgrupopreco = ${Number(l.g)} ORDER BY idproduto`.execute(db)).rows.map((r) => Number(r.p))
-        : [Number(l.idproduto)];
+      const doGrupo = !semGrupo && l.g != null
+        ? (await sql<{ p: number }>`SELECT p.idproduto AS p FROM produtos p WHERE p.codgrupopreco = ${Number(l.g)} AND p.ativo = 'S'
+             AND EXISTS (SELECT 1 FROM multi_preco m WHERE m.idproduto = p.idproduto) ORDER BY p.idproduto`.execute(db)).rows.map((r) => Number(r.p))
+        : [];
+      const alvos = doGrupo.length ? doGrupo : [Number(l.idproduto)];
       for (const a of alvos) {
         if (!doLote.has(a)) ordem.push(a);
         doLote.set(a, { codlotepreco: Number(l.codlotepreco), vrvenda: num(l.vrvenda) });

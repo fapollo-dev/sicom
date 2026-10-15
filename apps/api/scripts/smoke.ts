@@ -5707,7 +5707,7 @@ async function main() {
         // 47j.1) fila: os 4 lotes pendentes, com preço ATUAL ao lado + filtro por origem (PEDIDO → só o loteB).
         const fila = (await (await fetch(`${base}/${AP}/fila`, { headers: H })).json().catch(() => [])) as any[];
         const fA = fila.find((l) => Number(l.codlotepreco) === loteA);
-        const filaPed = (await (await fetch(`${base}/${AP}/fila?origem=PEDIDO`, { headers: H })).json().catch(() => [])) as any[];
+        const filaPed = (await (await fetch(`${base}/${AP}/fila?pedido=S`, { headers: H })).json().catch(() => [])) as any[];
         check('AJUSTE-PREÇO: fila lista pendentes com preço ATUAL (990400: novo 6,49 × atual 5,00; grupo 77) + filtro origem PEDIDO isola o lote do pedido',
           Array.isArray(fila) && fila.length >= 4 && fA && Number(fA.vrvenda) === 6.49 && Number(fA.preco_atual) === 5 && Number(fA.codgrupopreco) === 77
           && filaPed.length === 1 && Number(filaPed[0].codlotepreco) === loteB,
@@ -20801,6 +20801,68 @@ async function main() {
         await pg5.end();
       }
     }
+    // ══ §326 AJUSTE DE PREÇOS - LOTE (a auditoria do uAjustePrecos.dfm): o Pesquisar com período, lojas (GetMultiEmpresa) e as três caixas de
+    // origem combináveis; o Processar na loja DO LOTE só com o acesso (sem Tag 1); o Excluir com BTNEXCLUIR (Tag 1).
+    {
+      const pgAj = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tinha72 = Number((await pgAj.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const perms = (await pgAj.query(`SELECT form, opcao, codoperador, codempresa FROM permissoes WHERE form = 'FRMAJUSTEPRECOS' AND codoperador = 7 AND opcao IN ('BTNGRAVAR','BTNEXCLUIR')`)).rows as any[];
+      const lotes: number[] = [];
+      try {
+        if (!tinha72) await pgAj.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgAj.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco) VALUES
+          (992601,'7000000992601','AJP GRUPO A','UN',1,'T01','S',99260),(992602,'7000000992602','AJP GRUPO B','UN',1,'T01','S',99260),(992603,'7000000992603','AJP SEM PRECO','UN',1,'T01','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco = EXCLUDED.codgrupopreco`);
+        await pgAj.query(`DELETE FROM multi_preco WHERE idproduto IN (992601,992602,992603)`);
+        await pgAj.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES (992601,2,10),(992602,2,10),(992601,1,10),(992602,1,10)`);
+        const lote = async (pid: number, emp: number, vr: number, obs: string, dia: string) => {
+          const id = Number((await pgAj.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, obs, processado, datalote) VALUES ($1,$2,$3,$4,'N',$5::timestamp) RETURNING codlotepreco`, [pid, emp, vr, obs, dia])).rows[0].codlotepreco);
+          lotes.push(id);
+          return id;
+        };
+        const lA = await lote(992601, 2, 11.5, 'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: SMOKE', '2026-10-10 15:30');
+        const lB = await lote(992603, 1, 3, 'REFERENTE AO PEDIDO DE NRO. 5 ', '2026-10-10 08:00');
+        const lC = await lote(992601, 1, 10, 'PRECIFICACAO', '2026-10-10 23:59');
+        const lD = await lote(992601, 2, 12, 'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO', '2026-09-01 10:00');
+        const AJ = `${base}/cadastro/ajuste-precos/fila?dtini=2026-10-10&dtfim=2026-10-10`;
+        const ids = async (q: string) => ((await (await fetch(`${AJ}${q}`, { headers: H })).json().catch(() => [])) as any[]).map((l) => Number(l.codlotepreco)).filter((x) => lotes.includes(x)).sort((a, b) => a - b);
+        const todas = await ids('&empresas=1,2');
+        const cadPed = await ids('&empresas=1,2&cadastro=S&pedido=S');
+        const soCad = await ids('&empresas=1,2&cadastro=S');
+        const nf = await ids('&empresas=1,2&nf=S');
+        const login = await ids('');
+        check('AJUSTE DE PREÇOS §326 [o Pesquisar]: o período corta pelo dia (lD de setembro fica fora), as lojas do GetMultiEmpresa (sem lojas = a do login: sem o lA da loja 2), "cadastro"+"pedidos" juntas = OU, só "cadastro" = o prefixo dele, "nota fiscal" = preço do lote ≠ preço atual (sem linha de preço na loja não entra, como o NULL do Oracle)',
+          todas.join(',') === [lA, lB, lC].sort((a, b) => a - b).join(',') && cadPed.join(',') === [lA, lB].sort((a, b) => a - b).join(',')
+          && soCad.join(',') === String(lA) && nf.join(',') === String(lA) && login.join(',') === [lB, lC].sort((a, b) => a - b).join(','),
+          { todas, cadPed, soCad, nf, login, lotes });
+
+        // o Processar não tem Tag 1: sem BTNGRAVAR aplica do mesmo jeito, na loja do lote (2), propagando ao grupo na loja 2
+        await pgAj.query(`DELETE FROM permissoes WHERE form = 'FRMAJUSTEPRECOS' AND codoperador = 7 AND opcao IN ('BTNGRAVAR','BTNEXCLUIR')`);
+        const pr = await fetch(`${base}/cadastro/ajuste-precos/processar`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [lA] }) });
+        const prJ = (await pr.json().catch(() => ({}))) as any;
+        const precos = (await pgAj.query(`SELECT idproduto, idempresa, vrvenda::float AS v FROM multi_preco WHERE idproduto IN (992601,992602) ORDER BY idempresa, idproduto`)).rows as any[];
+        const hist = (await pgAj.query(`SELECT codempresa, valor_anterior, valor_atual FROM historico_dinamico WHERE historico = $1`, [`Atualização lote de preço Nro: ${lA}`])).rows as any[];
+        const exSem = await fetch(`${base}/cadastro/ajuste-precos/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [lC] }) });
+        for (const p of perms) await pgAj.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [p.form, p.opcao, p.codoperador, p.codempresa]);
+        const exCom = await fetch(`${base}/cadastro/ajuste-precos/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [lC] }) });
+        const exComJ = (await exCom.json().catch(() => ({}))) as any;
+        const lCrow = (await pgAj.query(`SELECT indr, indr_usuario FROM lote_preco WHERE codlotepreco = $1`, [lC])).rows[0] as any;
+        const v = (p: number, e: number) => precos.find((r) => Number(r.idproduto) === p && Number(r.idempresa) === e)?.v;
+        check('AJUSTE DE PREÇOS §326 [Processar e Excluir]: sem BTNGRAVAR o Processar (sem Tag 1) aplica o lote da loja 2 na loja 2 e no irmão do grupo (11,50), sem tocar a loja 1, com o histórico na loja 2; o Excluir (Tag 1) sem BTNEXCLUIR é 403 e com ela marca INDR=E',
+          pr.status === 200 && prJ.aplicados === 1 && prJ.propagados === 1 && v(992601, 2) === 11.5 && v(992602, 2) === 11.5 && v(992601, 1) === 10 && v(992602, 1) === 10
+          && hist.length === 1 && Number(hist[0].codempresa) === 2 && hist[0].valor_atual === '11,50'
+          && exSem.status === 403 && exCom.status === 200 && exComJ.excluidos === 1 && lCrow?.indr === 'E' && Number(lCrow?.indr_usuario) === 7,
+          { pr: [pr.status, prJ], precos, hist, exSem: exSem.status, exCom: [exCom.status, exComJ], lCrow });
+      } finally {
+        for (const p of perms) await pgAj.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [p.form, p.opcao, p.codoperador, p.codempresa]).catch(() => undefined);
+        if (lotes.length) await pgAj.query(`DELETE FROM historico_dinamico WHERE historico = ANY($1::text[])`, [lotes.map((l) => `Atualização lote de preço Nro: ${l}`)]).catch(() => undefined);
+        await pgAj.query(`DELETE FROM lote_preco WHERE codlotepreco = ANY($1::int[])`, [lotes]).catch(() => undefined);
+        await pgAj.query(`DELETE FROM multi_preco WHERE idproduto IN (992601,992602,992603)`).catch(() => undefined);
+        if (!tinha72) await pgAj.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgAj.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
@@ -26171,14 +26233,23 @@ async function main() {
           (992111,'7000000992111','ETQ GRUPO A','UN',1,'T01','S',99211),(992112,'7000000992112','ETQ GRUPO B','UN',1,'T01','S',99211),(992113,'7000000992113','ETQ SOZINHO','UN',1,'T01','S',NULL)
           ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco=EXCLUDED.codgrupopreco`);
         await pgEl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES (992111,1,5),(992112,1,5),(992113,1,7) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda`);
-        const l1 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992111,1,5,'N','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
-        const l2 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992113,1,7,'S','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        // "Retirar da etiqueta produtos em promoção" olha a promoção ATUAL do produto (M.PROMOCAO), não a do lote: o lote do 992111 diz S
+        // mas o produto não está em promoção; o do 992113 diz N mas o produto está
+        await pgEl.query(`UPDATE multi_preco SET promocao = CASE idproduto WHEN 992113 THEN 'S' ELSE 'N' END WHERE idproduto IN (992111,992112,992113) AND idempresa = 1`);
+        const l1 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992111,1,5,'S','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const l2 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992113,1,7,'N','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        // a produção tem DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE = S (mig 424): só o produto do lote; com N o grupo vem junto
+        const semGrupo = (await (await fetch(`${base}/cadastro/etiqueta/dos-lotes`, { method: 'POST', headers: H, body: JSON.stringify({ codlotes: [l1, l2] }) })).json().catch(() => [])) as any[];
+        await pgEl.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE'`);
         const todos = (await (await fetch(`${base}/cadastro/etiqueta/dos-lotes`, { method: 'POST', headers: H, body: JSON.stringify({ codlotes: [l1, l2] }) })).json().catch(() => [])) as any[];
         const semPromo = (await (await fetch(`${base}/cadastro/etiqueta/dos-lotes`, { method: 'POST', headers: H, body: JSON.stringify({ codlotes: [l1, l2], semPromocao: true }) })).json().catch(() => [])) as any[];
-        check('AJUSTE DE PREÇOS §211 [o botão "Etiquetas"]: os lotes marcados viram etiquetas — o do grupo traz os DOIS produtos do grupo de preço, o sozinho o dele (3 etiquetas, sem repetir); com "sem os de promoção", o lote em promoção fica de fora (2)',
+        check('AJUSTE DE PREÇOS §211 [o botão "Etiquetas"]: os lotes marcados viram etiquetas — o do grupo traz os DOIS produtos do grupo de preço, o sozinho o dele (3 etiquetas, sem repetir); com "Retirar da etiqueta produtos em promoção", sai o produto EM PROMOÇÃO na loja (M.PROMOCAO, não a do lote) (2); com DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE=S (a produção) só os produtos dos lotes',
           Array.isArray(todos) && todos.map((e) => Number(e.idproduto)).sort().join(',') === '992111,992112,992113'
-          && semPromo.map((e: any) => Number(e.idproduto)).sort().join(',') === '992111,992112',
-          { todos: todos?.map?.((e: any) => e.idproduto), semPromo: semPromo?.map?.((e: any) => e.idproduto) });
+          && semPromo.map((e: any) => Number(e.idproduto)).sort().join(',') === '992111,992112'
+          && Array.isArray(semGrupo) && semGrupo.map((e: any) => Number(e.idproduto)).sort().join(',') === '992111,992113',
+          { todos: todos?.map?.((e: any) => e.idproduto), semPromo: semPromo?.map?.((e: any) => e.idproduto), semGrupo: semGrupo?.map?.((e: any) => e.idproduto) });
+        await pgEl.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'DESCONSIDERAR_GRUPO_PREÇO_AJUSTE_PREÇOS_LOTE'`);
+        await pgEl.query(`UPDATE multi_preco SET promocao = 'N' WHERE idproduto IN (992111,992112,992113) AND idempresa = 1`);
         await pgEl.query(`DELETE FROM lote_preco WHERE codlotepreco = ANY($1::int[])`, [[l1, l2]]);
       } finally {
         await pgEl.end();
