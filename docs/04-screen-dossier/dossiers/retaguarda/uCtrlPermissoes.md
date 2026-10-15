@@ -107,7 +107,7 @@ sem rótulo), e o caption do DADO pode divergir do `.dfm` — `FRMAJUSTEESTOQUE/
 ⚠️ e **nós não gravamos caption nenhum** (`permissoes.service.ts:69` insere só form/opcao/codperfil/codempresa).
 Permissão concedida pelo Apollo aparece sem rótulo na tela — do legado e da nossa.
 
-## 5. Quirk a copiar com registro: o filtro do segmento INDÚSTRIA
+## 5. ~~Quirk a copiar com registro: o filtro do segmento INDÚSTRIA~~ — letra morta (ver a auditoria de 15/10/2026 no fim)
 
 `btnMarcarTodosFormClick` (`:478-493`): antes de marcar tudo, se a empresa **não** é `SEGMENTO = 'INDUSTRIA'`, a
 tela localiza o menu "INDÚSTRIA" e **filtra fora os formulários filhos dele** (`CODPAI <> codPai`). Ou seja,
@@ -200,3 +200,24 @@ perfil se editava numa matriz da tela de perfis, que o legado não tem (lá o F4
 - Trocar de aba limpa o código e a empresa da outra (`TbsUsuarioEnter`). `?perfil=N` abre a aba Perfil com ele.
 - Smoke §77.5a; jsdom `ctrlPermissoesPerfil.spec.tsx`.
 
+
+## Auditoria do `uCtrlPermissoes.dfm` (15/10/2026) — controle a controle
+
+28 controles. Produção (somente leitura): PERMISSOES com 1.067 pares (form, opção) distintos em 302 telas; LOG de PERMISSOES com 46
+"removeu todas as permissões da tela" e 120 "removeu a permissão".
+
+| Controle do legado | Apollo |
+|---|---|
+| `trvPermissoes` (a árvore do menu: `CarregaDataSetMenu` monta do TMainMenu do uMenuSuperior) | "Tela" com o NOME da tela (o FORM_CAPTION que o dado guarda) e o identificador, em ordem alfabética do nome (antes só o identificador). O catálogo segue o da produção (DISTINCT de PERMISSOES): o menu do fonte de 2020 tem 265 telas / 898 pares e não conhece 243 pares da produção (65 telas — FRMETIQUETA, FRMFECHAMENTOSANGRIA… — o binário é mais novo); os 74 pares que só o fonte tem nunca foram concedidos. |
+| `trvOpcoes` + `trvOpcoesDblClick` | Conceder/Revogar por linha. **Tirar o "Acessar formulário" tira a tela inteira** (`:1531-1535` → `btnDesMarcarTodosOpcoesClick`), com auditoria de cada remoção e a LOG "removeu todas as permissões da tela" — o Apollo tirava só a linha do acesso e deixava as opções. Vale para usuário e perfil. |
+| `edtLocalizar` | Localizar: filtra pelo nome da tela ou da ação, sem acento. |
+| `btnMarcarTodosForm` "&1 - Marcar todos" | Mesmo rótulo. Só insere o que falta (`ImageIndex = 1`): a linha que já existia fica com o rótulo dela (o Apollo apagava e regravava tudo). **Sem o filtro de indústria**: o `Locate('DESCRICAO','INDÚSTRIA')` (:485) procura com acento uma descrição que o `CarregaDataSetMenu` grava sem acento (`RemoveAcentoCedilhaTrema` → "INDUSTRIA", :1586) e nunca acha. Prova: os 12 operadores de acesso total (221 a 298 telas) têm as 15 telas do menu Indústria nas lojas 1, 2 e 52, todas de segmento PADRAO. O Apollo filtrava por nome e tirava o FRMRELATORIOINDUSTRIA. Confirma antes (o legado não confirma). |
+| `btnDesMarcarTodosForm` "&2 - Desmarcar todos" | Mesmo rótulo; `GetSQL_Delete_todas_permissoes` — tudo do alvo na empresa, numa instrução, com auditoria. Confirma antes. |
+| `btnMarcarTodosOpcoes` "&3 - Marcar" / `btnDesMarcarTodosOpcoes` "&4 - Desmarcar " | Mesmos rótulos; habilitam com uma tela escolhida. |
+| `cbbEmpresa` / `cbbEmpresaPerfil` | Empresa. ⚠️ o "1 - Marcar todos" do legado grava na empresa do LOGIN (`dmPrincipal.EmpresaCODEMPRESA`, :1000), não na escolhida — defeito; o Apollo usa a escolhida, como os outros três botões do próprio legado. |
+| `btnCarregar` | Carrega ao escolher (sem o botão). |
+| `BtnLog`, abas Perfil/Usuário/Clone, `BtnClonarPerfil`/`BtnClonarUsuario`, `btnClone`, `cbbDaEmpresa`/`cbbParaEmpresa`, `btnCopiarPara` | Já convertidos (cortes de 04/09, 23/09 e 08/10 acima): Registro de log, as duas abas, "Copiar de outro…" com as empresas de origem e destino (SP_REPLICA_PERMISSAO destrutivo). |
+| `btnCancelar` "&Sair" (`frmMenuSuperior.geradiretivas`) | O menu do Apollo relê as permissões ao navegar. |
+
+Smoke §327 (operador descartável 99327): a cascata do acesso, a LOG, o marcar todos com a tela de indústria e sem reescrever a linha
+existente, o desmarcar todos só na empresa escolhida. jsdom `ctrlPermissoesBotoes.spec.tsx`.

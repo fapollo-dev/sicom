@@ -5,6 +5,7 @@ import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design
 import { Modal } from '../../shared/ui/Modal';
 import { ShieldCheck, ShieldOff } from 'lucide-react';
 import { Button } from '../../shared/ui/Button';
+import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
@@ -29,8 +30,23 @@ import {
  *  · aberta pelo F4 da tela de perfis (`AbreTelaComCodigo`/`AbreTelaTipoCodigo = tpPerfil`): `?perfil=N` abre a aba Perfil com ele.
  */
 const chave = (form: string, opcao: string) => `${form} ${opcao}`;
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 
 type Acao = { form: string; opcao: string; caption?: string | null; form_caption?: string | null };
+
+/** a árvore de telas do legado mostra o NOME da tela (cdsMenuDESCRICAO); aqui o FORM_CAPTION que o dado guarda, com o identificador */
+export function telasDoCatalogo(catalogo: Acao[]): Array<{ form: string; rotulo: string }> {
+  const nome = new Map<string, string>();
+  for (const c of catalogo) if (!nome.has(c.form) || (c.form_caption && nome.get(c.form) === c.form)) nome.set(c.form, c.form_caption || c.form);
+  return [...nome.entries()].map(([form, rotulo]) => ({ form, rotulo })).sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'));
+}
+
+/** a tela escolhida e o Localizar (pelo nome da tela ou da ação, sem acento) */
+export function filtrarCatalogo(catalogo: Acao[], form: string, localizar: string): Acao[] {
+  const termo = semAcento(localizar.trim());
+  return catalogo.filter((c) => (!form || c.form === form)
+    && (!termo || semAcento(`${c.form_caption ?? ''} ${c.form} ${c.caption ?? ''} ${c.opcao}`).includes(termo)));
+}
 
 export function CtrlPermissoesPage({ perfil }: { perfil?: number } = {}) {
   const mensagem = useMensagem();
@@ -100,11 +116,11 @@ export function CtrlPermissoesPage({ perfil }: { perfil?: number } = {}) {
   const lote = async (concedido: boolean, form?: string) => {
     if (operador == null) { mensagem.erro(`Selecione o ${quem}.`); return; }
     if (!form && concedido && !window.confirm(`Conceder TODAS as ações do catálogo a este ${quem}?`)) return;
+    if (!form && !concedido && !window.confirm(`Remover TODAS as permissões deste ${quem} nesta empresa?`)) return;
     setOcupado(true);
     try {
       const r = await setLotePermissoes({ ...(porPerfil ? { codperfil: operador } : { codoperador: operador }), form, concedido, codempresa: empresa });
-      // o legado não concede as telas de INDÚSTRIA a empresa que não é industrial (uCtrlPermissoes.pas:478)
-      mensagem.sucesso(`${r.alterados} alteração(ões).${r.ignorados_industria ? ` ${r.ignorados_industria} tela(s) de indústria fora (a empresa não é industrial).` : ''}`);
+      mensagem.sucesso(`${r.alterados} alteração(ões).`);
       await recarregar(operador, empresa);
     } catch (e) {
       mensagem.erro(e);
@@ -130,8 +146,10 @@ export function CtrlPermissoesPage({ perfil }: { perfil?: number } = {}) {
     }
   };
 
-  const forms = useMemo(() => Array.from(new Set(catalogo.map((c) => c.form))).sort(), [catalogo]);
-  const linhas = useMemo(() => (filtroForm ? catalogo.filter((c) => c.form === filtroForm) : catalogo), [catalogo, filtroForm]);
+  const forms = useMemo(() => telasDoCatalogo(catalogo), [catalogo]);
+  // edtLocalizar (edtLocalizarKeyDown :682): procura a tela pelo nome
+  const [localizar, setLocalizar] = useState('');
+  const linhas = useMemo(() => filtrarCatalogo(catalogo, filtroForm, localizar), [catalogo, filtroForm, localizar]);
 
   const cols = useMemo<DataTableColumnDef<Acao>[]>(() => [
     { field: 'form', headerName: 'Tela', type: 'text', isPrimary: true, valueGetter: (r) => (r.form_caption ? `${r.form_caption}` : r.form) },
@@ -173,12 +191,16 @@ export function CtrlPermissoesPage({ perfil }: { perfil?: number } = {}) {
           )}
           <SelectField label="Empresa" options={empresaOptions} value={empresa != null ? String(empresa) : undefined}
             onChange={(v) => setEmpresa(v ? Number(v) : undefined)} placeholder="Empresa da sessão" />
-          <SelectField label="&Tela" options={[{ value: '', label: 'Todas as telas' }, ...forms.map((f) => ({ value: f, label: f }))]}
+          <SelectField label="&Tela" options={[{ value: '', label: 'Todas as telas' }, ...forms.map((f) => ({ value: f.form, label: f.rotulo === f.form ? f.form : `${f.rotulo} (${f.form})` }))]}
             value={filtroForm} onChange={(v) => setFiltroForm(v ?? '')} />
+          <Field label="Locali&zar" value={localizar} onChange={(e) => setLocalizar(e.target.value)} placeholder="nome da tela ou da ação" />
         </div>
+        {/* os quatro botões do legado: 1/2 = todas as telas (btnMarcarTodosForm / btnDesMarcarTodosForm), 3/4 = as opções da tela escolhida */}
         <div className="mt-form-gap flex flex-wrap gap-gp-sm">
-          <Button label={filtroForm ? 'Marcar tudo desta tela' : 'Marcar &tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(true, filtroForm || undefined)} />
-          <Button label={filtroForm ? 'Desmarcar tudo desta tela' : '&Desmarcar tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(false, filtroForm || undefined)} />
+          <Button label="&1 - Marcar todos" variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(true)} />
+          <Button label="&2 - Desmarcar todos" variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(false)} />
+          <Button label="&3 - Marcar" variant="soft" disabled={ocupado || operador == null || !filtroForm} onClick={() => void lote(true, filtroForm)} />
+          <Button label="&4 - Desmarcar" variant="soft" disabled={ocupado || operador == null || !filtroForm} onClick={() => void lote(false, filtroForm)} />
           <Button label={porPerfil ? '&Copiar de outro perfil…' : '&Copiar de outro operador…'} variant="soft" disabled={ocupado || (porPerfil && operador == null)}
             onClick={() => { setClone({ para: operador, de_empresa: empresa, para_empresa: empresa }); setClonando(true); }} />
           {/* BtnLogClick (uCtrlPermissoes.pas:460): exige o usuário; mostra a coluna Empresa — quem liberou/removeu o quê */}

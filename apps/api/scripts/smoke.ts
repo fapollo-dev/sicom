@@ -20863,6 +20863,63 @@ async function main() {
       }
     }
 
+    // ══ §327 CONTROLE DE PERMISSÕES (a auditoria do uCtrlPermissoes.dfm): tirar o "Acessar formulário" tira a tela inteira (trvOpcoesDblClick
+    // → btnDesMarcarTodosOpcoesClick); «1 - Marcar todos» só insere o que falta, sem o filtro de indústria (letra morta no legado); «2 -
+    // Desmarcar todos» apaga tudo do alvo na empresa. Com um operador descartável — o marcar/desmarcar todos não pode tocar os do smoke.
+    {
+      const pgCp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const OP = 99327;
+      const PM = 'cadastro/permissoes';
+      try {
+        await pgCp.query(`DELETE FROM permissoes WHERE codoperador = $1`, [OP]);
+        await pgCp.query(`INSERT INTO operadores (codoperador, nome, login, tipoop) VALUES ($1, 'OPER 327', 'OPER327', 'USU') ON CONFLICT (codoperador) DO NOTHING`, [OP]);
+        // a tela de indústria entra no catálogo (como na produção: 12 operadores de acesso total a têm)
+        await pgCp.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa, caption, form_caption) VALUES ('FRMRELATORIOINDUSTRIA','FRMRELATORIOINDUSTRIA',7,2,'Acessar formulário','RELATORIOS') ON CONFLICT DO NOTHING`);
+        const put = async (path: string, body: unknown) => { const r = await fetch(`${base}/${PM}${path}`, { method: 'PUT', headers: H, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const conta = async (extra = '') => Number((await pgCp.query(`SELECT count(*)::int n FROM permissoes WHERE codoperador = $1 AND codempresa = 1 ${extra}`, [OP])).rows[0].n);
+        // a tela das liberações: o acesso + uma opção; tirar o acesso tira as duas e a LOG diz "removeu todas as permissões da tela"
+        await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'FRMLIBERACOES', concedido: true, codempresa: 1 });
+        await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true, codempresa: 1 });
+        const antes = await conta(`AND upper(form) = 'FRMLIBERACOES'`);
+        const tira = await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'FRMLIBERACOES', concedido: false, codempresa: 1 });
+        const depois = await conta(`AND upper(form) = 'FRMLIBERACOES'`);
+        const logTela = (await pgCp.query(`SELECT historico FROM log WHERE tabela = 'PERMISSOES' AND valor = $1 ORDER BY 1 DESC`, [String(OP)]).catch(() => ({ rows: [] }))).rows.map((r: any) => String(r.historico));
+        const audit = Number((await pgCp.query(`SELECT count(*)::int n FROM audit_permissoes WHERE codoperador = $1 AND tipo = 'DELETE' AND upper(form) = 'FRMLIBERACOES'`, [OP])).rows[0].n);
+        // tirar só a opção não mexe no acesso
+        await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'FRMLIBERACOES', concedido: true, codempresa: 1 });
+        await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true, codempresa: 1 });
+        await put('/operador', { codoperador: OP, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false, codempresa: 1 });
+        const soOpcao = await conta(`AND upper(form) = 'FRMLIBERACOES'`);
+        check('PERMISSÕES §327 [o "Acessar formulário"]: tirá-lo tira TODAS as opções da tela (trvOpcoesDblClick → btnDesMarcarTodosOpcoesClick), audita cada remoção e a LOG grava "removeu todas as permissões da tela"; tirar só uma opção deixa o acesso',
+          antes === 2 && tira.status === 200 && depois === 0 && audit >= 2 && logTela.some((h) => h.includes('REMOVEU TODAS AS PERMISSOES DA TELA')) && soOpcao === 1,
+          { antes, tira: tira.status, depois, audit, log: logTela.slice(0, 3), soOpcao });
+
+        // «1 - Marcar todos»: o catálogo inteiro, inclusive a tela de indústria (a empresa é PADRAO/nula); a linha que já existia fica como estava
+        await pgCp.query(`UPDATE permissoes SET caption = 'ROTULO PROPRIO' WHERE codoperador = $1 AND upper(form) = 'FRMLIBERACOES' AND upper(opcao) = 'FRMLIBERACOES'`, [OP]);
+        const cat = Number((await pgCp.query(`SELECT count(*)::int n FROM (SELECT DISTINCT form, opcao FROM permissoes) x`)).rows[0].n);
+        const tudo = await put('/lote', { codoperador: OP, concedido: true, codempresa: 1 });
+        const nTudo = await conta();
+        const ind = await conta(`AND upper(form) = 'FRMRELATORIOINDUSTRIA'`);
+        const proprio = (await pgCp.query(`SELECT caption FROM permissoes WHERE codoperador = $1 AND upper(form) = 'FRMLIBERACOES' AND upper(opcao) = 'FRMLIBERACOES'`, [OP])).rows.map((r: any) => r.caption);
+        // «2 - Desmarcar todos»: tudo do alvo na empresa — inclusive uma linha fora do catálogo de outra caixa (só a empresa 1)
+        await pgCp.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('frmQualquer','btnX',$1,1), ('FRMLIBERACOES','FRMLIBERACOES',$1,2)`, [OP]);
+        const nada = await put('/lote', { codoperador: OP, concedido: false, codempresa: 1 });
+        const nNada = await conta();
+        const naEmp2 = Number((await pgCp.query(`SELECT count(*)::int n FROM permissoes WHERE codoperador = $1 AND codempresa = 2`, [OP])).rows[0].n);
+        check('PERMISSÕES §327 [1 - Marcar todos / 2 - Desmarcar todos]: marcar dá o catálogo inteiro ao alvo — com a tela de indústria, porque o filtro do legado procura "INDÚSTRIA" com acento numa descrição gravada sem acento e nunca filtra — sem reescrever a linha que já existia; desmarcar apaga TUDO do alvo na empresa (GetSQL_Delete_todas_permissoes) e não toca a outra empresa',
+          tudo.status === 200 && nTudo === cat && ind === 1 && proprio.length === 1 && proprio[0] === 'ROTULO PROPRIO' && tudo.j.ignorados_industria === undefined
+          && nada.status === 200 && nNada === 0 && naEmp2 === 1,
+          { tudo: [tudo.status, tudo.j], nTudo, cat, ind, proprio, nada: [nada.status, nada.j], nNada, naEmp2 });
+      } finally {
+        await pgCp.query(`DELETE FROM permissoes WHERE codoperador = $1`, [OP]).catch(() => undefined);
+        await pgCp.query(`DELETE FROM permissoes WHERE form = 'FRMRELATORIOINDUSTRIA' AND codoperador = 7 AND codempresa = 2`).catch(() => undefined);
+        await pgCp.query(`DELETE FROM audit_permissoes WHERE codoperador = $1`, [OP]).catch(() => undefined);
+        await pgCp.query(`DELETE FROM log WHERE tabela = 'PERMISSOES' AND valor = $1`, [String(OP)]).catch(() => undefined);
+        await pgCp.query(`DELETE FROM operadores WHERE codoperador = $1`, [OP]).catch(() => undefined);
+        await pgCp.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

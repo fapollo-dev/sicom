@@ -98,6 +98,14 @@ export class PermissoesService {
         const { caption, form_caption } = await this.rotulos(trx, f, o);
         // codoperador FICA NULO: operador OU perfil, nunca os dois (:314-315)
         await trx.insertInto('permissoes').values({ form: f, opcao: o, codperfil, codempresa: emp, caption, form_caption }).execute();
+      } else if (o === f && existia) {
+        await trx.insertInto('audit_permissoes').values({
+          form: f, opcao: o, codoperador: null, codperfil, codempresa: emp, tipo: 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+        }).execute();
+        await this.cascataDaTela(trx, 'codperfil', codperfil, emp, f);
+        const tela = (await this.rotulos(trx, f, f)).form_caption ?? f;
+        await this.logPermissao(trx, 'Excluiu', { codperfil }, emp, (quem, paraO) => `${quem} removeu todas as permissões da tela  ${tela} para o ${paraO}.`);
+        return { codperfil, codempresa: emp, form: f, opcao: o, concedido };
       }
       // TRILHA (AUDIT_PERMISSOES): registra só quando o estado MUDA (concede o ausente / revoga o presente),
       // na MESMA transação. TIPO fiel ao legado: 'INSERT'=concede, 'DELETE'=revoga; ATOR = operador da sessão.
@@ -128,6 +136,24 @@ export class PermissoesService {
    * guarda programa e máquina). Os textos são os do legado, com os espaços duplos dele; a gravação sai em maiúsculas
    * e sem acento, como na produção.
    */
+  /**
+   * tirar o "Acessar formulário" tira a tela inteira (`trvOpcoesDblClick` :1531-1535): depois do RemoverPermissao do nó de acesso, o
+   * legado chama o `btnDesMarcarTodosOpcoesClick` — remove as opções marcadas da tela e grava só o "removeu todas as permissões da tela"
+   * (talDesmarcarTodasOpcoes), não o "removeu a permissão". Produção: 46 registros desse texto na LOG.
+   */
+  private async cascataDaTela(trx: AnyDB, col: 'codoperador' | 'codperfil', alvo: number, emp: number, f: string): Promise<number> {
+    const removidas = (await trx.deleteFrom('permissoes').where(col, '=', alvo).where(sql`upper(form)`, '=', f).where('codempresa', '=', emp)
+      .returning(['form', 'opcao']).execute()) as Array<{ form: string; opcao: string }>;
+    const ator = currentTenant().operadorId ?? null;
+    for (const r of removidas) {
+      await trx.insertInto('audit_permissoes').values({
+        form: String(r.form).toUpperCase(), opcao: String(r.opcao).toUpperCase(), codoperador: col === 'codoperador' ? alvo : null, codperfil: col === 'codperfil' ? alvo : null,
+        codempresa: emp, tipo: 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+      }).execute();
+    }
+    return removidas.length;
+  }
+
   private async logPermissao(
     trx: AnyDB, acao: AcaoLog, alvo: { codoperador?: number | null; codperfil?: number | null }, emp: number,
     montar: (ator: string, paraO: string) => string,
@@ -192,6 +218,14 @@ export class PermissoesService {
         const { caption, form_caption } = await this.rotulos(trx, f, o);
         // codperfil FICA NULO: a exclusividade do legado (:314-315) é operador OU perfil, nunca os dois.
         await trx.insertInto('permissoes').values({ form: f, opcao: o, codoperador: dto.codoperador, codempresa: emp, caption, form_caption }).execute();
+      } else if (o === f && existia) {
+        await trx.insertInto('audit_permissoes').values({
+          form: f, opcao: o, codoperador: dto.codoperador, codperfil: null, codempresa: emp, tipo: 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+        }).execute();
+        await this.cascataDaTela(trx, 'codoperador', dto.codoperador, emp, f);
+        const tela = (await this.rotulos(trx, f, f)).form_caption ?? f;
+        await this.logPermissao(trx, 'Excluiu', { codoperador: dto.codoperador }, emp, (quem, paraO) => `${quem} removeu todas as permissões da tela  ${tela} para o ${paraO}.`);
+        return { codoperador: dto.codoperador, codempresa: emp, form: f, opcao: o, concedido: dto.concedido };
       }
       if (dto.concedido !== existia) {
         await trx.insertInto('audit_permissoes').values({
@@ -208,65 +242,62 @@ export class PermissoesService {
   }
 
   /**
-   * MARCAR/DESMARCAR EM LOTE (`btnMarcarTodosFormClick` :472 · `btnMarcarTodosOpcoesClick` :516).
-   * `form` presente = todas as opções daquele formulário; ausente = o catálogo inteiro.
-   *
-   * ⚠️ QUIRK COPIADO: ao marcar TODOS, o legado **exclui os formulários do menu INDÚSTRIA** quando a empresa não
-   * é `SEGMENTO='INDUSTRIA'` (`:478-493`) — "marcar todos" nunca dá as telas de indústria a um supermercado.
-   * Aqui o filtro é pelo prefixo/nome do formulário, porque não temos a árvore de menu do legado; está declarado
-   * como aproximação e não como cópia da árvore.
+   * MARCAR/DESMARCAR EM LOTE — os quatro botões do legado:
+   *  · «1 - Marcar todos» (`btnMarcarTodosFormClick` :472 → MarcarDesmarcar(True, True)): toda tela, toda opção; só insere o que FALTA
+   *    (`ImageIndex = 1` — a linha que já existe fica como está, com o rótulo dela);
+   *  · «2 - Desmarcar todos» (`btnDesMarcarTodosFormClick` :429): `DELETE FROM PERMISSOES WHERE CODOPERADOR|CODPERFIL = … AND CODEMPRESA = …`
+   *    (GetSQL_Delete_todas_permissoes) — tudo do alvo na empresa;
+   *  · «3 - Marcar» / «4 - Desmarcar» (`btnMarcarTodosOpcoesClick` :516 / :453): as opções da tela (`form`).
+   * O "tratamento módulo indústria" do :478-493 NÃO é copiado: o `cdsMenu.Locate('DESCRICAO','INDÚSTRIA')` procura com acento uma
+   * descrição que o CarregaDataSetMenu grava sem acento (RemoveAcentoCedilhaTrema: "INDUSTRIA") e nunca acha — na produção os 12
+   * operadores de acesso total têm as 15 telas do menu Indústria nas lojas de segmento PADRAO (uCtrlPermissoes.pas:485 × :1586). O catálogo é o da produção (DISTINCT
+   * de PERMISSOES — o binário do cliente é mais novo que o fonte: 243 pares que o fonte de 2020 não conhece).
    */
-  async setLote(dto: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number; ignorados_industria: number }> {
+  async setLote(dto: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number }> {
     const emp = this.empDe(dto.codempresa);
     const ator = currentTenant().operadorId ?? null;
     const porOperador = dto.codoperador != null;
     const alvo = porOperador ? Number(dto.codoperador) : Number(dto.codperfil);
+    const col = porOperador ? 'codoperador' : 'codperfil';
     const db = this.dbp.forTenantRead() as AnyDB;
     if (porOperador) await this.assertOperador(db, alvo);
     else await this.assertPerfilDeAcesso(db, alvo);
 
-    const segmento = ((await db.selectFrom('empresas').select('segmento').where('idempresa', '=', emp).executeTakeFirst()) as { segmento?: string } | undefined)?.segmento ?? null;
-    const industrial = String(segmento ?? '').toUpperCase() === 'INDUSTRIA';
-
     let pares = (await this.catalogo()) as Array<{ form: string; opcao: string; caption: string | null; form_caption: string | null }>;
-    if (dto.form) {
-      const f = dto.form.trim().toUpperCase();
-      pares = pares.filter((p) => String(p.form).toUpperCase() === f);
-    }
-    let ignorados = 0;
-    if (!dto.form && !industrial) {
-      const antes = pares.length;
-      pares = pares.filter((p) => !/INDUSTRIA|PRODUCAO_IND/i.test(`${p.form} ${p.form_caption ?? ''}`));
-      ignorados = antes - pares.length;
-    }
+    const fu = dto.form ? dto.form.trim().toUpperCase() : null;
+    if (fu) pares = pares.filter((p) => String(p.form).toUpperCase() === fu);
 
     let alterados = 0;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      for (const p of pares) {
-        const f = String(p.form).toUpperCase();
-        const o = String(p.opcao).toUpperCase();
-        const col = porOperador ? 'codoperador' : 'codperfil';
-        const del = await trx.deleteFrom('permissoes').where(col, '=', alvo)
-          .where(sql`upper(form)`, '=', f).where(sql`upper(opcao)`, '=', o).where('codempresa', '=', emp).executeTakeFirst();
-        const existia = Number((del as any)?.numDeletedRows ?? 0) > 0;
-        if (dto.concedido) {
-          await trx.insertInto('permissoes').values({
-            form: f, opcao: o, [col]: alvo, codempresa: emp, caption: p.caption ?? null, form_caption: p.form_caption ?? null,
-          }).execute();
-        }
-        if (dto.concedido !== existia) {
+      const audit = (form: string, opcao: string, tipo: 'INSERT' | 'DELETE') => trx.insertInto('audit_permissoes').values({
+        form, opcao, codoperador: porOperador ? alvo : null, codperfil: porOperador ? null : alvo,
+        codempresa: emp, tipo, programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+      }).execute();
+      if (dto.concedido) {
+        const tem = new Set(((await trx.selectFrom('permissoes').select(['form', 'opcao']).where(col, '=', alvo).where('codempresa', '=', emp).execute()) as Array<{ form: string; opcao: string }>)
+          .map((r) => `${String(r.form).toUpperCase()} ${String(r.opcao).toUpperCase()}`));
+        const vistos = new Set<string>();
+        for (const p of pares) {
+          const f = String(p.form).toUpperCase();
+          const o = String(p.opcao).toUpperCase();
+          const k = `${f} ${o}`;
+          if (tem.has(k) || vistos.has(k)) continue;
+          vistos.add(k);
+          await trx.insertInto('permissoes').values({ form: f, opcao: o, [col]: alvo, codempresa: emp, caption: p.caption ?? null, form_caption: p.form_caption ?? null }).execute();
+          await audit(f, o, 'INSERT');
           alterados++;
-          await trx.insertInto('audit_permissoes').values({
-            form: f, opcao: o, codoperador: porOperador ? alvo : null, codperfil: porOperador ? null : alvo,
-            codempresa: emp, tipo: dto.concedido ? 'INSERT' : 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
-          }).execute();
         }
+      } else {
+        let q = trx.deleteFrom('permissoes').where(col, '=', alvo).where('codempresa', '=', emp);
+        if (fu) q = q.where(sql`upper(form)`, '=', fu);
+        const removidas = (await q.returning(['form', 'opcao']).execute()) as Array<{ form: string; opcao: string }>;
+        for (const r of removidas) await audit(String(r.form).toUpperCase(), String(r.opcao).toUpperCase(), 'DELETE');
+        alterados = removidas.length;
       }
       // o legado grava uma linha por clique (:446/:457/:505/:520): todas as opções de uma tela, ou o acesso total/geral
       const quemAlvo = porOperador ? { codoperador: alvo } : { codperfil: alvo };
       const acaoLog: AcaoLog = dto.concedido ? 'Inseriu' : 'Excluiu';
-      if (dto.form) {
-        const fu = dto.form.trim().toUpperCase();
+      if (fu) {
         const tela = (pares[0]?.form_caption as string | null | undefined) ?? (await this.rotulos(trx, fu, fu)).form_caption ?? fu;
         await this.logPermissao(trx, acaoLog, quemAlvo, emp, (quem, paraO) =>
           `${quem} ${dto.concedido ? 'liberou' : 'removeu'} todas as permissões da tela  ${tela} para o ${paraO}.`);
@@ -275,7 +306,7 @@ export class PermissoesService {
           dto.concedido ? `${quem} liberou acesso total para o  ${paraO}.` : `${quem} removeu o acesso geral do ${paraO}.`);
       }
     });
-    return { alterados, ignorados_industria: ignorados };
+    return { alterados };
   }
 
   /**

@@ -62,7 +62,7 @@ export function setGrantOperador(body: { codoperador: number; form: string; opca
   return req('/cadastro/permissoes/operador', { method: 'PUT', body: JSON.stringify(body) });
 }
 /** marcar/desmarcar em lote: `form` presente = as opções daquele formulário; ausente = o catálogo inteiro. */
-export function setLotePermissoes(body: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number; ignorados_industria: number }> {
+export function setLotePermissoes(body: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number }> {
   return req('/cadastro/permissoes/lote', { method: 'PUT', body: JSON.stringify(body) });
 }
 /** ⚠️ DESTRUTIVO: o legado apaga as permissões do destino antes de copiar (SP_REPLICA_PERMISSAO). */
