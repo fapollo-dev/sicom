@@ -4600,10 +4600,38 @@ async function main() {
     {
       const OPER = 'cadastro/operadoras', CART = 'cadastro/cartao';
       // 47c.1) criar operadora (base txadm 2,59 / diascomp 30) → 201.
-      const opCr = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'MASTERCARD CREDITO', txadm: 2.59, diascomp: 30, tipo: 'C', tipocartao: 2 }) });
+      const opCr = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'MASTERCARD CREDITO', txadm: 2.59, diascomp: 30, tipo: 'C', tipocartao: 2, operadora_pdv: 'MASTER', codrede: 1 }) });
       const opJ = (await opCr.json().catch(() => ({}))) as any;
       const codoper = Number(opJ.codoperadoras);
       check('CARTÃO: criar operadora (txadm 2,59 / diascomp 30 / tipo C) → 201', opCr.status === 201 && codoper > 0, { status: opCr.status, op: opJ });
+
+      // 47c.1b) o UcadOperadoras: todos os campos (gestão, anuidade, dia de fechamento, observações, empresas, POS, operadora do PDV, rede) e
+      // as obrigatórias do btnGravarClick (Operadora PDV, TIPO TEF, REDE TEF); a taxa por loja guarda gestão, anuidade e antecipação
+      const opCompleta = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'ELO 47', txadm: 1.5, diascomp: 2, tipo: 'R', tipocartao: 3,
+        operadora_pdv: 'ELO', codrede: 5, txgestao: 0.25, txanuidade: 12, diafechamento: '10', obs: 'OBS 47', empresas: '1,2', pos: 'S',
+        itens: [{ idempresa: 1, txadm: 1.4, diafechamento: 5, txgestao: 0.2, txanuidade: 10, txantecipacao: 1.99 }] }) });
+      const opCompletaJ = (await opCompleta.json().catch(() => ({}))) as any;
+      const opLida = (await (await fetch(`${base}/${OPER}/${Number(opCompletaJ.codoperadoras)}`, { headers: H })).json().catch(() => ({}))) as any;
+      const semPdv = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'SEM PDV', txadm: 1, diascomp: 1, tipocartao: 2, codrede: 1 }) });
+      const semRede = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'SEM REDE', txadm: 1, diascomp: 1, tipocartao: 2, operadora_pdv: 'X' }) });
+      const semPdvJ = (await semPdv.json().catch(() => ({}))) as any; const semRedeJ = (await semRede.json().catch(() => ({}))) as any;
+      const t0 = (opLida.itens ?? [])[0] ?? {};
+      check('OPERADORAS (UcadOperadoras): grava e lê todos os campos (tipo R, gestão 0,25, anuidade 12, dia 10, obs, empresas, POS, PDV, rede 5) e a taxa por loja com gestão/anuidade/antecipação; sem Operadora PDV → "Operadora PDV é um campo obrigatório."; sem rede → "REDE TEF é um campo obrigatório."',
+        opCompleta.status === 201 && opLida.tipo === 'R' && Number(opLida.txgestao) === 0.25 && Number(opLida.txanuidade) === 12 && opLida.diafechamento === '10'
+        && opLida.obs === 'OBS 47' && opLida.empresas === '1,2' && opLida.pos === 'S' && opLida.operadora_pdv === 'ELO' && Number(opLida.codrede) === 5
+        && Number(t0.txgestao) === 0.2 && Number(t0.txanuidade) === 10 && Number(t0.txantecipacao) === 1.99
+        && semPdv.status === 422 && semPdvJ.message === 'Operadora PDV é um campo obrigatório.' && semRede.status === 422 && semRedeJ.message === 'REDE TEF é um campo obrigatório.',
+        { s: opCompleta.status, opLida, semPdv: [semPdv.status, semPdvJ.message], semRede: [semRede.status, semRedeJ.message] });
+      // a aba "Operadoras Assossiadas" (qryOperadorasFilhas: CODOPERADORABASE = a aberta); a excluída sai (no legado o Excluir apaga)
+      const codBase47 = Number(opCompletaJ.codoperadoras);
+      const filha47 = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'ELO 47 FILHA', txadm: 1, diascomp: 1, tipocartao: 2,
+        operadora_pdv: 'ELOF', codrede: 5, codoperadorabase: codBase47 }) })).json().catch(() => ({}))) as any;
+      const filhas47 = (await (await fetch(`${base}/${OPER}/${codBase47}/filhas`, { headers: H })).json().catch(() => [])) as any[];
+      await fetch(`${base}/${OPER}/${Number(filha47.codoperadoras)}`, { method: 'DELETE', headers: H });
+      const filhas47b = (await (await fetch(`${base}/${OPER}/${codBase47}/filhas`, { headers: H })).json().catch(() => [])) as any[];
+      check('OPERADORAS (UcadOperadoras): a aba Operadoras Assossiadas lista as que têm esta como base (com a Operadora PDV) e a excluída sai',
+        filhas47.length === 1 && Number(filhas47[0]?.codoperadoras) === Number(filha47.codoperadoras) && filhas47[0]?.operadora_pdv === 'ELOF' && filhas47b.length === 0,
+        { filha47, filhas47, filhas47b });
 
       // 47c.2) criar recebível (bruto 100) → 201 + nasce LIBERADO='N'. A forma de pagamento é obrigatória (FormaPagamentoPreenchida)
       const fpsCartao = (await (await fetch(`${base}/cadastro/formas-pgto`, { headers: H })).json().catch(() => [])) as any[];
@@ -4678,7 +4706,7 @@ async function main() {
         const ccMjAntes = (await pgCa.query(`SELECT ccmultajuros FROM empresas WHERE idempresa=1`)).rows[0]?.ccmultajuros ?? null;
         if (ccMjAntes == null) await pgCa.query(`UPDATE empresas SET ccmultajuros = (SELECT min(codplc) FROM plc) WHERE idempresa=1`);
         // operadora base 2% + 2 recebíveis abertos (100→líq 98 / 50→líq 49).
-        const opJ = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'REDE DEBITO', txadm: 2, diascomp: 1, tipo: 'D' }) })).json().catch(() => ({}))) as any;
+        const opJ = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'REDE DEBITO', txadm: 2, diascomp: 1, tipo: 'D', tipocartao: 1, operadora_pdv: 'REDE', codrede: 1 }) })).json().catch(() => ({}))) as any;
         const codoper = Number(opJ.codoperadoras);
         // a forma dos dois é a TEF (a mesma em que o cartão sem forma caía)
         const c1 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, idpgto: fpTef, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);

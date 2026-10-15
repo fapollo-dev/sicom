@@ -694,6 +694,9 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/contas-bancarias': { view: 'get_contas_bancarias', relacao: 'rel_get_contas_bancarias', ocultas: OCULTAS.contasBancarias, form: 'FRMPESQUISA',
     titulo: 'Contas bancárias', retorno: 'codigo', campoAtivo: ATIVO },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
+  // o grupo TEF das Operadoras de Cartão (UcadOperadoras.pas): a rede (GET_REDE) e a operadora base (GET_OPERADORAS, btnPesquisaOperadorBase)
+  'lookup/rede': { view: 'get_rede', form: 'FRMPESQUISA', titulo: 'Rede', retorno: 'codigo' },
+  'lookup/operadoras': { view: 'get_operadoras', form: 'FRMPESQUISA', titulo: 'Operadoras', retorno: 'codigo' },
   // a condição de pagamento do fornecedor (uCadClientes `SegCondicaoPagto`/`btnBuscaCondicaoPagto` sobre CONDICOES_PAGTO)
   'lookup/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMPESQUISA', titulo: 'Condições de pagamento', retorno: 'codigo' },
   'lookup/cidades': { view: 'get_cidades', form: 'FRMPESQUISA', titulo: 'Cidades', retorno: 'idcidade', abertura: { campo: 'cidade', operacao: 'qualquer' } },

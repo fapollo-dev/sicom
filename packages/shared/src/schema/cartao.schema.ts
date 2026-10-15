@@ -25,6 +25,10 @@ export const operadoraTaxaSchema = z.object({
   idempresa: z.coerce.number().int().positive({ message: 'Informe a empresa.' }),
   txadm: dec(z.number()),
   diafechamento: dec(z.number().int()),
+  /** a aba Taxas do UcadOperadoras: gestão, anuidade e antecipação por loja (OPERADORAS_TAXA) */
+  txgestao: dec(z.number()),
+  txanuidade: dec(z.number()),
+  txantecipacao: dec(z.number()),
 });
 export type OperadoraTaxaDto = z.infer<typeof operadoraTaxaSchema>;
 
@@ -33,13 +37,27 @@ export const operadoraSchema = z.object({
   txadm: dec(z.number()),
   txadmparc: dec(z.number()),
   diascomp: dec(z.number().int()),
-  tipo: opcional(z.enum(['C', 'D', 'A'])), // Crédito / Débito / Alimentação-voucher
+  // o combo do legado (UcadOperadoras.dfm): A Alimentação · C Crédito · D Débito · G Gift · O Outro · P Premium · R Refeição; a produção
+  // também tem 'I' (2 operadoras) e vazio — o valor gravado se preserva
+  tipo: opcional(z.string().max(1)),
   tipocartao: dec(z.number().int()),
   codbandeira: dec(z.number().int()),
   codadm: dec(z.number().int()),
   codbanco: dec(z.number().int()),
   codoperadorabase: dec(z.number().int()),
   ativo: opcional(z.enum(['S', 'N'])),
+  // os demais campos do UcadOperadoras (todos usados na produção: gestão em 23 das 74, anuidade em 7, observações em 10, empresas em 7,
+  // operadora do PDV e rede em todas, POS em 1) e os do binário novo (FLG_VALIDAR_NSU, SMART_TEF)
+  txgestao: dec(z.number()),
+  txanuidade: dec(z.number()),
+  diafechamento: opcional(z.string().max(5)),
+  obs: opcional(z.string().max(1000)),
+  empresas: opcional(z.string().max(300)),
+  pos: opcional(z.enum(['S', 'N'])),
+  operadora_pdv: opcional(z.string().max(50)),
+  codrede: dec(z.number().int()),
+  flg_validar_nsu: opcional(z.enum(['S', 'N'])),
+  smart_tef: opcional(z.string().max(1)),
   itens: z.array(operadoraTaxaSchema).max(500).optional(), // operadoras_taxa (chave 'itens' do agregado)
 });
 export type OperadoraDto = z.infer<typeof operadoraSchema>;

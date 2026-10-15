@@ -27,8 +27,12 @@ export interface Operadora {
   tipocartao?: number | null;
   ativo?: string | null;
 }
-export interface OperadoraTaxa { idempresa: number; txadm?: number; diafechamento?: number }
-export interface OperadoraDetalhe extends Operadora { txadmparc?: number; codbandeira?: number | null; codadm?: number | null; codbanco?: number | null; codoperadorabase?: number | null; itens: OperadoraTaxa[] }
+export interface OperadoraTaxa { idempresa: number; txadm?: number; diafechamento?: number; txgestao?: number; txanuidade?: number; txantecipacao?: number }
+export interface OperadoraDetalhe extends Operadora {
+  txadmparc?: number; codbandeira?: number | null; codadm?: number | null; codbanco?: number | null; codoperadorabase?: number | null; itens: OperadoraTaxa[];
+  txgestao?: number | null; txanuidade?: number | null; diafechamento?: string | null; obs?: string | null; empresas?: string | null; pos?: string | null;
+  operadora_pdv?: string | null; codrede?: number | null; flg_validar_nsu?: string | null; smart_tef?: string | null;
+}
 
 export interface CartaoRecebivel {
   codvendcartao: number;
@@ -52,6 +56,8 @@ export function obterOperadora(id: number): Promise<OperadoraDetalhe> { return r
 export function criarOperadora(body: Partial<OperadoraDetalhe>): Promise<OperadoraDetalhe> { return req('/cadastro/operadoras', { method: 'POST', body: JSON.stringify(body) }); }
 export function atualizarOperadora(id: number, body: Partial<OperadoraDetalhe>): Promise<OperadoraDetalhe> { return req(`/cadastro/operadoras/${id}`, { method: 'PUT', body: JSON.stringify(body) }); }
 export function excluirOperadora(id: number): Promise<void> { return req(`/cadastro/operadoras/${id}`, { method: 'DELETE' }); }
+// a aba "Operadoras Assossiadas" (UcadOperadoras): as que têm esta como OPERADORA BASE
+export function listarFilhasOperadora(id: number): Promise<Array<Record<string, unknown>>> { return req(`/cadastro/operadoras/${id}/filhas`, { method: 'GET' }); }
 
 // ── recebíveis (cartão)
 /**
