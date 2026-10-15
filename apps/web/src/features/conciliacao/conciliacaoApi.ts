@@ -25,17 +25,29 @@ export interface Par { mbo_id: number; codmovconta: number; valor: number; data:
 
 export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
 /** corte-2: sobe o arquivo .ofx cru (texto) — o servidor parseia e dedup por FITID. */
-export function importarOfx(codconta: number, nomeArquivo: string, conteudo: string): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
-  return req('/cadastro/conciliacao-bancaria/importar-ofx', { method: 'POST', body: JSON.stringify({ codconta, nomeArquivo, conteudo }) });
+export function importarOfx(codconta: number, nomeArquivo: string, conteudo: string, indices?: number[]): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
+  return req('/cadastro/conciliacao-bancaria/importar-ofx', { method: 'POST', body: JSON.stringify({ codconta, nomeArquivo, conteudo, indices }) });
 }
 /** as descrições do extrato que a importação ignora (CFG_DESCRICAO_NAO_IMPORTAR_OFX) */
 export function descricoesIgnoradas(codconta: number): Promise<string[]> { return req(`/cadastro/conciliacao-bancaria/descricoes-ignoradas?codconta=${codconta}`, { method: 'GET' }); }
 export function gravarDescricaoIgnorada(codconta: number, descricao: string, remover = false): Promise<string[]> {
   return req('/cadastro/conciliacao-bancaria/descricoes-ignoradas', { method: 'POST', body: JSON.stringify({ codconta, descricao, remover }) });
 }
-export function pendentes(codconta: number): Promise<{ ofx: OfxLinha[]; mov: MovLinha[] }> { return req(`/cadastro/conciliacao-bancaria/pendentes?codconta=${codconta}`, { method: 'GET' }); }
+/** os períodos das duas listas da conciliação manual (razão e extrato), cada uma com o seu "Pesquisar" */
+export interface PeriodosConciliacao { movIni: string; movFim: string; ofxIni: string; ofxFim: string }
+const qsPeriodos = (p?: PeriodosConciliacao) => (p ? `&movIni=${p.movIni}&movFim=${p.movFim}&ofxIni=${p.ofxIni}&ofxFim=${p.ofxFim}` : '');
+export function pendentes(codconta: number, p?: PeriodosConciliacao): Promise<{ ofx: OfxLinha[]; mov: MovLinha[] }> { return req(`/cadastro/conciliacao-bancaria/pendentes?codconta=${codconta}${qsPeriodos(p)}`, { method: 'GET' }); }
+export interface PreviaOfxLinha { indice: number; selecionar: boolean; data: string; valor: number; credito_debito: string; descricao?: string | null; transacao_id?: string | null; check_num?: string | null; status: string }
+/** «Carregar arquivo»: a prévia com o status de cada linha */
+export function previaOfx(codconta: number, conteudo: string): Promise<{ linhas: PreviaOfxLinha[] }> {
+  return req('/cadastro/conciliacao-bancaria/previa-ofx', { method: 'POST', body: JSON.stringify({ codconta, conteudo }) });
+}
+/** a aba "Movimentação OFX" */
+export function movimentacaoOfx(codconta: number, dtini: string, dtfim: string): Promise<Array<OfxLinha & { mbo_check_num?: string | null; mbo_conciliado?: string | null }>> {
+  return req(`/cadastro/conciliacao-bancaria/movimentacao-ofx?codconta=${codconta}&dtini=${dtini}&dtfim=${dtfim}`, { method: 'GET' });
+}
 export interface LoteSugerido { mbo_id: number; idlote: number; codmovcontas: number[]; valor: number; data: string }
-export function sugestoes(codconta: number): Promise<{ pares: Par[]; lotes: LoteSugerido[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}`, { method: 'GET' }); }
+export function sugestoes(codconta: number, p?: PeriodosConciliacao): Promise<{ pares: Par[]; lotes: LoteSugerido[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}${qsPeriodos(p)}`, { method: 'GET' }); }
 export function conciliar(codconta: number, mboIds: number[], codmovcontas: number[]): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
   return req('/cadastro/conciliacao-bancaria/conciliar', { method: 'POST', body: JSON.stringify({ codconta, mboIds, codmovcontas }) });
 }

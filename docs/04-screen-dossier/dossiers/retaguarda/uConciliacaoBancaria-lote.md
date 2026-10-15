@@ -88,3 +88,23 @@ importar ou por comando (os 17 têm datas de linha variadas); aqui é um comando
 - **A data do movimento é a emissão** (`TRUNC(DTEMISSAO)`, UDMConciliacaoBancaria.dfm:166-172) em pendentes e na sugestão —
   DATA_FECHAMENTO (do fechamento de caixa) é nula em 73% das linhas de 2025-26, e a sugestão não casava sobre dado migrado.
   A data do extrato sai como 'YYYY-MM-DD' no fuso de São Paulo nos dois lados.
+
+## Auditoria do `UFrmConciliacaoBancaria.dfm` (15/10/2026) — controle a controle
+
+Produção (somente leitura): MOVIMENTACAO_BANCARIA_OFX com 13.562 linhas em 2026 (7.873 conciliadas) em 4 contas, e milhares de linhas não
+conciliadas acumuladas desde 2023.
+
+| Controle do legado | Apollo |
+|---|---|
+| `EdtNroConta` + busca (SegContaBancaria) | Conta bancária (já). |
+| Aba **Importação de arquivo OFX**: `EdtArquivoOFX` + `BtnCarregarArquivo` (grade Selecionar/Data/Valor/Descrição/Transação ID/Check Num/Status) + `BtnImportarMovimentacoes` | **"Carregar arquivo" agora mostra a PRÉVIA** (`POST previa-ofx`): cada linha com o status do legado — 'OK' marcada, **'Movimentação encontrada'** desmarcada (o FITID + CHECK_NUM já existe na conta, só com FITID ≠ '0'/vazio) e 'Ignorada' (a lista de descrições da conta); **"Importar movimentações" leva só as marcadas** (`indices`). Antes o arquivo era importado inteiro de uma vez. Mensagens "Arquivo foi importado com sucesso." / "Registros não encontrados.". |
+| Aba Conciliação → **Conciliação manual**: `GrdMovConciliacaoBancaria` (razão) e `GrdMovOFXConciliacaoBancaria` (extrato), cada uma com Data inicial/final + "Pesquisar" (abrem no mês corrente, :697) | **Os dois períodos** (extrato de/até, razão de/até — o mês corrente) e "Pesquisar". **Sem o corte de 2.000 linhas**: o Apollo listava as 2.000 MAIS ANTIGAS pendentes e o mês corrente não aparecia. O razão sem o revertido e sem o lote de reversão (`COALESCE(REVERTIDO,'N') = 'N' AND IDLOTE_REVERSAO IS NULL`). |
+| `BtnConfirmarConciliacaoManual` | "Conciliar selecionados" (já, Σ iguais). |
+| **Conciliação automática**: `BtnConciliacaoAutomatica` + grade + `BtnConfirmarConciliacaoAutomatica` | "Sugerir automática" + "Confirmar automática" (já) — agora sobre as listas do período pesquisado, como o legado. |
+| `BtnCancelarSelecaoLotesIncompletos` | Não se aplica: a sugestão do Apollo só propõe lote INTEIRO (corte-3). |
+| Aba **Movimentação OFX** (Data inicial/final + Pesquisar; grade Data/Valor/Crédito-Débito/Descrição/ID transação) | **Nova** (`GET movimentacao-ofx`): o extrato importado do período, conciliado ou não. |
+| `MniExportarExcel` / `MniOFXExportarExcel` ("Exportar para excel") | "Exportar extrato" / "Exportar razão" (planilha das listas). |
+| Excluir movimentação OFX (BTNPERMISSAOEXCLUIROFX) | Já. |
+
+Smoke §332 (os períodos, o razão sem revertido/reversão, a prévia com o status e o importar das marcadas, a Movimentação OFX); jsdom
+`conciliacaoBancariaPage.spec.tsx`.

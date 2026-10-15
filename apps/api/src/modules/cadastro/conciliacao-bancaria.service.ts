@@ -135,11 +135,42 @@ export class ConciliacaoBancariaService {
 
   /** corte-2: recebe o TEXTO do arquivo .ofx, parseia (OFX 1.x SGML / 2.x XML) e reusa `importar` (dedup por FITID).
    *  Retorna também quantas linhas o parser extraiu, para o cliente distinguir "arquivo sem transações" de "tudo duplicado". */
-  async importarArquivo(dto: { codconta: number; nomeArquivo?: string; conteudo: string }): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
+  async importarArquivo(dto: { codconta: number; nomeArquivo?: string; conteudo: string; indices?: number[] }): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
     const linhas = parseOfx(dto.conteudo);
     if (linhas.length === 0) throw new BusinessRuleError('OFX_SEM_TRANSACOES');
-    const r = await this.importar({ codconta: dto.codconta, nomeArquivo: dto.nomeArquivo, linhas });
+    // «Importar movimentações» (BtnImportarMovimentacoesClick :484): só as linhas marcadas na prévia
+    const escolhidas = dto.indices ? linhas.filter((_, i) => dto.indices!.includes(i)) : linhas;
+    const r = await this.importar({ codconta: dto.codconta, nomeArquivo: dto.nomeArquivo, linhas: escolhidas });
     return { ...r, lidas: linhas.length };
+  }
+
+  /**
+   * «Carregar arquivo» (BtnCarregarArquivoClick :271): a PRÉVIA do extrato antes de importar — cada linha com Selecionar, Data, Valor,
+   * Descrição, Transação ID, Check Num e o STATUS: 'OK' (marcada) ou 'Movimentação encontrada' (desmarcada: o mesmo FITID + CHECK_NUM já
+   * existe na conta — só quando o FITID não é '0'/vazio, como o legado); a descrição da lista de não importar da conta sai 'Ignorada'.
+   */
+  async previaArquivo(dto: { codconta: number; conteudo: string }) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.contaDaEmpresa(db, dto.codconta, emp);
+    const linhas = parseOfx(dto.conteudo);
+    if (linhas.length === 0) throw new BusinessRuleError('OFX_SEM_TRANSACOES');
+    const ignorar = new Set(((await db.selectFrom('cfg_descricao_nao_importar_ofx').select('descricao').where('codconta', '=', dto.codconta).execute()) as Array<{ descricao: string }>)
+      .map((r) => chaveDescricao(r.descricao)));
+    const out: Array<Record<string, unknown>> = [];
+    for (const [i, l] of linhas.entries()) {
+      const fit = (l.transacao_id ?? '').trim();
+      const chk = (l.check_num ?? '').trim() || null;
+      let status = 'OK';
+      if (fit && fit !== '0') {
+        const ex = await db.selectFrom('movimentacao_bancaria_ofx').select('mbo_id').where('codconta', '=', dto.codconta).where('mbo_transacao_id', '=', fit)
+          .where((eb: any) => (chk ? eb('mbo_check_num', '=', chk) : eb('mbo_check_num', 'is', null))).executeTakeFirst();
+        if (ex) status = 'Movimentação encontrada';
+      }
+      if (status === 'OK' && ignorar.size && ignorar.has(chaveDescricao(l.descricao))) status = 'Ignorada';
+      out.push({ indice: i, selecionar: status === 'OK', data: l.data, valor: l.valor, credito_debito: l.credito_debito, descricao: l.descricao ?? null, transacao_id: l.transacao_id ?? null, check_num: l.check_num ?? null, status });
+    }
+    return { linhas: out };
   }
 
   /**
@@ -171,29 +202,62 @@ export class ConciliacaoBancariaService {
     });
   }
 
-  /** pendentes: linhas do extrato não-conciliadas × lançamentos do razão não-conciliados da conta. */
-  async pendentes(codconta: number): Promise<{ ofx: Record<string, unknown>[]; mov: Record<string, unknown>[] }> {
+  /**
+   * pendentes: as linhas do extrato não conciliadas × os lançamentos do razão não conciliados da conta, cada lado no SEU período — os dois
+   * "Pesquisar" da aba Conciliação manual (BtnMovConciliacaoBancariaClick :594 / BtnMovOFXConciliacaoBancariaClick :630; a tela abre no mês
+   * corrente, CarregamentoInicialConciliacaoBancaria :697). Sem limite de linhas: antes o Apollo cortava em 2.000 das MAIS ANTIGAS e o mês
+   * corrente sumia (a produção tem milhares de linhas de extrato não conciliadas desde 2023). O razão fica sem o revertido e sem o lote de
+   * reversão (`COALESCE(REVERTIDO,'N') = 'N' AND IDLOTE_REVERSAO IS NULL`, UDMConciliacaoBancaria.dfm).
+   */
+  async pendentes(codconta: number, f: { movIni?: string; movFim?: string; ofxIni?: string; ofxFim?: string } = {}): Promise<{ ofx: Record<string, unknown>[]; mov: Record<string, unknown>[] }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.contaDaEmpresa(db, codconta, emp);
-    const ofx = (await db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').where(sql`coalesce(indr, ' ')`, '<>', 'E').orderBy('mbo_data').orderBy('mbo_id').limit(2000).execute()) as Record<string, unknown>[];
+    const diaOfx = sql`(mbo_data AT TIME ZONE 'America/Sao_Paulo')::date`;
+    let qo = db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', sql<string>`to_char(${diaOfx}, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id'])
+      .where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').where(sql`coalesce(indr, ' ')`, '<>', 'E');
+    if (f.ofxIni) qo = qo.where(diaOfx, '>=', sql`${f.ofxIni}::date`);
+    if (f.ofxFim) qo = qo.where(diaOfx, '<=', sql`${f.ofxFim}::date`);
+    const ofx = (await qo.orderBy('mbo_data').orderBy('mbo_id').execute()) as Record<string, unknown>[];
     // a data do movimento é a EMISSÃO (`TRUNC(DTEMISSAO)`, UDMConciliacaoBancaria.dfm:166-172) — DATA_FECHAMENTO é do
     // fechamento de caixa e está nula em 73% das linhas de 2025-26
-    const mov = (await db.selectFrom('mov_contas_bancarias')
-      .select(['codmovconta', sql<string>`to_char((dtemissao AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('data'), 'valor', 'tipomovimento', 'historico', 'origem', 'idlote'])
+    const diaMov = sql`(dtemissao AT TIME ZONE 'America/Sao_Paulo')::date`;
+    let qm = db.selectFrom('mov_contas_bancarias')
+      .select(['codmovconta', sql<string>`to_char(${diaMov}, 'YYYY-MM-DD')`.as('data'), 'valor', 'tipomovimento', 'historico', 'origem', 'idlote'])
       .where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N')
-      .orderBy('dtemissao').orderBy('codmovconta').limit(2000).execute()) as Record<string, unknown>[];
+      .where(sql`coalesce(revertido,'N')`, '=', 'N').where('idlote_reversao', 'is', null);
+    if (f.movIni) qm = qm.where(diaMov, '>=', sql`${f.movIni}::date`);
+    if (f.movFim) qm = qm.where(diaMov, '<=', sql`${f.movFim}::date`);
+    const mov = (await qm.orderBy('dtemissao').orderBy('codmovconta').execute()) as Record<string, unknown>[];
     return { ofx, mov };
+  }
+
+  /**
+   * a aba "Movimentação OFX" (BtnPesquisarMovOFXClick :666 → AbreMovimentacaoOFX): o extrato importado da conta no período, conciliado ou
+   * não, com crédito/débito e o ID da transação (`SELECT * FROM MOVIMENTACAO_BANCARIA_OFX WHERE TRUNC(MBO_DATA) BETWEEN … AND CODCONTA`).
+   */
+  async movimentacaoOfx(codconta: number, ini: string, fim: string): Promise<Record<string, unknown>[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.contaDaEmpresa(db, codconta, emp);
+    if (ini > fim) throw new BusinessRuleError('DATA_INICIAL_MAIOR', {}, 'A data inicial não pode ser maior que a final.');
+    const dia = sql`(mbo_data AT TIME ZONE 'America/Sao_Paulo')::date`;
+    return (await db.selectFrom('movimentacao_bancaria_ofx')
+      .select(['mbo_id', sql<string>`to_char(${dia}, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id', 'mbo_check_num', 'mbo_conciliado', 'mbo_nome_arquivo'])
+      .where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(indr, ' ')`, '<>', 'E')
+      .where(dia, '>=', sql`${ini}::date`).where(dia, '<=', sql`${fim}::date`)
+      .orderBy('mbo_data').orderBy('mbo_id').execute()) as Record<string, unknown>[];
   }
 
   /** sugestão automática: casa (data-dia + valor + DIREÇÃO) greedy 1:1 entre extrato e razão pendentes. A direção
    *  importa (fold auditoria [MÉDIA]): um crédito do extrato (C) só casa com um crédito do razão (tipomovimento='C')
    *  — senão um depósito casaria com um saque de mesmo valor. Bucketizado (O(n+m), fold [BAIXA] perf). */
-  async sugerir(codconta: number): Promise<{
+  async sugerir(codconta: number, f: { movIni?: string; movFim?: string; ofxIni?: string; ofxFim?: string } = {}): Promise<{
     pares: Array<{ mbo_id: number; codmovconta: number; valor: number; data: string }>;
     lotes: Array<{ mbo_id: number; idlote: number; codmovcontas: number[]; valor: number; data: string }>;
   }> {
-    const { ofx, mov } = await this.pendentes(codconta);
+    // a automática trabalha sobre as listas da tela, cada uma no seu período (o que o operador pesquisou)
+    const { ofx, mov } = await this.pendentes(codconta, f);
     const bucket = new Map<string, number[]>();
     for (const o of ofx) {
       const k = `${dia(o.mbo_data)}|${r2(num(o.mbo_valor))}|${String(o.mbo_credito_debito ?? '')}`;

@@ -21137,6 +21137,55 @@ async function main() {
       }
     }
 
+    // ══ §332 CONCILIAÇÃO BANCÁRIA (a auditoria do UFrmConciliacaoBancaria.dfm): as duas listas no PERÍODO de cada uma (a tela abre no mês
+    // corrente) e sem corte de linhas — antes o Apollo cortava em 2.000 das mais antigas e o mês corrente sumia; o razão sem revertido e sem
+    // lote de reversão; a PRÉVIA do arquivo (Carregar arquivo: OK / "Movimentação encontrada" desmarcada) e o importar só das marcadas; a
+    // aba "Movimentação OFX" (conciliadas ou não).
+    {
+      const pgCn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CN = `${base}/cadastro/conciliacao-bancaria`;
+      try {
+        await pgCn.query(`INSERT INTO bancos (codbco, banco, cidade) VALUES (99332, 'BANCO CONC 332', 'X') ON CONFLICT (codbco) DO NOTHING`);
+        await pgCn.query(`INSERT INTO contas_bancarias (codconta, codbco, idempresa, titular, nroconta) VALUES (99332, 99332, 1, 'CONC 332', '332-0') ON CONFLICT (codconta) DO NOTHING`);
+        await pgCn.query(`INSERT INTO movimentacao_bancaria_ofx (idempresa, codconta, mbo_data, mbo_valor, mbo_credito_debito, mbo_descricao, mbo_transacao_id, mbo_conciliado) VALUES
+          (1, 99332, '2023-05-10', 10, 'C', 'VELHO 332', 'FIT332A', 'N'), (1, 99332, '2031-05-10', 20, 'C', 'NOVO 332', 'FIT332B', 'N'), (1, 99332, '2031-05-11', 30, 'D', 'CONCILIADO 332', 'FIT332C', 'S')`);
+        await pgCn.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, dtemissao, dtcadastro, revertido, idlote_reversao) VALUES
+          (99332, 1, 20, 'C', 'CONC', '2031-05-10', now(), 'N', NULL), (99332, 1, 21, 'C', 'CONC', '2031-05-10', now(), 'S', NULL), (99332, 1, 22, 'C', 'CONC', '2031-05-10', now(), 'N', 77),
+          (99332, 1, 23, 'C', 'CONC', '2023-05-10', now(), 'N', NULL)`);
+        const per = 'movIni=2031-05-01&movFim=2031-05-31&ofxIni=2031-05-01&ofxFim=2031-05-31';
+        const noMes = (await (await fetch(`${CN}/pendentes?codconta=99332&${per}`, { headers: H })).json().catch(() => ({}))) as any;
+        const tudo = (await (await fetch(`${CN}/pendentes?codconta=99332`, { headers: H })).json().catch(() => ({}))) as any;
+        const mo = (await (await fetch(`${CN}/movimentacao-ofx?codconta=99332&dtini=2031-05-01&dtfim=2031-05-31`, { headers: H })).json().catch(() => [])) as any[];
+        check('CONCILIAÇÃO §332 [os períodos]: no mês pesquisado só o extrato e o razão do mês (sem o de 2023), o razão sem o revertido e sem o lote de reversão; sem período, tudo o que está pendente (sem corte); a "Movimentação OFX" traz o conciliado e o não conciliado do período',
+          (noMes.ofx ?? []).map((o: any) => o.mbo_descricao).join(',') === 'NOVO 332' && (noMes.mov ?? []).map((m: any) => Number(m.valor)).join(',') === '20'
+          && (tudo.ofx ?? []).length === 2 && (tudo.mov ?? []).map((m: any) => Number(m.valor)).sort().join(',') === '20,23'
+          && Array.isArray(mo) && mo.map((o) => o.mbo_descricao).join(',') === 'NOVO 332,CONCILIADO 332',
+          { noMes: [noMes.ofx?.length, noMes.mov?.map?.((m: any) => m.valor)], tudo: [tudo.ofx?.length, tudo.mov?.map?.((m: any) => m.valor)], mo: mo?.map?.((o: any) => o.mbo_descricao) });
+
+        const ofx = ['OFXHEADER:100', 'DATA:OFXSGML', 'VERSION:102', '', '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20310510<TRNAMT>20.00<FITID>FIT332B<MEMO>NOVO 332</STMTTRN>',
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20310512<TRNAMT>44.00<FITID>FIT332D<MEMO>OUTRO 332</STMTTRN>',
+          '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20310513<TRNAMT>-5.00<FITID>FIT332E<MEMO>FICA FORA 332</STMTTRN>',
+          '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>'].join('\n');
+        const pv = await fetch(`${CN}/previa-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: 99332, conteudo: ofx }) });
+        const pvJ = (await pv.json().catch(() => ({}))) as any;
+        const st = (pvJ.linhas ?? []).map((l: any) => `${l.transacao_id}:${l.status}:${l.selecionar ? 'S' : 'N'}`);
+        const imp = await fetch(`${CN}/importar-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: 99332, nomeArquivo: 'p332.ofx', conteudo: ofx, indices: [1] }) });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const fits = (await pgCn.query(`SELECT mbo_transacao_id FROM movimentacao_bancaria_ofx WHERE codconta = 99332 ORDER BY mbo_transacao_id`)).rows.map((r: any) => r.mbo_transacao_id);
+        check('CONCILIAÇÃO §332 [Carregar arquivo / Importar movimentações]: a prévia marca o FITID que já existe na conta como "Movimentação encontrada" (desmarcado) e o novo como OK (marcado); importar leva só as linhas escolhidas (a do meio)',
+          pv.status === 200 && st.join(',') === 'FIT332B:Movimentação encontrada:N,FIT332D:OK:S,FIT332E:OK:S'
+          && imp.status === 200 && impJ.inseridas === 1 && fits.join(',') === 'FIT332A,FIT332B,FIT332C,FIT332D',
+          { pv: [pv.status, st], imp: [imp.status, impJ], fits });
+      } finally {
+        await pgCn.query(`DELETE FROM movimentacao_bancaria_ofx WHERE codconta = 99332`).catch(() => undefined);
+        await pgCn.query(`DELETE FROM mov_contas_bancarias WHERE codconta = 99332`).catch(() => undefined);
+        await pgCn.query(`DELETE FROM contas_bancarias WHERE codconta = 99332`).catch(() => undefined);
+        await pgCn.query(`DELETE FROM bancos WHERE codbco = 99332`).catch(() => undefined);
+        await pgCn.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

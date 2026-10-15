@@ -28,7 +28,22 @@ export class ConciliacaoBancariaController {
   @HttpCode(200)
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
   importarOfx(@Body(new ZodValidationPipe(importarOfxArquivoSchema)) body: ImportarOfxArquivoDto) {
-    return this.svc.importarArquivo({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, conteudo: body.conteudo });
+    return this.svc.importarArquivo({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, conteudo: body.conteudo, indices: body.indices });
+  }
+
+  /** «Carregar arquivo»: a prévia do extrato com o status de cada linha (OK / Movimentação encontrada / Ignorada) */
+  @Post('previa-ofx')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
+  previaOfx(@Body(new ZodValidationPipe(importarOfxArquivoSchema)) body: ImportarOfxArquivoDto) {
+    return this.svc.previaArquivo({ codconta: body.codconta, conteudo: body.conteudo });
+  }
+
+  /** a aba "Movimentação OFX": o extrato importado da conta no período */
+  @Get('movimentacao-ofx')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
+  movimentacaoOfx(@Query('codconta', ParseIntPipe) codconta: number, @Query('dtini') dtini: string, @Query('dtfim') dtfim: string) {
+    return this.svc.movimentacaoOfx(codconta, dtini, dtfim);
   }
 
   /** exclui linhas do extrato (não conciliadas) — "Excluir movimentação OFX", opção própria no legado (27 operadores). */
@@ -58,15 +73,21 @@ export class ConciliacaoBancariaController {
   /** pendentes: extrato não-conciliado × razão não-conciliado da conta. */
   @Get('pendentes')
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
-  pendentes(@Query('codconta', ParseIntPipe) codconta: number) {
-    return this.svc.pendentes(codconta);
+  pendentes(
+    @Query('codconta', ParseIntPipe) codconta: number,
+    @Query('movIni') movIni?: string, @Query('movFim') movFim?: string, @Query('ofxIni') ofxIni?: string, @Query('ofxFim') ofxFim?: string,
+  ) {
+    return this.svc.pendentes(codconta, { movIni, movFim, ofxIni, ofxFim });
   }
 
   /** sugestão automática de casamento (data+valor). */
   @Get('sugestoes')
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'FRMCONCILIACAOBANCARIA')
-  sugestoes(@Query('codconta', ParseIntPipe) codconta: number) {
-    return this.svc.sugerir(codconta);
+  sugestoes(
+    @Query('codconta', ParseIntPipe) codconta: number,
+    @Query('movIni') movIni?: string, @Query('movFim') movFim?: string, @Query('ofxIni') ofxIni?: string, @Query('ofxFim') ofxFim?: string,
+  ) {
+    return this.svc.sugerir(codconta, { movIni, movFim, ofxIni, ofxFim });
   }
 
   /** a conciliação AUTOMÁTICA confirmada: um evento por par, cada movimento liberado na data da sua emissão */

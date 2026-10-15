@@ -29,6 +29,8 @@ export const importarOfxArquivoSchema = z.object({
   codconta: z.coerce.number().int().positive({ message: 'Informe a conta bancária.' }),
   nomeArquivo: z.string().max(250).optional(),
   conteudo: z.string().min(1, 'Arquivo OFX vazio.').max(5_000_000),
+  /** as linhas marcadas na prévia (o «Carregar arquivo»); ausente = todas */
+  indices: z.array(z.coerce.number().int().min(0)).max(50_000).optional(),
 });
 export type ImportarOfxArquivoDto = z.infer<typeof importarOfxArquivoSchema>;
 

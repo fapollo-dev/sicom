@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
+import { Field } from '../../shared/ui/Field';
+import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
-import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, excluirOfx, type Conciliada, descricoesIgnoradas, gravarDescricaoIgnorada } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, excluirOfx, type Conciliada, descricoesIgnoradas, gravarDescricaoIgnorada, previaOfx, movimentacaoOfx, type PreviaOfxLinha, type PeriodosConciliacao } from './conciliacaoApi';
 
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** o mês corrente nas duas listas (StartOfTheMonth / EndOfTheMonth) */
+export function mesCorrente(hoje = new Date()): PeriodosConciliacao {
+  const ini = iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+  const fim = iso(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0));
+  return { movIni: ini, movFim: fim, ofxIni: ini, ofxFim: fim };
+}
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
 
@@ -27,12 +36,15 @@ export function ConciliacaoBancariaPage() {
   const [paresAuto, setParesAuto] = useState<Array<{ mboId: number; codmovcontas: number[] }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [feitas, setFeitas] = useState<Conciliada[]>([]);
+  // os períodos das duas listas (CarregamentoInicialConciliacaoBancaria :697: o mês corrente), cada uma com o seu "Pesquisar"
+  const [periodos, setPeriodos] = useState<PeriodosConciliacao>(() => mesCorrente());
 
   useEffect(() => { void listarContas().then(setContas).catch(() => setContas([])); }, []);
 
-  const carregar = async (cod: number) => {
+  const carregar = async (cod: number, per: PeriodosConciliacao = periodos) => {
+    if (per.movIni > per.movFim || per.ofxIni > per.ofxFim) { mensagem.erro('A data inicial não pode ser maior que a final.'); return; }
     try {
-      const p = await pendentes(cod);
+      const p = await pendentes(cod, per);
       setOfx(p.ofx ?? []); setMov(p.mov ?? []); setSelOfx(new Set()); setSelMov(new Set()); setParesAuto([]);
       setFeitas(await conciliadas(cod).catch(() => []));
     } catch (e) { mensagem.erro(e); }
@@ -50,18 +62,36 @@ export function ConciliacaoBancariaPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  const importarArquivo = async (file: File) => {
+  // «Carregar arquivo» (BtnCarregarArquivoClick): a prévia com o status de cada linha; «Importar movimentações» leva as marcadas
+  const [previa, setPrevia] = useState<{ nome: string; conteudo: string; linhas: PreviaOfxLinha[]; sel: Set<number> } | null>(null);
+  const carregarArquivo = async (file: File) => {
     if (busy) return;
     if (!conta) { window.alert('Selecione a conta bancária antes de importar o extrato.'); return; }
-    setBusy(true);
     try {
       const conteudo = await file.text();
-      const r = await importarOfx(Number(conta), file.name, conteudo);
-      mensagem.sucesso(`${file.name}: ${r.lidas} linha(s) lida(s) — ${r.inseridas} importada(s), ${r.duplicadas} duplicada(s)${r.ignoradas ? `, ${r.ignoradas} ignorada(s) pela lista de descrições da conta` : ''}.`);
-      await carregar(Number(conta));
-    } catch (e) { mensagem.erro(e); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+      const r = await previaOfx(Number(conta), conteudo);
+      setPrevia({ nome: file.name, conteudo, linhas: r.linhas, sel: new Set(r.linhas.filter((l) => l.selecionar).map((l) => l.indice)) });
+      mensagem.sucesso(r.linhas.length ? 'Arquivo foi importado com sucesso.' : 'Registros não encontrados.');
+    } catch (e) { mensagem.erro(e); } finally { if (fileRef.current) fileRef.current.value = ''; }
   };
-
+  const importarArquivo = async () => {
+    if (busy || !previa || !conta) return;
+    if (!previa.sel.size) { mensagem.erro('Nenhuma movimentação selecionada.'); return; }
+    setBusy(true);
+    try {
+      const r = await importarOfx(Number(conta), previa.nome, previa.conteudo, [...previa.sel]);
+      mensagem.sucesso(`${previa.nome}: ${r.inseridas} movimentação(ões) importada(s)${r.duplicadas ? `, ${r.duplicadas} já existiam` : ''}${r.ignoradas ? `, ${r.ignoradas} ignorada(s) pela lista de descrições da conta` : ''}.`);
+      setPrevia(null);
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  // a aba "Movimentação OFX" (BtnPesquisarMovOFXClick): o extrato da conta no período, conciliado ou não
+  const [movOfx, setMovOfx] = useState<{ ini: string; fim: string; linhas: Awaited<ReturnType<typeof movimentacaoOfx>> | null }>(() => ({ ini: mesCorrente().ofxIni, fim: mesCorrente().ofxFim, linhas: null }));
+  const pesquisarMovOfx = async () => {
+    if (!conta) return;
+    if (movOfx.ini > movOfx.fim) { mensagem.erro('A data inicial não pode ser maior que a final.'); return; }
+    try { setMovOfx({ ...movOfx, linhas: await movimentacaoOfx(Number(conta), movOfx.ini, movOfx.fim) }); } catch (e) { mensagem.erro(e); }
+  };
   const toggle = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
     const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); setter(n);
   };
@@ -69,7 +99,7 @@ export function ConciliacaoBancariaPage() {
   const sugerir = async () => {
     if (!conta) return;
     try {
-      const { pares, lotes } = await sugestoes(Number(conta));
+      const { pares, lotes } = await sugestoes(Number(conta), periodos);
       if (!pares.length && !lotes.length) { mensagem.sucesso('Nenhum par automático (data+valor) encontrado.'); return; }
       // o LOTE vem primeiro: uma baixa em lote vira UM movimento no extrato, e ele só concilia inteiro
       setSelOfx(new Set([...lotes.map((l) => l.mbo_id), ...pares.map((p) => p.mbo_id)]));
@@ -137,8 +167,8 @@ export function ConciliacaoBancariaPage() {
       <PageHeader title="Conciliação Bancária (OFX)" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-72"><SelectField label="Conta bancária" value={conta} onChange={escolherConta} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(selecione a conta)" /></div>
-        <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarArquivo(f); }} />
-        <Button label="&Importar .ofx" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
+        <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void carregarArquivo(f); }} />
+        <Button label="&Carregar arquivo" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />
         {paresAuto.length > 0 && <Button label={`Confirmar a&utomática (${paresAuto.length})`} variant="soft" disabled={busy} onClick={() => void confirmarAuto()} />}
         <Button label="&Lançamentos automáticos" variant="ghost" disabled={busy || !conta || !ofx.length} onClick={() => void lancarAuto()} />
@@ -148,6 +178,52 @@ export function ConciliacaoBancariaPage() {
         {conta && <IgnoradasOfx codconta={Number(conta)} />}
         <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. O lote só concilia INTEIRO (uma baixa em lote vira um movimento no extrato). Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
       </div>
+
+      {previa && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex items-center justify-between">
+            <strong className="text-body-sm">Importação de arquivo OFX — {previa.nome}</strong>
+            <div className="flex gap-gp-sm">
+              <Button label="&Importar movimentações" variant="soft" disabled={busy || !previa.sel.size} onClick={() => void importarArquivo()} />
+              <Button label="Fechar" variant="ghost" onClick={() => setPrevia(null)} />
+            </div>
+          </div>
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-body-sm">
+              <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs">Selecionar</th><th className="p-pad-xs">Data</th><th className="p-pad-xs text-right">Valor</th><th className="p-pad-xs">Descrição</th><th className="p-pad-xs">Transação ID</th><th className="p-pad-xs">Check Num</th><th className="p-pad-xs">Status</th></tr></thead>
+              <tbody>
+                {previa.linhas.map((l) => (
+                  <tr key={l.indice} className={`border-t border-border ${l.status !== 'OK' ? 'text-fg-muted' : ''}`}>
+                    <td className="p-pad-xs"><input type="checkbox" aria-label={`Selecionar ${l.indice}`} checked={previa.sel.has(l.indice)}
+                      onChange={() => setPrevia((p) => { if (!p) return p; const n = new Set(p.sel); n.has(l.indice) ? n.delete(l.indice) : n.add(l.indice); return { ...p, sel: n }; })} /></td>
+                    <td className="p-pad-xs">{dia(l.data)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{l.credito_debito === 'D' ? '−' : ''}{brl(l.valor)}</td>
+                    <td className="p-pad-xs">{l.descricao ?? ''}</td>
+                    <td className="p-pad-xs tabular-nums">{l.transacao_id ?? ''}</td>
+                    <td className="p-pad-xs tabular-nums">{l.check_num ?? ''}</td>
+                    <td className="p-pad-xs">{l.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* os períodos das duas listas (os dois "Pesquisar" da conciliação manual — a tela abre no mês corrente) */}
+      {conta && (
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-36"><Field label="Extrato de" type="date" value={periodos.ofxIni} onChange={(e) => setPeriodos({ ...periodos, ofxIni: e.target.value })} /></div>
+          <div className="w-36"><Field label="até" type="date" value={periodos.ofxFim} onChange={(e) => setPeriodos({ ...periodos, ofxFim: e.target.value })} /></div>
+          <div className="w-36"><Field label="Razão de" type="date" value={periodos.movIni} onChange={(e) => setPeriodos({ ...periodos, movIni: e.target.value })} /></div>
+          <div className="w-36"><Field label="até" type="date" value={periodos.movFim} onChange={(e) => setPeriodos({ ...periodos, movFim: e.target.value })} /></div>
+          <Button label="&Pesquisar" variant="soft" disabled={busy} onClick={() => void carregar(Number(conta))} />
+          <Button label="Exportar extrato" variant="ghost" disabled={!ofx.length}
+            onClick={() => exportarGradeCsv(ofx, [{ titulo: 'Data', valor: (o) => dia(o.mbo_data) }, { titulo: 'Valor', valor: (o) => brl(o.mbo_valor) }, { titulo: 'Histórico', valor: (o) => o.mbo_descricao ?? '' }], 'ExtratoOFX')} />
+          <Button label="Exportar razão" variant="ghost" disabled={!mov.length}
+            onClick={() => exportarGradeCsv(mov, [{ titulo: 'Data', valor: (m) => dia(m.data) }, { titulo: 'Valor', valor: (m) => brl(m.valor) }, { titulo: 'Histórico', valor: (m) => m.historico ?? m.origem ?? '' }], 'MovimentacoesBancarias')} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">
         <div className="tablecard overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
@@ -163,7 +239,7 @@ export function ConciliacaoBancariaPage() {
                   <td className="p-pad-xs text-right tabular-nums">{o.mbo_credito_debito === 'D' ? '−' : ''}{brl(o.mbo_valor)}</td>
                 </tr>
               ))}
-              {!ofx.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem extrato pendente. Use «Importar .ofx» para subir o extrato do banco.</td></tr>}
+              {!ofx.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem extrato pendente no período. Use «Carregar arquivo» para subir o extrato do banco.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -181,11 +257,41 @@ export function ConciliacaoBancariaPage() {
                   <td className="p-pad-xs text-right tabular-nums">{brl(m.valor)}</td>
                 </tr>
               ))}
-              {!mov.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem lançamentos pendentes no razão.</td></tr>}
+              {!mov.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem lançamentos pendentes no razão no período.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+      {conta && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <strong className="text-body-sm">Movimentação OFX</strong>
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-36"><Field label="Data inicial" type="date" value={movOfx.ini} onChange={(e) => setMovOfx({ ...movOfx, ini: e.target.value })} /></div>
+            <div className="w-36"><Field label="Data final" type="date" value={movOfx.fim} onChange={(e) => setMovOfx({ ...movOfx, fim: e.target.value })} /></div>
+            <Button label="Pesquisar" variant="ghost" onClick={() => void pesquisarMovOfx()} />
+          </div>
+          {movOfx.linhas && (
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-body-sm">
+                <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs">Data</th><th className="p-pad-xs text-right">Valor</th><th className="p-pad-xs">Crédito/Débito</th><th className="p-pad-xs">Descrição</th><th className="p-pad-xs">ID transação</th><th className="p-pad-xs">Conciliado</th></tr></thead>
+                <tbody>
+                  {movOfx.linhas.map((o) => (
+                    <tr key={o.mbo_id} className="border-t border-border">
+                      <td className="p-pad-xs">{dia(o.mbo_data)}</td>
+                      <td className="p-pad-xs text-right tabular-nums">{brl(o.mbo_valor)}</td>
+                      <td className="p-pad-xs">{o.mbo_credito_debito === 'D' ? 'Débito' : 'Crédito'}</td>
+                      <td className="p-pad-xs">{o.mbo_descricao ?? ''}</td>
+                      <td className="p-pad-xs tabular-nums">{o.mbo_transacao_id ?? ''}</td>
+                      <td className="p-pad-xs">{o.mbo_conciliado === 'S' ? 'Sim' : 'Não'}</td>
+                    </tr>
+                  ))}
+                  {!movOfx.linhas.length && <tr><td colSpan={6} className="p-pad-md text-fg-muted">Nenhuma movimentação no período.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
       {feitas.length > 0 && (
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
           <table className="w-full text-body-sm">
