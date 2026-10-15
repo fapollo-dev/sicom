@@ -16214,6 +16214,23 @@ async function main() {
       const idpPF = Number(((await g27.json().catch(() => ({}))) as any).idpromocao);
       const cd27 = (await pgGp.query(`SELECT valorcombo, tipocombo FROM clube_desconto WHERE idpromocao=$1`, [idpPF])).rows[0] as any;
       check('GP 91.27 FOLD: não-combo ignora valorcombo/tipocombo do cliente → NULL', g27.status === 201 && cd27?.valorcombo == null && cd27?.tipocombo == null, { vc: cd27?.valorcombo, tc: cd27?.tipocombo });
+      // 91.27b) o 'T' do binário novo ("DESCONTO_POR_PDV", sem tela): a promoção abre e o cabeçalho se regrava (OPCAO incluída) SEM a chave
+      // de itens — os itens dela (PDV, hora, mínimo, máximo) ficam como estão
+      {
+        const gT = Number((await pgGp.query(`INSERT INTO promocao (descricao, datainicio, datafim, idempresa, empresas, opcao, tipo, destino, dtcadastro)
+          VALUES ('COMPRA PREMIADA SMOKE', '2028-11-01 05:00', '2028-11-01 23:59', 1, '1', 'O', 'T', 'T', now()) RETURNING idpromocao`)).rows[0].idpromocao);
+        await pgGp.query(`INSERT INTO clube_desconto (idpromocao, idempresa, loja, operacao, ativo, quantidade, valor, tipo, data_inicio, data_fim, maximo, minimo, encerrada, origem, destino, pdv, hora)
+          VALUES ($1, '1', 1, 'DESCONTO_POR_PDV', 'S', 1, 100, '%', '2028-11-01 05:00', '2028-11-01 23:59', 160, 90, 'F', 'T', 'T', 72, '17:30')`, [gT]);
+        const lido = (await (await fetch(`${base}/${GP}/${gT}`, { headers: H })).json().catch(() => ({}))) as any;
+        const putT = await fetch(`${base}/${GP}/${gT}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'COMPRA PREMIADA SMOKE 2', tipo: 'T', opcao: 'V', destino: 'T', datainicio: '2028-11-01T05:00', datafim: '2028-11-01T23:59' }) });
+        const depois = (await pgGp.query(`SELECT p.descricao, p.opcao, c.pdv, c.minimo, c.maximo, c.operacao FROM promocao p JOIN clube_desconto c ON c.idpromocao = p.idpromocao WHERE p.idpromocao = $1`, [gT])).rows as any[];
+        check('GP 91.27b [o tipo T do binário novo]: abre com os itens; regravar o cabeçalho (descrição, OPCAO) sem mandar itens → 200 e o item DESCONTO_POR_PDV fica (PDV 72, mín 90, máx 160)',
+          lido.tipo === 'T' && (lido.itens ?? []).length === 1 && putT.status === 200 && depois.length === 1 && depois[0].descricao === 'COMPRA PREMIADA SMOKE 2'
+          && depois[0].opcao === 'V' && Number(depois[0].pdv) === 72 && Number(depois[0].minimo) === 90 && Number(depois[0].maximo) === 160 && depois[0].operacao === 'DESCONTO_POR_PDV',
+          { lido: [lido.tipo, (lido.itens ?? []).length], put: putT.status, depois });
+        await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao = $1`, [gT]);
+        await pgGp.query(`DELETE FROM promocao WHERE idpromocao = $1`, [gT]);
+      }
 
       // 91.28) corte-5 LEVE PAGUE (tipo 'L') → ORIGEM='L', OPERACAO='LEVE_PAGUE', TIPO NULL, VALOR=0 (golden 34/34, não usa),
       // QUANTIDADE (leve)=3 + QUANTIDADE_PAGA (pague)=2. Cliente manda valor=99 → ignorado (carimba 0).

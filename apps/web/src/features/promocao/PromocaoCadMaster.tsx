@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { Trash2, X } from 'lucide-react';
+import { Pencil, Trash2, X } from 'lucide-react';
 import type { Promocao, PromocaoItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { Field } from '../../shared/ui/Field';
@@ -12,7 +12,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
-import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
+import { listarPromocoes, criarPromocao, removerPromocao, obterPromocao, atualizarPromocao } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -22,8 +22,8 @@ const fmtDt = (v: unknown) => (v ? new Date(String(v)).toLocaleString('pt-BR', {
 
 /**
  * MECÂNICA (PROMOCAO.TIPO) → aba do PageControl do legado (UCadPromocao.dfm: Tbs*). O seletor "Tipo" escolhe a
- * aba; cada aba tem os campos daquela mecânica. Prontas: Preço Fixo (c1), Desconto Fixo/Variável (c2), Código
- * Promocional (c3). As demais avisam "próximo corte" sem travar o cadastro do header.
+ * aba; cada aba tem os campos daquela mecânica — as 11 do combo do legado. Uma promoção gravada abre pela lista (Abrir) e se altera; a
+ * mecânica sem tela (o 'T', "DESCONTO_POR_PDV", do binário novo) abre só o cabeçalho e os itens dela ficam como estão.
  */
 const TIPOS = [
   { value: 'C', label: 'Categoria' },
@@ -39,15 +39,32 @@ const TIPOS = [
   { value: 'R', label: 'Código Promocional' },
 ];
 const TIPO_LABEL: Record<string, string> = Object.fromEntries(TIPOS.map((t) => [t.value, t.label]));
-/** Destino (público) — UCadPromocao "Destino". */
+/** Destino (público) — o CbbDestinoPromocao do UCadPromocao.dfm, na ordem e com os rótulos dele. */
 const DESTINOS = [
-  { value: 'T', label: 'Todos' },
   { value: 'C', label: 'Clientes' },
-  { value: 'U', label: 'Clube' },
+  { value: 'I', label: 'Clientes IZIO' },
+  { value: 'U', label: 'Clube Fidelidade' },
   { value: 'F', label: 'Funcionários' },
-  { value: 'P', label: 'Perfil' },
-  { value: 'I', label: 'Izio' },
+  { value: 'P', label: 'Perfil de Cliente' },
+  { value: 'T', label: 'Todos' },
 ];
+/** Opção (o motivo) — o CbbOpcoes do UCadPromocao.dfm (OPCAO); o Validado exige ("Informe uma opção para a promoção."). */
+const OPCOES = [
+  { value: 'V', label: 'Rebaixa por vencimento' },
+  { value: 'E', label: 'Rebaixa por excesso' },
+  { value: 'A', label: 'Rebaixa avariada' },
+  { value: 'S', label: 'Rebaixa sem giro' },
+  { value: 'I', label: 'Rebaixa inativo' },
+  { value: 'O', label: 'Outras' },
+];
+/** a data/hora gravada (ISO) no formato do datetime-local, no relógio do navegador */
+const paraInput = (v: unknown) => {
+  if (!v) return '';
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 /** item TIPO $/% (Combo / — combobox 'Valor'/'Porcentagem'). */
 const TIPO_ITEM_OPCOES = [
@@ -128,7 +145,9 @@ export function PromocaoCadMaster() {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  // cabeçalho
+  // cabeçalho; `editando` = a promoção aberta pela lista (o legado é um cadastro: pesquisa, abre, altera)
+  const [editando, setEditando] = useState<number | null>(null);
+  const [opcao, setOpcao] = useState<string>('');
   const [descricao, setDescricao] = useState('');
   const [tipo, setTipo] = useState<string>('P'); // aba ativa (default Preço Fixo)
   const [destino, setDestino] = useState<string | undefined>('T');
@@ -337,6 +356,25 @@ export function PromocaoCadMaster() {
 
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
+  const novaPromocao = () => {
+    setEditando(null); setOpcao(''); setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
+    setValorComboHdr(undefined); setTipoComboHdr('C'); limparAdder();
+  };
+  // abrir a promoção gravada (o cadastro do legado): o cabeçalho, a aba do TIPO e os itens dela; o rótulo do produto vem da DESCRICAO do item
+  const abrir = async (id: number) => {
+    try {
+      const p = await obterPromocao(id);
+      limparAdder();
+      setEditando(id); setDescricao(String(p.descricao ?? '')); setOpcao(String(p.opcao ?? '').trim()); setTipo(String(p.tipo ?? 'P').trim());
+      setDestino(String(p.destino ?? '').trim() || undefined); setEmpresas(String(p.empresas ?? ''));
+      setDtini(paraInput(p.datainicio)); setDtfim(paraInput(p.datafim));
+      setValorComboHdr((p as any).valorcombo != null ? Number((p as any).valorcombo) : undefined); setTipoComboHdr(String((p as any).tipocombo ?? 'C').trim() || 'C');
+      const its = (p.itens ?? []).map((it: any) => ({ ...it, origem: String(it.origem ?? '').trim() }));
+      for (const it of its) if (it.idorigempromocao != null && it.descricao) guardarRotulo('P', Number(it.idorigempromocao), `${it.idorigempromocao} - ${it.descricao}`);
+      setItens(its as PromocaoItemDto[]);
+    } catch (e) { mensagem.erro(e); }
+  };
+
   // O "Adicionar" do legado (AdicionarProduto, UCadPromocao.pas:901-947): a Pesquisa da GET_PRODUTOS (ATIVO='S' AND IMPRIMIRCOMP='N') em
   // MULTISSELEÇÃO; o `CarregarItens` (:1638-1673) põe cada marcado uma vez na grade com VALOR 0, QUANTIDADE 1 e QUANTIDADE_PAGA 0, e o
   // operador preenche na grade. 'A' = a grade da aba (ou o Grupo A), 'B' = o Grupo B das de 2 grids.
@@ -370,15 +408,27 @@ export function PromocaoCadMaster() {
   // numa promoção de outro TIPO (header/detalhe divergentes). Fiel ao PageControl do legado (cada aba, seus dados).
   const trocarTipo = (v: string) => {
     setTipo(v || 'P');
+    // VerificaTipoPromocao: na Bonificação o Destino some e fica 'T'
+    if (v === 'B') setDestino('T');
     setItens([]);
     limparAdder();
     setValorComboHdr(undefined); setTipoComboHdr('C'); // header do combo: limpa na troca de aba (não a cada Adicionar)
   };
 
   const gravar = async () => {
+    // o Validado do legado (UCadPromocao.pas:3517), na ordem e com as mensagens dele
+    if (!dtini) return mensagem.erro('Informe a data inicial da promoção.');
+    if (!dtfim) return mensagem.erro('Informe a data final da promoção.');
+    if (dtfim < dtini) return mensagem.erro('A data inicial deve ser menor que a data final.');
     if (!descricao.trim()) return mensagem.erro('Informe a descrição da promoção.');
+    if (!opcao) return mensagem.erro('Informe uma opção para a promoção.');
+    if (!tipo) return mensagem.erro('Informe o tipo da promoção.');
+    if (destinoVisivel && !destino) return mensagem.erro('Informe o destino da promoção.');
+    if (mec?.shape === 'combo' && !tipoComboHdr) return mensagem.erro('Informe o tipo da operação.');
+    if (mec?.shape === 'combo' && !(n(valorComboHdr) > 0)) return mensagem.erro('Informe o valor da operação.');
+    // DataFinalMenorDataInicio (AdicionarProduto): com itens, o fim tem de ser depois do início
+    if (itens.length && dtfim <= dtini) return mensagem.erro('Hora fim não pode ser MENOR ou IGUAL hora início.');
     if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item.');
-    if (mec?.shape === 'combo' && !(n(valorComboHdr) > 0)) return mensagem.erro('Informe o valor do combo (> 0).');
     // o PadraoValidada do Gravar (UCadPromocao.pas:2999-3036) nas grades que o lote enche com zero: a primeira linha incompleta para
     const padrao = (origem: string, campos: Array<'valor' | 'quantidade' | 'quantidade_paga'>, titulo = '') => {
       const it = itens.find((x) => x.origem === origem && campos.some((c) => !(n(x[c]) > 0)));
@@ -401,21 +451,23 @@ export function PromocaoCadMaster() {
     try {
       // datetime-local é wall-clock sem fuso → ISO com o offset do navegador (fold de timezone da Agenda).
       const iso = (s: string) => (s ? new Date(s).toISOString() : undefined);
-      await criarPromocao({
+      const corpo = {
         descricao: descricao.trim(),
         tipo: tipo as any,
+        opcao,
         datainicio: iso(dtini),
         datafim: iso(dtfim),
-        destino: destino as any,
+        destino: (tipo === 'B' ? 'T' : destino) as any,
         empresas: empresas.trim() || undefined,
         // Combo: VALORCOMBO/TIPOCOMBO no header (server copia em cada item).
         ...(mec?.shape === 'combo' ? { valorcombo: n(valorComboHdr), tipocombo: tipoComboHdr } : {}),
-        // só envia itens da aba PRONTA — abas não-convertidas gravam apenas o cabeçalho (nunca itens órfãos).
-        itens: mec ? itens : [],
-      } as any);
+        // só a mecânica com tela leva itens; a sem tela (o 'T' do binário novo) NÃO manda a chave — os itens dela ficam como estão
+        ...(mec ? { itens } : {}),
+      } as any;
+      if (editando != null) await atualizarPromocao(editando, corpo);
+      else await criarPromocao(corpo);
       mensagem.sucesso('Promoção gravada.');
-      setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
-      setValorComboHdr(undefined); setTipoComboHdr('C');
+      novaPromocao();
       await recarregar();
     } catch (e) {
       mensagem.erro(e);
@@ -438,9 +490,11 @@ export function PromocaoCadMaster() {
     {
       field: 'acoes', headerName: '', type: 'actions', width: 90,
       getActions: ({ row: r }: { row: Promocao }) => [
+        { id: 'abrir', label: 'Abrir', icon: <Pencil size={16} />, onClick: () => void abrir(Number(r.idpromocao)) },
         { id: 'excluir', label: 'Excluir', icon: <Trash2 size={16} />, destructive: true, onClick: () => void acao(() => removerPromocao(Number(r.idpromocao)), 'Promoção excluída.') },
       ],
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
   // colunas do grid de itens por shape
@@ -540,6 +594,11 @@ export function PromocaoCadMaster() {
     remCol,
   ], [rotuloProduto, mec?.filhoValor]);
 
+  // na Bonificação o Destino some (VerificaTipoPromocao); com itens, cabeçalho travado (VerificaTravamentoComponentes); o 'T' do
+  // binário novo (fora do combo do fonte) aparece como está
+  const destinoVisivel = tipo !== 'B';
+  const travado = itens.length > 0;
+  const tipoForaDaLista = !!tipo && !TIPOS.some((t) => t.value === tipo);
   const itensComIdx = itens.map((it, _i) => ({ ...it, _i }));
   const itensDaAba = itensComIdx.filter((it) => it.origem === tipo); // Grupo A (nas de 2 grids) / única aba nas demais
   const itensGrupoB = itensComIdx.filter((it) => it.origem === `${tipo}F`); // Grupo B (GF/DF), só nas de 2 grids
@@ -551,16 +610,19 @@ export function PromocaoCadMaster() {
       {/* Cabeçalho da promoção */}
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-6">
+          {editando != null && <div className="sm:col-span-6 text-body-sm text-fg-muted">Promoção nº {editando} <Button label="&Nova promoção" variant="ghost" onClick={novaPromocao} /></div>}
           <div className="sm:col-span-3"><Field label="&Descrição" value={descricao} maxLength={150} onChange={(e) => setDescricao(e.target.value)} /></div>
-          <div className="sm:col-span-2"><SelectField label="&Tipo" options={TIPOS} value={tipo} onChange={trocarTipo} /></div>
-          <div className="sm:col-span-1"><SelectField label="D&estino" options={DESTINOS} value={destino} onChange={(v) => setDestino(v || undefined)} placeholder="—" /></div>
+          <div className="sm:col-span-1"><SelectField label="Op&ção" options={OPCOES} value={opcao || undefined} onChange={(v) => setOpcao(v || '')} placeholder="—" /></div>
+          {/* VerificaTravamentoComponentes: com itens na promoção, datas, horas, tipo e destino travam */}
+          <div className="sm:col-span-1"><SelectField label="&Tipo" disabled={travado} options={tipoForaDaLista ? [...TIPOS, { value: tipo, label: tipo }] : TIPOS} value={tipo} onChange={trocarTipo} /></div>
+          {destinoVisivel && <div className="sm:col-span-1"><SelectField label="D&estino" disabled={travado} options={DESTINOS} value={destino} onChange={(v) => setDestino(v || undefined)} placeholder="—" /></div>}
           <label className="flex flex-col gap-gp-2xs text-body-sm sm:col-span-2">
             <span className="text-fg-muted">Início (data e hora)</span>
-            <input type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtini} onChange={(e) => setDtini(e.target.value)} />
+            <input aria-label="Início (data e hora)" type="datetime-local" disabled={travado} className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtini} onChange={(e) => setDtini(e.target.value)} />
           </label>
           <label className="flex flex-col gap-gp-2xs text-body-sm sm:col-span-2">
             <span className="text-fg-muted">Fim (data e hora)</span>
-            <input type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtfim} onChange={(e) => setDtfim(e.target.value)} />
+            <input aria-label="Fim (data e hora)" type="datetime-local" disabled={travado} className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtfim} onChange={(e) => setDtfim(e.target.value)} />
           </label>
           <div className="sm:col-span-2"><Field label="E&mpresas (CSV)" value={empresas} maxLength={50} placeholder="ex.: 1,50" onChange={(e) => setEmpresas(e.target.value)} /></div>
           {/* Operação do Combo (GpbOperacao do legado): VALORCOMBO + TIPOCOMBO no header, copiados em cada item */}

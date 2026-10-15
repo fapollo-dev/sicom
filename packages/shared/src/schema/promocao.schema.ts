@@ -22,7 +22,9 @@ const sn = () => z.enum(['S', 'N']);
 
 /** mecânica (PROMOCAO.TIPO): C categoria · O combo · A atacarejo · B bonificação · F desc.fixo($) · V desc.var(%)
  *  · D desc.adicional · P preço fixo · G produto grátis · L leve-pague · R código promocional. */
-export const PROMO_TIPO = z.enum(['C', 'O', 'A', 'B', 'F', 'V', 'D', 'P', 'G', 'L', 'R']);
+// as 11 do combo do UCadPromocao.dfm + o 'T' do binário novo da produção ("DESCONTO_POR_PDV", 5 promoções de 2023) — sem tela no Apollo:
+// abre e regrava o cabeçalho; os itens dele não são enviados e ficam como estão
+export const PROMO_TIPO = z.enum(['C', 'O', 'A', 'B', 'F', 'V', 'D', 'P', 'G', 'L', 'R', 'T']);
 /** público (PROMOCAO.DESTINO): C clientes · I izio · U clube · F funcionários · P perfil · T todos. */
 export const PROMO_DESTINO = z.enum(['C', 'I', 'U', 'F', 'P', 'T']);
 
