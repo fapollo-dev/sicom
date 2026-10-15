@@ -1,4 +1,5 @@
 import { Controller } from 'react-hook-form';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { cfopSchema, type CriarCfopDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -44,6 +45,8 @@ const CLASSIFICACAO: Array<[Flag, string]> = [
 ];
 
 export function CfopCadMaster() {
+  // permissões de controle da tela — nos cadastros (TfrmCadMaster.HabilitaDesabilitaControles) o Tag 1 desabilita o controle sem a opção
+  const { tem: pode } = useOpcoesDoForm('FRMCADCFOP');
   const { data: situacoes = [] } = useResourceOptions(
     'cadastro/situacoes-nf',
     (s: any) => ({ value: String(s.idsituacao_nf), label: `${s.idsituacao_nf} - ${s.descricao}` }),
@@ -134,11 +137,11 @@ export function CfopCadMaster() {
                   <LookupField label="CFOP para devolução de compra" recurso="lookup/cfops" campoCodigo="codcfop" descricao="descricao"
                     fixos={fixosDevolucao} value={field.value || undefined} onChange={(cod) => field.onChange(cod?.trim() ?? '')} disabled={!editavel} />
                 )} />
-                {/* Tag 1 num TDBLookupComboBox só muda a COR no uMaster (:644-700) — o CMBALIQUOTA não trava o combo; "Excluir Alíquota"
-                    limpa (btnExcluirAliqClick) e o "ICMS Saída" é o ICM_EFETIVO da alíquota na UF da empresa */}
+                {/* o cmbALIQUOTA é Tag 1: sem a opção CMBALIQUOTA o uMaster zera o TabStop e o TfrmCadMaster o desabilita; "Excluir Alíquota"
+                    (sem Tag) limpa (btnExcluirAliqClick) e o "ICMS Saída" é o ICM_EFETIVO da alíquota na UF da empresa */}
                 <Controller control={form.control} name="aliquota" render={({ field }) => (
                   <div className="flex items-end gap-gp-xs">
-                    <div className="flex-1"><SelectField label="&Alíquota de saída" options={aliquotas} value={field.value ? String(field.value).trim() : undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!editavel} /></div>
+                    <div className="flex-1"><SelectField label="&Alíquota de saída" options={aliquotas} value={field.value ? String(field.value).trim() : undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!editavel || !pode('CMBALIQUOTA')} /></div>
                     <div className="w-24"><Field label="ICMS Saída" disabled readOnly value={field.value && efetivoDe(field.value) != null ? Number(efetivoDe(field.value)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''} /></div>
                     <Button label="Excluir Alíquota" variant="ghost" disabled={!editavel || !field.value} onClick={() => field.onChange('')} />
                   </div>
