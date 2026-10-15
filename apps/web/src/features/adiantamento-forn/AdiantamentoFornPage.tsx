@@ -5,6 +5,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
 import {
   listarAdiantamentos, listarContas, listarSituacoes, criarAdiantamento, editarAdiantamento, excluirAdiantamento,
@@ -59,7 +60,9 @@ export function AdiantamentoFornPage() {
 
   const tipo = situacoes.find((s) => String(s.idsituacao_nf) === situacao)?.tipo ?? '';
   const contaSel = contas.find((c) => String(c.codconta) === conta);
-  const razaoSel = lista.find((a) => a.codparceiro === parceiro)?.razao ?? undefined;
+  // a razão do parceiro escolhido (edtDescFornecedor): a do lookup, ou a da lista quando se abre um adiantamento para editar
+  const [razaoLookup, setRazaoLookup] = useState<string | undefined>();
+  const razaoSel = razaoLookup ?? lista.find((a) => a.codparceiro === parceiro)?.razao ?? undefined;
 
   const carregar = useCallback(async () => {
     try {
@@ -77,7 +80,7 @@ export function AdiantamentoFornPage() {
   useEffect(() => { void carregar(); }, [carregar]);
 
   const limpar = () => {
-    setEditando(null); setSituacao(''); setConta(''); setParceiro(undefined);
+    setEditando(null); setSituacao(''); setConta(''); setParceiro(undefined); setRazaoLookup(undefined);
     setDtAdto(hoje()); setDtVenc(hoje()); setValor(undefined); setObs('');
   };
 
@@ -117,7 +120,7 @@ export function AdiantamentoFornPage() {
     setEditando(a.codadiantamento);
     setSituacao(a.idsituacao_nf != null ? String(a.idsituacao_nf) : '');
     setConta(String(a.codcontacorrente));
-    setParceiro(a.codparceiro);
+    setParceiro(a.codparceiro); setRazaoLookup(undefined);
     setDtAdto(String(a.dtadiantamento).slice(0, 10));
     setDtVenc(String(a.dtvencimento).slice(0, 10));
     setValor(Number(a.valor));
@@ -167,7 +170,13 @@ export function AdiantamentoFornPage() {
               placeholder="(conta)"
             />
           </div>
-          <div className="w-40"><NumberField label="Parceiro" value={parceiro} decimais={0} min={1} onChange={setParceiro} placeholder="código" /></div>
+          {/* edtCodFornecedor + F3 (btnBuscaFornClick :161): a GET_PARCEIROS ativos e, com a situação escolhida, só os parceiros que ela
+              permite (GetParceirosPermitidos) — "O cliente informado não é permitido para a situação do documento selecionada." */}
+          <div className="w-96"><LookupField label="&Parceiro" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" fixos={{ ativado: 'S' }}
+            parametros={{ idsituacao_nf: situacao || undefined }} value={parceiro}
+            onChange={(cod, linha) => { setParceiro(cod ? Number(cod) : undefined); setRazaoLookup(linha ? String(linha.razao ?? '') : undefined); }} /></div>
+          {/* RgpTipo (Recebimento / Pagamento / Crédito para clientes): o tipo vem da situação (F19 / F20 / F21) e não se troca depois */}
+          <div className="w-52"><Field label="Tipo" value={tipo === 'C' ? 'Recebimento' : tipo === 'D' ? 'Pagamento' : tipo === 'E' ? 'Crédito para clientes' : ''} disabled onChange={() => undefined} /></div>
           <div className="w-44"><DateField label="&Data" value={dtAdto} onChange={setDtAdto} /></div>
           <div className="w-44"><DateField label="&Vencimento" value={dtVenc} onChange={setDtVenc} /></div>
           <div className="w-40"><NumberField label="Valor" value={valor} decimais={2} min={0} onChange={setValor} /></div>

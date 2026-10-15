@@ -256,3 +256,19 @@ adiantamento da empresa <fantasia>…"; credor 'C': o inverso — com `NumeroExt
 ganhou a escrita por extenso do português (`apps/web/src/shared/fr3/extenso.ts`). O caso usado pelo layout — valor inteiro, sem moeda — é
 o de 93% dos 589 adiantamentos da produção; a parte decimal sem moeda ("vírgula …") não tem prova. Smoke §83.2b; teste de renderização.
 
+
+## Auditoria do `uCadAdiantamentoFornecedor.dfm` (15/10/2026) — controle a controle
+
+Produção 2025-26 (somente leitura): 24 adiantamentos (18 'D' pagamento, 6 'C' recebimento; nenhum 'E').
+
+| Controle do legado | Apollo |
+|---|---|
+| `DbtSituacaoDocumento` + `InformaSituacaoDocumento` (F19/F20/F21) | Situação do documento (já). |
+| `RgpTipo` (Recebimento / Pagamento / Crédito para clientes → C/D/E; travado no registro gravado) | **Tipo** somente leitura com os rótulos do legado — vem da situação (F19→C, F20→D, F21→E), como já gravava. |
+| `edtCodFornecedor` + F3 / `btnBuscaForn` + `edtDescFornecedor` | **Parceiro pela Pesquisa** (GET_PARCEIROS ativos e, com a situação, só os permitidos por ela — GetParceirosPermitidos) com a razão ao lado; antes era um número sem nome. A API já recusava o parceiro fora da situação. |
+| `edtNroConta` + `btnBuscaCC` (GET_CONTAS_BANCARIAS do operador) + `edtDescTitularContaCorrente` | Conta corrente (já: só as do operador, com o saldo). `HabilitaContaOrigem` (a conta só com valor ≠ 0) não muda o resultado: a gravação exige a conta. |
+| `edtDtAdiantamentoForn`, `edtDtVencimentoForn`, `edtValorAdiantamento`, `dbmOBS` (+ `dbmOBSEnter` com o prefixo) | Já. |
+| `btnOutros` → "Imprimir recibo" | "Recibo" na lista (já) e o recibo depois de gravar (já). |
+| Gravar / Editar / Excluir (VerificaContabilizado, chaveamento, caixa fechado) | Já (auditoria g3). |
+
+jsdom `adiantamentoFornPage.spec.tsx`.
