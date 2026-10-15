@@ -144,7 +144,7 @@ function AnualDre({ dtini, dtfim }: { dtini: string; dtfim: string }) {
   );
 }
 
-type Regime = 'EMISSAO' | 'VENCIMENTO' | 'ANUAL';
+type Regime = 'EMISSAO' | 'VENCIMENTO' | 'BX_EMISSAO' | 'BX_PAGAMENTO' | 'ANUAL';
 type Linha = Record<string, any>;
 const MODELOS = ['Totalizado', 'Recursos', 'Recursos totalizado', 'Agrupado Geral'] as const;
 const dataBr = (d: unknown) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
@@ -173,7 +173,9 @@ export function corpoCompetencia(f: {
 /**
  * RELATÓRIO DE CAIXA (FRMRELATORIOCAIXA, uRelatorioCaixa.pas/.dfm). O cbbRelatorios do legado escolhe o modelo: Competência (emissão)
  * e (vencimento) — o livro-caixa por centro de custo (`TRelCompetencia`) com as opções de C.M.V., taxas de cartão e notas fiscais — e o
- * "Anual" (a D.R.E. de caixa). O operador e o fiscal de caixa se excluem (escolher um zera o outro — edtCodOperadorExit/edtFiscalCXExit);
+ * "Anual" (a D.R.E. de caixa); Caixa Baixado (emissão) e (pagamento) — o balancete do regime de caixa (`TRelCaixaBaixado`), sempre analítico, em
+ * que só o código do centro de custo, a observação e o C.M.V. valem (o legado habilita operador/fiscal/PDV/tipo de conta, mas o SQL ativo
+ * não os usa — o GetSQLReceitas que os lia está comentado). O operador e o fiscal de caixa se excluem (escolher um zera o outro — edtCodOperadorExit/edtFiscalCXExit);
  * as taxas de cartão só na emissão; o campo data das notas só na emissão; a ordenação só no modelo Recursos; "Planos de contas
  * expandidos" só no Totalizado e no Recursos totalizado; o custo de reposição vem marcado (o .dfm). O Imprimir é a opção BTNIMPRIMIR.
  */
@@ -202,22 +204,33 @@ export function RelCaixaDrePage() {
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const competencia = regime !== 'ANUAL';
-  const corpo = () => corpoCompetencia({
+  const competencia = regime === 'EMISSAO' || regime === 'VENCIMENTO';
+  const baixado = regime === 'BX_EMISSAO' || regime === 'BX_PAGAMENTO';
+  const corpoBaixado = () => {
+    const lojas = empresas.split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+    return { dtini, dtfim, data: regime === 'BX_PAGAMENTO' ? 'PAGAMENTO' : 'EMISSAO', ...(lojas.length ? { empresas: lojas } : {}),
+      plc: plc.trim() || null, obs: obs.trim() || null, cmv, expandido };
+  };
+  const rota = baixado ? '/relatorios/caixa-baixado' : '/relatorios/caixa-competencia';
+  const corpo = () => baixado ? corpoBaixado() : corpoCompetencia({
     regime: regime === 'VENCIMENTO' ? 'VENCIMENTO' : 'EMISSAO', dtini, dtfim, empresas, codoperador, codfiscal, codpdv, plc, tpconta, obs,
     modelo, ordenacao, dataNota, cmv, taxasCartao, notasFiscais, custoReposicao, expandido,
   });
-  const trocarRegime = (r: Regime) => { setRegime(r); if (r !== 'EMISSAO') setTaxasCartao(false); setLinhas(null); };
+  const trocarRegime = (r: Regime) => {
+    setRegime(r); setLinhas(null);
+    if (r !== 'EMISSAO') setTaxasCartao(false);
+    if (r !== 'EMISSAO' && r !== 'VENCIMENTO') setNotasFiscais(false);
+  };
   const consultar = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await req<{ linhas: Linha[] }>('/relatorios/caixa-competencia/consultar', corpo());
+      const r = await req<{ linhas: Linha[] }>(`${rota}/consultar`, corpo());
       setLinhas(r.linhas);
-      if (!r.linhas.length) mensagem.erro('Dados não encontrados com os Filtros informados, Verifique!');
+      if (!r.linhas.length && !baixado) mensagem.erro('Dados não encontrados com os Filtros informados, Verifique!');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
-  const imprimir = () => { imprimirRelatorio('/relatorios/caixa-competencia/impressao', corpo()).catch((e) => mensagem.erro(e)); };
+  const imprimir = () => { imprimirRelatorio(`${rota}/impressao`, corpo()).catch((e) => mensagem.erro(e)); };
   const credito = (linhas ?? []).reduce((s, l) => s + Number(l.total_credito ?? 0), 0);
   const debito = (linhas ?? []).reduce((s, l) => s + Number(l.total_debito ?? 0), 0);
 
@@ -231,23 +244,25 @@ export function RelCaixaDrePage() {
           <select id="rcx-relatorio" className={sel} value={regime} onChange={(e) => trocarRegime(e.target.value as Regime)}>
             <option value="EMISSAO">Competencia (emissão)</option>
             <option value="VENCIMENTO">Competencia (vencimento)</option>
+            <option value="BX_EMISSAO">Caixa Baixado (emissão)</option>
+            <option value="BX_PAGAMENTO">Caixa Baixado (pagamento)</option>
             <option value="ANUAL">Anual (D.R.E.)</option>
           </select>
         </div>
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
-        {competencia && <div className="w-40"><Field label="Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>}
+        {regime !== 'ANUAL' && <div className="w-40"><Field label="Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>}
       </div>
 
-      {competencia ? (
+      {regime !== 'ANUAL' ? (
         <>
           <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
             <div className="flex flex-wrap items-end gap-gp-sm">
-              <div className="w-72"><LookupField label="&Operador" recurso="lookup/operadores-caixa" campoCodigo="codigo" descricao="nome" parametros={{ sigla: 'OPE' }}
+              <div className="w-72"><LookupField label="&Operador" recurso="lookup/operadores-caixa" campoCodigo="codigo" descricao="nome" parametros={{ sigla: 'OPE' }} disabled={!competencia}
                 value={codoperador ?? null} onChange={(c) => { setCodoperador(c); if (c) setCodfiscal(undefined); }} /></div>
-              <div className="w-72"><LookupField label="Fiscal de ca&ixa" recurso="lookup/operadores-caixa" campoCodigo="codigo" descricao="nome" parametros={{ sigla: 'SUP' }}
+              <div className="w-72"><LookupField label="Fiscal de ca&ixa" recurso="lookup/operadores-caixa" campoCodigo="codigo" descricao="nome" parametros={{ sigla: 'SUP' }} disabled={!competencia}
                 value={codfiscal ?? null} onChange={(c) => { setCodfiscal(c); if (c) setCodoperador(undefined); }} /></div>
-              <div className="w-64"><LookupField label="&PDV" recurso="lookup/pdvs-da-loja" campoCodigo="numero_pdv" descricao="descricao"
+              <div className="w-64"><LookupField label="&PDV" recurso="lookup/pdvs-da-loja" campoCodigo="numero_pdv" descricao="descricao" disabled={!competencia}
                 value={codpdv ?? null} onChange={(c) => setCodpdv(c)} /></div>
             </div>
             <div className="flex flex-wrap items-end gap-gp-sm">
@@ -256,7 +271,7 @@ export function RelCaixaDrePage() {
               </div>
               <div className="w-40">
                 <label className="mb-1 block text-body-sm text-fg-muted" htmlFor="rcx-tpconta">Tipo de conta</label>
-                <select id="rcx-tpconta" className={sel} value={tpconta} onChange={(e) => setTpconta(e.target.value)}>
+                <select id="rcx-tpconta" className={sel} value={tpconta} disabled={!competencia} onChange={(e) => setTpconta(e.target.value)}>
                   <option value="" />
                   <option value="0">1 - RECEITA</option>
                   <option value="1">2 - DESPESA</option>
@@ -270,11 +285,11 @@ export function RelCaixaDrePage() {
                 <legend className="text-body-sm text-fg-muted">Relatório</legend>
                 {MODELOS.map((m, i) => (
                   <label key={m} className="flex items-center gap-gp-xs text-body-sm">
-                    <input type="radio" name="rcx-modelo" checked={modelo === i} onChange={() => setModelo(i)} />{m}
+                    <input type="radio" name="rcx-modelo" checked={modelo === i} disabled={!competencia} onChange={() => setModelo(i)} />{m}
                   </label>
                 ))}
               </fieldset>
-              {modelo === 1 && (
+              {competencia && modelo === 1 && (
                 <fieldset className="flex flex-col gap-gp-xs" role="radiogroup" aria-label="Ordenação por centro de custo">
                   <legend className="text-body-sm text-fg-muted">Ordenação por centro de custo</legend>
                   {['Código', 'Descrição'].map((m, i) => (
@@ -297,9 +312,9 @@ export function RelCaixaDrePage() {
               <div className="flex flex-col gap-gp-xs">
                 <CheckboxField label="Utilizar C.M.V no relatório" value={cmv ? 'S' : 'N'} onChange={(v) => setCmv(v === 'S')} />
                 <CheckboxField label="Utilizar taxas de cartão no relatório" value={taxasCartao ? 'S' : 'N'} disabled={regime !== 'EMISSAO'} onChange={(v) => setTaxasCartao(v === 'S')} />
-                <CheckboxField label="Utilizar valores de notas fiscais no relatório" value={notasFiscais ? 'S' : 'N'} onChange={(v) => setNotasFiscais(v === 'S')} />
-                <CheckboxField label="Utilizar custo de reposição" value={custoReposicao ? 'S' : 'N'} onChange={(v) => setCustoReposicao(v === 'S')} />
-                {(modelo === 0 || modelo === 2) && (
+                <CheckboxField label="Utilizar valores de notas fiscais no relatório" value={notasFiscais ? 'S' : 'N'} disabled={!competencia} onChange={(v) => setNotasFiscais(v === 'S')} />
+                <CheckboxField label="Utilizar custo de reposição" value={custoReposicao ? 'S' : 'N'} disabled={!competencia} onChange={(v) => setCustoReposicao(v === 'S')} />
+                {(baixado || modelo === 0 || modelo === 2) && (
                   <CheckboxField label="Planos de contas expandidos" value={expandido ? 'S' : 'N'} onChange={(v) => setExpandido(v === 'S')} />
                 )}
               </div>
@@ -310,7 +325,7 @@ export function RelCaixaDrePage() {
             </div>
           </div>
 
-          {linhas && linhas.length > 0 && (
+          {competencia && linhas && linhas.length > 0 && (
             <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
               <table className="w-full text-body-sm">
                 <thead>
@@ -338,6 +353,36 @@ export function RelCaixaDrePage() {
                     <td className="p-pad-xs" colSpan={7}>{linhas.length} lançamento(s) · saldo {brl(credito + debito)}</td>
                     <td className="p-pad-xs text-right tabular-nums">{brl(credito)}</td>
                     <td className="p-pad-xs text-right tabular-nums">{brl(debito)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+          {baixado && linhas && (
+            <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+              <table className="w-full text-body-sm">
+                <thead>
+                  <tr className="bg-bg-subtle text-left">
+                    {['Centro de custo', 'Descrição', 'Grupo', 'Observação', 'Parceiro', 'Valor'].map((t) => (
+                      <th key={t} className={`p-pad-xs ${t === 'Valor' ? 'text-right' : ''}`}>{t}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhas.map((l, i) => (
+                    <tr key={i} className="border-t border-border">
+                      <td className="p-pad-xs tabular-nums">{l.desccodplc}</td>
+                      <td className="p-pad-xs">{l.descricao}</td>
+                      <td className="p-pad-xs">{l.descricao_nvl1}</td>
+                      <td className="p-pad-xs">{l.obs}</td>
+                      <td className="p-pad-xs">{l.razao}</td>
+                      <td className="p-pad-xs text-right tabular-nums">{brl(l.valor)}</td>
+                    </tr>
+                  ))}
+                  {!linhas.length && <tr><td className="p-pad-md text-fg-muted" colSpan={6}>Sem movimento no período.</td></tr>}
+                  <tr className="border-t border-border font-semibold">
+                    <td className="p-pad-xs" colSpan={5}>Entradas {brl(linhas.reduce((s2, l) => s2 + Math.max(0, Number(l.valor ?? 0)), 0))} · Saídas {brl(linhas.reduce((s2, l) => s2 + Math.min(0, Number(l.valor ?? 0)), 0))}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(linhas.reduce((s2, l) => s2 + Number(l.valor ?? 0), 0))}</td>
                   </tr>
                 </tbody>
               </table>

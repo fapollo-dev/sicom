@@ -21295,6 +21295,109 @@ async function main() {
       }
     }
 
+    // ══ §335) RELATÓRIO DE CAIXA — CAIXA BAIXADO (FRMRELATORIOCAIXA, `TRelCaixaBaixado`): o balancete do regime de caixa — título recebido
+    // (na conta do título), cartão liberado (no cofre da forma, UMA vez mesmo com duas baixas), o à vista da CONTACORRENTE CXA ("FECHAMENTO
+    // DE CAIXA"), as baixas a pagar rateadas pelos centros de custo (líquidas de juros), o scrap; emissão × pagamento; a observação só nas
+    // despesas; o C.M.V. com o grupo principal; o recorte do proprietário pelo CODPLC_NVL1 ═══
+    {
+      const RB = `${base}/relatorios/caixa-baixado`;
+      const pgCb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const emp0 = (await pgCb.query(`SELECT mascaraplc, contacmv FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const op0 = (await pgCb.query(`SELECT tipoop FROM operadores WHERE codoperador = 7`)).rows[0] as any;
+      try {
+        await pgCb.query(`UPDATE empresas SET mascaraplc = '#.##.###', contacmv = NULL WHERE idempresa = 1`);
+        await pgCb.query(`UPDATE operadores SET tipoop = 'OPE' WHERE codoperador = 7`);
+        await pgCb.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, tpconta) VALUES
+            (933400,'8.','GRUPO 334',NULL,1,0), (933500,'8.35.','SUBGRUPO 335',933400,2,0),
+            (933501,'8.35.001','COFRE CARTAO 335',933500,3,0), (933502,'8.35.002','ALUGUEL 335',933500,3,1),
+            (933503,'8.35.003','CAIXA A VISTA 335',933500,3,0), (933504,'8.35.004','PERDAS 335',933500,3,1),
+            (933505,'8.35.005','CLIENTES 335',933500,3,0), (933506,'8.35.006','MANUTENCAO 335',933500,3,1)
+          ON CONFLICT (codplc) DO UPDATE SET desccodplc = EXCLUDED.desccodplc, codpai = EXCLUDED.codpai, tpconta = EXCLUDED.tpconta`);
+        await pgCb.query(`UPDATE plc SET apenas_proprietario = NULL WHERE codplc BETWEEN 933400 AND 933599`);
+        await pgCb.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (9335,35,'PDV 335',1) ON CONFLICT (codpdv) DO NOTHING`);
+        await pgCb.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino, plccofre) VALUES (1,'CARTAO 335','K335A','CRT',933501), (1,'DINHEIRO 335','K335B','CXA',NULL)
+          ON CONFLICT DO NOTHING`);
+        const fpCrt = Number((await pgCb.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'CARTAO 335'`)).rows[0].idpgto);
+        const fpCxa = Number((await pgCb.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'DINHEIRO 335'`)).rows[0].idpgto);
+        await pgCb.query(`INSERT INTO contacorrente (codcontacorrente, codpdv, idpgto, codplc) VALUES (93350,9335,$1,933503) ON CONFLICT (codcontacorrente) DO NOTHING`, [fpCxa]);
+        // RECEITAS: o título recebido (venda 02/04, baixa 10/04) e o cartão (venda 03/04, liberado 12/04) com DUAS baixas
+        const rcb = Number((await pgCb.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenda, dtvenc, valor, quitada, codplc)
+          VALUES (1,2,'CB-335','2019-04-02','2019-04-09',300.00,'S',933505) RETURNING codrcb`)).rows[0].codrcb);
+        await pgCb.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, indr) VALUES ($1,1,'2019-04-10 09:00:00-03',300.00,'I')`, [rcb]);
+        await pgCb.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9335,'OPER 335',0,30) ON CONFLICT (codoperadoras) DO NOTHING`);
+        const crt = Number((await pgCb.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, nroparcela, liberado, dtbaixa, obs)
+          VALUES (1,9335,$1,'2019-04-03 11:00:00-03',200.00,1,'S','2019-04-12 10:00:00-03','CARTAO 335') RETURNING codvendcartao`, [fpCrt])).rows[0].codvendcartao);
+        await pgCb.query(`INSERT INTO cartao_bx (codvendcartao, idempresa, valorpg, data_pgto) VALUES ($1,1,120.00,'2019-04-12 10:00:00-03'), ($1,1,80.00,'2019-04-12 10:00:00-03')`, [crt]);
+        // o à vista: o caixa da conta da CONTACORRENTE CXA (o legado soma o ABS)
+        await pgCb.query(`DELETE FROM caixa WHERE codcx BETWEEN 993501 AND 993510`);
+        await pgCb.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, obs) VALUES (993501,'2019-04-05 10:00:00-03',-80.00,933503,1,'D','VENDA 335')`);
+        // DESPESAS: o título de 1.000 do grupo 93350 (compra 20/03) rateado 600/400; pago 500 + 20 de juros em 15/04 (e uma baixa estornada)
+        const apg = Number((await pgCb.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, quitada, tipodoc, codgrupo, obs)
+          VALUES (1,2,'CB-D335','2019-04-15','2019-03-20',1000.00,0,'N','DP',93350,'ALUGUEL 335') RETURNING codapg`)).rows[0].codapg);
+        await pgCb.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES (93351,$1,933502,600.00,93350,'V'), (93352,$1,933506,400.00,93350,'V')
+          ON CONFLICT (codcxapagar) DO NOTHING`, [apg]);
+        await pgCb.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr) VALUES
+          ($1,1,'2019-04-15 14:00:00-03',500.00,20.00,0,'I'), ($1,1,'2019-04-16 14:00:00-03',999.00,0,0,'E')`, [apg]);
+        // o scrap de 20/04
+        await pgCb.query(`INSERT INTO scrap (codscrap, idempresa, dt_cadastro, codplc, codparceiro, obs, mov_estoque, importado) VALUES (93350,1,'2019-04-20',933504,2,'PERDA 335','N','N')
+          ON CONFLICT (codscrap) DO NOTHING`);
+        await pgCb.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, obs, codscrap) VALUES (993502,'2019-04-20 10:00:00-03',-45.00,933504,1,'D','PERDA 335',93350)`);
+
+        const corpo = (x: Record<string, unknown> = {}) => JSON.stringify({ dtini: '2019-04-01', dtfim: '2019-04-30', data: 'PAGAMENTO', plc: '8.35', ...x });
+        const cons = async (x: Record<string, unknown> = {}, h = H) => {
+          const r = await fetch(`${RB}/consultar`, { method: 'POST', headers: h, body: corpo(x) });
+          return { status: r.status, body: (await r.json()) as any };
+        };
+        const mapa = (b: any) => (b?.linhas ?? []).map((l: any) => `${l.desccodplc}=${Number(l.valor)}`).sort().join(' ');
+        const pgto = await cons();
+        const vista = (pgto.body.linhas ?? []).find((l: any) => l.desccodplc === '8.35.003');
+        check('§335.1 CAIXA BAIXADO (pagamento): recebido 300 na conta do título · cartão 200 UMA vez (duas baixas) · à vista 80 (ABS do caixa, "FECHAMENTO DE CAIXA") · aluguel −288 e manutenção −192 (500 e 20 de juros rateados 60/40, sem a baixa estornada) · scrap −45; com a hierarquia _NVL1 e em ordem de código',
+          pgto.status === 200 && mapa(pgto.body) === '8.35.001=200 8.35.002=-288 8.35.003=80 8.35.004=-45 8.35.005=300 8.35.006=-192'
+          && vista?.razao === 'FECHAMENTO DE CAIXA' && Number(vista?.codplc_nvl1) === 933400 && (pgto.body.linhas ?? [])[0]?.desccodplc === '8.35.001',
+          { s: pgto.status, mapa: mapa(pgto.body), b: pgto.body });
+        const emis = await cons({ data: 'EMISSAO' });
+        check('§335.2 na emissão a data é a da venda/emissão/compra: o título (venda 02/04) e o cartão (venda 03/04) ficam, o aluguel comprado em março sai; o à vista e o scrap seguem a data do caixa',
+          mapa(emis.body) === '8.35.001=200 8.35.003=80 8.35.004=-45 8.35.005=300', { mapa: mapa(emis.body) });
+        const obs = await cons({ obs: 'ALUGUEL' });
+        check('§335.3 a observação filtra só as despesas (o título a pagar "ALUGUEL 335"); o scrap "PERDA" sai e as receitas ficam',
+          mapa(obs.body) === '8.35.001=200 8.35.002=-288 8.35.003=80 8.35.005=300 8.35.006=-192', { mapa: mapa(obs.body) });
+        await pgCb.query(`UPDATE empresas SET contacmv = 933502 WHERE idempresa = 1`);
+        const cmv = await cons({ cmv: true });
+        await pgCb.query(`UPDATE empresas SET contacmv = NULL WHERE idempresa = 1`);
+        check('§335.4 C.M.V.: as despesas perdem a conta de CMV e todo o grupo principal dela (DesconsideraPLCPaiCMV — o "8." inteiro); as receitas ficam',
+          mapa(cmv.body) === '8.35.001=200 8.35.003=80 8.35.005=300', { mapa: mapa(cmv.body) });
+        await pgCb.query(`UPDATE plc SET apenas_proprietario = 'S' WHERE codplc = 933506`);
+        const naoPro = await cons();
+        await pgCb.query(`UPDATE operadores SET tipoop = 'PRO' WHERE codoperador = 7`);
+        const pro = await cons();
+        await pgCb.query(`UPDATE operadores SET tipoop = 'OPE' WHERE codoperador = 7`);
+        await pgCb.query(`UPDATE plc SET apenas_proprietario = NULL WHERE codplc = 933506`);
+        check('§335.5 o recorte do proprietário vai pelo CODPLC_NVL1 (FiltraPLCProprietario): a conta marcada leva junto os pais dela, então quem não é PRO perde o grupo "8." inteiro; o PRO vê tudo',
+          naoPro.status === 200 && (naoPro.body.linhas ?? []).length === 0 && (pro.body.linhas ?? []).length === 6, { naoPro: mapa(naoPro.body), pro: mapa(pro.body) });
+        const sem = await cons({}, H_SEM_ACESSO);
+        const imp = await fetch(`${RB}/impressao`, { method: 'POST', headers: H, body: corpo() });
+        const impB = (await imp.json()) as any;
+        check('§335.6 sem acesso à tela → 403; o Imprimir usa o Rel_BalanceteRegimeCaixaDetalhado.fr3 (o tipo de relatório é forçado em Analítico)',
+          sem.status === 403 && (imp.status === 200 ? Array.isArray(impB?.datasets?.frxDBDataset2) && impB.datasets.frxDBDataset2.length === 6
+            : impB?.code === 'RELATORIO_MODELO_NAO_ENCONTRADO' && String(impB?.message ?? '').includes('Rel_BalanceteRegimeCaixaDetalhado.fr3')), { sem: sem.status, imp: imp.status, impB });
+      } finally {
+        await pgCb.query(`UPDATE empresas SET mascaraplc = $1, contacmv = $2 WHERE idempresa = 1`, [emp0?.mascaraplc ?? null, emp0?.contacmv ?? null]);
+        await pgCb.query(`UPDATE operadores SET tipoop = $1 WHERE codoperador = 7`, [op0?.tipoop ?? null]);
+        // o que a seção criou sai (o FECHAMENTO §168 conta as modalidades e os PDVs da empresa 1)
+        await pgCb.query(`DELETE FROM caixa WHERE codcx BETWEEN 993501 AND 993510`);
+        await pgCb.query(`DELETE FROM scrap WHERE codscrap = 93350`);
+        await pgCb.query(`DELETE FROM areceber_bx WHERE codrcb IN (SELECT codrcb FROM areceber WHERE nrocupom = 'CB-335')`);
+        await pgCb.query(`DELETE FROM areceber WHERE nrocupom = 'CB-335'`);
+        await pgCb.query(`DELETE FROM apagar WHERE duplicata = 'CB-D335'`);
+        await pgCb.query(`DELETE FROM cartao WHERE codoperadora = 9335`);
+        await pgCb.query(`DELETE FROM operadoras WHERE codoperadoras = 9335`);
+        await pgCb.query(`DELETE FROM contacorrente WHERE codcontacorrente = 93350`);
+        await pgCb.query(`DELETE FROM formas_pgto WHERE idempresa = 1 AND modalidade IN ('CARTAO 335', 'DINHEIRO 335')`);
+        await pgCb.query(`DELETE FROM pdv WHERE codpdv = 9335`);
+        await pgCb.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

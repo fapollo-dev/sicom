@@ -21,6 +21,9 @@ beforeEach(() => {
     corpos.push({ url: u, body });
     const r = u.includes('/acesso/opcoes/') ? { opcoes }
       : u.endsWith('/caixa-competencia/consultar') ? { linhas: [{ data: '2026-10-01', desccodplc: '1.01.001', descricao: 'VENDAS A VISTA', tiporecurso: 'D', total_credito: 150, total_debito: 0 }], niveis: 3 }
+      : u.endsWith('/caixa-baixado/consultar') ? { linhas: [
+          { desccodplc: '1.01.001', descricao: 'CLIENTES', descricao_nvl1: 'RECEITAS', obs: 'BAIXA', razao: 'CLIENTE A', valor: 300, tpconta: 0 },
+          { desccodplc: '4.01.001', descricao: 'ALUGUEL', descricao_nvl1: 'DESPESAS', obs: 'ALUGUEL OUT', razao: 'IMOBILIARIA', valor: -120, tpconta: 1 }], niveis: 3 }
       : u.endsWith('/caixa-dre/consultar') ? { receitas: [], despesas: [], totais: { receitas: 0, contas_recebidas_sem_conta: 0, cartoes_recebidos: 0, cheques_recebidos: 0, despesas: 0, resultado: 0, custo_mercadoria: 0 } }
       : {};
     return { ok: true, status: 200, json: async () => r };
@@ -74,5 +77,21 @@ describe('Relatório de caixa (FRMRELATORIOCAIXA) — os controles do legado', (
     expect(corpoCompetencia(base)).toEqual({ dtini: '2026-10-01', dtfim: '2026-10-31', regime: 'VENCIMENTO', modelo: 3, empresas: [1, 2],
       codoperador: null, codfiscal: null, codpdv: null, plc: '4.07', tpconta: 1, obs: null, cmv: true, taxasCartao: false, notasFiscais: true,
       custoReposicao: false, expandido: false });
+  });
+
+  it('Caixa Baixado: só o código, a observação e o C.M.V. valem (operador/PDV/tipo de conta desabilitados, modelo travado); consulta o balancete', async () => {
+    opcoes = [];
+    tela();
+    fireEvent.change(screen.getByLabelText('Relatório'), { target: { value: 'BX_PAGAMENTO' } });
+    expect((screen.getByLabelText('Tipo de conta') as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Totalizado') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('checkbox', { name: /notas fiscais/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('checkbox', { name: /Planos de contas expandidos/ })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Observação'), { target: { value: 'aluguel' } });
+    fireEvent.click(botao('Consultar'));
+    await waitFor(() => expect(corpos.some((c) => c.url.endsWith('/caixa-baixado/consultar'))).toBe(true));
+    expect(corpos.find((c) => c.url.endsWith('/caixa-baixado/consultar'))!.body).toMatchObject({ data: 'PAGAMENTO', obs: 'aluguel', cmv: false, plc: null });
+    expect(await screen.findByText('IMOBILIARIA')).toBeTruthy();
+    expect(screen.getByText(/Entradas R\$\s?300,00 · Saídas -R\$\s?120,00/)).toBeTruthy();
   });
 });

@@ -7,6 +7,7 @@ import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 import { ConfigService } from '../cadastro/config.service';
+import { estruturaPlc, joinFixo as joinFixoPlc, parteFixa as parteFixaPlc, parteFixaGrupo, plcsOcultosDoOperador } from './rel-caixa-plc';
 
 type AnyDB = Kysely<any>;
 
@@ -68,9 +69,7 @@ export class RelCaixaCompetenciaService {
     const db = this.dbp.forTenantRead() as AnyDB;
     const lojas = await empresasDoOperador(db, f.empresas);
     const tz = String((await this.config.resolver('FUSO_HORARIO_ACESSO', { empresaId: emp })) ?? 'America/Sao_Paulo');
-    const mascara = String(((await db.selectFrom('empresas').select('mascaraplc').where('idempresa', '=', emp).executeTakeFirst()) as { mascaraplc?: string } | undefined)?.mascaraplc ?? '#.##.###');
-    const niveis = Math.max(1, mascara.split('.').filter((x) => x !== '').length);
-    const acima = Array.from({ length: niveis - 1 }, (_, i) => i + 1); // 1..niveis-1
+    const { niveis, acima } = await estruturaPlc(db, emp);
     // as colunas timestamptz viram o dia da loja; as date (NF.DTEMISSAO/DTCONTABIL, CAIXA.DTVENC) já são o dia
     const dia = (col: RawBuilder<unknown>) => sql`(${col} AT TIME ZONE ${tz})::date`;
     const noPeriodo = (d: RawBuilder<unknown>) => sql`${d} BETWEEN ${f.dtini}::date AND ${f.dtfim}::date`;
@@ -80,9 +79,8 @@ export class RelCaixaCompetenciaService {
 
     // a hierarquia do plano gerencial: P2 é o pai da conta, P1 o avô… (GetJoinFixo) e as colunas _NVLn (GetParteFixaSQL, com o LIMITEPLC
     // que o layout da produção lê)
-    const joinFixo = (alias = 'p') => sql.join(acima.slice().reverse().map((i) => sql.raw(
-      `LEFT JOIN plc p${i} ON p${i}.codplc = ${i === niveis - 1 ? alias : `p${i + 1}`}.codpai`)), sql.raw(' '));
-    const parteFixa = sql.raw(acima.map((i) => `, p${i}.codplc AS codplc_nvl${i}, p${i}.descricao AS descricao_nvl${i}, p${i}.desccodplc AS desccodplc_nvl${i}, p${i}.limiteplc AS limiteplc_nvl${i}`).join(''));
+    const joinFixo = (alias = 'p') => joinFixoPlc(niveis, alias);
+    const parteFixa = parteFixaPlc(acima, true);
     const tpcontaTxt = (col: string) => sql.raw(`CASE WHEN ${col} = 0 THEN 'C' WHEN ${col} = 1 THEN 'D' WHEN ${col} = 2 THEN 'N' END`);
     const tp = f.tpconta == null ? null : sql`p.tpconta = ${f.tpconta}`;
     const plcLike = f.plc ? sql`p.desccodplc LIKE ${`${f.plc}%`}` : null;
@@ -143,7 +141,7 @@ export class RelCaixaCompetenciaService {
            WHERE ${entre(sql`v.dtvenda`)} AND v.idempresa = ANY(${lojas}::int[]) AND v.cancelado = 'N'
              ${e([plcLike, f.obs ? sql`p.descricao LIKE ${`%${f.obs}%`}` : null, tp])}
            GROUP BY emp.contacmv, p.desccodplc, p.descricao, p.codpai, p.tpconta, p.limiteplc
-             ${sql.raw(acima.map((i) => `, p${i}.codplc, p${i}.descricao, p${i}.desccodplc, p${i}.limiteplc`).join(''))}`);
+             ${parteFixaGrupo(acima, true)}`);
       } else {
         // GetSQLCMVVencimento: o custo de cada venda na proporção do que entrou — à vista (destino CXA) pela data do caixa; a prazo pela
         // parcela do CAIXA (mesmo CODGRUPO) que vence no período
@@ -186,7 +184,7 @@ export class RelCaixaCompetenciaService {
             LEFT JOIN plc p ON p.desccodplc = pv.desccodplc AND p.codplc = pv.contacmv
             ${joinFixo('pv')}
            GROUP BY pv.data, pv.operador, pv.contacmv, pv.tiporecurso, pv.obs, pv.razao, pv.nronf, pv.desccodplc, pv.descricao, pv.codpai, pv.tpconta, pv.nome, pv.codcx, p.limiteplc
-             ${sql.raw(acima.map((i) => `, p${i}.codplc, p${i}.descricao, p${i}.desccodplc, p${i}.limiteplc`).join(''))}`);
+             ${parteFixaGrupo(acima, true)}`);
       }
     }
 
@@ -206,7 +204,7 @@ export class RelCaixaCompetenciaService {
          WHERE ${entre(sql`ct.dtvenda`)} AND ct.idempresa = ANY(${lojas}::int[])
            ${e([f.codoperador ? sql`ct.codoperador = ${f.codoperador}` : null, f.codpdv ? sql`ct.codpdv = ${f.codpdv}` : null, plcLike, tp])}
          GROUP BY p.codplc, p.desccodplc, p.descricao, p.codpai, p.limiteplc
-           ${sql.raw(acima.map((i) => `, p${i}.codplc, p${i}.descricao, p${i}.desccodplc, p${i}.limiteplc`).join(''))}`);
+           ${parteFixaGrupo(acima, true)}`);
     }
 
     // (4) as notas fiscais de venda com título (GetSQLNotasFiscais)
@@ -240,25 +238,10 @@ export class RelCaixaCompetenciaService {
     const consulta = sql`${sql.join(pernas, sql.raw(' UNION ALL '))} ${sql.raw(ordem)}`;
     let linhas = (await consulta.execute(db)).rows as Record<string, unknown>[];
 
-    // FiltraPLCProprietario: quem não é PRO não vê os centros de custo de proprietário
-    const op = currentTenant().operadorId ?? null;
-    const tipoop = op == null ? null : ((await db.selectFrom('operadores').select('tipoop').where('codoperador', '=', op).executeTakeFirst()) as { tipoop?: string } | undefined)?.tipoop;
-    if (String(tipoop ?? '') !== 'PRO') {
-      const lista = await this.plcsDeProprietario(db);
-      if (lista.size) linhas = linhas.filter((l) => !lista.has(Number(l.codplc)));
-    }
+    // FiltraPLCProprietario('CODPLC'): quem não é PRO não vê os centros de custo de proprietário
+    const ocultos = await plcsOcultosDoOperador(db);
+    if (ocultos.size) linhas = linhas.filter((l) => !ocultos.has(Number(l.codplc)));
     return { linhas, niveis };
-  }
-
-  /** a lista do SetListaCodPLCProprietario (:243): a conta de proprietário, as abaixo dela (até 3 níveis) e as de cima de cada uma */
-  private async plcsDeProprietario(db: AnyDB): Promise<Set<number>> {
-    const rows = (await sql<{ a: number | null; b: number | null; c: number | null; d: number | null }>`
-      SELECT p4.codplc AS a, p3.codplc AS b, p2.codplc AS c, p1.codplc AS d
-        FROM plc p4 LEFT JOIN plc p3 ON p4.codpai = p3.codplc LEFT JOIN plc p2 ON p3.codpai = p2.codplc LEFT JOIN plc p1 ON p2.codpai = p1.codplc
-       WHERE p4.apenas_proprietario = 'S' OR p3.apenas_proprietario = 'S' OR p2.apenas_proprietario = 'S' OR p1.apenas_proprietario = 'S'`.execute(db)).rows;
-    const s = new Set<number>();
-    for (const r of rows) for (const v of [r.a, r.b, r.c, r.d]) if (v != null) s.add(Number(v));
-    return s;
   }
 
   /** «Imprimir» (btnImprimirClick :232): o layout do modelo com o frxDBDatasetCaixa, a empresa e as variáveis do legado */

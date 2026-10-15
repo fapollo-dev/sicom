@@ -64,7 +64,7 @@ produção é `#.##.###`, 3 níveis).
 | `rdgTipoRel` | na Competência só no modelo Recursos, como "Ordenação por centro de custo" (Código/Descrição) | ✅ |
 | `RgpFiltroData` | só Competência (emissão) e Baixado (emissão) | ✅ |
 | `cbTaxasCartao` | só Competência (emissão); fora dela desmarca | ✅ |
-| `cbNF` | só Competência | ✅ (corte dos Baixado/Aberto vai desabilitar) |
+| `cbNF` | só Competência | ✅ |
 | `chkCreditoICMS` "Deduzir Crédito do ICMS" | **`Visible = False` no .dfm e nunca ligado** — controle morto | fora (prova: .dfm :721) |
 | `cbCMVContabil` "C.M.V. Contábil" | **`Visible = False` e nunca ligado** — `VIMPRIMECMV` é sempre 'N' | fora (prova: .dfm :731) |
 | `btnImprimir` | Tag 1 → `BTNIMPRIMIR` | `@RequerAcesso('FRMRELATORIOCAIXA','BTNIMPRIMIR')` + botão habilitado pela opção ✅ |
@@ -75,8 +75,38 @@ Sem validação de período no legado (data inicial > final só dá "Dados não 
 servidor da loja; o subselect do `DesconsideraPLCPaiCMV` leva `LIMIT 1` (no Oracle, dois PLCs com o mesmo código de nível 1
 dariam ORA-01427). Prova: smoke §334 (7 checks), `relatorioCaixa.spec.tsx` (3).
 
-## 3. Pendente (próximos cortes)
+## 3. Caixa Baixado — `TRelCaixaBaixado.GetSQL` (:1007-1355) — ✅ convertido (corte 2)
 
-- Caixa Baixado (emissão/pagamento) — `TRelCaixaBaixado` (à vista, cartão, cheque, receber, receitas, despesas, scrap).
+O SQL ativo é `GetSQLReceitasOrigem UNION ALL GetSQLDespesas ORDER BY 1` (a versão com `GetSQLReceitas`/`GetSQLCMV` está comentada):
+
+| perna | origem | conta | data na EMISSÃO | data no PAGAMENTO |
+|---|---|---|---|---|
+| receber | GET_ARECEBERBX ⋈ ARECEBER | `COALESCE(R.CODPLC, FP.PLCCOFRE)` | `DATA_VENDA` | `DATA_PAGAMENTO` |
+| cheque | GET_CHEQUEBX ⋈ CHEQUE | cofre da forma | `DATA_EMISSAO` | `DATA_BAIXA` |
+| cartão | GET_CARTAOBX ⋈ CARTAO | cofre da forma | `DATA` (venda) | `DATA_BAIXA` |
+| à vista | CONTACORRENTE (destino CXA) → Σ ABS(CAIXA.VALOR) da conta | a da CONTACORRENTE | `CAIXA.DATA` | `CAIXA.DATA` |
+| despesas | APAGAR_BX ⋈ APAGAR ⋈ CX_APAGAR (pelo CODGRUPO) — rateio pela base (TOTALNF da NF, ou Σ VALOR+VENDOR do grupo), líquido de juros e acréscimo/desconto, × −1 | `CX_APAGAR.CODCC` | `APAGAR.DTCOMPRA` | `APAGAR_BX.DTPGTO` |
+| scrap | SCRAP ⋈ CAIXA (CODSCRAP) | a do lançamento | `CAIXA.DATA` | `CAIXA.DATA` |
+
+- O `rdgTipoRel` é **forçado em Analítico** (`cbbRelatoriosCloseUp` :852, e fica invisível) → sempre o `Rel_BalanceteRegimeCaixaDetalhado.fr3`,
+  com OBS/CODPARCEIRO/RAZAO (`frxDBDataset2` = o resultado). O Baixado não avisa "Dados não encontrados" — imprime vazio.
+- **Filtros que valem**: o começo do código (todas as pernas), a observação (só nas despesas — `G.OBS LIKE` ou `P.DESCRICAO LIKE`, com
+  caixa) e o C.M.V. (tira a conta de CMV das baixas a pagar e, pelo `DesconsideraPLCPaiCMV`, o grupo principal dela de todas as despesas).
+  **Inócuos no legado** (habilitados na tela, ignorados pelo SQL ativo, porque só o `GetSQLReceitas` comentado os lia): operador, fiscal de
+  caixa, PDV, tipo de conta, o campo data das notas e o custo de reposição. No Apollo ficam desabilitados no Baixado.
+- **FiltraPLCProprietario pelo `CODPLC_NVL1`**: como a lista leva os pais da conta marcada, marcar UMA conta de proprietário tira o grupo
+  de nível 1 inteiro do relatório para quem não é PRO (fiel; smoke §335.5).
+
+**Diferenças deliberadas** (o legado erra; não se copia):
+1. **O cartão conta uma vez.** A `GET_CARTAOBX` faz `LEFT JOIN CARTAO_BX` e repete o cartão a cada baixa não estornada: na produção,
+   **3.144 cartões com 2+ baixas, R$ 143.411,53 somados em dobro** (jan/2024 – set/2026). O Apollo lê o CARTAO liberado direto.
+2. **A observação no scrap** filtra a observação do lançamento: o legado escreve `G.OBS` na consulta do scrap, que não tem alias `G`
+   — com a Observação preenchida o Baixado inteiro dá ORA-00904.
+3. **Base zero no rateio** (grupo sem valor): o legado dá ORA-01476 (divisão por zero); o Apollo deixa o lançamento sem valor.
+
+Prova: smoke §335 (6 checks), `relatorioCaixa.spec.tsx` (Baixado).
+
+## 4. Pendente (próximos cortes)
+
 - Caixa Aberto (emissão/vencimento) — `TRelCaixaAberto`.
 - A impressão do Anual (`Rel_CaixaAnual.fr3`) — se a produção mostrar o modelo acessível.

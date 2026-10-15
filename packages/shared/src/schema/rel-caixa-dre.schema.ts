@@ -37,3 +37,16 @@ export const relCaixaCompetenciaSchema = z.object({
   expandido: z.boolean().optional(),
 });
 export type RelCaixaCompetenciaDto = z.infer<typeof relCaixaCompetenciaSchema>;
+
+/** RELATÓRIO DE CAIXA — CAIXA BAIXADO (FRMRELATORIOCAIXA, `TRelCaixaBaixado`): `data` é o cbbRelatorios 2 (emissão) / 3 (pagamento). */
+export const relCaixaBaixadoSchema = z.object({
+  dtini: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (AAAA-MM-DD).'),
+  dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data final inválida (AAAA-MM-DD).'),
+  data: z.enum(['EMISSAO', 'PAGAMENTO']),
+  empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
+  plc: z.string().trim().max(30).nullish(),
+  obs: z.string().trim().max(255).nullish(),
+  cmv: z.boolean().optional(),
+  expandido: z.boolean().optional(),
+});
+export type RelCaixaBaixadoDto = z.infer<typeof relCaixaBaixadoSchema>;
