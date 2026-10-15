@@ -20772,6 +20772,35 @@ async function main() {
         await pg4.end();
       }
     }
+    // ══ §325 VALOR DO TICKET MÉDIO — o uValorTicketMedio.dfm: as lojas do GetMultiEmpresa e o "Imprimir" (Rel_TicketMedio.fr3) ══
+    {
+      const pg5 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const tinha2 = Number((await pg5.query(`SELECT count(*)::int AS n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0]?.n) > 0;
+      try {
+        if (!tinha2) await pg5.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pg5.query(`INSERT INTO vendas (codvendas, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cancelado, iat) VALUES
+            (99325001, 1, '2061-03-03 10:00:00-03', 'P3250A', '3', 932501, 1, 1, 2, 10, 'N', 'A'),
+            (99325002, 2, '2061-03-03 11:00:00-03', 'P3250B', '3', 932502, 1, 1, 1, 30, 'N', 'A')`);
+        await pg5.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (993250, 1, 'Rel_TicketMedio.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO NOTHING`,
+          [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64')]);
+        const post5 = (path: string, body: unknown) => fetch(`${base}/relatorios/ticket-medio/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any }));
+        const so1 = await post5('consultar', { dtini: '2061-03-03', dtfim: '2061-03-03' });
+        const ambas = await post5('consultar', { dtini: '2061-03-03', dtfim: '2061-03-03', empresas: [1, 2] });
+        const imp = await post5('impressao', { dtini: '2061-03-03', dtfim: '2061-03-03', empresas: [1, 2] });
+        const D = (imp.j.datasets?.frxDBDataset1 ?? []) as any[];
+        check('TICKET MÉDIO §325 [btnProcessarClick: /*IDEMPRESA*/ = GetMultiEmpresa; Imprimir → Rel_TicketMedio.fr3]: sem lojas, só a do login (1 cupom, 20); com 1,2 as duas (2 linhas, total 50, média do período 25); a impressão traz frxDBDataset1 com FANTASIA/IDEMPRESA/DTVENDA/QTDE_CUPONS/TOTAL_VENDA/MEDIA e TOTAL_VENDA_TOTAL 50, e o frxDBEmpresa',
+          so1.status === 200 && (so1.j.linhas ?? []).length === 1 && Number(so1.j.totais?.total_venda) === 20
+          && ambas.status === 200 && (ambas.j.linhas ?? []).length === 2 && Number(ambas.j.totais?.total_venda) === 50 && Number(ambas.j.totais?.media) === 25
+          && imp.status === 200 && D.length === 2 && D.every((d) => Number(d.TOTAL_VENDA_TOTAL) === 50 && 'FANTASIA' in d && d.DTVENDA != null && Number(d.QTDE_CUPONS) === 1)
+          && D.some((d) => Number(d.IDEMPRESA) === 2 && Number(d.TOTAL_VENDA) === 30 && Number(d.MEDIA) === 30) && (imp.j.datasets?.frxDBEmpresa ?? []).length === 1,
+          { so1: [so1.status, so1.j.code, so1.j.totais], ambas: [ambas.status, ambas.j.code, ambas.j.totais], imp: [imp.status, imp.j.code, imp.j.message], D });
+      } finally {
+        await pg5.query(`DELETE FROM vendas WHERE codvendas IN (99325001, 99325002)`).catch(() => {});
+        await pg5.query(`DELETE FROM relatorios WHERE codrelatorio = 993250`).catch(() => {});
+        if (!tinha2) await pg5.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`).catch(() => {});
+        await pg5.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

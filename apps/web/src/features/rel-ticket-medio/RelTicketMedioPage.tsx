@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
+import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 async function req<T>(path: string, body: unknown): Promise<T> {
@@ -38,17 +39,21 @@ export function RelTicketMedioPage() {
   const [horaPorDia, setHoraPorDia] = useState(false);
   const [horaIni, setHoraIni] = useState('00:00');
   const [horaFim, setHoraFim] = useState('23:59');
+  // as lojas do GetMultiEmpresa (vazio = a do login)
+  const [empresas, setEmpresas] = useState('');
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Totais | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const listaEmpresas = () => empresas.split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+  const corpo = () => ({ dtini, dtfim, filtrarHora, horaPorDia, horaIni, horaFim, ...(listaEmpresas().length ? { empresas: listaEmpresas() } : {}) });
+  // "Imprimir" (Rel_TicketMedio.fr3): o mesmo processamento, no layout do cliente
+  const imprimir = () => { imprimirRelatorio('/relatorios/ticket-medio/impressao', corpo()).catch((e) => mensagem.erro(e)); };
   const consultar = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await req<{ linhas: Linha[]; totais: Totais }>('/relatorios/ticket-medio/consultar', {
-        dtini, dtfim, filtrarHora, horaPorDia, horaIni, horaFim,
-      });
+      const r = await req<{ linhas: Linha[]; totais: Totais }>('/relatorios/ticket-medio/consultar', corpo());
       setLinhas(r.linhas); setTotais(r.totais);
       if (!r.linhas.length) mensagem.sucesso('Nenhuma venda no período/filtro.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
@@ -61,7 +66,8 @@ export function RelTicketMedioPage() {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-40"><Field label="&Data inicial" type="date" value={dtini} onChange={(e) => setDtini(e.target.value)} /></div>
         <div className="w-40"><Field label="Data &final" type="date" value={dtfim} onChange={(e) => setDtfim(e.target.value)} /></div>
-        <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={filtrarHora} onChange={(e) => setFiltrarHora(e.target.checked)} /> Filtrar hora</label>
+        {/* CbFiltroHoraClick: marcar "Filtrar pela hora" marca junto "intervalo de hora a cada dia" (e desmarcar desmarca) */}
+        <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={filtrarHora} onChange={(e) => { setFiltrarHora(e.target.checked); setHoraPorDia(e.target.checked); }} /> Filtrar pela hora</label>
         {filtrarHora && (
           <>
             <div className="w-24"><Field label="De" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} /></div>
@@ -70,7 +76,9 @@ export function RelTicketMedioPage() {
             <label className="flex items-center gap-1 text-body-sm"><input type="checkbox" checked={horaPorDia} onChange={(e) => setHoraPorDia(e.target.checked)} /> A faixa em cada dia</label>
           </>
         )}
+        <div className="w-40"><Field label="Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
         <Button label="&Processar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <Button label="&Imprimir" variant="ghost" disabled={busy} onClick={imprimir} />
         <small className="w-full text-fg-muted">
           Sem marcar «a faixa em cada dia», o filtro de hora é <b>uma janela contínua</b> do início ao fim do
           período — é o comportamento do legado. O ticket médio do período é o total dividido pelos cupons.

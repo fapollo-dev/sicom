@@ -4,6 +4,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -59,8 +62,8 @@ export class RelTicketMedioService {
     if (!f.dtini || !f.dtfim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
     if (String(f.dtini) > String(f.dtfim)) throw new BusinessRuleError('PERIODO_INVERTIDO', { dtini: f.dtini, dtfim: f.dtfim });
     const db = this.dbp.forTenantRead() as AnyDB;
-    const empresas = (f.empresas?.length ? f.empresas.map(Number) : [emp]).filter((e) => e === emp);
-    if (!empresas.length) throw new BusinessRuleError('EMPRESA_FORA_DO_ESCOPO', { empresas: f.empresas });
+    // as lojas do `GetMultiEmpresa` (o btnProcessarClick troca o /*IDEMPRESA*/ por elas), recortadas às do operador; vazio = a do login
+    const empresas = await empresasDoOperador(db, f.empresas?.length ? f.empresas.map(Number) : null);
 
     const tz = String((await this.config.resolver('FUSO_HORARIO_ACESSO', { empresaId: emp })) ?? 'America/Sao_Paulo');
     const fim = new Date(`${f.dtfim}T00:00:00Z`);
@@ -155,6 +158,28 @@ export class RelTicketMedioService {
     return {
       linhas: comMedia, totais,
       filtro: { ...f, empresas, fuso: tz, modo_hora: comHora ? (porDia ? 'POR_DIA' : 'CONTINUA') : 'DIA_INTEIRO' },
+    };
+  }
+
+  /**
+   * "Imprimir" (o mesmo btnProcessarClick com Sender = btnImprimir → Rel_TicketMedio.fr3): frxDBDataset1 = o `cdsValorTicketMedio`
+   * (FANTASIA, IDEMPRESA, DTVENDA, QTDE_CUPONS, TOTAL_VENDA, MEDIA e o agregado TOTAL_VENDA_TOTAL), frxDBEmpresa = a loja do login.
+   * MEDIA_QTDE_PRODUTOS_CUPOM e AREAM2_VENDA, que o layout do binário novo cita, não existem no SQL do fonte — saem em branco.
+   */
+  async impressao(f: FiltroTicketMedio) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const r = await this.consultar(f);
+    if (!r.linhas.length) throw new BusinessRuleError('RELATORIO_SEM_REGISTROS', {}, 'Nenhuma venda no período/filtro.');
+    const totalGeral = r.totais.total_venda;
+    const linhas = r.linhas.map((l) => registroFr3({
+      fantasia: l.empresa ?? null, idempresa: num(l.idempresa), dtvenda: l.dia, qtde_cupons: num(l.cupons), total_venda: num(l.total_venda),
+      media: l.media == null ? null : num(l.media), total_venda_total: totalGeral,
+    }, new Set(['idempresa', 'qtde_cupons', 'total_venda', 'media', 'total_venda_total'])));
+    return {
+      titulo: 'Valor do ticket médio',
+      modelo: await modeloFr3(db, 'Rel_TicketMedio.fr3'),
+      datasets: { frxDBDataset1: linhas, frxDBEmpresa: [await empresaParaRelatorio(db, emp)] },
     };
   }
 }

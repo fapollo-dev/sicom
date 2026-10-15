@@ -17,4 +17,12 @@ export class RelTicketMedioController {
   consultar(@Body(new ZodValidationPipe(relTicketMedioSchema)) dto: RelTicketMedioDto) {
     return this.svc.consultar(dto);
   }
+
+  /** "Imprimir" (Rel_TicketMedio.fr3) */
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMVALORTICKETMEDIO', 'FRMVALORTICKETMEDIO')
+  impressao(@Body(new ZodValidationPipe(relTicketMedioSchema)) dto: RelTicketMedioDto) {
+    return this.svc.impressao(dto);
+  }
 }
