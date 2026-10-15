@@ -27,11 +27,36 @@ Adicional) 8, T 5, R 1; OPCAO "Outras" 24, "Rebaixa por vencimento" 1.
   (a promoção nem regravava) e, se aceitasse, a tela mandava `itens: []` e o DELETE+INSERT do detalhe **apagaria os itens**. Agora o 'T'
   abre, o cabeçalho se regrava e a mecânica sem tela **não manda a chave de itens** (o engine deixa o detalhe como está). ❌→✅
 
+## As grades das abas de produto (15/10/2026, corte 2 da auditoria)
+
+As grades `cxgDesconto*Dados` (Desconto Fixo, Variável, Preço Fixo, Leve Pague, Produto Grátis e Desconto Adicional — com os Grupos B)
+eram, no Apollo, "Produto + valor/quantidade". Agora são as do legado:
+
+- **Colunas, na ordem e com os rótulos do .dfm**: Ativo, Grupo, Código, Cod.Barra, Descrição, Vr. Sem Desc. (o VRVENDA da loja —
+  `JOIN MULTI_PRECO M ON M.IDEMPRESA = C.LOJA`), os derivados da aba, Quantidade (Qtde. Leve/Pague no Leve Pague), % Desconto no Grupo B do
+  Adicional, Lim. Venda (MAXIMO), Lim. Promoção (MAXIMO_ESTOQUE) e Código Promocional (fora dos Grupos B). ❌→✅
+  (`GET cadastro/promocao-produtos?ids=` traz código de barras, descrição, grupo de preço e VRVENDA.)
+- **Os derivados** (o SQL das `Qry*` do UDMCadPromocao) e **o que o VALOR significa em cada aba**: no Desconto Fixo o VALOR é o desconto
+  **total** da quantidade (unitário = VALOR/qtde, "Vr. Com Desc." = venda − unitário, a coluna VALOR chama "Desc. Total"); no Variável é o
+  **%** (unitário = % × venda / 100); no Preço Fixo é o **total** (preço fixo = VALOR/qtde, coluna "Vr. Total"); no Leve Pague o unitário é
+  (leve − pague) × venda / leve. Editar "Vr. Com Desc."/"Desc. Unitário"/"Preço Fixo" grava o VALOR pelas contas do `DataChange`
+  (e a quantidade, no Fixo e no Preço Fixo, refaz o total). ❌→✅
+  ⚠️ O legado se contradiz no Preço Fixo: o SQL mostra no "Desc. Unitário" o próprio preço (VALOR/qtde) e o `DataChange` usa venda −
+  preço; o Apollo usa o do `DataChange` (o desconto de fato).
+- **Os aplicadores em lote** de cada grade (os campos de cima, `edt*KeyDown` → `setQuantidade`/`setLimiteVenda`/`setEstoque`/
+  `setCodigoPromocional`/`setDescontoUnitario`): Enter aplica o valor (> 0) em todas as linhas da grade; o "% Desconto Un" do Fixo e do
+  Preço Fixo vira desconto unitário = % × venda. ❌→✅
+- **Grupo de preço** (a coluna "Grupo", PRECO_GRUPO): o Apollo recusava 'S' em qualquer aba (feature adiada) — e a produção tem 1 item
+  assim, que não regravaria. Agora vale nas grades que têm a coluna, com o `GrupoPrecoValidada`: o item marcado não pode ter outro produto
+  do mesmo grupo de preço na mesma grade ("Os Produtos X e Y são do mesmo grupo de preço") nem na outra ("O Produto do grupo A X e Y do
+  Grupo B são do mesmo grupo de preço"); no Combo/Atacarejo/Bonificação/Categoria (sem a coluna) segue recusado. ❌→✅
+  ⚠️ O legado testa `DataSetFilho.IsEmpty` (o dataset sem filtro): com o Grupo B preenchido, qualquer "Grupo" no A seria barrado. O Apollo
+  aplica a regra que a mensagem descreve.
+
 ## Falta auditar (próximo corte desta tela)
 
-As 11 abas, controle a controle contra o .dfm — cada uma tem a sua grade (Desconto Fixo/Variável/Adicional/Preço Fixo/Produto Grátis/
-Leve Pague com "Lim. Venda", "Lim. Promoção", "Código Promocional", "Vr. Com/Sem Desc."), os botões Adicionar/Editar/Excluir/Gravar por
-aba, a aba **Perfil de Cliente** (destino P), a aba **Log**, as validações por aba (`ValidacaoOutraPromocao`: "Este registro foi
-encontrado em outra promoção (N)…", "Apenas um registro do tipo Fornecedor ou Marca…") e a clonagem.
+Categoria, Combo, Atacarejo, Bonificação e Código Promocional controle a controle; os botões Adicionar/Editar/Excluir/Gravar por aba;
+a aba **Perfil de Cliente** (destino P); a aba **Log**; as validações entre promoções (`ValidacaoOutraPromocao`: "Este registro foi
+encontrado em outra promoção (N)…"); e a clonagem.
 
-Prova: smoke §91.27b + `apps/web/test/promocaoCadMaster.spec.tsx` (2).
+Prova: smoke §91.13, §91.13b, §91.27b + `apps/web/test/promocaoCadMaster.spec.tsx` (3) + `promocaoLote.spec.tsx`.

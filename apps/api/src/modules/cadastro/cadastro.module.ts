@@ -136,6 +136,7 @@ import { CfopAliquotasController } from './cfop-aliquotas.controller';
 import { PlcCrudController } from './plc.crud';
 import { PlcTelaController } from './plc-tela.controller';
 import { OperadorasFilhasController } from './operadoras-filhas.controller';
+import { PromocaoProdutosController } from './promocao-produtos.controller';
 import { PlanoContasController } from './plano-contas.controller';
 import { PlanoContasService } from './plano-contas.service';
 import { DreController } from './dre.controller';
@@ -221,6 +222,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     PlcTelaController,
     OperadorasFilhasController, // a aba "Operadoras Assossiadas" do UcadOperadoras (as que têm esta como base)
+    PromocaoProdutosController, // as colunas de produto das grades da Gestão de Promoções (barras, descrição, grupo, Vr. Sem Desc.)
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)

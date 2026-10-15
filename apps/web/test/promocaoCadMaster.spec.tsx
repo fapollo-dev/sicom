@@ -7,12 +7,15 @@ import { MensagemProvider } from '../src/shared/mensagem';
 import { ShortcutScope } from '../src/shared/keyboard';
 
 const LISTA = [{ idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z', qtde_itens: 1 },
-  { idpromocao: 6, descricao: 'PRECO FIXO X', tipo: 'P', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 }];
+  { idpromocao: 6, descricao: 'PRECO FIXO X', tipo: 'P', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
+  { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 }];
 const PROMOS: Record<number, unknown> = {
   5: { idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', opcao: 'O', destino: 'T', empresas: '1', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z',
     itens: [{ idclubedesconto: 1148, origem: 'T ', operacao: 'DESCONTO_POR_PDV', pdv: 72, minimo: 90, maximo: 160 }] },
   6: { idpromocao: 6, descricao: 'PRECO FIXO X', tipo: 'P', opcao: 'V', destino: 'C', empresas: '1', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
     itens: [{ idclubedesconto: 9, origem: 'P', idorigempromocao: 1, valor: 3.99, quantidade: 1, descricao: 'ARROZ 5KG' }] },
+  8: { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', opcao: 'O', destino: 'T', empresas: '1', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
+    itens: [{ idclubedesconto: 10, origem: 'F', idorigempromocao: 2, valor: 6, quantidade: 3, ativo: 'S', preco_grupo: 'N' }] },
 };
 let chamadas: Array<{ url: string; method: string; body: any }> = [];
 beforeEach(() => {
@@ -21,7 +24,8 @@ beforeEach(() => {
     const u = String(url); const method = init?.method ?? 'GET';
     chamadas.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : null });
     const m = u.match(/\/cadastro\/promocao\/(\d+)$/);
-    const r = m && method === 'GET' ? PROMOS[Number(m[1])] : u.includes('/cadastro/promocao') && method === 'GET' ? LISTA : {};
+    const r = u.includes('/promocao-produtos') ? [{ idproduto: 2, codbarra: '7890002', descricao: 'FEIJAO 1KG', codgrupopreco: 0, vrvenda: 10 }, { idproduto: 1, codbarra: '7890001', descricao: 'ARROZ 5KG', codgrupopreco: 0, vrvenda: 5 }]
+      : m && method === 'GET' ? PROMOS[Number(m[1])] : u.includes('/cadastro/promocao') && method === 'GET' ? LISTA : {};
     return { ok: true, status: 200, json: async () => r };
   }) as any;
 });
@@ -70,5 +74,24 @@ describe('Gestão de promoções (UCadPromocao.dfm) — abrir, alterar e o cabe�
     fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'NOVA' } });
     fireEvent.click(botao('Gravar promoção'));
     expect(await screen.findByText('Informe uma opção para a promoção.')).toBeTruthy();
+  });
+
+  it('a grade do Desconto Fixo é a do legado: Vr. Sem Desc. 10, VALOR 6 em 3 un. → Desc. Unitário 2,00 e Vr. Com Desc. 8,00; o aplicador "Limite Venda" vale para todas as linhas', async () => {
+    tela();
+    expect(await screen.findByText('DESCONTO FIXO Y')).toBeTruthy();
+    acao('DESCONTO FIXO Y', 'Abrir');
+    expect(await screen.findByText('FEIJAO 1KG')).toBeTruthy();
+    for (const h of ['Ativo', 'Grupo', 'Cod.Barra', 'Vr. Sem Desc.', 'Vr. Com Desc.', 'Desc. Unitário', 'Desc. Total', 'Lim. Venda', 'Lim. Promoção', 'Código Promocional']) expect(screen.getAllByText(h).length).toBeGreaterThan(0);
+    expect(screen.getByText('7890002')).toBeTruthy();
+    expect(screen.getByText('R$ 10,00')).toBeTruthy();
+    expect(screen.getByText('R$ 2,00')).toBeTruthy();
+    expect(screen.getByText('R$ 8,00')).toBeTruthy();
+    expect(screen.getByText('R$ 6,00')).toBeTruthy();
+    const lim = screen.getByLabelText('Limite Venda (todas as linhas)');
+    fireEvent.change(lim, { target: { value: '5' } });
+    fireEvent.keyDown(lim, { key: 'Enter' });
+    fireEvent.click(botao('Gravar promoção'));
+    await waitFor(() => expect(chamadas.some((c) => c.method === 'PUT')).toBe(true));
+    expect(chamadas.find((c) => c.method === 'PUT')!.body.itens[0]).toMatchObject({ idorigempromocao: 2, maximo: 5, valor: 6, quantidade: 3 });
   });
 });

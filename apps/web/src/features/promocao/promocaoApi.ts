@@ -51,3 +51,8 @@ export function atualizarPromocao(id: number, dto: Partial<CriarPromocaoDto>): P
 export function removerPromocao(id: number): Promise<void> {
   return req(`${AP}/${id}`, { method: 'DELETE' });
 }
+
+/** as colunas de produto das grades (código de barras, descrição, grupo de preço, VRVENDA da loja) */
+export function apiPromocaoProdutos(ids: number[]): Promise<Array<{ idproduto: number; codbarra: string | null; descricao: string | null; codgrupopreco: number; vrvenda: number | null }>> {
+  return req(`/cadastro/promocao-produtos?ids=${ids.join(',')}`);
+}

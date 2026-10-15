@@ -130,6 +130,9 @@ const mecOf = (origem: unknown): MecanicaCfg | undefined => {
   const k = String(origem);
   return Object.hasOwn(MECANICAS, k) ? MECANICAS[k] : undefined;
 };
+/** as grades com a coluna "Grupo" (PRECO_GRUPO) — as que chamam o GrupoPrecoValidada no legado */
+const ORIGENS_COM_GRUPO = new Set(['F', 'V', 'P', 'L', 'G', 'GF', 'D', 'DF']);
+
 export const promocaoAggregateConfig: AggregateConfig = {
   tabela: 'promocao',
   pk: 'idpromocao',
@@ -263,9 +266,9 @@ export const promocaoAggregateConfig: AggregateConfig = {
         if (produtosVistos.has(chave)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: pid });
         produtosVistos.add(chave);
       }
-      // (d) grupo de preço (PRECO_GRUPO='S') exige o GrupoPrecoValidada cross-item do legado (pas:2669), ainda NÃO
-      //     implementado (feature "promoção por grupo de preço", adiada) → rejeita p/ não gravar grupo meio-configurado.
-      if (String(it.preco_grupo) === 'S') throw new BusinessRuleError('PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO', { idproduto: it.idorigempromocao });
+      // (d) grupo de preço (PRECO_GRUPO='S', a coluna "Grupo"): só nas grades que a têm (Fixo, Variável, Preço Fixo, Leve Pague, Produto
+      //     Grátis e Desconto Adicional, com os Grupos B); a regra cross-item (GrupoPrecoValidada) vem depois do laço.
+      if (String(it.preco_grupo) === 'S' && !ORIGENS_COM_GRUPO.has(origem)) throw new BusinessRuleError('PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO', { idproduto: it.idorigempromocao });
       // (e) Código Promocional (R): CODIGO obrigatório (CodigoPromocionalValidada ';VALOR;CODIGO_PROMOCIONAL;') + único no payload
       //     (dois itens com o mesmo código tornariam a busca por código no PDV ambígua; espelha o dedup da UI).
       if (mec.codigo) {
@@ -306,6 +309,30 @@ export const promocaoAggregateConfig: AggregateConfig = {
           .filter((n) => Number.isFinite(n) && n > 0),
       ),
     ];
+    // GrupoPrecoValidada (UCadPromocao.pas:2669): o item marcado "Grupo" não pode ter outro produto do MESMO grupo de preço na mesma grade
+    // nem na outra (A × B). O legado testa `DataSetFilho.IsEmpty` (o dataset sem filtro) e, com o Grupo B preenchido, barraria qualquer
+    // "Grupo" do A; aqui a regra é a que o texto da mensagem descreve (o filtro), documentado no dossiê.
+    if (ids.length && itens.some((it) => String(it.preco_grupo) === 'S')) {
+      const gps = (await db.selectFrom('produtos').select(['idproduto', 'descricao', 'codgrupopreco']).where('idproduto', 'in', ids).execute()) as Array<{ idproduto: number; descricao: string | null; codgrupopreco: number | null }>;
+      const gp = new Map(gps.map((p) => [Number(p.idproduto), p]));
+      const linha = (it: Record<string, unknown>) => ({ origem: String(it.origem), id: Number(it.idorigempromocao), grupo: Number(gp.get(Number(it.idorigempromocao))?.codgrupopreco ?? 0),
+        desc: String(gp.get(Number(it.idorigempromocao))?.descricao ?? it.idorigempromocao), marcado: String(it.preco_grupo) === 'S' });
+      const todas = itens.filter((it) => mecOf(it.origem)?.produto).map(linha);
+      const falha = (msg: string) => { throw new BusinessRuleError('PROMOCAO_GRUPO_PRECO_REPETIDO', {}, msg); };
+      for (const pai of [...new Set(todas.map((l) => l.origem.replace(/F$/, '')))]) {
+        const doPai = todas.filter((l) => l.origem === pai);
+        const doFilho = todas.filter((l) => l.origem === `${pai}F`);
+        for (const [grade, outra, ehPai] of [[doPai, doFilho, true], [doFilho, doPai, false]] as const) {
+          for (const l of grade.filter((x) => x.marcado && x.grupo > 0)) {
+            const mesma = grade.find((x) => x.grupo === l.grupo && x.id !== l.id);
+            if (mesma) falha(`Os Produtos ${l.desc} e \n${mesma.desc} são do mesmo grupo de preço`);
+            const cruzada = outra.find((x) => x.grupo === l.grupo && x.id !== l.id);
+            if (cruzada) falha(ehPai ? `O Produto do grupo A ${l.desc} e \n${cruzada.desc} do Grupo B são do mesmo grupo de preço`
+              : `O Produto do grupo A ${cruzada.desc} e \n${l.desc} do Grupo B são do mesmo grupo de preço`);
+          }
+        }
+      }
+    }
     if (ids.length) {
       // produto deve EXISTIR e estar ATIVO (fiel ao filtro GET_PRODUTOS ativo='S' + PROMOCAO_PRODUTO_INATIVO da Agenda).
       const prods = (await db.selectFrom('produtos').select(['idproduto', 'ativo']).where('idproduto', 'in', ids).execute()) as Array<{ idproduto: number; ativo: string }>;

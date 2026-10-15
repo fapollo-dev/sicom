@@ -41,22 +41,23 @@ describe('Gestão de promoções — o Adicionar em lote e a grade editável (UC
     fireEvent.click(screen.getByRole('button', { name: 'marcar e OK' }));
     expect(await screen.findByText('101 - CAFE 500G')).toBeTruthy();
     expect(screen.getByText('102 - ACUCAR 1KG')).toBeTruthy();
-    expect(screen.getAllByText(/^R\$\s0,00$/).length).toBe(2);
+    // as colunas em reais do Preço Fixo (cxgDescontoPrecoFixoDados): Vr. Sem Desc., Preço Fixo, Desc. Unitário, Vr. Total — × 2 linhas
+    expect(screen.getAllByText(/^R\$\s0,00$/).length).toBe(8);
 
     fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'PROMO LOTE' } });
     fireEvent.click(screen.getAllByRole('button').find((b) => /Gravar/.test(b.textContent ?? ''))!);
     expect(await screen.findByText(/O valor do desconto Deve ser Informada\./)).toBeTruthy();
     expect((global.fetch as any).mock.calls.some(([, init]: [string, RequestInit?]) => init?.method === 'POST')).toBe(false);
 
-    // a grade editável: duplo clique no valor do café, 9,90 + Enter
-    fireEvent.doubleClick(screen.getAllByText(/^R\$\s0,00$/)[0]);
+    // a grade editável: duplo clique no Preço Fixo do café (a 2ª coluna em reais), 9,90 + Enter → o Vr. Total (1 × 9,90) acompanha
+    fireEvent.doubleClick(screen.getAllByText(/^R\$\s0,00$/)[1]);
     const editor = await waitFor(() => {
-      const el = document.querySelector<HTMLInputElement>('[role="row"] input[type="number"], [role="row"] input[inputmode="decimal"], [role="gridcell"] input');
+      const el = document.querySelector<HTMLInputElement>('[role="row"] input[type="number"], [role="row"] input[inputmode="decimal"], [role="gridcell"] input:not([type="checkbox"])');
       expect(el).toBeTruthy();
       return el!;
     });
     fireEvent.change(editor, { target: { value: '9.9' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
-    expect(await screen.findByText(/^R\$\s9,90$/)).toBeTruthy();
+    expect((await screen.findAllByText(/^R\$\s9,90$/)).length).toBe(2);
   });
 });

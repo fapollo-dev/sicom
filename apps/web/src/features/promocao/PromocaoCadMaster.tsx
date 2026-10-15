@@ -12,11 +12,79 @@ import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
-import { listarPromocoes, criarPromocao, removerPromocao, obterPromocao, atualizarPromocao } from './promocaoApi';
+import { listarPromocoes, criarPromocao, removerPromocao, obterPromocao, atualizarPromocao, apiPromocaoProdutos } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtPct = (v: unknown) => `${n(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+const r2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
+const r3 = (x: number) => Math.round((x + Number.EPSILON) * 1000) / 1000;
+
+/**
+ * Os derivados de cada aba (o SQL das Qry* do UDMCadPromocao), a partir do VALOR gravado e do VRVENDA da loja:
+ *  - Desconto Fixo: VALOR = desconto TOTAL da quantidade → unitário = VALOR / qtde; com desconto = venda − unitário;
+ *  - Desconto Variável: VALOR = % → unitário = % × venda / 100;
+ *  - Preço Fixo: VALOR = total da quantidade → preço fixo = VALOR / qtde; desc. unitário = venda − preço (o SQL do legado mostra VALOR/qtde
+ *    nessa coluna — o próprio preço —, e o DataChange usa venda − preço: fica o do DataChange, documentado);
+ *  - Leve Pague: unitário = (leve − pague) × venda / leve.
+ */
+function derivados(origem: string, it: Record<string, unknown>, vv: number): { du: number; vcd: number } {
+  const q = n(it.quantidade), v = n(it.valor);
+  if (origem === 'F') { const du = r2(v / (q > 0 ? q : 1)); return { du, vcd: r2(vv - du) }; }
+  if (origem === 'V') { const du = r2((v * vv) / 100); return { du, vcd: r2(vv - du) }; }
+  if (origem === 'P') { const pf = r2(v / (q > 0 ? q : 1)); return { du: r2(vv - pf), vcd: pf }; }
+  if (origem === 'L') { const du = q > 0 ? r2(((q - n(it.quantidade_paga)) * vv) / q) : 0; return { du, vcd: r2(vv - du) }; }
+  return { du: 0, vcd: vv };
+}
+/** a edição de uma célula com o DataChange do legado: o derivado digitado vira o VALOR gravado (o resto se recalcula pelo `derivados`) */
+function editarComDerivados<T extends Record<string, unknown>>(it: T, campo: string, v: number, vv: number): T {
+  const origem = String(it.origem);
+  const q = n(it.quantidade);
+  const atual = derivados(origem, it, vv);
+  if (campo === 'quantidade' || campo === 'quantidade_paga') {
+    const nq = r3(v);
+    if (campo === 'quantidade' && origem === 'F') return { ...it, quantidade: nq, valor: r2(nq * atual.du) };
+    if (campo === 'quantidade' && origem === 'P') return { ...it, quantidade: nq > 0 ? nq : 1, valor: r2(atual.vcd * (nq > 0 ? nq : 1)) };
+    return { ...it, [campo]: nq };
+  }
+  if (campo === 'vcd' || campo === 'du') {
+    const du = campo === 'du' ? r2(v) : r2(vv - r2(v));
+    const vcd = r2(vv - du);
+    if (origem === 'F') return { ...it, valor: r2(q <= 1 ? du : q * du) };
+    if (origem === 'V') return { ...it, valor: vv > 0 ? r2((du / vv) * 100) : 0 };
+    if (origem === 'P') return { ...it, valor: r2(vcd * (q > 0 ? q : 1)) };
+    return it;
+  }
+  if (campo === 'valor') return { ...it, valor: r2(v) };
+  return { ...it, [campo]: v };
+}
+
+/** os campos de cima de cada grade do legado (edt*KeyDown → set*): Enter aplica o valor em todas as linhas daquela grade */
+function AplicarEmLote({ campos, onAplicar }: { campos: Array<{ campo: string; rotulo: string; texto?: boolean }>; onAplicar: (campo: string, valor: string) => void }) {
+  return (
+    <div className="mb-gp-2xs flex flex-wrap items-end gap-gp-sm" aria-label="Aplicar em todas as linhas">
+      {campos.map((c) => (
+        <label key={c.campo} className="flex flex-col gap-gp-2xs text-body-sm">
+          <span className="text-fg-muted">{c.rotulo}</span>
+          <input aria-label={`${c.rotulo} (todas as linhas)`} className="w-32 rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" inputMode={c.texto ? 'text' : 'decimal'}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAplicar(c.campo, (e.target as HTMLInputElement).value.replace(',', '.')); } }} />
+        </label>
+      ))}
+      <span className="pb-2 text-body-sm text-fg-subtle">Enter aplica em todas as linhas</span>
+    </div>
+  );
+}
+/** os aplicadores de cada grade, como no .dfm (rótulos dos painéis de topo) */
+const LOTE: Record<string, Array<{ campo: string; rotulo: string; texto?: boolean }>> = {
+  F: [{ campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'pct_unitario', rotulo: '% Desconto Un' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }, { campo: 'codigo_promocional', rotulo: 'Código Promocional', texto: true }],
+  V: [{ campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'valor', rotulo: '% Desconto' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }, { campo: 'codigo_promocional', rotulo: 'Código Promocional', texto: true }],
+  P: [{ campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'pct_unitario', rotulo: '% Desconto Un' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }, { campo: 'codigo_promocional', rotulo: 'Código Promocional', texto: true }],
+  L: [{ campo: 'quantidade', rotulo: 'Qtde. Leve' }, { campo: 'quantidade_paga', rotulo: 'Qtde. Pague' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }],
+  G: [{ campo: 'codigo_promocional', rotulo: 'Código Promocional', texto: true }, { campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }],
+  GF: [{ campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }],
+  D: [{ campo: 'codigo_promocional', rotulo: 'Código Promocional', texto: true }, { campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }],
+  DF: [{ campo: 'quantidade', rotulo: 'Quantidade' }, { campo: 'maximo', rotulo: 'Limite Venda' }, { campo: 'maximo_estoque', rotulo: 'Limite Promoção' }],
+};
 const fmtValorPorTipo = (v: unknown, tipo: unknown) => (String(tipo) === '%' ? fmtPct(v) : fmtMoeda(v));
 const fmtDt = (v: unknown) => (v ? new Date(String(v)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
@@ -190,6 +258,16 @@ export function PromocaoCadMaster() {
   const [valorGB, setValorGB] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
+
+  // as colunas de produto das grades (UDMCadPromocao: JOIN PRODUTOS + MULTI_PRECO da loja) — código de barras, descrição, grupo de preço e
+  // o VRVENDA ("Vr. Sem Desc."), base dos derivados de cada aba
+  const [info, setInfo] = useState<Record<number, { codbarra?: string | null; descricao?: string | null; vrvenda?: number | null; codgrupopreco?: number }>>({});
+  useEffect(() => {
+    const faltam = [...new Set(itens.filter((it) => it.idorigempromocao != null && !['C', 'R'].includes(String(it.origem))).map((it) => Number(it.idorigempromocao)))]
+      .filter((id) => id > 0 && !(id in info));
+    if (!faltam.length) return;
+    void apiPromocaoProdutos(faltam).then((ls) => setInfo((m) => ({ ...m, ...Object.fromEntries(ls.map((l) => [Number(l.idproduto), l])) }))).catch(() => undefined);
+  }, [itens, info]);
 
   // o rótulo de cada alvo escolhido nos adders (a linha da Pesquisa), chaveado por dimensão:código — P produto, O/D/G/S família,
   // F fornecedor. Os itens desta tela só nascem dos adders (não há edição de promoção gravada), então a grade sempre o encontra.
@@ -399,9 +477,27 @@ export function PromocaoCadMaster() {
   };
   // a célula editada na grade (o VALOR, a QUANTIDADE, a QUANTIDADE_PAGA) — a linha é o índice do item
   const editarItem = ({ id, field, value }: { id: unknown; field: string; value: unknown }) => {
+    if (field === 'codigo_promocional') {
+      setItens((xs) => xs.map((it, i) => (String(i) === String(id) ? { ...it, codigo_promocional: String(value ?? '').trim() || undefined } : it)));
+      return;
+    }
     const v = value === '' || value == null ? 0 : Number(String(value).replace(',', '.'));
     if (!Number.isFinite(v) || v < 0) return;
-    setItens((xs) => xs.map((it, i) => (String(i) === String(id) ? { ...it, [field]: v } : it)));
+    setItens((xs) => xs.map((it, i) => (String(i) === String(id) ? editarComDerivados(it, field, v, n(info[Number(it.idorigempromocao)]?.vrvenda)) : it)));
+  };
+  // os aplicadores em lote de cada grade (setQuantidade/setLimiteVenda/setEstoque/setCodigoPromocional/setDescontoUnitario): Enter aplica
+  // o valor (> 0) em todas as linhas daquela grade
+  const aplicarEmLote = (origem: string, campo: string, valor: string | number) => {
+    setItens((xs) => xs.map((it) => {
+      if (String(it.origem) !== origem) return it;
+      if (campo === 'codigo_promocional') return { ...it, codigo_promocional: String(valor).trim() || undefined };
+      const v = Number(valor);
+      if (!(v > 0)) return it;
+      const vv = n(info[Number(it.idorigempromocao)]?.vrvenda);
+      // o "% Desconto Un" do Fixo e do Preço Fixo: DESCONTO_UNITARIO = % × VRVENDA / 100 (e o DataChange refaz o resto)
+      if (campo === 'pct_unitario') return editarComDerivados(it, 'du', r2((v * vv) / 100), vv);
+      return editarComDerivados(it, campo, v, vv);
+    }));
   };
 
   // trocar a mecânica (aba) LIMPA os itens — senão itens de uma aba ficariam pendurados e seriam gravados
@@ -497,19 +593,48 @@ export function PromocaoCadMaster() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
+  // AS GRADES DE PRODUTO (cxgDesconto*Dados do UCadPromocao.dfm): as colunas na ordem e com os rótulos do legado
+  type Linha = PromocaoItemDto & { _i: number };
+  const colunasDaGrade = useCallback((origem: string): DataTableColumnDef<Linha>[] => {
+    const vv = (r: Linha) => n(info[Number(r.idorigempromocao)]?.vrvenda);
+    const marca = (campo: 'ativo' | 'preco_grupo', rotulo: string): DataTableColumnDef<Linha> => ({
+      field: campo, headerName: rotulo, type: 'text', width: 70, valueGetter: () => '',
+      render: ({ row: r }: { row: Linha }) => (
+        <input type="checkbox" aria-label={`${rotulo} ${r.idorigempromocao}`} checked={campo === 'ativo' ? r.ativo !== 'N' : r.preco_grupo === 'S'}
+          onChange={(e) => setItens((xs) => xs.map((it, i) => (i === r._i ? { ...it, [campo]: e.target.checked ? 'S' : 'N' } : it)))} />
+      ),
+    });
+    const num = (field: string, headerName: string, fmt: (v: unknown) => string, editavel = true, valor?: (r: Linha) => number): DataTableColumnDef<Linha> => ({
+      field, headerName, type: 'number', width: 115, editable: editavel, editType: 'number',
+      ...(valor ? { valueGetter: (r: Linha) => valor(r) } : {}),
+      render: ({ value }: { value: unknown }) => fmt(value),
+    });
+    const qtd = (v: unknown) => String(n(v));
+    const der = (r: Linha) => derivados(origem, r, vv(r));
+    const base: DataTableColumnDef<Linha>[] = [
+      marca('ativo', 'Ativo'), marca('preco_grupo', 'Grupo'),
+      { field: 'idorigempromocao', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
+      { field: 'barras', headerName: 'Cod.Barra', type: 'text', width: 140, valueGetter: (r) => String(info[Number(r.idorigempromocao)]?.codbarra ?? (r as any).barras ?? '') },
+      { field: 'descricao', headerName: 'Descrição', type: 'text', width: 220, valueGetter: (r) => String(info[Number(r.idorigempromocao)]?.descricao ?? (r as any).descricao ?? rotuloProduto(r.idorigempromocao)) },
+      num('vrvenda', 'Vr. Sem Desc.', fmtMoeda, false, vv),
+    ];
+    const limites: DataTableColumnDef<Linha>[] = [num('maximo', 'Lim. Venda', qtd), num('maximo_estoque', 'Lim. Promoção', qtd)];
+    const codigo: DataTableColumnDef<Linha> = { field: 'codigo_promocional', headerName: 'Código Promocional', type: 'text', width: 150, editable: true, editType: 'text' };
+    const meio: Record<string, DataTableColumnDef<Linha>[]> = {
+      F: [num('vcd', 'Vr. Com Desc.', fmtMoeda, true, (r) => der(r).vcd), num('du', 'Desc. Unitário', fmtMoeda, true, (r) => der(r).du), num('quantidade', 'Quantidade', qtd), num('valor', 'Desc. Total', fmtMoeda)],
+      V: [num('vcd', 'Vr. Com Desc.', fmtMoeda, true, (r) => der(r).vcd), num('du', 'Desc. Unitário', fmtMoeda, true, (r) => der(r).du), num('valor', '% Desconto', fmtPct), num('quantidade', 'Quantidade', qtd)],
+      P: [num('vcd', 'Preço Fixo', fmtMoeda, true, (r) => der(r).vcd), num('du', 'Desc. Unitário', fmtMoeda, true, (r) => der(r).du), num('quantidade', 'Quantidade', qtd), num('valor', 'Vr. Total', fmtMoeda)],
+      L: [num('vcd', 'Vr. Com Desc.', fmtMoeda, false, (r) => der(r).vcd), num('du', 'Desc. Unitário', fmtMoeda, false, (r) => der(r).du), num('quantidade', 'Qtde. Leve', qtd), num('quantidade_paga', 'Qtde. Pague', qtd)],
+      G: [num('quantidade', 'Quantidade', qtd)], GF: [num('quantidade', 'Quantidade', qtd)],
+      D: [num('quantidade', 'Quantidade', qtd)], DF: [num('quantidade', 'Quantidade', qtd), num('valor', '% Desconto', fmtPct)],
+    };
+    // o Grupo B (GF/DF) não tem a coluna Código Promocional
+    const comCodigo = !origem.endsWith('F') || origem === 'F';
+    return [...base, ...(meio[origem] ?? []), ...limites, ...(comCodigo ? [codigo] : []), remCol];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info, rotuloProduto]);
+
   // colunas do grid de itens por shape
-  const valorHeaderProd = mec?.unidade === 'percent' ? 'Desconto (%)' : mec?.rotulo?.replace('&', '') ?? 'Valor';
-  const fmtValorProd = mec?.unidade === 'percent' ? fmtPct : fmtMoeda;
-  const itensColsProduto = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
-    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'valor', headerName: valorHeaderProd, type: 'number', width: 150, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => fmtValorProd(value) },
-    {
-      field: 'rem', headerName: '', type: 'actions', width: 60,
-      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
-        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
-      ],
-    },
-  ], [rotuloProduto, valorHeaderProd, fmtValorProd]);
   const itensColsCodigo = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'codigo_promocional', headerName: 'Código', type: 'text', isPrimary: true, valueGetter: (r) => String(r.codigo_promocional ?? '') },
     { field: 'valor', headerName: 'Vr. Desconto', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
@@ -525,17 +650,6 @@ export function PromocaoCadMaster() {
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
     { field: 'quantidade', headerName: 'Qtde.', type: 'number', width: 90, valueGetter: (r) => n(r.quantidade) },
     { field: 'valor', headerName: 'Vr. Promoção', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
-    {
-      field: 'rem', headerName: '', type: 'actions', width: 60,
-      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
-        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
-      ],
-    },
-  ], [rotuloProduto]);
-  const itensColsLevePague = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
-    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Qtde. Leve', type: 'number', width: 110, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
-    { field: 'quantidade_paga', headerName: 'Qtde. Pague', type: 'number', width: 110, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
@@ -582,17 +696,6 @@ export function PromocaoCadMaster() {
       { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
     ],
   };
-  const itensColsGrupoA = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
-    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
-    remCol,
-  ], [rotuloProduto]);
-  const itensColsGrupoB = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
-    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, editable: true, editType: 'number', render: ({ value }: { value: unknown }) => String(n(value)) },
-    ...(mec?.filhoValor ? [{ field: 'valor', headerName: 'Desconto (%)', type: 'number' as const, width: 120, editable: true, editType: 'number' as const, render: ({ value }: { value: unknown }) => fmtPct(value) }] : []),
-    remCol,
-  ], [rotuloProduto, mec?.filhoValor]);
 
   // na Bonificação o Destino some (VerificaTipoPromocao); com itens, cabeçalho travado (VerificaTravamentoComponentes); o 'T' do
   // binário novo (fora do combo do fonte) aparece como está
@@ -652,7 +755,8 @@ export function PromocaoCadMaster() {
               <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos…" variant="ghost" onClick={() => setLote('A')} /></div>
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensDaAba} columns={itensColsProduto} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
+                  <AplicarEmLote campos={LOTE[tipo] ?? []} onAplicar={(c, v) => aplicarEmLote(tipo, c, v)} />
+                  <DataTable rows={itensDaAba} columns={colunasDaGrade(tipo)} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
                 </div>
               )}
             </>
@@ -710,7 +814,8 @@ export function PromocaoCadMaster() {
               <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos…" variant="ghost" onClick={() => setLote('A')} /></div>
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensDaAba} columns={itensColsLevePague} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
+                  <AplicarEmLote campos={LOTE.L} onAplicar={(c, v) => aplicarEmLote('L', c, v)} />
+                  <DataTable rows={itensDaAba} columns={colunasDaGrade('L')} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} />
                 </div>
               )}
             </>
@@ -795,7 +900,7 @@ export function PromocaoCadMaster() {
                 </div>
                 <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos no Grupo A…" variant="ghost" onClick={() => setLote('A')} /></div>
                 {itensDaAba.length > 0 && (
-                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensDaAba} columns={itensColsGrupoA} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
+                  <div className="mt-gp-2xs overflow-x-auto"><AplicarEmLote campos={LOTE[tipo] ?? []} onAplicar={(c, v) => aplicarEmLote(tipo, c, v)} /><DataTable rows={itensDaAba} columns={colunasDaGrade(tipo)} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
                 )}
               </div>
               {/* Grupo B — ganhe (origem = TIPO+'F') */}
@@ -810,7 +915,7 @@ export function PromocaoCadMaster() {
                 </div>
                 <div className="mt-gp-2xs flex justify-end"><Button label="Vários produtos no Grupo B…" variant="ghost" onClick={() => setLote('B')} /></div>
                 {itensGrupoB.length > 0 && (
-                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensGrupoB} columns={itensColsGrupoB} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
+                  <div className="mt-gp-2xs overflow-x-auto"><AplicarEmLote campos={LOTE[`${tipo}F`] ?? []} onAplicar={(c, v) => aplicarEmLote(`${tipo}F`, c, v)} /><DataTable rows={itensGrupoB} columns={colunasDaGrade(`${tipo}F`)} getRowId={(r) => String(r._i)} onCellEditCommit={editarItem} /></div>
                 )}
               </div>
             </div>

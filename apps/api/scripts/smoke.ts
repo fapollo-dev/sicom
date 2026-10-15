@@ -16115,10 +16115,31 @@ async function main() {
       const g12J = (await g12.json().catch(() => ({}))) as any;
       check('GP 91.12 FOLD: ORIGEM≠TIPO-do-header → 422 PROMOCAO_ORIGEM_DIVERGE_TIPO', g12.status === 422 && g12J.code === 'PROMOCAO_ORIGEM_DIVERGE_TIPO', { status: g12.status, code: g12J.code });
 
-      // 91.13) FOLD: grupo de preço (PRECO_GRUPO='S') ainda não suportado → 422 PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO.
-      const g13 = await crGp({ descricao: 'GRUPO', tipo: 'F', itens: [{ origem: 'F', idorigempromocao: 1, valor: 2, preco_grupo: 'S' }] });
+      // 91.13) o grupo de preço (a coluna "Grupo", PRECO_GRUPO='S') — GrupoPrecoValidada: só nas grades que a têm (no Combo → 422); o item
+      // marcado não pode ter outro produto do mesmo grupo na mesma grade (F) nem na outra (G × GF); sozinho, grava
+      await pgGp.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9911,'GRUPO PRECO GP','P') ON CONFLICT (codfamilia) DO NOTHING`);
+      const gpA = Number((await pgGp.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, codgrupopreco, ativo) VALUES ('7009000009111','GP GRUPO A','UN',1,'T01',9911,'S') RETURNING idproduto`)).rows[0].idproduto);
+      const gpB = Number((await pgGp.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, codgrupopreco, ativo) VALUES ('7009000009112','GP GRUPO B','UN',1,'T01',9911,'S') RETURNING idproduto`)).rows[0].idproduto);
+      const g13 = await crGp({ descricao: 'GRUPO', tipo: 'O', valorcombo: 10, tipocombo: 'C', itens: [{ origem: 'O', idorigempromocao: 1, valor: 2, quantidade: 1, preco_grupo: 'S' }] });
       const g13J = (await g13.json().catch(() => ({}))) as any;
-      check('GP 91.13 FOLD: PRECO_GRUPO=S → 422 PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO', g13.status === 422 && g13J.code === 'PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO', { status: g13.status, code: g13J.code });
+      const g13b = await crGp({ descricao: 'GRUPO F', tipo: 'F', datainicio: '2028-12-01T05:00', datafim: '2028-12-02T23:59', itens: [{ origem: 'F', idorigempromocao: gpA, valor: 2, preco_grupo: 'S' }, { origem: 'F', idorigempromocao: gpB, valor: 2 }] });
+      const g13bJ = (await g13b.json().catch(() => ({}))) as any;
+      const g13c = await crGp({ descricao: 'GRUPO G', tipo: 'G', datainicio: '2028-12-01T05:00', datafim: '2028-12-02T23:59', itens: [{ origem: 'G', idorigempromocao: gpA, quantidade: 2, preco_grupo: 'S' }, { origem: 'GF', idorigempromocao: gpB, quantidade: 1 }] });
+      const g13cJ = (await g13c.json().catch(() => ({}))) as any;
+      const g13d = await crGp({ descricao: 'GRUPO SO', tipo: 'F', datainicio: '2028-12-01T05:00', datafim: '2028-12-02T23:59', itens: [{ origem: 'F', idorigempromocao: gpA, valor: 2, preco_grupo: 'S' }] });
+      const g13dJ = (await g13d.json().catch(() => ({}))) as any;
+      check('GP 91.13 [o grupo de preço — GrupoPrecoValidada]: no Combo (sem a coluna) → 422; dois do mesmo grupo na grade → "Os Produtos … são do mesmo grupo de preço"; A × B → "O Produto do grupo A … do Grupo B são do mesmo grupo de preço"; o marcado sozinho → 201 com PRECO_GRUPO=S',
+        g13.status === 422 && g13J.code === 'PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO'
+        && g13b.status === 422 && g13bJ.message === 'Os Produtos GP GRUPO A e \nGP GRUPO B são do mesmo grupo de preço'
+        && g13c.status === 422 && g13cJ.message === 'O Produto do grupo A GP GRUPO A e \nGP GRUPO B do Grupo B são do mesmo grupo de preço'
+        && g13d.status === 201 && (g13dJ.itens ?? [])[0]?.preco_grupo === 'S',
+        { combo: [g13.status, g13J.code], f: [g13b.status, g13bJ.message], g: [g13c.status, g13cJ.message], so: [g13d.status, (g13dJ.itens ?? [])[0]?.preco_grupo] });
+      if (Number(g13dJ.idpromocao) > 0) { await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao = $1`, [g13dJ.idpromocao]); await pgGp.query(`DELETE FROM promocao WHERE idpromocao = $1`, [g13dJ.idpromocao]); }
+      await pgGp.query(`DELETE FROM produtos WHERE idproduto = ANY($1::int[])`, [[gpA, gpB]]);
+      // as colunas de produto das grades (barras, descrição, grupo, Vr. Sem Desc. da loja)
+      const pc = (await (await fetch(`${base}/cadastro/promocao-produtos?ids=1`, { headers: H })).json().catch(() => [])) as any[];
+      check('GP 91.13b [as colunas de produto das grades]: o produto traz código de barras, descrição, grupo de preço e o VRVENDA da loja',
+        pc.length === 1 && Number(pc[0].idproduto) === 1 && typeof pc[0].descricao === 'string' && 'vrvenda' in pc[0] && 'codgrupopreco' in pc[0], { pc });
 
       // 91.14) FOLD: QUANTIDADE=0 do cliente é COAGIDA a 1 (não persiste 0; `?? 1` não pegava 0).
       const g14 = await crGp({ descricao: 'QTDE ZERO', tipo: 'F', itens: [{ origem: 'F', idorigempromocao: 1, valor: 2, quantidade: 0 }] });
