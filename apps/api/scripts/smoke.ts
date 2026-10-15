@@ -21186,6 +21186,35 @@ async function main() {
       }
     }
 
+    // ══ §333 EMPRESAS (a auditoria do UCadEmpresa.dfm): a grade "rede × número do estabelecimento" (EMPRESA_REDE_ESTABELECIMENTO, 23 linhas
+    // na produção) — o que a baixa de cartões usa para achar a loja nos arquivos das redes; Salvar com "Informe a rede." / "Informe o
+    // número do estabelecimento."; excluir; sem o acesso à tela → 403.
+    {
+      const pgRe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const RE = `${base}/cadastro/empresas/1/redes-estabelecimento`;
+      try {
+        await pgRe.query(`DELETE FROM empresa_rede_estabelecimento WHERE codempresa = 1 AND ere_numero_estabelecimento LIKE 'SMK333%'`);
+        const post = async (body: unknown) => { const r = await fetch(RE, { method: 'POST', headers: H, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const semRede = await post({ ere_numero_estabelecimento: 'SMK333A' });
+        const semNumero = await post({ ere_rede: 5, ere_numero_estabelecimento: '  ' });
+        const ok = await post({ ere_rede: 5, ere_numero_estabelecimento: 'SMK333A' });
+        const ok2 = await post({ ere_rede: 125, ere_numero_estabelecimento: 'SMK333B' });
+        const lista = ((await (await fetch(RE, { headers: H })).json().catch(() => [])) as any[]).filter((l) => String(l.ere_numero_estabelecimento).startsWith('SMK333'));
+        const del = await fetch(`${RE}?rede=5&numero=SMK333A`, { method: 'DELETE', headers: H });
+        const delJ = (await del.json().catch(() => ({}))) as any;
+        const depois = Number((await pgRe.query(`SELECT count(*)::int n FROM empresa_rede_estabelecimento WHERE codempresa = 1 AND ere_numero_estabelecimento LIKE 'SMK333%'`)).rows[0].n);
+        const semAcesso = await fetch(RE, { headers: H_SEM_ACESSO });
+        check('EMPRESAS §333 [rede × estabelecimento]: sem rede → "Informe a rede."; sem número → "Informe o número do estabelecimento."; grava Rede (5) e Cielo (125) da loja; exclui pela chave; sem o acesso à tela → 403',
+          semRede.status === 422 && String(semRede.j.message).includes('Informe a rede') && semNumero.status === 422 && String(semNumero.j.message).includes('número do estabelecimento')
+          && ok.status === 200 && ok2.status === 200 && lista.map((l) => `${l.ere_rede}:${l.ere_numero_estabelecimento}`).join(',') === '5:SMK333A,125:SMK333B'
+          && del.status === 200 && delJ.excluidos === 1 && depois === 1 && semAcesso.status === 403,
+          { semRede: [semRede.status, semRede.j.message], semNumero: [semNumero.status, semNumero.j.message], ok: ok.status, lista, del: [del.status, delJ], depois, semAcesso: semAcesso.status });
+      } finally {
+        await pgRe.query(`DELETE FROM empresa_rede_estabelecimento WHERE codempresa = 1 AND ere_numero_estabelecimento LIKE 'SMK333%'`).catch(() => undefined);
+        await pgRe.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

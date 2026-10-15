@@ -8,6 +8,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import { useEffect, useState } from 'react';
 import { Button } from '../../shared/ui/Button';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
@@ -39,6 +40,34 @@ const paraLocal = (iso: unknown) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
+/**
+ * os campos de código que o legado escolhe por Pesquisa e mostra com a descrição ao lado (os SearchEngine do UCadEmpresa): o centro de
+ * custo (segPLC/segMulta/… — os DESCCODPLC_ e DESCRICAO_), o fornecedor (BtnBuscaFornecedorVoucherClick — os FORNECEDOR_) e a conta corrente
+ * (EdtNroContaBaixaRecargaExit — NROCONTA e TITULAR_BAIXA_)
+ */
+type LkDef = { recurso: string; campoCodigo: string; descricao: string | ((l: Record<string, any>) => string); fixos?: Record<string, string> };
+const LK_PLC: LkDef = { recurso: 'lookup/plc', campoCodigo: 'codplc', descricao: (l) => `${l.desccodplc ?? ''} - ${l.descricao ?? ''}` };
+const LK_FORN: LkDef = { recurso: 'lookup/parceiros', campoCodigo: 'codparceiro', descricao: 'razao', fixos: { frn: 'S' } };
+const LK_CONTA: LkDef = { recurso: 'lookup/contas-bancarias', campoCodigo: 'codigo', descricao: (l) => `${l.nro_conta ?? ''} - ${l.titular ?? ''}` };
+export const LOOKUPS_EMPRESA: Record<string, LkDef> = {
+  ccacresjuro: LK_PLC, ccacresjuroobtido: LK_PLC, ccdesconto: LK_PLC, ccdescontoobtido: LK_PLC, cctesouraria: LK_PLC,
+  codplc_acrescimos_recebidos: LK_PLC, codplc_correspondente: LK_PLC, codplc_juros_recebidos: LK_PLC, codplc_recarga: LK_PLC,
+  codplc_taxa_cartao_paga: LK_PLC, codplc_taxas_cartao: LK_PLC, codplc_trocosolidario: LK_PLC, codplc_voucher: LK_PLC, codplcfechamentoconvenio: LK_PLC,
+  codfornecedor_correspondente: LK_FORN, codfornecedor_recarga: LK_FORN, codfornecedor_trocosolidario: LK_FORN, codfornecedor_voucher: LK_FORN,
+  codconta_baixa_correspondente: LK_CONTA, codconta_baixa_recarga: LK_CONTA, codconta_pagamento: LK_CONTA,
+};
+
+/** campo de código com a Pesquisa e a descrição ao lado, ligado ao form */
+function LkCampo({ form, name, label, def, editavel }: { form: UseFormReturn<CriarEmpresaDto>; name: string; label: string; def: LkDef; editavel: boolean }) {
+  return (
+    <Controller control={form.control} name={name as never} render={({ field }: any) => (
+      <LookupField label={label} recurso={def.recurso} campoCodigo={def.campoCodigo} descricao={def.descricao} fixos={def.fixos}
+        value={field.value != null && field.value !== '' ? String(field.value) : undefined} disabled={!editavel}
+        onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} />
+    )} />
+  );
+}
+
 /** as abas do legado com os campos que a tela não tinha (`empresa-legado.ts`), na ordem das abas do UCadEmpresa */
 const ABAS_LEGADO = Array.from(new Set(EMPRESA_CAMPOS_LEGADO.map((c) => c.aba)));
 
@@ -56,6 +85,11 @@ function CamposLegado({ form, editavel }: { form: UseFormReturn<CriarEmpresaDto>
                 control={form.control}
                 name={c.coluna as never}
                 render={({ field }: any) => {
+                  const lk = LOOKUPS_EMPRESA[c.coluna];
+                  if (lk) {
+                    return <LookupField label={c.rotulo} recurso={lk.recurso} campoCodigo={lk.campoCodigo} descricao={lk.descricao} fixos={lk.fixos} disabled={!editavel}
+                      value={field.value != null && field.value !== '' ? String(field.value) : undefined} onChange={(cod) => field.onChange(cod ? Number(cod) : undefined)} />;
+                  }
                   if (c.tipo === 'sn') return <CheckboxField label={c.rotulo} value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />;
                   if (c.tipo === 'inteiro' || c.tipo === 'numero') {
                     return <NumberField label={c.rotulo} value={field.value != null && field.value !== '' ? Number(field.value) : undefined} onChange={field.onChange} decimais={c.tipo === 'inteiro' ? 0 : 4} disabled={!editavel} />;
@@ -220,12 +254,12 @@ export function EmpresasCadMaster() {
             <fieldset className="rounded-radius-md border border-border p-pad-md">
               <legend className="px-pad-xs text-fg-muted">Parâmetros</legend>
               <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
-                <NumCampo form={form} name="ccmultajuros" label="CC multas, juros e taxas" decimais={0} />
-                <NumCampo form={form} name="codplc_juros_pagos" label="CC juros pagos" decimais={0} />
-                <NumCampo form={form} name="codplc_acrescimos_pagos" label="CC acréscimos pagos" decimais={0} />
-                <NumCampo form={form} name="codplc_descontos_recebidos" label="CC descontos recebidos" decimais={0} />
-                <NumCampo form={form} name="codplc_descontos_concedidos" label="CC descontos concedidos" decimais={0} />
-                <NumCampo form={form} name="codparceiro" label="Parceiro da empresa" decimais={0} />
+                <LkCampo form={form} name="ccmultajuros" label="CC multas, juros e taxas" def={LK_PLC} editavel={editavel} />
+                <LkCampo form={form} name="codplc_juros_pagos" label="CC juros pagos" def={LK_PLC} editavel={editavel} />
+                <LkCampo form={form} name="codplc_acrescimos_pagos" label="CC acréscimos pagos" def={LK_PLC} editavel={editavel} />
+                <LkCampo form={form} name="codplc_descontos_recebidos" label="CC descontos recebidos" def={LK_PLC} editavel={editavel} />
+                <LkCampo form={form} name="codplc_descontos_concedidos" label="CC descontos concedidos" def={LK_PLC} editavel={editavel} />
+                <LkCampo form={form} name="codparceiro" label="Parceiro da empresa" def={{ recurso: 'lookup/parceiros', campoCodigo: 'codparceiro', descricao: 'razao' }} editavel={editavel} />
                 <SelCampo form={form} name="sincroniza_preco_nf" label="Sincroniza preço nas lojas" options={SN_OPCOES} placeholder="—" />
                 <NumCampo form={form} name="pc_curva_abc_a" label="Curva ABC venda — A (%)" />
                 <NumCampo form={form} name="pc_curva_abc_b" label="Curva ABC venda — B (%)" />
@@ -240,12 +274,13 @@ export function EmpresasCadMaster() {
                 <Field label="Junta comercial" disabled={!editavel} error={err('junta_comercial')} {...form.register('junta_comercial')} />
                 <Field label="TEF — loja" disabled={!editavel} error={err('tef_loja')} {...form.register('tef_loja')} />
                 <Field label="TEF — servidor" disabled={!editavel} error={err('tef_servidor')} {...form.register('tef_servidor')} />
-                <NumCampo form={form} name="codplc_nf_pdv" label="CC da NF do PDV" decimais={0} />
+                <LkCampo form={form} name="codplc_nf_pdv" label="CC da NF do PDV" def={LK_PLC} editavel={editavel} />
                 <NumCampo form={form} name="idsituacao_nf_pdv" label="Situação da NF do PDV" decimais={0} />
               </div>
             </fieldset>
             <CamposLegado form={form} editavel={editavel} />
             <ContabilistaSection idempresa={form.watch('idempresa') as number | undefined} editavel={editavel} />
+            <RedesEstabelecimentoSection idempresa={form.watch('idempresa') as number | undefined} editavel={editavel} />
           </div>
         );
       }}
@@ -306,6 +341,75 @@ function ContabilistaSection({ idempresa, editavel }: { idempresa?: number; edit
         ))}
       </div>
       <div className="mt-gp-sm"><Button label="Gravar contabilista" variant="soft" disabled={!editavel || busy} onClick={() => void gravar()} /></div>
+    </fieldset>
+  );
+}
+
+/** o combo da rede no fonte (CmbRede): Cielo 125, Rede 5, Concil -1 — outras redes da produção aparecem pelo código */
+const REDES: Array<{ value: string; label: string }> = [{ value: '125', label: 'Cielo' }, { value: '5', label: 'Rede' }, { value: '-1', label: 'Concil' }];
+const nomeRede = (r: unknown) => REDES.find((x) => x.value === String(r))?.label ?? `Rede ${String(r)}`;
+
+/**
+ * A grade "rede × número do estabelecimento" da aba "Configurações financeiras" do UCadEmpresa (EMPRESA_REDE_ESTABELECIMENTO) — o que os
+ * conciliadores de arquivo da baixa de cartões usam para achar a loja. Adicionar/Salvar (BtnSalvarRedeClick: "Informe a rede." / "Informe o
+ * número do estabelecimento.") e Excluir.
+ */
+export function RedesEstabelecimentoSection({ idempresa, editavel }: { idempresa?: number; editavel: boolean }) {
+  const mensagem = useMensagem();
+  const [linhas, setLinhas] = useState<Array<{ ere_rede: number; ere_numero_estabelecimento: string }>>([]);
+  const [rede, setRede] = useState('');
+  const [numero, setNumero] = useState('');
+  const id = Number(idempresa);
+  const valido = Number.isInteger(id) && id > 0;
+  const recarregar = async () => {
+    const r = await fetch(`${BASE}/cadastro/empresas/${id}/redes-estabelecimento`, { headers: apiHeaders() });
+    handle401(r);
+    setLinhas(r.ok ? await r.json().catch(() => []) : []);
+  };
+  useEffect(() => { if (valido) void recarregar(); else setLinhas([]); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id, valido]);
+  const enviar = async (metodo: 'POST' | 'DELETE', url: string, body?: unknown) => {
+    const r = await fetch(url, { method: metodo, headers: apiHeaders(), body: body ? JSON.stringify(body) : undefined });
+    handle401(r);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+      throw Object.assign(new Error(env.code), { envelope: env });
+    }
+  };
+  const salvar = async () => {
+    if (!rede) return mensagem.erro('Informe a rede.');
+    if (!numero.trim()) return mensagem.erro('Informe o número do estabelecimento.');
+    try { await enviar('POST', `${BASE}/cadastro/empresas/${id}/redes-estabelecimento`, { ere_rede: Number(rede), ere_numero_estabelecimento: numero.trim() }); setNumero(''); await recarregar(); }
+    catch (e) { mensagem.erro(e); }
+  };
+  const excluir = async (l: { ere_rede: number; ere_numero_estabelecimento: string }) => {
+    try { await enviar('DELETE', `${BASE}/cadastro/empresas/${id}/redes-estabelecimento?rede=${l.ere_rede}&numero=${encodeURIComponent(l.ere_numero_estabelecimento)}`); await recarregar(); }
+    catch (e) { mensagem.erro(e); }
+  };
+  if (!valido) return null;
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Rede × número do estabelecimento</legend>
+      <table className="w-full text-body-sm">
+        <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs">Rede</th><th className="p-pad-xs">Número do estabelecimento</th><th className="p-pad-xs" /></tr></thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr key={`${l.ere_rede}-${l.ere_numero_estabelecimento}`} className="border-t border-border">
+              <td className="p-pad-xs">{nomeRede(l.ere_rede)}</td>
+              <td className="p-pad-xs tabular-nums">{l.ere_numero_estabelecimento}</td>
+              <td className="p-pad-xs">{editavel && <Button label="Excluir" variant="ghost" onClick={() => void excluir(l)} />}</td>
+            </tr>
+          ))}
+          {!linhas.length && <tr><td colSpan={3} className="p-pad-xs text-fg-muted">Nenhum estabelecimento cadastrado.</td></tr>}
+        </tbody>
+      </table>
+      {editavel && (
+        <div className="mt-gp-sm flex flex-wrap items-end gap-gp-sm">
+          <div className="w-40"><SelectField label="Rede" options={REDES} value={rede || undefined} onChange={(v) => setRede(v ?? '')} placeholder="(rede)" /></div>
+          <div className="w-60"><Field label="Número do estabelecimento" maxLength={30} value={numero} onChange={(e) => setNumero(e.target.value)} /></div>
+          <Button label="Adicionar" variant="soft" onClick={() => void salvar()} />
+        </div>
+      )}
     </fieldset>
   );
 }

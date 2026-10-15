@@ -140,6 +140,7 @@ import { DreService } from './dre.service';
 import { DreRelatorioService } from './dre-relatorio.service';
 import { EmpresasCrudController } from './empresas.crud';
 import { EmpresaContabilistaController } from './empresa-contabilista.controller';
+import { EmpresaRedeEstabelecimentoController } from './empresa-rede-estabelecimento.controller';
 import { OperadoresAggregateController } from './operadores.aggregate';
 import { FormasPgtoCrudController } from './formas-pgto.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
@@ -219,6 +220,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)
     RazaoController, // vertical read-only (LIVRO RAZÃO contábil — movimentos do DIÁRIO por conta/período)
     EmpresaContabilistaController, // o contabilista da empresa (a aba do UCadEmpresa; o 0100 do SPED)
+    EmpresaRedeEstabelecimentoController, // os números de estabelecimento por rede (a grade da aba Configurações financeiras)
     EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
     OperadoresAggregateController, // mestre-detalhe (OPERADORES + empresas-permitidas; global, pk digitada, soft-delete INDR)
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)

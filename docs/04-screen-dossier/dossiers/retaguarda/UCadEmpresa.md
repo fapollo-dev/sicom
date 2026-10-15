@@ -75,3 +75,20 @@ A curva D e E vão para o lado de A/B/C na seção Parâmetros.
 de curva só carregam A/B/C) e a MOVIMENTACAO_MENSAL.CURVA_ABC só tem A/B/C. O relatório de curva do Apollo (rel 09) classifica com 3
 faixas, como a .fr3: com 60/20/10/10, a faixa (90,100] **herda** a letra de cima. Se o binário novo mostra "D", o fonte não prova.
 
+
+## Auditoria do `UCadEmpresa.dfm` (15/10/2026) — controle a controle
+
+227 campos em 13 abas. Os campos já estavam todos na tela (os 55 da tela + os 193 do `empresa-legado.ts`, por aba, os segredos sem
+leitura) — o que faltava era o comportamento dos controles que não são campo simples:
+
+| Controle do legado | Apollo |
+|---|---|
+| Os SearchEngine dos códigos com a descrição ao lado: centro de custo (segPLC, segMulta, SegCMVPLC… — CCMULTAJUROS, CCACRESJURO, CCDESCONTO, CCACRESJUROOBTIDO, CCDESCONTOOBTIDO, CCTESOURARIA, os CODPLC_*), fornecedor (BtnBuscaFornecedorVoucherClick — CODFORNECEDOR_*), conta corrente (EdtNroContaBaixaRecargaExit — CODCONTA_BAIXA_*, CODCONTA_PAGAMENTO), o parceiro da empresa (BtnBuscaParceiroClick) | **Pesquisa com a descrição** em todos (antes número digitado, sem saber o nome do centro de custo — e é ele que a baixa usa na contabilização). |
+| A grade "Rede × número do estabelecimento" (CmbRede Cielo 125 / Rede 5 / Concil -1 + EdtNumeroEstabelecimento, BtnAdicionarRede/BtnSalvarRede/BtnEditarRede/BtnExcluirRede — EMPRESA_REDE_ESTABELECIMENTO) | **Nova** (`cadastro/empresas/:id/redes-estabelecimento`): listar, adicionar ("Informe a rede." / "Informe o número do estabelecimento.") e excluir. Produção: 23 linhas (redes 5, 54 e 77). Leitores no legado: os conciliadores de arquivo Tivit/Rede e a validação da baixa de cartões. |
+| `BtnBuscaFP` (a forma de pagamento da quebra de caixa: MODALIDADE 'QUEBRA DE CAIXA' da loja) | IDPGTO segue numérico; a regra do gravar (FormaPgtoValida) já confere (corte "Regras do gravar"). |
+| `btnVirarAmbiente` (VirarAmbiente → CONTINGENCIA) e os campos DTATIVACAO/DTDESATIVACAO/AMBIENTE/STATUS do topo | Fora com prova: a tabela CONTINGENCIA **não existe** na produção (ORA-00942). |
+| `btnTestarEmail` (envio de teste pelo SMTP da estação) | Fora: canal de e-mail da estação. |
+| As senhas de operação (SENHAADMIN/DESC/CANCEL/GAVETA) | `senha-operacao` (hash) — já. |
+| Contabilista (aba) | Já (`empresa-contabilista`). |
+
+Smoke §333 (a grade de redes); jsdom `empresasRedes.spec.tsx`.
