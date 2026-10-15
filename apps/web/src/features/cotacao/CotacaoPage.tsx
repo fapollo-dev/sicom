@@ -12,7 +12,7 @@ import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 import {
   listarCotacoes, obterCotacao, criarCotacao, excluirCotacao,
   lancarPrecosCotacao, apurarCotacao, definirGanhadorCotacao, gerarPedidoCotacao,
-  fecharCotacao, reabrirCotacao, atualizarCabecalhoCotacao,
+  fecharCotacao, reabrirCotacao, atualizarCabecalhoCotacao, quantidadesCotacao,
   type CotacaoLista, type CotacaoDetalhe } from './cotacaoApi';
 
 
@@ -73,6 +73,8 @@ export function CotacaoPage() {
   const [cabNova, setCabNova] = useState<Cab>(cabNovo());
   // o cabeçalho da cotação aberta (editável enquanto ela está aberta)
   const [cabSel, setCabSel] = useState<Cab>(cabNovo());
+  // a GrdQuantidades: a quantidade de cada produto em cada loja da cotação
+  const [qtdEdit, setQtdEdit] = useState<Record<number, Record<number, number | undefined>>>({});
   const [prodSel, setProdSel] = useState('');
   const [prodQtd, setProdQtd] = useState<number | undefined>(1);
   const [prodRotulo, setProdRotulo] = useState('');
@@ -106,6 +108,7 @@ export function CotacaoPage() {
       const d = await obterCotacao(id);
       setSel(d);
       setCabSel(cabDe(d));
+      setQtdEdit(Object.fromEntries(d.produtos.map((p) => [p.idproduto, Object.fromEntries((p.qtdes ?? []).map((q) => [Number(q.idempresa), Number(q.qtde)]))])));
       setFornPreco('');
       setPrecoEdit({});
     } catch (e) {
@@ -289,6 +292,36 @@ export function CotacaoPage() {
             }} /></div>
           )}
         </div>
+
+        {/* a GrdQuantidades: a quantidade de cada produto por loja da cotação, com o estoque da loja; "Produto inativo para a empresa" quando
+            a linha de preço da loja não está ativa para compra (LblInfoProdutoInativo) */}
+        {sel.produtos.some((p) => (p.qtdes ?? []).length > 0) && (
+          <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+            <table className="w-full text-body-sm" aria-label="Quantidades por loja">
+              <thead>
+                <tr className="text-left text-fg-muted"><th className="p-pad-xs">Produto</th><th className="p-pad-xs">Emp.</th><th className="p-pad-xs text-right">Qtde</th><th className="p-pad-xs text-right">Estoque</th><th className="p-pad-xs" /></tr>
+              </thead>
+              <tbody>
+                {sel.produtos.flatMap((p) => (p.qtdes ?? []).map((q, i) => (
+                  <tr key={`${p.idproduto}-${q.idempresa}`} className="border-t border-border">
+                    <td className="p-pad-xs">{i === 0 ? (p.descricao ?? `Produto ${p.idproduto}`) : ''}</td>
+                    <td className="p-pad-xs tabular-nums">{q.idempresa}{q.ativo_compra === 'N' && <span className="ml-gp-xs text-danger">Produto inativo para a empresa</span>}</td>
+                    <td className="p-pad-xs w-32">
+                      <NumberField label="" value={qtdEdit[p.idproduto]?.[Number(q.idempresa)]} decimais={3} min={0} disabled={!aberta}
+                        onChange={(v) => setQtdEdit((s) => ({ ...s, [p.idproduto]: { ...s[p.idproduto], [Number(q.idempresa)]: v } }))} />
+                    </td>
+                    <td className="p-pad-xs text-right tabular-nums">{q.estoque == null ? '' : Number(q.estoque).toLocaleString('pt-BR')}</td>
+                    <td className="p-pad-xs">{aberta && i === (p.qtdes ?? []).length - 1 && (
+                      <Button label="Gravar quantidades" variant="ghost" disabled={busy} onClick={() => void acao(() => quantidadesCotacao(sel.codctc, {
+                        idproduto: p.idproduto, qtdes: (p.qtdes ?? []).map((x) => ({ idempresa: Number(x.idempresa), qtde: Number(qtdEdit[p.idproduto]?.[Number(x.idempresa)] ?? 0) })),
+                      }), 'Quantidades gravadas.')} />
+                    )}</td>
+                  </tr>
+                )))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* MATRIZ produto × fornecedor (vencedor destacado). Clique numa célula com preço p/ forçar o vencedor. */}
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">

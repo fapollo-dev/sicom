@@ -81,6 +81,15 @@ maioria; o e-mail aos fornecedores **nunca foi usado** (DTENVIOEMAIL vazio em to
 sem `getRowId`, a DataTable do design system usa `row.id` (inexistente) e quebra no `editingCell?.rowId === rowId` — corrigido aqui e
 nas outras 5 listas com o mesmo risco (ajuste de estoque, operadoras, produção, inventário, trocas, devolução de compra).
 
-**Próximos cortes da Cotação** (por ordem de valor): as quantidades por loja (GrdQuantidades, com o estoque), a aba de status dos
+### Corte das quantidades por loja (15/10/2026)
+
+Na produção a QUANTIDADE do COTACAO_PROD é **sempre 0**: a quantidade de verdade fica em COTACAO_PRODQTDE, uma linha por loja (o pedido
+sai dela). O Apollo gravava a quantidade digitada no produto e nenhuma linha por loja. Agora: a inclusão do produto cria uma linha por loja
+da cotação com a quantidade informada (:1015-1031) e o fator de embalagem vem do FATORCX do produto (ou 1 com FATOR_EMBALAGEM_FIXO = 'S';
+0 → 1); a GrdQuantidades mostra Emp. / Qtde / Estoque (ESTOQUE.QTDE da loja) com o "Produto inativo para a empresa" (MULTI_PRECO.ATIVO_COMPRA
+= 'N') e grava por produto (`POST compras/cotacao/:id/quantidades`, só nas lojas da cotação — COTACAO_LOJA_FORA). No `atualizar`, produto
+que já estava e veio sem quantidades por loja mantém as dele (antes perdia todas). Prova: smoke §84.3c, `cotacaoCabecalho.spec.tsx`.
+
+**Próximos cortes da Cotação** (por ordem de valor): a aba de status dos
 fornecedores (total/preenchidos/não preenchidos, participa da apuração, itens do fornecedor), as impressões (cotação / por empresa / sem
 custo), duplicar, a análise geral do produto [F6], agrupar produtos e o coletor. Fora com prova: o envio de e-mail (nunca usado).

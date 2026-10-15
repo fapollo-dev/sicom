@@ -95,3 +95,10 @@ export type DefinirGanhadorCotacaoDto = z.infer<typeof definirGanhadorCotacaoSch
 
 export const COTACAO_SITUACAO = ['A', 'F'] as const;
 export type CotacaoSituacao = (typeof COTACAO_SITUACAO)[number];
+
+/** a grade das quantidades por loja de UM produto da cotação aberta (GrdQuantidades) */
+export const quantidadesCotacaoSchema = z.object({
+  idproduto: z.coerce.number().int().positive(),
+  qtdes: z.array(cotacaoProdQtdeSchema).min(1).max(200),
+});
+export type QuantidadesCotacaoDto = z.infer<typeof quantidadesCotacaoSchema>;

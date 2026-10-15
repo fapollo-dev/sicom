@@ -15022,6 +15022,19 @@ async function main() {
         && janelaRuim.status === 400 && JSON.stringify(janelaRuimJ).includes('Hora fim não pode ser MENOR ou IGUAL hora início.'),
         { cab1: [cab1.liberada, cab1.empresas, cab1.dtinicio_preenchimento], put: putCab.status, cab2: [cab2.liberada, cab2.dtfim_preenchimento], ruim: [janelaRuim.status, janelaRuimJ] });
 
+      // 84.3c) as quantidades por loja (COTACAO_PRODQTDE — é onde o legado guarda a quantidade): a inclusão cria uma linha por loja da cotação
+      // com a quantidade informada; a grade troca a de uma loja e o total do produto vira a soma; loja fora da cotação → 422
+      const q0 = (cab1.produtos ?? [])[0]?.qtdes ?? [];
+      const qPut = await fetch(`${base}/${CT}/${ctCabId}/quantidades`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, qtdes: [{ idempresa: 1, qtde: 7 }] }) });
+      const qPutJ = (await qPut.json().catch(() => ({}))) as any;
+      const cab3 = (await (await fetch(`${base}/${CT}/${ctCabId}`, { headers: H })).json().catch(() => ({}))) as any;
+      const qFora = await fetch(`${base}/${CT}/${ctCabId}/quantidades`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, qtdes: [{ idempresa: 2, qtde: 1 }] }) });
+      check('COTAÇÃO §84.3c [quantidades por loja]: a inclusão cria a linha da loja 1 com a quantidade (1) e traz o estoque/ativo da loja; a grade troca para 7 e o total do produto vira 7; loja 2 fora das empresas da cotação → 422 COTACAO_LOJA_FORA',
+        q0.length === 1 && Number(q0[0].idempresa) === 1 && Number(q0[0].qtde) === 1 && 'estoque' in q0[0]
+        && qPut.status === 200 && Number(qPutJ.total) === 7 && Number((cab3.produtos ?? [])[0]?.qtdes?.[0]?.qtde) === 7 && Number((cab3.produtos ?? [])[0]?.quantidade) === 7
+        && qFora.status === 422 && ((await qFora.json().catch(() => ({}))) as any).code === 'COTACAO_LOJA_FORA',
+        { q0, qPut: [qPut.status, qPutJ], cab3: cab3.produtos?.[0], fora: qFora.status });
+
       // 84.4) criar com fornecedor NÃO-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO.
       const ctFrn = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', produtos: [{ idproduto: 1, quantidade: 1 }], fornecedores: [{ codparceiro: 20 }] }) });
       check('COTAÇÃO §84.4: criar com fornecedor não-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO', ctFrn.status === 422 && ((await ctFrn.json().catch(() => ({}))) as any).code === 'COTACAO_FORNECEDOR_INVALIDO', { status: ctFrn.status });

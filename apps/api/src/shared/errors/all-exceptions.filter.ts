@@ -630,6 +630,7 @@ const CODE_PT: Record<string, string> = {
   COTACAO_FORNECEDOR_INVALIDO: 'O parceiro informado não é um fornecedor válido.',
   COTACAO_FORNECEDOR_NAO_CONVIDADO: 'Este fornecedor não foi convidado para a cotação.',
   COTACAO_PRODUTO_NAO_COTADO: 'Este produto não faz parte da cotação.',
+  COTACAO_LOJA_FORA: 'A loja informada não faz parte das empresas da cotação.',
   COTACAO_SEM_PRECO: 'Este fornecedor não cotou preço para este produto.',
   COTACAO_PEDIDOS_JA_GERADOS: 'Os pedidos desta cotação já foram gerados.',
   COTACAO_APURACAO_INCOMPLETA: 'Há produtos cotados sem vencedor definido — apure a cotação antes de gerar os pedidos.',

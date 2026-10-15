@@ -38,6 +38,8 @@ export interface CotacaoProd {
   descricao: string | null;
   quantidade: number;
   fatorembalagem: number;
+  /** a grade por loja (sqqCotacaoProdQtde): a quantidade, o estoque da loja e o ativo para compra */
+  qtdes?: Array<{ idempresa: number; qtde: number; estoque: number | null; ativo_compra: string | null }>;
 }
 export interface CotacaoForn {
   codctcforn: number;
@@ -78,6 +80,9 @@ export const listarCotacoes = (): Promise<CotacaoLista[]> => req('/compras/cotac
 export const obterCotacao = (id: number): Promise<CotacaoDetalhe> => req(`/compras/cotacao/${id}`, { method: 'GET' });
 /** o cabeçalho da cotação aberta (PUT parcial: produtos e fornecedores ficam como estão) */
 export const atualizarCabecalhoCotacao = (id: number, body: CabecalhoCotacao): Promise<{ codctc: number }> => req(`/compras/cotacao/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+/** as quantidades por loja de um produto da cotação aberta (a GrdQuantidades) */
+export const quantidadesCotacao = (id: number, body: { idproduto: number; qtdes: Array<{ idempresa: number; qtde: number }> }): Promise<{ codctc: number; total: number }> =>
+  req(`/compras/cotacao/${id}/quantidades`, { method: 'POST', body: JSON.stringify(body) });
 export const criarCotacao = (body: NovaCotacao): Promise<{ codctc: number }> => req('/compras/cotacao', { method: 'POST', body: JSON.stringify(body) });
 export const excluirCotacao = (id: number): Promise<{ codctc: number }> => req(`/compras/cotacao/${id}`, { method: 'DELETE' });
 

@@ -8,7 +8,8 @@ import { ShortcutScope } from '../src/shared/keyboard';
 
 const DETALHE = {
   codctc: 5, descricao: 'HORTIFRUTI', situacao: 'A', data: '2026-10-01T03:00:00.000Z', pedidos: null, liberada: 'S', empresas: ';1;2;',
-  dtinicio_preenchimento: '2026-10-01T03:01:00.000Z', dtfim_preenchimento: '2026-10-03T02:59:00.000Z', produtos: [], fornecedores: [], precos: [],
+  dtinicio_preenchimento: '2026-10-01T03:01:00.000Z', dtfim_preenchimento: '2026-10-03T02:59:00.000Z', fornecedores: [], precos: [],
+  produtos: [{ codcpr: 9, idproduto: 77, descricao: 'ARROZ 5KG', quantidade: 10, fatorembalagem: 6, qtdes: [{ idempresa: 1, qtde: 6, estoque: 40, ativo_compra: 'S' }, { idempresa: 2, qtde: 4, estoque: 3, ativo_compra: 'N' }] }],
 };
 let corpos: Array<{ url: string; method: string; body: any }> = [];
 beforeEach(() => {
@@ -17,6 +18,7 @@ beforeEach(() => {
     const u = String(url);
     corpos.push({ url: u, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
     const r = /\/compras\/cotacao\/5$/.test(u) ? (init?.method === 'PUT' ? { codctc: 5 } : DETALHE)
+      : u.endsWith('/compras/cotacao/5/quantidades') ? { codctc: 5, total: 12 }
       : u.endsWith('/compras/cotacao') ? [{ codctc: 5, descricao: 'HORTIFRUTI', situacao: 'A', data: '2026-10-01', pedidos: null }]
       : { linhas: [], total: 0 };
     return { ok: true, status: 200, json: async () => r };
@@ -60,5 +62,19 @@ describe('Cotação (uCadCotacao.dfm) — o cabeçalho', () => {
     const put = corpos.find((c) => c.method === 'PUT')!;
     expect(put.body).toMatchObject({ descricao: 'HORTIFRUTI', dtfim_preenchimento: '2026-10-05T18:00:00', liberada: 'S' });
     expect(put.body.produtos).toBeUndefined();
+  });
+
+  it('a grade das quantidades por loja mostra o estoque e o aviso do produto inativo na loja; gravar manda as quantidades do produto', async () => {
+    tela();
+    await abrir();
+    await waitFor(() => expect(screen.getByLabelText('Quantidades por loja')).toBeTruthy());
+    expect(screen.getByText('Produto inativo para a empresa')).toBeTruthy();
+    expect(screen.getByText('40')).toBeTruthy();
+    const campos = screen.getByLabelText('Quantidades por loja').querySelectorAll('input');
+    fireEvent.change(campos[1], { target: { value: '6' } });
+    fireEvent.blur(campos[1]);
+    fireEvent.click(botao('Gravar quantidades'));
+    await waitFor(() => expect(corpos.some((c) => c.url.endsWith('/quantidades'))).toBe(true));
+    expect(corpos.find((c) => c.url.endsWith('/quantidades'))!.body).toEqual({ idproduto: 77, qtdes: [{ idempresa: 1, qtde: 6 }, { idempresa: 2, qtde: 6 }] });
   });
 });

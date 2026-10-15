@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
-import { criarCotacaoSchema, atualizarCotacaoSchema, lancarPrecosCotacaoSchema, definirGanhadorCotacaoSchema, type CriarCotacaoDto, type AtualizarCotacaoDto, type LancarPrecosCotacaoDto, type DefinirGanhadorCotacaoDto } from '@apollo/shared';
+import { criarCotacaoSchema, atualizarCotacaoSchema, lancarPrecosCotacaoSchema, quantidadesCotacaoSchema, type QuantidadesCotacaoDto, definirGanhadorCotacaoSchema, type CriarCotacaoDto, type AtualizarCotacaoDto, type LancarPrecosCotacaoDto, type DefinirGanhadorCotacaoDto } from '@apollo/shared';
 import { CotacaoService } from './cotacao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -34,6 +34,14 @@ export class CotacaoController {
   @RequerAcesso('FRMCADCOTACAO', 'BTNGRAVAR')
   atualizar(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(atualizarCotacaoSchema)) body: AtualizarCotacaoDto) {
     return this.svc.atualizar(id, body);
+  }
+
+  /** as quantidades por loja de um produto (a GrdQuantidades do uCadCotacao) — como lançar preços, só na aberta */
+  @Post(':id/quantidades')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADCOTACAO', 'BTNGRAVAR')
+  quantidades(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(quantidadesCotacaoSchema)) body: QuantidadesCotacaoDto) {
+    return this.svc.quantidades(id, body.idproduto, body.qtdes.map((q) => ({ idempresa: q.idempresa, qtde: q.qtde })));
   }
 
   /** lança/atualiza os preços de um fornecedor (matriz fornecedor×produto). */

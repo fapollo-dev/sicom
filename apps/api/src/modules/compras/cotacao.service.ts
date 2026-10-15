@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { configNaTrx } from './pedido-heranca';
 import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { sql, type Kysely } from 'kysely';
 import type { CriarCotacaoDto, LancarPrecosCotacaoDto } from '@apollo/shared';
@@ -62,15 +63,38 @@ export class CotacaoService {
   }
 
   /** grava produtos (+ qtde por loja) e fornecedores da cotação (usado no criar e no atualizar). */
+  /** as lojas da cotação (o EMPRESAS ";1;2;" do GravarEmpresas) */
+  private async lojasDaCotacao(trx: AnyDB, codctc: number, emp: number): Promise<number[]> {
+    const c = (await trx.selectFrom('cotacao').select('empresas').where('codctc', '=', codctc).executeTakeFirst()) as { empresas?: string | null } | undefined;
+    const lojas = String(c?.empresas ?? '').split(';').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+    return lojas.length ? lojas : [emp];
+  }
+
+  /**
+   * o fator de embalagem do produto na inclusão (uCadCotacao.pas:996-1002): o FATORCX do produto, ou 1 com a configuração
+   * FATOR_EMBALAGEM_FIXO = 'S' ('N' na produção); 0 vira 1
+   */
+  private async fatorDoProduto(trx: AnyDB, emp: number, idproduto: number): Promise<number> {
+    const fixo = await configNaTrx(trx, 'FATOR_EMBALAGEM_FIXO', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' });
+    if (String(fixo ?? 'N') === 'S') return 1;
+    const f = num(((await trx.selectFrom('produtos').select('fatorcx').where('idproduto', '=', idproduto).executeTakeFirst()) as { fatorcx?: unknown } | undefined)?.fatorcx);
+    return f > 0 ? f : 1;
+  }
+
   private async gravarArvore(trx: AnyDB, codctc: number, emp: number, dto: Partial<CriarCotacaoDto>): Promise<void> {
     if (dto.produtos) {
+      const lojas = await this.lojasDaCotacao(trx, codctc, emp);
       for (const p of dto.produtos) {
+        const fator = p.fatorembalagem != null ? num(p.fatorembalagem) : await this.fatorDoProduto(trx, emp, Number(p.idproduto));
         const ins = (await trx
           .insertInto('cotacao_prod')
-          .values({ codctc, idproduto: p.idproduto, descricao: p.descricao ?? null, quantidade: num(p.quantidade), fatorembalagem: p.fatorembalagem != null ? num(p.fatorembalagem) : 1, valorcusto: num(p.valorcusto), valorvenda: num(p.valorvenda) })
+          .values({ codctc, idproduto: p.idproduto, descricao: p.descricao ?? null, quantidade: num(p.quantidade), fatorembalagem: fator, valorcusto: num(p.valorcusto), valorvenda: num(p.valorvenda) })
           .returning('codcpr')
           .executeTakeFirstOrThrow()) as { codcpr: number };
-        for (const q of p.qtdes ?? []) {
+        // a quantidade por loja (COTACAO_PRODQTDE, :1015-1031): uma linha por loja da cotação com a quantidade informada (ou 0) — é
+        // ela que o legado usa (na produção a QUANTIDADE do COTACAO_PROD fica 0 e o pedido sai do PRODQTDE)
+        const qtdes = p.qtdes?.length ? p.qtdes : lojas.map((idempresa) => ({ idempresa, qtde: num(p.quantidade) }));
+        for (const q of qtdes) {
           await trx.insertInto('cotacao_prodqtde').values({ codcpr: Number(ins.codcpr), idempresa: Number(q.idempresa), qtde: num(q.qtde) }).execute();
         }
       }
@@ -148,8 +172,13 @@ export class CotacaoService {
           } else {
             cpr = Number(((await trx.insertInto('cotacao_prod').values({ codctc, idproduto: p.idproduto, ...campos }).returning('codcpr').executeTakeFirstOrThrow()) as { codcpr: number }).codcpr);
           }
-          await trx.deleteFrom('cotacao_prodqtde').where('codcpr', '=', cpr).execute(); // qtde/loja: substitui (sem preços a jusante)
-          for (const q of p.qtdes ?? []) await trx.insertInto('cotacao_prodqtde').values({ codcpr: cpr, idempresa: Number(q.idempresa), qtde: num(q.qtde) }).execute();
+          // qtde/loja: vieram → substitui; produto NOVO sem elas → uma linha por loja da cotação (como a inclusão); o que já estava fica
+          if (p.qtdes) {
+            await trx.deleteFrom('cotacao_prodqtde').where('codcpr', '=', cpr).execute();
+            for (const q of p.qtdes) await trx.insertInto('cotacao_prodqtde').values({ codcpr: cpr, idempresa: Number(q.idempresa), qtde: num(q.qtde) }).execute();
+          } else if (codcpr == null) {
+            for (const idempresa of await this.lojasDaCotacao(trx, codctc, emp)) await trx.insertInto('cotacao_prodqtde').values({ codcpr: cpr, idempresa, qtde: num(p.quantidade) }).execute();
+          }
         }
       }
 
@@ -253,6 +282,30 @@ export class CotacaoService {
     });
   }
 
+  /**
+   * a grade das quantidades por loja (GrdQuantidades): troca as quantidades de UM produto da cotação aberta, só nas lojas da cotação; o
+   * total do produto passa a ser a soma
+   */
+  async quantidades(codctc: number, idproduto: number, qtdes: Array<{ idempresa: number; qtde: number }>): Promise<{ codctc: number; total: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.carregar(trx, codctc, emp, true);
+      const prod = (await trx.selectFrom('cotacao_prod').select('codcpr').where('codctc', '=', codctc).where('idproduto', '=', idproduto).executeTakeFirst()) as { codcpr?: number } | undefined;
+      if (!prod?.codcpr) throw new BusinessRuleError('COTACAO_PRODUTO_NAO_COTADO', { idproduto });
+      const lojas = new Set(await this.lojasDaCotacao(trx, codctc, emp));
+      const fora = qtdes.find((q) => !lojas.has(Number(q.idempresa)));
+      if (fora) throw new BusinessRuleError('COTACAO_LOJA_FORA', { idempresa: fora.idempresa });
+      for (const q of qtdes) {
+        const existe = await trx.selectFrom('cotacao_prodqtde').select('codcprqtde').where('codcpr', '=', prod.codcpr).where('idempresa', '=', Number(q.idempresa)).executeTakeFirst();
+        if (existe) await trx.updateTable('cotacao_prodqtde').set({ qtde: num(q.qtde) }).where('codcpr', '=', prod.codcpr).where('idempresa', '=', Number(q.idempresa)).execute();
+        else await trx.insertInto('cotacao_prodqtde').values({ codcpr: prod.codcpr, idempresa: Number(q.idempresa), qtde: num(q.qtde) }).execute();
+      }
+      const total = num(((await sql<{ t: unknown }>`SELECT coalesce(sum(qtde), 0) AS t FROM cotacao_prodqtde WHERE codcpr = ${prod.codcpr}`.execute(trx)).rows[0])?.t);
+      await trx.updateTable('cotacao_prod').set({ quantidade: total }).where('codcpr', '=', prod.codcpr).execute();
+      return { codctc, total };
+    });
+  }
+
   /** lista as cotações do tenant (view get_cotacao). */
   async listar(): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
@@ -269,7 +322,15 @@ export class CotacaoService {
     if (!header) throw new BusinessRuleError('COTACAO_NAO_ENCONTRADA', { codctc });
     const produtos = (await db.selectFrom('cotacao_prod').selectAll().where('codctc', '=', codctc).orderBy('codcpr').execute()) as Array<Record<string, unknown>>;
     const codcprs = produtos.map((p) => Number(p.codcpr));
-    const qtdes = codcprs.length ? ((await db.selectFrom('cotacao_prodqtde').selectAll().where('codcpr', 'in', codcprs).execute()) as Array<Record<string, unknown>>) : [];
+    // a grade por loja (sqqCotacaoProdQtde): a quantidade, o ESTOQUE da loja e o ATIVO_COMPRA da linha de preço
+    const qtdes = codcprs.length ? ((await sql<Record<string, unknown>>`
+      SELECT cq.*, e.qtde AS estoque, mp.ativo_compra
+        FROM cotacao_prodqtde cq
+        LEFT JOIN cotacao_prod i ON i.codcpr = cq.codcpr
+        LEFT JOIN estoque e ON e.idproduto = i.idproduto AND e.idempresa = cq.idempresa
+        LEFT JOIN multi_preco mp ON mp.idproduto = i.idproduto AND mp.idempresa = cq.idempresa
+       WHERE cq.codcpr = ANY(${codcprs}::bigint[])
+       ORDER BY cq.idempresa`.execute(db)).rows) : [];
     const fornecedores = (await db.selectFrom('cotacao_forn').selectAll().where('codctc', '=', codctc).orderBy('codctcforn').execute()) as Array<Record<string, unknown>>;
     const codfornos = fornecedores.map((f) => Number(f.codctcforn));
     // "Ult. Custo Rep." (sqqCotacaoFornVenc): a grade do legado calcula ao vivo, não lê a coluna gravada na inclusão
