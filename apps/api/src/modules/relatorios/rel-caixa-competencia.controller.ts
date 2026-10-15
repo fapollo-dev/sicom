@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { relCaixaBaixadoSchema, relCaixaCompetenciaSchema, type RelCaixaBaixadoDto, type RelCaixaCompetenciaDto } from '@apollo/shared';
+import { relCaixaAbertoSchema, relCaixaBaixadoSchema, relCaixaCompetenciaSchema, type RelCaixaAbertoDto, type RelCaixaBaixadoDto, type RelCaixaCompetenciaDto } from '@apollo/shared';
 import { RelCaixaCompetenciaService } from './rel-caixa-competencia.service';
 import { RelCaixaRegimeService } from './rel-caixa-regime.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -45,5 +45,26 @@ export class RelCaixaBaixadoController {
   @RequerAcesso('FRMRELATORIOCAIXA', 'BTNIMPRIMIR')
   impressao(@Body(new ZodValidationPipe(relCaixaBaixadoSchema)) dto: RelCaixaBaixadoDto) {
     return this.svc.impressaoBaixado(dto);
+  }
+}
+
+/** RELATÓRIO DE CAIXA — CAIXA ABERTO (FRMRELATORIOCAIXA). Mesmo gate: a tela; o Imprimir pela BTNIMPRIMIR. */
+@Controller('relatorios/caixa-aberto')
+@UseGuards(AcessoGuard)
+export class RelCaixaAbertoController {
+  constructor(private readonly svc: RelCaixaRegimeService) {}
+
+  @Post('consultar')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELATORIOCAIXA', 'FRMRELATORIOCAIXA')
+  consultar(@Body(new ZodValidationPipe(relCaixaAbertoSchema)) dto: RelCaixaAbertoDto) {
+    return this.svc.consultarAberto(dto);
+  }
+
+  @Post('impressao')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELATORIOCAIXA', 'BTNIMPRIMIR')
+  impressao(@Body(new ZodValidationPipe(relCaixaAbertoSchema)) dto: RelCaixaAbertoDto) {
+    return this.svc.impressaoAberto(dto);
   }
 }

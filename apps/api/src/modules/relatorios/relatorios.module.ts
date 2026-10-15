@@ -13,7 +13,7 @@ import { RelTicketMedioController } from './rel-ticket-medio.controller';
 import { RelTicketMedioService } from './rel-ticket-medio.service';
 import { RelCaixaDreController } from './rel-caixa-dre.controller';
 import { RelCaixaDreService } from './rel-caixa-dre.service';
-import { RelCaixaBaixadoController, RelCaixaCompetenciaController } from './rel-caixa-competencia.controller';
+import { RelCaixaAbertoController, RelCaixaBaixadoController, RelCaixaCompetenciaController } from './rel-caixa-competencia.controller';
 import { RelCaixaRegimeService } from './rel-caixa-regime.service';
 import { RelCaixaCompetenciaService } from './rel-caixa-competencia.service';
 import { RelSemMovimentoController } from './rel-sem-movimento.controller';
@@ -103,7 +103,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [AgendaPromocaoRelController, RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelCaixaCompetenciaController, RelCaixaBaixadoController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
+  controllers: [AgendaPromocaoRelController, RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelCaixaCompetenciaController, RelCaixaBaixadoController, RelCaixaAbertoController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
     // FRMRELATORIO + FRMCADASTRORELATORIO — o construtor: catálogo de fontes, definição salva e execução.
     RelatorioConstrutorController,
     // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).

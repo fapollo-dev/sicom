@@ -24,6 +24,7 @@ beforeEach(() => {
       : u.endsWith('/caixa-baixado/consultar') ? { linhas: [
           { desccodplc: '1.01.001', descricao: 'CLIENTES', descricao_nvl1: 'RECEITAS', obs: 'BAIXA', razao: 'CLIENTE A', valor: 300, tpconta: 0 },
           { desccodplc: '4.01.001', descricao: 'ALUGUEL', descricao_nvl1: 'DESPESAS', obs: 'ALUGUEL OUT', razao: 'IMOBILIARIA', valor: -120, tpconta: 1 }], niveis: 3 }
+      : u.endsWith('/caixa-aberto/consultar') ? { linhas: [{ desccodplc: '1.01.002', descricao: 'A RECEBER', descricao_nvl1: 'RECEITAS', valor: 510, tpconta: 0 }], niveis: 3 }
       : u.endsWith('/caixa-dre/consultar') ? { receitas: [], despesas: [], totais: { receitas: 0, contas_recebidas_sem_conta: 0, cartoes_recebidos: 0, cheques_recebidos: 0, despesas: 0, resultado: 0, custo_mercadoria: 0 } }
       : {};
     return { ok: true, status: 200, json: async () => r };
@@ -93,5 +94,21 @@ describe('Relatório de caixa (FRMRELATORIOCAIXA) — os controles do legado', (
     expect(corpos.find((c) => c.url.endsWith('/caixa-baixado/consultar'))!.body).toMatchObject({ data: 'PAGAMENTO', obs: 'aluguel', cmv: false, plc: null });
     expect(await screen.findByText('IMOBILIARIA')).toBeTruthy();
     expect(screen.getByText(/Entradas R\$\s?300,00 · Saídas -R\$\s?120,00/)).toBeTruthy();
+  });
+
+  it('Caixa Aberto: o tipo do relatório (Sintético/Analítico) aparece e volta ao Sintético; a observação não vale; o custo de reposição segue marcado', async () => {
+    opcoes = [];
+    tela();
+    fireEvent.change(screen.getByLabelText('Relatório'), { target: { value: 'AB_VENCIMENTO' } });
+    expect(screen.getByRole('radiogroup', { name: 'Tipo do relatório' })).toBeTruthy();
+    expect((screen.getByLabelText('Sintético') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('Observação') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText('Analítico'));
+    fireEvent.click(botao('Consultar'));
+    await waitFor(() => expect(corpos.some((c) => c.url.endsWith('/caixa-aberto/consultar'))).toBe(true));
+    expect(corpos.find((c) => c.url.endsWith('/caixa-aberto/consultar'))!.body).toMatchObject({ data: 'VENCIMENTO', tipo: 1, custoReposicao: true, cmv: false });
+    expect(await screen.findByText('A RECEBER')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Relatório'), { target: { value: 'AB_EMISSAO' } });
+    expect((screen.getByLabelText('Sintético') as HTMLInputElement).checked).toBe(true);
   });
 });

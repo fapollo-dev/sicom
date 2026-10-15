@@ -50,3 +50,17 @@ export const relCaixaBaixadoSchema = z.object({
   expandido: z.boolean().optional(),
 });
 export type RelCaixaBaixadoDto = z.infer<typeof relCaixaBaixadoSchema>;
+
+/** RELATÓRIO DE CAIXA — CAIXA ABERTO (FRMRELATORIOCAIXA, `TRelCaixaAberto`): `data` é o cbbRelatorios 4 (emissão) / 5 (vencimento); `tipo` o rdgTipoRel (0 Sintético · 1 Analítico). */
+export const relCaixaAbertoSchema = z.object({
+  dtini: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (AAAA-MM-DD).'),
+  dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data final inválida (AAAA-MM-DD).'),
+  data: z.enum(['EMISSAO', 'VENCIMENTO']),
+  tipo: z.union([z.literal(0), z.literal(1)]).default(0),
+  empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
+  plc: z.string().trim().max(30).nullish(),
+  cmv: z.boolean().optional(),
+  custoReposicao: z.boolean().optional(),
+  expandido: z.boolean().optional(),
+});
+export type RelCaixaAbertoDto = z.infer<typeof relCaixaAbertoSchema>;

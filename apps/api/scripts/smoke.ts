@@ -21398,6 +21398,103 @@ async function main() {
       }
     }
 
+    // ══ §336) RELATÓRIO DE CAIXA — CAIXA ABERTO (FRMRELATORIOCAIXA, `TRelCaixaAberto`): o que ainda vai entrar e sair — títulos a pagar em
+    // aberto rateados pelo grupo (a base soma TODOS os títulos do grupo, quitados também), os lançamentos de lote do CAIXA pelos textos
+    // literais (o "%Referente a Producao%" do Analítico × o "Referente a Producao%" do Sintético), o C.M.V. com o custo de reposição, o
+    // título a receber pelo TOTAL da get_areceber, o cheque não baixado (BOM_PARA no vencimento) e o cartão não liberado (a previsão de
+    // compensação empurrada do domingo para a segunda) ═══
+    {
+      const RA = `${base}/relatorios/caixa-aberto`;
+      const pgCa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const emp0 = (await pgCa.query(`SELECT mascaraplc, contacmv FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const op0 = (await pgCa.query(`SELECT tipoop FROM operadores WHERE codoperador = 7`)).rows[0] as any;
+      try {
+        await pgCa.query(`UPDATE empresas SET mascaraplc = '#.##.###', contacmv = NULL WHERE idempresa = 1`);
+        await pgCa.query(`UPDATE operadores SET tipoop = 'PRO' WHERE codoperador = 7`);
+        await pgCa.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, tpconta) VALUES
+            (933400,'8.','GRUPO 334',NULL,1,0), (933600,'8.36.','SUBGRUPO 336',933400,2,0),
+            (933601,'8.36.001','COFRE 336',933600,3,0), (933602,'8.36.002','FORNECEDORES 336',933600,3,1),
+            (933603,'8.36.003','A RECEBER 336',933600,3,0), (933604,'8.36.004','LOTES 336',933600,3,1), (933605,'8.36.005','CMV 336',933600,3,1)
+          ON CONFLICT (codplc) DO UPDATE SET desccodplc = EXCLUDED.desccodplc, codpai = EXCLUDED.codpai, tpconta = EXCLUDED.tpconta`);
+        await pgCa.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino, plccofre) VALUES (1,'CARTAO 336','K336A','CRT',933601), (1,'CHEQUE 336','K336B','CHQ',933601)
+          ON CONFLICT DO NOTHING`);
+        const fpCrt = Number((await pgCa.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'CARTAO 336'`)).rows[0].idpgto);
+        const fpChq = Number((await pgCa.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'CHEQUE 336'`)).rows[0].idpgto);
+        await pgCa.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9336,'OPER 336',0,30) ON CONFLICT (codoperadoras) DO NOTHING`);
+        // o cartão aberto vendido em 03/05: 03/05 + 30 = 02/06 (domingo) → previsão 03/06
+        await pgCa.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, nroparcela, liberado) VALUES (1,9336,$1,'2019-05-03 11:00:00-03',150.00,1,'N')`, [fpCrt]);
+        await pgCa.query(`INSERT INTO cheque (codchq, valor, dtemissao, bompara, codparceiro, idempresa, idpgto, baixado, devolvido, observacao)
+          VALUES (93360,70.00,'2019-05-04 10:00:00-03','2019-05-20 10:00:00-03',2,1,$1,'N','N','CHEQUE 336') ON CONFLICT (codchq) DO NOTHING`, [fpChq]);
+        const rcb = Number((await pgCa.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenda, dtvenc, valor, txjuros, quitada, codplc)
+          VALUES (1,2,'CA-336','2019-05-05','2019-05-25',500.00,3,'N',933603) RETURNING codrcb`)).rows[0].codrcb);
+        // o grupo 93360: 800 (compra 06/05, vence 28/05) + 200 (compra 07/05, vence 03/06) em aberto + 1.000 quitado → base 2.000, 50% no rateio
+        for (const [dup, compra, venc, valor, quit] of [['CA-D336-1','2019-05-06','2019-05-28',800,'N'], ['CA-D336-2','2019-05-07','2019-06-03',200,'N'], ['CA-D336-3','2019-05-01','2019-05-02',1000,'S']] as const) {
+          await pgCa.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, quitada, tipodoc, codgrupo, obs)
+            VALUES (1,2,$1,$3,$2,$4,0,$5,'DP',93360,'FORNEC 336')`, [dup, compra, venc, valor, quit]);
+        }
+        const apg1 = Number((await pgCa.query(`SELECT codapg FROM apagar WHERE duplicata = 'CA-D336-1'`)).rows[0].codapg);
+        await pgCa.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES (93361,$1,933602,1000.00,93360,'V') ON CONFLICT (codcxapagar) DO NOTHING`, [apg1]);
+        await pgCa.query(`DELETE FROM caixa WHERE codcx BETWEEN 993601 AND 993610`);
+        await pgCa.query(`INSERT INTO caixa (codcx, data, dtvenc, valor, codplc, idempresa, tiporecurso, obs) VALUES
+          (993601,'2019-05-08 10:00:00-03','2019-05-08',-30.00,933604,1,'D','Referenta a baixa a pagar do lote 77'),
+          (993602,'2019-05-08 10:00:00-03','2019-05-08',-12.00,933604,1,'D','Referente a Producao 336'),
+          (993603,'2019-05-08 10:00:00-03','2019-05-08', -5.00,933604,1,'D','Lancto Referente a Producao 336'),
+          (993604,'2019-05-08 10:00:00-03','2019-05-08', -7.00,933605,1,'D','Ref. juros pgto lote 9'),
+          (993605,'2019-05-08 10:00:00-03','2019-05-08',-99.00,933604,1,'D','VENDA 336')`);
+        await pgCa.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, iat, cfop, cancelado, venda_nfc, statusnfe)
+          VALUES (1,'2019-05-09 10:00:00-03','336',93360,1,990700,2,15.00,10.00,12.00,'A',5102,'N','S','P')`);
+        const totalRcb = Number((await pgCa.query(`SELECT total FROM get_areceber WHERE codrcb = $1`, [rcb])).rows[0].total);
+
+        const corpo = (x: Record<string, unknown> = {}) => JSON.stringify({ dtini: '2019-05-01', dtfim: '2019-05-31', data: 'EMISSAO', tipo: 1, plc: '8.36', ...x });
+        const cons = async (x: Record<string, unknown> = {}, h = H) => {
+          const r = await fetch(`${RA}/consultar`, { method: 'POST', headers: h, body: corpo(x) });
+          return { status: r.status, body: (await r.json()) as any };
+        };
+        const soma = (b: any) => {
+          const m = new Map<string, { v: number; n: number }>();
+          for (const l of b?.linhas ?? []) { const k = String(l.desccodplc); const a = m.get(k) ?? { v: 0, n: 0 }; a.v = Math.round((a.v + Number(l.valor)) * 100) / 100; a.n++; m.set(k, a); }
+          return [...m.entries()].sort().map(([k, a]) => `${k}=${a.v}/${a.n}`).join(' ');
+        };
+        const an = await cons();
+        check('§336.1 CAIXA ABERTO analítico (emissão): cartão 150 + cheque 70 no cofre · títulos a pagar −400 e −100 (base do grupo 2.000 com o quitado) · o título a receber pelo TOTAL da get_areceber (com o juro até hoje) · os 3 lançamentos de lote (com o "%Referente a Producao%") e o de juros; a VENDA fica de fora',
+          an.status === 200 && soma(an.body) === `8.36.001=220/2 8.36.002=-500/2 8.36.003=${totalRcb}/1 8.36.004=-47/3 8.36.005=-7/1`
+          && (an.body.linhas ?? []).some((l: any) => l.razao === 'OPER 336') && totalRcb > 500, { s: an.status, soma: soma(an.body), totalRcb, b: an.body });
+        const si = await cons({ tipo: 0 });
+        check('§336.2 Sintético: as despesas somadas por conta (−500 numa linha) e o "Referente a Producao%" sem o % na frente — o lançamento com texto antes sai (−42, não −47)',
+          soma(si.body) === `8.36.001=220/2 8.36.002=-500/1 8.36.003=${totalRcb}/1 8.36.004=-42/1 8.36.005=-7/1` && (si.body.linhas ?? []).every((l: any) => !('razao' in l)), { soma: soma(si.body) });
+        const ve = await cons({ data: 'VENCIMENTO' });
+        const ve3 = await cons({ data: 'VENCIMENTO', dtini: '2019-06-03', dtfim: '2019-06-03' });
+        const ve2 = await cons({ data: 'VENCIMENTO', dtini: '2019-06-02', dtfim: '2019-06-02' });
+        check('§336.3 no vencimento: o cheque pelo BOM_PARA (20/05), o título a receber (25/05), o a pagar que vence em maio (−400) e o caixa pelo DTVENC; o cartão só na previsão de 03/06 (o domingo 02/06 empurrado), junto com o a pagar que vence em 03/06',
+          soma(ve.body) === `8.36.001=70/1 8.36.002=-400/1 8.36.003=${totalRcb}/1 8.36.004=-47/3 8.36.005=-7/1` && soma(ve3.body) === '8.36.001=150/1 8.36.002=-100/1' && soma(ve2.body) === '',
+          { ve: soma(ve.body), ve3: soma(ve3.body), ve2: soma(ve2.body) });
+        await pgCa.query(`UPDATE empresas SET contacmv = 933605 WHERE idempresa = 1`);
+        const cmvRep = await cons({ cmv: true, custoReposicao: true });
+        const cmvCus = await cons({ cmv: true, custoReposicao: false, tipo: 0 });
+        await pgCa.query(`UPDATE empresas SET contacmv = NULL WHERE idempresa = 1`);
+        check('§336.4 C.M.V.: o lançamento de lote na conta de CMV da empresa sai e entra o custo das vendas do período — 2 × 12 com o custo de reposição, 2 × 10 sem',
+          soma(cmvRep.body).includes('8.36.005=-24/1') && soma(cmvCus.body).includes('8.36.005=-20/1'), { rep: soma(cmvRep.body), cus: soma(cmvCus.body) });
+        const sem = await cons({}, H_SEM_ACESSO);
+        const imp = await fetch(`${RA}/impressao`, { method: 'POST', headers: H, body: corpo({ tipo: 0 }) });
+        const impB = (await imp.json()) as any;
+        check('§336.5 sem acesso à tela → 403; o Imprimir do Sintético usa o Rel_BalanceteRegimeCaixa.fr3',
+          sem.status === 403 && (imp.status === 200 ? Array.isArray(impB?.datasets?.frxDBDataset2)
+            : impB?.code === 'RELATORIO_MODELO_NAO_ENCONTRADO' && String(impB?.message ?? '').includes('"Rel_BalanceteRegimeCaixa.fr3"')), { sem: sem.status, imp: imp.status, impB });
+      } finally {
+        await pgCa.query(`UPDATE empresas SET mascaraplc = $1, contacmv = $2 WHERE idempresa = 1`, [emp0?.mascaraplc ?? null, emp0?.contacmv ?? null]);
+        await pgCa.query(`UPDATE operadores SET tipoop = $1 WHERE codoperador = 7`, [op0?.tipoop ?? null]);
+        await pgCa.query(`DELETE FROM caixa WHERE codcx BETWEEN 993601 AND 993610`);
+        await pgCa.query(`DELETE FROM vendas WHERE idempresa = 1 AND nroserie = '336' AND nrocupom = 93360`);
+        await pgCa.query(`DELETE FROM areceber WHERE nrocupom = 'CA-336'`);
+        await pgCa.query(`DELETE FROM apagar WHERE duplicata LIKE 'CA-D336-%'`);
+        await pgCa.query(`DELETE FROM cheque WHERE codchq = 93360`);
+        await pgCa.query(`DELETE FROM cartao WHERE codoperadora = 9336`);
+        await pgCa.query(`DELETE FROM operadoras WHERE codoperadoras = 9336`);
+        await pgCa.query(`DELETE FROM formas_pgto WHERE idempresa = 1 AND modalidade IN ('CARTAO 336', 'CHEQUE 336')`);
+        await pgCa.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

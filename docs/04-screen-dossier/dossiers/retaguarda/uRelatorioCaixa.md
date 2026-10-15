@@ -106,7 +106,30 @@ O SQL ativo é `GetSQLReceitasOrigem UNION ALL GetSQLDespesas ORDER BY 1` (a ver
 
 Prova: smoke §335 (6 checks), `relatorioCaixa.spec.tsx` (Baixado).
 
-## 4. Pendente (próximos cortes)
+## 4. Caixa Aberto — `TRelCaixaAberto.GetSQL` (:1593-1811) — ✅ convertido (corte 3)
 
-- Caixa Aberto (emissão/vencimento) — `TRelCaixaAberto`.
+`rdgTipoRel` visível como "Tipo do relatório" (Sintético → `Rel_BalanceteRegimeCaixa.fr3` · Analítico → o Detalhado), volta ao Sintético a
+cada troca do combo. Pernas (ORDER BY 1, 2 no fim):
+
+| perna | origem | data na EMISSÃO | data no VENCIMENTO |
+|---|---|---|---|
+| a pagar em aberto | APAGAR (QUITADA 'N'/nula) ⋈ CX_APAGAR do CODGRUPO: (VALOR+VENDOR) × CX.VALOR / **Σ(VALOR+VENDOR) de TODOS os títulos do grupo** (quitados também) × −1 | `DTCOMPRA` | `DTVENC` |
+| lançamentos de lote | CAIXA pelos 6 textos literais (com os typos 'Referenta'); no Analítico `'%Referente a Producao%'`, no Sintético `'Referente a Producao%'` | `CAIXA.DATA` | `CAIXA.DTVENC` |
+| C.M.V. (`ckCmv`) | Σ(qtde × custo) das vendas × −1 na conta de CMV (custo de reposição se marcado); e o CAIXA perde a conta de CMV **da empresa logada** | `DTVENDA` | `DTVENDA` |
+| a receber | GET_ARECEBER_COM_AGRUPADOS (= `get_areceber` QUITADA 'N', mig 410) pelo **TOTAL com o juro até hoje**, na `CODPLC` do título | `DATA_VENDA` | `DATA_VENCIMENTO` |
+| cheque | GET_CHEQUE (BAIXADO 'N') no cofre da forma | `DATA_EMISSAO` | `BOM_PARA` |
+| cartão | GET_CARTAO (LIBERADO 'N') no cofre da forma; no Analítico a operadora BASE | `DATA` | `PREVISAO_COMPENSACAO` |
+
+- Sintético: as despesas agrupadas por conta (o legado agrupa o a pagar por G.VALOR/G.CODGRUPO/parceiro e soma por fora).
+- Só o começo do código filtra; operador, fiscal, PDV e tipo de conta ficam desabilitados no legado; a observação fica habilitada mas o
+  SQL não a lê (no Apollo, desabilitada). O recorte do proprietário pelo `CODPLC_NVL1`.
+- A previsão de compensação é a da GET_CARTAO da produção: `DIAFECHAMENTO` da loja se > 0, senão o `DIASCOMP` da operadora base, × a
+  parcela; domingo +1, sábado +2. ⚠️ A `get_cartao` do Apollo usa `COALESCE(diafechamento, diascomp)` (diverge se DIAFECHAMENTO = 0 —
+  0 linhas na produção hoje) e **não tem o `WHERE COALESCE(LIBERADO,'N') = 'N'`** da produção; o relatório não depende dela.
+
+**Diferença deliberada**: C.M.V. marcado com a empresa sem conta de CMV → o legado monta `AND P.CODPLC <> ` vazio (ORA-00936); o Apollo
+só aplica a exclusão quando há conta. Prova: smoke §336 (5 checks), `relatorioCaixa.spec.tsx` (Aberto).
+
+## 5. Pendente
+
 - A impressão do Anual (`Rel_CaixaAnual.fr3`) — se a produção mostrar o modelo acessível.

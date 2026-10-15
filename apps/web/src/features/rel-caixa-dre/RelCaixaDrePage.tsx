@@ -144,7 +144,7 @@ function AnualDre({ dtini, dtfim }: { dtini: string; dtfim: string }) {
   );
 }
 
-type Regime = 'EMISSAO' | 'VENCIMENTO' | 'BX_EMISSAO' | 'BX_PAGAMENTO' | 'ANUAL';
+type Regime = 'EMISSAO' | 'VENCIMENTO' | 'BX_EMISSAO' | 'BX_PAGAMENTO' | 'AB_EMISSAO' | 'AB_VENCIMENTO' | 'ANUAL';
 type Linha = Record<string, any>;
 const MODELOS = ['Totalizado', 'Recursos', 'Recursos totalizado', 'Agrupado Geral'] as const;
 const dataBr = (d: unknown) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
@@ -175,7 +175,8 @@ export function corpoCompetencia(f: {
  * e (vencimento) — o livro-caixa por centro de custo (`TRelCompetencia`) com as opções de C.M.V., taxas de cartão e notas fiscais — e o
  * "Anual" (a D.R.E. de caixa); Caixa Baixado (emissão) e (pagamento) — o balancete do regime de caixa (`TRelCaixaBaixado`), sempre analítico, em
  * que só o código do centro de custo, a observação e o C.M.V. valem (o legado habilita operador/fiscal/PDV/tipo de conta, mas o SQL ativo
- * não os usa — o GetSQLReceitas que os lia está comentado). O operador e o fiscal de caixa se excluem (escolher um zera o outro — edtCodOperadorExit/edtFiscalCXExit);
+ * não os usa — o GetSQLReceitas que os lia está comentado); Caixa Aberto (emissão) e (vencimento) — o que ainda vai entrar e sair
+ * (`TRelCaixaAberto`), Sintético ou Analítico (o rdgTipoRel volta ao Sintético a cada troca), com o C.M.V. e o custo de reposição. O operador e o fiscal de caixa se excluem (escolher um zera o outro — edtCodOperadorExit/edtFiscalCXExit);
  * as taxas de cartão só na emissão; o campo data das notas só na emissão; a ordenação só no modelo Recursos; "Planos de contas
  * expandidos" só no Totalizado e no Recursos totalizado; o custo de reposição vem marcado (o .dfm). O Imprimir é a opção BTNIMPRIMIR.
  */
@@ -194,6 +195,7 @@ export function RelCaixaDrePage() {
   const [obs, setObs] = useState('');
   const [modelo, setModelo] = useState(0);
   const [ordenacao, setOrdenacao] = useState(0);
+  const [tipoAberto, setTipoAberto] = useState<0 | 1>(0);
   const [dataNota, setDataNota] = useState<'DTCONTABIL' | 'DTEMISSAO'>('DTCONTABIL');
   const [cmv, setCmv] = useState(false);
   const [taxasCartao, setTaxasCartao] = useState(false);
@@ -206,18 +208,25 @@ export function RelCaixaDrePage() {
 
   const competencia = regime === 'EMISSAO' || regime === 'VENCIMENTO';
   const baixado = regime === 'BX_EMISSAO' || regime === 'BX_PAGAMENTO';
+  const aberto = regime === 'AB_EMISSAO' || regime === 'AB_VENCIMENTO';
+  const lojasDigitadas = () => empresas.split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+  const corpoAberto = () => {
+    const lojas = lojasDigitadas();
+    return { dtini, dtfim, data: regime === 'AB_VENCIMENTO' ? 'VENCIMENTO' : 'EMISSAO', tipo: tipoAberto, ...(lojas.length ? { empresas: lojas } : {}),
+      plc: plc.trim() || null, cmv, custoReposicao, expandido };
+  };
   const corpoBaixado = () => {
-    const lojas = empresas.split(',').map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
+    const lojas = lojasDigitadas();
     return { dtini, dtfim, data: regime === 'BX_PAGAMENTO' ? 'PAGAMENTO' : 'EMISSAO', ...(lojas.length ? { empresas: lojas } : {}),
       plc: plc.trim() || null, obs: obs.trim() || null, cmv, expandido };
   };
-  const rota = baixado ? '/relatorios/caixa-baixado' : '/relatorios/caixa-competencia';
-  const corpo = () => baixado ? corpoBaixado() : corpoCompetencia({
+  const rota = baixado ? '/relatorios/caixa-baixado' : aberto ? '/relatorios/caixa-aberto' : '/relatorios/caixa-competencia';
+  const corpo = () => baixado ? corpoBaixado() : aberto ? corpoAberto() : corpoCompetencia({
     regime: regime === 'VENCIMENTO' ? 'VENCIMENTO' : 'EMISSAO', dtini, dtfim, empresas, codoperador, codfiscal, codpdv, plc, tpconta, obs,
     modelo, ordenacao, dataNota, cmv, taxasCartao, notasFiscais, custoReposicao, expandido,
   });
   const trocarRegime = (r: Regime) => {
-    setRegime(r); setLinhas(null);
+    setRegime(r); setLinhas(null); setTipoAberto(0);
     if (r !== 'EMISSAO') setTaxasCartao(false);
     if (r !== 'EMISSAO' && r !== 'VENCIMENTO') setNotasFiscais(false);
   };
@@ -227,7 +236,7 @@ export function RelCaixaDrePage() {
     try {
       const r = await req<{ linhas: Linha[] }>(`${rota}/consultar`, corpo());
       setLinhas(r.linhas);
-      if (!r.linhas.length && !baixado) mensagem.erro('Dados não encontrados com os Filtros informados, Verifique!');
+      if (!r.linhas.length && competencia) mensagem.erro('Dados não encontrados com os Filtros informados, Verifique!');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
   const imprimir = () => { imprimirRelatorio(`${rota}/impressao`, corpo()).catch((e) => mensagem.erro(e)); };
@@ -246,6 +255,8 @@ export function RelCaixaDrePage() {
             <option value="VENCIMENTO">Competencia (vencimento)</option>
             <option value="BX_EMISSAO">Caixa Baixado (emissão)</option>
             <option value="BX_PAGAMENTO">Caixa Baixado (pagamento)</option>
+            <option value="AB_EMISSAO">Caixa Aberto (emissão)</option>
+            <option value="AB_VENCIMENTO">Caixa Aberto (vencimento)</option>
             <option value="ANUAL">Anual (D.R.E.)</option>
           </select>
         </div>
@@ -278,7 +289,7 @@ export function RelCaixaDrePage() {
                   <option value="2">3 - NEUTRA</option>
                 </select>
               </div>
-              <div className="w-72"><Field label="O&bservação" value={obs} onChange={(e) => setObs(e.target.value)} /></div>
+              <div className="w-72"><Field label="O&bservação" value={obs} disabled={aberto} onChange={(e) => setObs(e.target.value)} /></div>
             </div>
             <div className="flex flex-wrap items-start gap-gp-md">
               <fieldset className="flex flex-col gap-gp-xs" role="radiogroup" aria-label="Modelo do relatório">
@@ -299,6 +310,16 @@ export function RelCaixaDrePage() {
                   ))}
                 </fieldset>
               )}
+              {aberto && (
+                <fieldset className="flex flex-col gap-gp-xs" role="radiogroup" aria-label="Tipo do relatório">
+                  <legend className="text-body-sm text-fg-muted">Tipo do relatório</legend>
+                  {['Sintético', 'Analítico'].map((m, i) => (
+                    <label key={m} className="flex items-center gap-gp-xs text-body-sm">
+                      <input type="radio" name="rcx-tipo" checked={tipoAberto === i} onChange={() => setTipoAberto(i as 0 | 1)} />{m}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
               {regime === 'EMISSAO' && (
                 <fieldset className="flex flex-col gap-gp-xs" role="radiogroup" aria-label="Campo data para filtro de notas">
                   <legend className="text-body-sm text-fg-muted">Campo data para filtro de notas</legend>
@@ -313,8 +334,8 @@ export function RelCaixaDrePage() {
                 <CheckboxField label="Utilizar C.M.V no relatório" value={cmv ? 'S' : 'N'} onChange={(v) => setCmv(v === 'S')} />
                 <CheckboxField label="Utilizar taxas de cartão no relatório" value={taxasCartao ? 'S' : 'N'} disabled={regime !== 'EMISSAO'} onChange={(v) => setTaxasCartao(v === 'S')} />
                 <CheckboxField label="Utilizar valores de notas fiscais no relatório" value={notasFiscais ? 'S' : 'N'} disabled={!competencia} onChange={(v) => setNotasFiscais(v === 'S')} />
-                <CheckboxField label="Utilizar custo de reposição" value={custoReposicao ? 'S' : 'N'} disabled={!competencia} onChange={(v) => setCustoReposicao(v === 'S')} />
-                {(baixado || modelo === 0 || modelo === 2) && (
+                <CheckboxField label="Utilizar custo de reposição" value={custoReposicao ? 'S' : 'N'} disabled={baixado} onChange={(v) => setCustoReposicao(v === 'S')} />
+                {(!competencia || modelo === 0 || modelo === 2) && (
                   <CheckboxField label="Planos de contas expandidos" value={expandido ? 'S' : 'N'} onChange={(v) => setExpandido(v === 'S')} />
                 )}
               </div>
@@ -358,7 +379,7 @@ export function RelCaixaDrePage() {
               </table>
             </div>
           )}
-          {baixado && linhas && (
+          {!competencia && linhas && (
             <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
               <table className="w-full text-body-sm">
                 <thead>
