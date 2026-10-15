@@ -13316,13 +13316,40 @@ async function main() {
         const promoDel = await post({ ...baseProm, idproduto: pr2, dtini: '2049-01-01T00:00', dtfim: '2049-01-10T00:00', empresas: [1] });
         const comSenha = await fetch(`${base}/${PA}/${promoDel.j.idproacumulativa}?senhaOperacao=promo%232046`, { method: 'DELETE', headers: H });
         const logDel = (await pgPa.query(
-          `SELECT historico, tabela, codoperador FROM historico_dinamico WHERE tabela='PROMOCAO_ACUMULATIVA' AND valor_chave=$1`,
-          [String(promoDel.j.idproacumulativa)])).rows[0] as any;
-        check('PROMOÇÃO ACUMULATIVA §106.8 [e grava LOG de exclusão]: com a senha certa a promoção sai, e o legado registra um histórico em texto — quem apagou, o quê e quando (`:145`). No destino isso vai para `historico_dinamico`, a mesma tabela genérica que o mecanismo de preço pai/filho usa',
+          `SELECT historico, formulario, codusuario, idempresa FROM log WHERE tabela='PROMOCAO_ACUMULATIVA' AND acao='Excluiu' AND valor=$1`,
+          [promoDel.j.idproacumulativa])).rows[0] as any;
+        check('PROMOÇÃO ACUMULATIVA §106.8 [e grava LOG de exclusão]: com a senha certa a promoção sai, e o legado registra na LOG (a tabela que o "Histórico" lê) o texto "Promoção acumulativa N foi excluída pelo operador NOME em …" como está, formulário "Promoção Acumulativa", sem empresa (`btnExcluirClick:136-150`)',
           comSenha.status === 200 && !!logDel
-          && String(logDel.historico).includes(`Promoção acumulativa ${promoDel.j.idproacumulativa} foi excluída`)
-          && Number(logDel.codoperador) === 7,
+          && String(logDel.historico).startsWith(`Promoção acumulativa ${promoDel.j.idproacumulativa} foi excluída pelo operador `)
+          && logDel.formulario === 'Promoção Acumulativa' && Number(logDel.codusuario) === 7 && logDel.idempresa == null,
           { delete: comSenha.status, log: logDel });
+        // §106.12) o gravar loga Inseriu/Alterou com o dataset da tela (TLog.GravaLog do form-base) e o "Histórico" (BtnHistorico →
+        // registros de log da chave IDPROACUMULATIVA com a ação Excluiu) lista a exclusão
+        {
+          // uma promoção só deste teste (2050, loja 1), longe das janelas das outras checagens
+          const pLogB = { ...baseProm, dtini: '2050-01-01T05:00', dtfim: '2050-01-05T23:59', empresas: [1] };
+          const pLog = await post(pLogB);
+          const logIns = (await pgPa.query(`SELECT historico FROM log WHERE tabela='PROMOCAO_ACUMULATIVA' AND acao='Inseriu' AND valor=$1`, [pLog.j.idproacumulativa])).rows[0] as any;
+          await post({ ...pLogB, idproacumulativa: pLog.j.idproacumulativa, qtde: 4 });
+          const logAlt = (await pgPa.query(`SELECT historico FROM log WHERE tabela='PROMOCAO_ACUMULATIVA' AND acao='Alterou' AND valor=$1 ORDER BY idlog DESC LIMIT 1`, [pLog.j.idproacumulativa])).rows[0] as any;
+          await pgPa.query(`DELETE FROM promocao_acumulativa WHERE idproacumulativa = $1`, [pLog.j.idproacumulativa]);
+          const hist = (await (await fetch(`${base}/cadastro/registros-log?form=FRMCADPROMOCAOACUMULATIVA&chave=IDPROACUMULATIVA&acao=Excluiu`, { headers: H })).json().catch(() => ({}))) as any;
+          check('PROMOÇÃO ACUMULATIVA §106.12 [a LOG do gravar e o Histórico]: incluir grava "Inseriu" com os campos do dataset (IDPRODUTO, QTDE, IDEMPRESA…), alterar grava "Alterou" só com o que mudou (QTDE 3 → 4), e o Histórico (ação Excluiu) lista a promoção excluída',
+            /CAMPO: IDPRODUTO/.test(String(logIns?.historico)) && /CAMPO: IDEMPRESA/.test(String(logIns?.historico))
+            && /CAMPO: QTDE/.test(String(logAlt?.historico)) && !/CAMPO: DESCONTO/.test(String(logAlt?.historico))
+            && (hist.linhas ?? []).some((l: any) => Number(l.valor) === Number(promoDel.j.idproacumulativa)),
+            { logIns: logIns?.historico, logAlt: logAlt?.historico, hist: (hist.linhas ?? []).map((l: any) => l.valor) });
+        }
+        // §106.13) o exit do Produto (VerificarProdutoAtivo): o ativo traz código de barras, descrição e o grupo de preço; o inativo → a mensagem
+        {
+          const pOk = (await (await fetch(`${base}/${PA}/produto/${pr1}`, { headers: H })).json().catch(() => ({}))) as any;
+          const pIn = await fetch(`${base}/${PA}/produto/${prI}`, { headers: H });
+          const pInJ = (await pIn.json().catch(() => ({}))) as any;
+          check('PROMOÇÃO ACUMULATIVA §106.13 [o exit do produto]: o ativo mostra código de barras, descrição e o grupo de preço (9901 GRUPO PRECO PA); o inativo → "Produto nao encontrado!"',
+            pOk.codbarra === '7009000002222' && pOk.descricao === 'PROMO ACUM A' && Number(pOk.cod_grupopreco) === 9901 && pOk.grupo_preco === 'GRUPO PRECO PA'
+            && pIn.status === 422 && pInJ.message === 'Produto nao encontrado!',
+            { pOk, pIn: [pIn.status, pInJ.message] });
+        }
 
         const grupoR = await fetch(`${base}/${PA}/grupo/9901`, { headers: H });
         const grupoJ = (await grupoR.json().catch(() => ([]))) as any[];
@@ -13362,7 +13389,7 @@ async function main() {
           && daLoja1 === 0 && Number(gDelJ.excluidas) >= 1,
           { resp: gDelJ, compartilhada: compart?.idempresa, historicaFicou: historica, daLoja1Sobraram: daLoja1 });
 
-        await pgPa.query(`DELETE FROM historico_dinamico WHERE tabela='PROMOCAO_ACUMULATIVA'`);
+        await pgPa.query(`DELETE FROM log WHERE tabela='PROMOCAO_ACUMULATIVA'`);
         await pgPa.query(`DELETE FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
         await pgPa.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
         await pgPa.query(`DELETE FROM familias_prod WHERE codfamilia=9901`);

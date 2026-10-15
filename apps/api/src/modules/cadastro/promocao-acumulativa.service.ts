@@ -4,6 +4,11 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SenhaOperacaoService } from './senha-operacao.service';
+import { dataHoraLegado, gravarLog, gravarLogDaLinha } from '../../shared/log/registro-log';
+
+// o lblTitulo da tela (a coluna FORMULARIO da LOG na produção) e os campos do dataset na ordem em que o form-base os lista
+const FORMULARIO = 'Promoção Acumulativa';
+const CAMPOS_LOG = ['idproacumulativa', 'idproduto', 'qtde', 'desconto', 'idempresa', 'atacarejo', 'dtini', 'dtfim', 'codgrupopreco'] as const;
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -186,8 +191,14 @@ export class PromocaoAcumulativaService {
     const cGrupo = await this.conflito(db, chave, true);
     if (cGrupo) throw new BusinessRuleError('PROMO_GRUPO_PRECO_JA_EM_PROMOCAO', { promocao: cGrupo.idproacumulativa });
 
+    // o btnGravarClick grava a LOG do form-base (`TLog.GravaLog(doInserir|doAlterar, lblTitulo, …, Cds)`) com o dataset da tela, na ordem dele
+    const logDaLinha = async (trx: AnyDB, acao: 'Inseriu' | 'Alterou', id: number, antes: Record<string, unknown> | null) => {
+      const depois = (await sql<Record<string, unknown>>`SELECT * FROM promocao_acumulativa WHERE idproacumulativa = ${id}`.execute(trx)).rows[0];
+      if (depois) await gravarLogDaLinha(trx, { acao, formulario: FORMULARIO, tabela: 'PROMOCAO_ACUMULATIVA', chave: 'IDPROACUMULATIVA', valor: id, campos: CAMPOS_LOG, antes, depois });
+    };
     return db.transaction().execute(async (trx: AnyDB) => {
       if (dto.idproacumulativa) {
+        const antes = (await sql<Record<string, unknown>>`SELECT * FROM promocao_acumulativa WHERE idproacumulativa = ${dto.idproacumulativa}`.execute(trx)).rows[0] ?? null;
         const r = (await sql<{ idproacumulativa: number }>`
           UPDATE promocao_acumulativa
              SET idproduto = ${dto.idproduto}, qtde = ${dto.qtde}, desconto = ${dto.desconto},
@@ -198,6 +209,7 @@ export class PromocaoAcumulativaService {
            RETURNING idproacumulativa
         `.execute(trx)).rows[0];
         if (!r) throw new BusinessRuleError('PROMO_NAO_ENCONTRADA', { idproacumulativa: dto.idproacumulativa });
+        await logDaLinha(trx, 'Alterou', r.idproacumulativa, antes);
         return { idproacumulativa: r.idproacumulativa, idempresa };
       }
       const r = (await sql<{ idproacumulativa: number }>`
@@ -210,8 +222,24 @@ export class PromocaoAcumulativaService {
                 ${op}, now())
         RETURNING idproacumulativa
       `.execute(trx)).rows[0];
+      await logDaLinha(trx, 'Inseriu', r.idproacumulativa, null);
       return { idproacumulativa: r.idproacumulativa, idempresa };
     });
+  }
+
+  /**
+   * O exit do Produto (`edtCodProdExit` → `VerificarProdutoAtivo`, uCadPromocaoAcumulativa.pas:380-444): o produto ATIVO com esse código —
+   * código de barras, descrição e o grupo de preço (código e descrição) que a tela mostra; senão "Produto nao encontrado!".
+   */
+  async produto(idproduto: number): Promise<{ idproduto: number; codbarra: string | null; descricao: string | null; cod_grupopreco: number; grupo_preco: string | null }> {
+    this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const p = (await sql<{ idproduto: number; codbarra: string | null; descricao: string | null; cod_grupopreco: number | null; grupo_preco: string | null }>`
+      SELECT p.idproduto, p.codbarra, p.descricao, p.codgrupopreco AS cod_grupopreco, gp.descricao AS grupo_preco
+        FROM produtos p LEFT JOIN familias_prod gp ON gp.codfamilia = p.codgrupopreco AND gp.tipo = 'P'
+       WHERE p.idproduto = ${idproduto} AND coalesce(p.ativo, 'S') = 'S'`.execute(db)).rows[0];
+    if (!p) throw new BusinessRuleError('PRODUTO_INATIVO_OU_INEXISTENTE', { idproduto });
+    return { ...p, idproduto: Number(p.idproduto), cod_grupopreco: Number(p.cod_grupopreco ?? 0) };
   }
 
   /**
@@ -310,22 +338,17 @@ export class PromocaoAcumulativaService {
   }
 
   /**
-   * O log de exclusão (`btnExcluirClick:145`). O legado monta um `TRecLog` com ação, formulário, tabela,
-   * chave, operador, data e um histórico em texto; a tabela genérica que já existe no destino com esses
-   * mesmos campos é a `historico_dinamico` — a mesma que o mecanismo de preço pai/filho usa.
+   * O log de exclusão (`btnExcluirClick:136-150`): um `TRecLog` na **LOG** (a tabela que o "Histórico" — `BtnHistoricoClick` →
+   * `ChamaTelaRegistrosLog('IDPROACUMULATIVA', 0, True, True, 'Excluiu')` — lê), com o texto "Promoção acumulativa N foi excluída pelo
+   * operador NOME em dd/mm/aaaa hh:mm:ss." como está (a produção não normaliza este) e IdEmpresa 0. Antes ia para a historico_dinamico,
+   * que o Histórico não lê.
    */
   private async log(db: AnyDB, id: number): Promise<void> {
     const op = currentTenant().operadorId ?? null;
-    const emp = currentTenant().empresaId ?? null;
-    await sql`
-      INSERT INTO historico_dinamico
-             (codhistorico, campo, valor_anterior, valor_atual, tabela, data, codoperador, codempresa,
-              chave, valor_chave, historico, origem)
-      VALUES ((SELECT coalesce(max(codhistorico), 0) + 1 FROM historico_dinamico),
-              'IDPROACUMULATIVA', ${String(id)}, NULL, 'PROMOCAO_ACUMULATIVA', now(), ${op}, ${emp},
-              'IDPROACUMULATIVA', ${String(id)},
-              ${`Promoção acumulativa ${id} foi excluída pelo operador ${op ?? ''}.`},
-              'Promoção Acumulativa')
-    `.execute(db);
+    const nome = op == null ? '' : String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${op}`.execute(db)).rows[0]?.nome ?? '');
+    await gravarLog(db, {
+      acao: 'Excluiu', formulario: FORMULARIO, tabela: 'PROMOCAO_ACUMULATIVA', chave: 'IDPROACUMULATIVA', valor: id, idempresa: 0, normalizar: false,
+      historico: `Promoção acumulativa ${id} foi excluída pelo operador ${nome} em ${dataHoraLegado()}.`,
+    });
   }
 }

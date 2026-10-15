@@ -442,6 +442,8 @@ const CODE_PT: Record<string, string> = {
   EMPRESA_FORMA_PGTO_NAO_QUEBRA: 'A forma de pagamento não possui destino "Quebra de caixa".',
   // ValidaATALHO do uCadFormaPgto.pas
   FORMA_PGTO_ATALHO_EM_USO: 'Atalho já utilizado para outra Forma de Pagamento, Verifique!',
+  // edtCodProdExit do uCadPromocaoAcumulativa.pas (só produto ativo)
+  PRODUTO_INATIVO_OU_INEXISTENTE: 'Produto nao encontrado!',
   // BuscarNroNotaFiscal do uPrecificacaoNF.pas
   PRECIFICACAO_NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada.',
   PRECIFICACAO_NF_NUMERO_REPETIDO: 'Encontrada mais de uma nota fiscal para este mesmo número. Utilize a pesquisa para selecionar a nota fiscal desejada.',

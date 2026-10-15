@@ -132,3 +132,31 @@ muda regra nenhuma. `USULTALTERACAO` e `DTULTIMALTERACAO` na alteração; `DTCAD
   tem a sua própria;
 - a **busca de produto por F-key** com a tela de pesquisa (`btnBuscaProdutoClick:104`): aqui o código é
   digitado e o produto é validado no gravar.
+
+## 11. Auditoria controle a controle (15/10/2026) — `uCadPromocaoAcumulativa.dfm` × Apollo
+
+- **Produto** (`edtCodProd` + `btnBuscaProduto`): o exit (`edtCodProdExit` → `VerificarProdutoAtivo`) busca o produto **ativo** e mostra
+  **Código de barra**, **Descrição**, **Grupo de Preço** e **Descrição do Grupo de Preço**; o inexistente/inativo avisa "Produto nao
+  encontrado!" e limpa. O [F3]/… abre a Pesquisa da GET_PRODUTOS ativos em DESCRIÇÃO. O Apollo só tinha o código, validado no gravar (a
+  pendência do §10). ❌→✅ (`GET cadastro/promocao-acumulativa/produto/:id`)
+- **Novo** (`btnAdicionarRegistroClick`): hoje, das **05:00** às **23:59**, sem "Grupo Preço". O Apollo abria agora → +7 dias. ❌→✅
+- **Grupo Preço** (`chkGrupoPreco`): só habilita com o produto num grupo de preço (`dtsPrincipalDataChange`); marcado, grava
+  CODGRUPOPRECO = o grupo do produto (`ValidaGrupoPrecoPromocao`). O Apollo deixava marcar sem grupo. ❌→✅
+- **Histórico** (`BtnHistoricoClick` → `ChamaTelaRegistrosLog('IDPROACUMULATIVA', 0, True, True, 'Excluiu')`): os registros de log das
+  promoções **excluídas**, com empresa e o código. Faltava (a outra pendência do §10). ❌→✅
+- **A LOG** — o ponto grosso: o legado grava na tabela **LOG** (a que o Histórico lê): `Inseriu`/`Alterou` pelo form-base no gravar
+  (`TLog.GravaLog` com o dataset: IDPROACUMULATIVA, IDPRODUTO, QTDE, DESCONTO, IDEMPRESA, ATACAREJO, DTINI, DTFIM, CODGRUPOPRECO) e
+  `Excluiu` no excluir, com o texto "Promoção acumulativa N foi excluída pelo operador NOME em dd/mm/aaaa hh:mm:ss." como está e sem
+  empresa. Na produção: 16 Inseriu, 18 Alterou, 3 Excluiu. O Apollo gravava a exclusão na `historico_dinamico` (o Histórico ficaria
+  vazio) e não logava o gravar. ❌→✅
+- Quantidade, desconto, data/hora de início e término, empresas (`;1;2;`), atacarejo — conferem (§2-§3).
+
+### ⚠️ Pendente de decisão do usuário
+
+A grade `dbgPromocao` (os produtos do grupo de preço) e o botão **"Excluir promoção acumulativa"** (`btnExcluirPromocao`, o "do grupo
+inteiro" do §5.2) são **`Visible = False`** no .dfm e **nenhuma linha do fonte os torna visíveis** — no fonte de 2020 o operador não os
+vê; a `sqqProdutosPromocao` só serve às validações do gravar. O Apollo os expôs, e a forma do excluir-do-grupo (por loja, preservando o
+histórico) foi decidida com o usuário em 14/09/2026, quando se supunha o botão em uso. Fica como está até o usuário decidir se some da
+tela (o binário da produção é mais novo e pode tê-los ligado — não há como provar pelo dado).
+
+Prova: smoke §106.8, §106.12, §106.13 + `apps/web/test/promocaoAcumulativa.spec.tsx` (2).

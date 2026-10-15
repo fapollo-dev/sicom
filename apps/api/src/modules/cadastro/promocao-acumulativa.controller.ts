@@ -29,6 +29,13 @@ export class PromocaoAcumulativaController {
     });
   }
 
+  /** o exit do Produto (VerificarProdutoAtivo): código de barras, descrição e grupo de preço do produto ativo */
+  @Get('produto/:idproduto')
+  @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
+  produto(@Param('idproduto', ParseIntPipe) idproduto: number) {
+    return this.svc.produto(idproduto);
+  }
+
   /** a grade `dbgPromocao`: os produtos do grupo de preço, com a promoção de cada um. */
   @Get('grupo/:codgrupopreco')
   @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
