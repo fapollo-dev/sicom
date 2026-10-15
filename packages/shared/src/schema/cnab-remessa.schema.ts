@@ -13,8 +13,21 @@ export const cnabTitulosSchema = z.object({
   ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data final inválida (AAAA-MM-DD).').optional(),
   /** a conta da cobrança: os títulos do banco dela (o CODBCO do legado) */
   codconta: z.coerce.number().int().positive().optional(),
+  /** os marcados na Pesquisa do "Importar títulos" (FiltrarRegistros: R.CODRCB IN …) */
+  codrcbs: z.array(z.coerce.number().int().positive()).max(5000).optional(),
 });
 export type CnabTitulosDto = z.infer<typeof cnabTitulosSchema>;
+
+/** a conta do boleto (edtNroConta/SegContas): sem código, a CONTA_PADRAO_BOLETO */
+export const cnabContaSchema = z.object({ codconta: z.coerce.number().int().positive().optional() });
+export type CnabContaDto = z.infer<typeof cnabContaSchema>;
+
+/** «Cancelar boleto» (btnCancelarBoletoClick → taCancelarBoleto): os marcados do banco da conta */
+export const cnabCancelarBoletoSchema = z.object({
+  codconta: z.coerce.number().int().positive(),
+  codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um título.').max(5000),
+});
+export type CnabCancelarBoletoDto = z.infer<typeof cnabCancelarBoletoSchema>;
 
 export const cnabEmitirSchema = z.object({
   codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um título.').max(500),

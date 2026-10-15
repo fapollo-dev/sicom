@@ -20920,6 +20920,74 @@ async function main() {
       }
     }
 
+    // ══ §328 BOLETO/REMESSA (a auditoria do uConfBoleto.dfm): a conta resolve banco, agência e a configuração de integração (sem digitar o
+    // código da config); a CONTA_PADRAO_BOLETO abre a tela; banco fora da lista = só duplicata; o "Importar títulos" pela GET_ARECEBER
+    // (abertos, cliente ativo, banco da conta, as cores) e os marcados com o endereço; o «Cancelar boleto» marca STATUS_BOLETO = 'C'.
+    {
+      const pgBo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CN = 'cobranca/cnab';
+      const cfgAntes = (await pgBo.query(`SELECT valor FROM configuracoes WHERE codigo = 'CONTA_PADRAO_BOLETO'`)).rows[0]?.valor ?? null;
+      try {
+        await pgBo.query(`INSERT INTO bancos (codbco, banco, cidade, agencia, codbcoblt) VALUES (99281, 'ITAU BOL328', 'X', '3034-1', 341), (99282, 'BANCO SEM BOLETO', 'X', '1111', 999)
+          ON CONFLICT (codbco) DO UPDATE SET agencia = EXCLUDED.agencia, codbcoblt = EXCLUDED.codbcoblt`);
+        await pgBo.query(`INSERT INTO contas_bancarias (codconta, codbco, idempresa, titular, nroconta) VALUES (99281, 99281, 1, 'TITULAR BOL328', '23055-1'), (99282, 99282, 1, 'OUTRO BOL328', '777-0')
+          ON CONFLICT (codconta) DO UPDATE SET codbco = EXCLUDED.codbco, nroconta = EXCLUDED.nroconta`);
+        await pgBo.query(`INSERT INTO conf_integ_bancaria (codconf, codempresa, codbco, agencia, nrconta, tipo_integ_bancaria, layoutremessa, sequenciaremessa) VALUES
+          (99281, 1, 99281, '3034', '23055-1', 'B', 'C400', 0) ON CONFLICT (codconf) DO NOTHING`);
+        await pgBo.query(`INSERT INTO parceiros (codparceiro, razao, cli, ativado, codend) VALUES (99281, 'CLIENTE BOL328 ATIVO', 'S', 'S', 99281), (99282, 'CLIENTE BOL328 INATIVO', 'S', 'N', NULL)
+          ON CONFLICT (codparceiro) DO UPDATE SET ativado = EXCLUDED.ativado, codend = EXCLUDED.codend`);
+        await pgBo.query(`INSERT INTO parceiros_end (codend, codparceiro, ativado, endereco, bairro, cidade, uf, cep) VALUES (99281, 99281, 'S', 'RUA BOL328', 'CENTRO', 'GOIANIA', 'GO', '74000000')
+          ON CONFLICT (codend) DO NOTHING`);
+        await pgBo.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, valor, dtvenda, dtvenc, quitada, agrupado, codbco, registro_arq_remessa) VALUES
+          (99281, 1, 99281, 'BOL328-A', 100, now(), current_date + 10, 'N', 'N', 99281, NULL),
+          (99282, 1, 99281, 'BOL328-B', 200, now(), current_date + 10, 'N', 'N', 99281, 'S'),
+          (99283, 1, 99281, 'BOL328-Q', 300, now(), current_date + 10, 'S', 'N', 99281, NULL),
+          (99284, 1, 99282, 'BOL328-I', 400, now(), current_date + 10, 'N', 'N', 99281, NULL),
+          (99285, 1, 99281, 'BOL328-O', 500, now(), current_date + 10, 'N', 'N', 99282, NULL)
+          ON CONFLICT (codrcb) DO NOTHING`);
+        const post = async (path: string, body: unknown) => { const r = await fetch(`${base}/${CN}/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const itau = await post('conta', { codconta: 99281 });
+        const outro = await post('conta', { codconta: 99282 });
+        await pgBo.query(`UPDATE configuracoes SET valor = '99281' WHERE codigo = 'CONTA_PADRAO_BOLETO'`);
+        const padrao = await post('conta', {});
+        check('BOLETO §328 [a conta]: a conta resolve banco 341, agência e a configuração de integração (TIPO B, loja do login, NRCONTA, 4 primeiros da agência) e traz o GERA_REMESSA_AUTOMATICAMENTE (P); banco fora da lista do FormCreate só imprime duplicata; sem código vem a CONTA_PADRAO_BOLETO',
+          itau.status === 200 && itau.j.emiteBoleto === true && itau.j.febraban === '341' && Number(itau.j.conf?.codconf) === 99281 && itau.j.conf?.layoutremessa === 'C400' && itau.j.geraRemessa === 'P'
+          && itau.j.conta?.titular === 'TITULAR BOL328' && itau.j.conta?.agencia === '3034-1'
+          && outro.status === 200 && outro.j.emiteBoleto === false && String(outro.j.aviso ?? '').includes('apenas duplicata') && outro.j.conf === null
+          && padrao.status === 200 && Number(padrao.j.conta?.codconta) === 99281,
+          { itau: [itau.status, itau.j], outro: [outro.status, outro.j], padrao: [padrao.status, padrao.j?.conta] });
+
+        // o Importar títulos: a Pesquisa da GET_ARECEBER com o banco da conta — abertos e de cliente ativo, com a cor do enviado
+        const pq = await fetch(`${base}/cadastro/pesquisa?recurso=cobranca/boleto-titulos&campo=cliente&operacao=qualquer&valor=BOL328&situacao=todos&porPagina=50&codbco=99281`, { headers: H });
+        const pqJ = (await pq.json().catch(() => ({}))) as any;
+        const achados = (pqJ.linhas ?? []).map((l: any) => Number(l.codigo)).sort((a: number, b: number) => a - b);
+        const corB = (pqJ.linhas ?? []).find((l: any) => Number(l.codigo) === 99282);
+        const tit = await post('titulos', { codrcbs: [99281, 99282] });
+        const tA = (tit.j.linhas ?? []).find((l: any) => Number(l.codrcb) === 99281);
+        check('BOLETO §328 [Importar títulos]: a Pesquisa (GET_ARECEBER) traz só os abertos de cliente ativo do banco da conta (sem o quitado, o de cliente inativo e o de outro banco), com a cor dos emitidos; os marcados vêm para a grade com o endereço do cliente (CODEND)',
+          pq.status === 200 && achados.join(',') === '99281,99282' && corB?._cor === 'VERDE'
+          && tit.status === 200 && tit.j.linhas?.length === 2 && tA?.endereco === 'RUA BOL328' && tA?.cep === '74000000' && Number(tA?.codend) === 99281,
+          { pq: [pq.status, achados, corB?._cor, pqJ.code], tit: [tit.status, tA] });
+
+        // «Cancelar boleto»: o enviado (S) e o sem registro do banco da conta viram STATUS_BOLETO = 'C'; o de outro banco não; nenhum → 422
+        const canc = await post('cancelar-boleto', { codconta: 99281, codrcbs: [99281, 99282, 99285] });
+        const st = (await pgBo.query(`SELECT codrcb, status_boleto FROM areceber WHERE codrcb IN (99281, 99282, 99285) ORDER BY codrcb`)).rows.map((r: any) => `${r.codrcb}:${r.status_boleto ?? ''}`);
+        const nada = await post('cancelar-boleto', { codconta: 99281, codrcbs: [99285] });
+        check('BOLETO §328 [Cancelar boleto]: os marcados do banco da conta (enviado ou sem registro) passam a STATUS_BOLETO = C — o que a remessa de cancelamento leva; o de outro banco fica; sem nenhum: "Não existem boletos a serem cancelados"',
+          canc.status === 200 && canc.j.cancelados === 2 && st.join(',') === '99281:C,99282:C,99285:' && nada.status === 422 && nada.j.code === 'BOLETO_SEM_CANCELAVEIS',
+          { canc: [canc.status, canc.j], st, nada: [nada.status, nada.j.code] });
+      } finally {
+        await pgBo.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'CONTA_PADRAO_BOLETO'`, [cfgAntes ?? '']).catch(() => undefined);
+        await pgBo.query(`DELETE FROM areceber WHERE codrcb BETWEEN 99281 AND 99285`).catch(() => undefined);
+        await pgBo.query(`DELETE FROM conf_integ_bancaria WHERE codconf = 99281`).catch(() => undefined);
+        await pgBo.query(`DELETE FROM contas_bancarias WHERE codconta IN (99281, 99282)`).catch(() => undefined);
+        await pgBo.query(`DELETE FROM parceiros_end WHERE codend = 99281`).catch(() => undefined);
+        await pgBo.query(`DELETE FROM parceiros WHERE codparceiro IN (99281, 99282)`).catch(() => undefined);
+        await pgBo.query(`DELETE FROM bancos WHERE codbco IN (99281, 99282)`).catch(() => undefined);
+        await pgBo.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

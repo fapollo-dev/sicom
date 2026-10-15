@@ -7,6 +7,7 @@ import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { registroFr3 } from '../../shared/relatorios/registro-fr3';
 import { hojeNaLoja } from '../../shared/tempo/hoje';
 import { numeroExtenso } from '@apollo/shared';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = Kysely<any>;
 
@@ -257,20 +258,27 @@ export class CnabRemessaService {
    * SegContas enche). Produção 08/10/2026: 8 títulos abertos da loja 50 são de cliente desativado (5 já com remessa). As lojas: o legado
    * aceita várias (GetMultiEmpresa), mas nenhum dos 239 arquivos de 2025-26 mistura lojas — o Apollo fica na do login.
    */
-  async titulos(f: { codparceiro?: number; status?: string; de?: string; ate?: string; codconta?: number }) {
+  async titulos(f: { codparceiro?: number; status?: string; de?: string; ate?: string; codconta?: number; codrcbs?: number[] }) {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     let q = db.selectFrom('areceber as r')
       .leftJoin('parceiros as p', 'p.codparceiro', 'r.codparceiro')
+      // o endereço do sacado: o do cadastro do cliente (E.CODEND = P3.CODEND do FiltrarRegistros)
+      .leftJoin('parceiros_end as e', 'e.codend', 'p.codend')
       .select([
-        'r.codrcb', 'r.duplicata', 'r.valor', 'r.dtvenc', 'r.dtvenda', 'r.codparceiro',
+        'r.codrcb', 'r.duplicata', 'r.valor', 'r.dtvenc', 'r.dtvenda', 'r.codparceiro', 'r.txjuros', 'r.obs', 'r.codbco',
         sql`p.razao`.as('razao'), 'r.status_boleto', 'r.registro_arq_remessa',
-        'r.nosso_numero_boleto', 'r.nome_arq_remessa', 'r.data_arq_remessa',
+        'r.nosso_numero_boleto', 'r.nome_arq_remessa', 'r.data_arq_remessa', 'r.login_arq_remessa',
+        'e.codend', 'e.endereco', 'e.bairro', 'e.cidade', 'e.uf', 'e.cep',
       ])
       .where('r.codempresa', '=', emp)
-      .where(sql`coalesce(r.quitada,'N')`, '<>', 'S')
-      .where(sql`coalesce(r.agrupado,'N')`, '=', 'N') // agrupado não entra na cobrança bancária (:856)
-      .where('p.ativado', '=', 'S');
+      .where(sql`coalesce(r.agrupado,'N')`, '=', 'N'); // agrupado não entra na cobrança bancária (:856)
+    // "Importar títulos": os marcados na Pesquisa (que já filtrou abertos e cliente ativo — a GET_ARECEBER), como o FiltrarRegistros
+    if (f.codrcbs?.length) {
+      const linhas = (await q.where('r.codrcb', 'in', f.codrcbs.map(Number)).orderBy('r.codrcb').execute()) as Record<string, unknown>[];
+      return { linhas, totais: { linhas: linhas.length, valor: linhas.reduce((s, l) => s + (Number(l.valor) || 0), 0) } };
+    }
+    q = q.where(sql`coalesce(r.quitada,'N')`, '<>', 'S').where('p.ativado', '=', 'S');
     if (f.codconta != null) {
       const conta = (await db.selectFrom('contas_bancarias').select('codbco').where('codconta', '=', Number(f.codconta)).executeTakeFirst()) as { codbco?: number | null } | undefined;
       if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: f.codconta });
@@ -282,6 +290,58 @@ export class CnabRemessaService {
     if (f.ate) q = q.where(sql`r.dtvenc`, '<', sql`(${f.ate}::date + 1)`);
     const linhas = (await q.orderBy('r.dtvenc').orderBy('r.codrcb').limit(1000).execute()) as Record<string, unknown>[];
     return { linhas, totais: { linhas: linhas.length, valor: linhas.reduce((s, l) => s + (Number(l.valor) || 0), 0) } };
+  }
+
+  /**
+   * A CONTA do boleto (edtNroContaExit :542 → SegContas, ConsultaNumeroBanco :2156, ConsultaIntegBancaria :2111): a conta (sem código, a
+   * CONTA_PADRAO_BOLETO — GetContaBancariaPadrao :1364, a tela já abre com ela), o titular, a agência e o banco (BANCOS da conta), o número
+   * FEBRABAN (CODBCOBLT) e se o banco emite boleto (a lista do FormCreate :895-903: 1, 237, 341, 707, 104, 33, 756 — fora dela, "será
+   * possível imprimir apenas duplicata"), e a CONFIGURAÇÃO de integração que o legado acha sozinho: TIPO_INTEG_BANCARIA = 'B', a loja do
+   * login, NRCONTA = a conta e SUBSTR(AGENCIA,1,4) = os 4 primeiros da agência (sqqconf_integ_bancaria do .dfm). E o GERA_REMESSA_AUTOMATICAMENTE.
+   */
+  async conta(codconta?: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ctx = { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    const geraRemessa = String((await configNaTrx(db, 'GERA_REMESSA_AUTOMATICAMENTE', ctx)) ?? 'N').trim().toUpperCase();
+    const cod = codconta ?? (Number(await configNaTrx(db, 'CONTA_PADRAO_BOLETO', ctx)) || undefined);
+    if (!cod) return { conta: null, febraban: null, emiteBoleto: false, conf: null, geraRemessa, aviso: null };
+    const c = (await db.selectFrom('contas_bancarias as cb').innerJoin('bancos as b', 'b.codbco', 'cb.codbco')
+      .select(['cb.codconta', 'cb.nroconta', 'cb.titular', 'cb.codbco', 'b.agencia', 'b.agencia_cedente', 'b.codbcoblt', 'b.banco'])
+      .where('cb.codconta', '=', Number(cod)).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!c) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: cod });
+    const febraban = c.codbcoblt != null && String(c.codbcoblt).trim() !== '' ? String(Number(c.codbcoblt)) : null;
+    const emiteBoleto = febraban != null && ['1', '237', '341', '707', '104', '33', '756'].includes(febraban);
+    const conf = (await db.selectFrom('conf_integ_bancaria')
+      .select(['codconf', 'layoutremessa', 'codempresa_arquivo', 'dias_baixa_boleto', 'identempresabco'])
+      .where('tipo_integ_bancaria', '=', 'B').where('codempresa', '=', emp)
+      .where('nrconta', '=', String(c.nroconta ?? ''))
+      .where(sql`substr(agencia, 1, 4)`, '=', String(c.agencia ?? '').slice(0, 4))
+      .orderBy('codconf').executeTakeFirst()) as Record<string, unknown> | undefined;
+    return {
+      conta: { codconta: Number(c.codconta), nroconta: c.nroconta, titular: c.titular, agencia: c.agencia, codbco: Number(c.codbco), banco: c.banco },
+      febraban, emiteBoleto, conf: conf ?? null, geraRemessa,
+      aviso: emiteBoleto ? null : 'Banco não possui o número do banco cadastrado para emissão de boletos, será possível imprimir apenas duplicata.',
+    };
+  }
+
+  /**
+   * «CANCELAR BOLETO» (btnCancelarBoletoClick :3162 → Boleto(taCancelarBoleto)): dos marcados, os do banco da conta que estão no banco
+   * ou sem registro (`(REGISTRO_ARQ_REMESSA = 'S') or (REGISTRO_ARQ_REMESSA IS NULL)` :2628) passam a STATUS_BOLETO = 'C' (:2974) — é
+   * o que a "Gerar Remessa de Cancelamento" leva depois. Sem nenhum: "Não existem boletos a serem cancelados. Verifique!".
+   */
+  async cancelarBoleto(dto: { codconta: number; codrcbs: number[] }) {
+    const emp = this.emp();
+    const db = this.dbp.forTenant() as AnyDB;
+    const conta = (await db.selectFrom('contas_bancarias').select('codbco').where('codconta', '=', Number(dto.codconta)).executeTakeFirst()) as { codbco?: number | null } | undefined;
+    if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: dto.codconta });
+    const r = await db.updateTable('areceber').set({ status_boleto: 'C' })
+      .where('codempresa', '=', emp).where('codrcb', 'in', dto.codrcbs.map(Number)).where('codbco', '=', Number(conta.codbco))
+      .where((eb: any) => eb.or([eb('registro_arq_remessa', '=', 'S'), eb('registro_arq_remessa', 'is', null)]))
+      .executeTakeFirst();
+    const cancelados = Number((r as any)?.numUpdatedRows ?? 0);
+    if (!cancelados) throw new BusinessRuleError('BOLETO_SEM_CANCELAVEIS');
+    return { cancelados };
   }
 
   /**

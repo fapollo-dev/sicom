@@ -560,6 +560,20 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       sql<SqlBool>`(coalesce((select e.fechamento_caixa from empresas e where e.idempresa = ${ctx.empresa ?? -1}), 'N') <> 'S' or ${sql.ref('consiliado')} = 'S')`],
     descricaoObrigatorios: "IDEMPRESA IN (lojas) AND COALESCE(AGRUPADO, 'N') = 'N' AND QUITADA = 'N' [AND CONSILIADO = 'S']",
     cores: [{ coluna: 'data_vencimento', op: '<', hoje: true, cor: 'VERMELHO', legenda: 'VENCIDAS' }] },
+  // BOLETO/REMESSA (FRMCONFBOLETO, btnImportarTitulosClick, uConfBoleto.pas:1863-1912): a GET_ARECEBER (a velha: abertos e não agrupados —
+  // o WHERE está na view, rel_get_areceber da mig 425) das lojas do GetMultiEmpresa, com ATIVADO = 'S' e, com a conta escolhida, o CODBCO
+  // dela; as cores do legado (REGISTRO_ARQ_REMESSA S verde "Boletos Bancários emitidos", C vermelho "Boletos Bancários cancelados"); em
+  // multisseleção — os marcados vão para a grade (FiltrarRegistros)
+  'cobranca/boleto-titulos': { view: 'get_areceber', viewLegado: 'GET_ARECEBER', relacao: 'rel_get_areceber', form: 'FRMCONFBOLETO',
+    titulo: 'Documentos a receber', retorno: 'codigo', statusRetorno: '', totalizador: true, extras: ['codbco'],
+    requer: { form: 'FRMCONFBOLETO', opcao: 'FRMCONFBOLETO' },
+    obrigatorios: async (ctx) => [emLista('idempresa', await ctx.lojas()), sql<SqlBool>`${sql.ref('ativado')} = 'S'`,
+      ...(Number(ctx.extras.codbco) > 0 ? [sql<SqlBool>`${sql.ref('codbco')} = ${Number(ctx.extras.codbco)}`] : [])],
+    descricaoObrigatorios: "IDEMPRESA IN (lojas) AND ATIVADO = 'S' [AND CODBCO = banco da conta]",
+    cores: [
+      { coluna: 'registro_arq_remessa', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Boletos Bancários emitidos' },
+      { coluna: 'registro_arq_remessa', op: '=', valor: 'C', cor: 'VERMELHO', legenda: 'Boletos Bancários cancelados' },
+    ] },
   // B5: a GET_HISTORICO_CONTABIL da produção (CODIGO, DESC_HISTORICO, STATUS) — o DESC_HISTORICO no fim da view (mig 413); retorno CODIGO
   'cadastro/historico-contabil': { view: 'get_historico_contabil', ocultas: OCULTAS.historicoContabil, form: 'FRMCADHISTORICOCONTABIL',
     titulo: 'Histórico contábil', retorno: 'codigo', abertura: { campo: 'codigo', operacao: 'igual' } },
@@ -668,6 +682,9 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // em `fixos`); o produto guarda o IDTABELA. O status na produção: frmCadProduto|GET_PC_TIPOCREDITOISENTO|edtNatureza
   'lookup/pc-natureza': { view: 'get_pc_tipocreditoisento', form: 'FRMPESQUISA', titulo: 'Natureza da receita', retorno: 'idtabela',
     abertura: { campo: 'descricao', operacao: 'qualquer' } },
+  // a conta do boleto (btnPesquisaClick do uConfBoleto, :2012: 'GET_CONTAS_BANCARIAS' devolvendo NRO_CONTA e TITULAR) — todas as lojas
+  'lookup/contas-bancarias': { view: 'get_contas_bancarias', relacao: 'rel_get_contas_bancarias', ocultas: OCULTAS.contasBancarias, form: 'FRMPESQUISA',
+    titulo: 'Contas bancárias', retorno: 'codigo', campoAtivo: ATIVO },
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   // a condição de pagamento do fornecedor (uCadClientes `SegCondicaoPagto`/`btnBuscaCondicaoPagto` sobre CONDICOES_PAGTO)
   'lookup/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMPESQUISA', titulo: 'Condições de pagamento', retorno: 'codigo' },

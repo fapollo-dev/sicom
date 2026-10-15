@@ -262,3 +262,30 @@ registro anterior de "zero call sites" estava errado.
 
 Cobertura: smoke §47at.1a2 (os três datasets do boleto, a duplicata com o extenso e a recusa do título enviado); testes de renderização
 dos dois layouts da produção (1261 e 590); testes das instruções (vírgula, espaços, arredondamento) e da linha digitável formatada.
+
+## Auditoria do `uConfBoleto.dfm` (15/10/2026) — controle a controle
+
+Produção (somente leitura): **2.069 boletos em 2026** (todos da loja 50, Itaú, um login, 118 arquivos de remessa — a loja 50 é a própria
+Apollo Sistemas cobrando os clientes), STATUS_BOLETO nulo depois da remessa (o `UPDATE … STATUS_BOLETO = '', REGISTRO_ARQ_REMESSA = 'S'`
+de :3062). Configurações lidas pela tela: CONTA_PADRAO_BOLETO ('' com a específica do Retaguarda), GERA_REMESSA_AUTOMATICAMENTE 'P',
+BOLETO_PDF_DIRETORIO / BOLETO_PDF_NOME_ARQUIVO (específicas por loja), REMESSA_DIRETORIO (por loja), ENDERECO_COBRANCA_BOLETO 'N'.
+
+| Controle do legado | Apollo |
+|---|---|
+| `edtNroConta` + F3/`btnPesquisa` (GET_CONTAS_BANCARIAS), `edtTitular`, `edtAgencia`, `cbLayoutRemessa` | Nro.Conta (Pesquisa de contas bancárias, digita-se o número da conta) com o titular, a agência e o layout. **A configuração de integração sai sozinha** (sqqconf_integ_bancaria: TIPO 'B', a loja do login, NRCONTA, 4 primeiros da agência) — antes o operador digitava o código da config e o da conta. A tela abre com a **CONTA_PADRAO_BOLETO** (GetContaBancariaPadrao :1364). `POST cobranca/cnab/conta`. |
+| `ConsultaNumeroBanco` (a lista do FormCreate: 1, 237, 341, 707, 104, 33, 756) | Banco fora da lista: "Banco não possui o número do banco cadastrado para emissão de boletos, será possível imprimir apenas duplicata." e somem Boleto/Cancelar/Remessa. |
+| `btnImportarTitulos` (TfrmPesquisa 'GET_ARECEBER', multisseleção, cores) | «Importar títulos»: a Pesquisa sobre a **`rel_get_areceber`** (mig 425 — a GET_ARECEBER da produção, 66 colunas: abertos e não agrupados), IDEMPRESA nas lojas, ATIVADO = 'S' e o CODBCO da conta; verde "Boletos Bancários emitidos", vermelho "Boletos Bancários cancelados". Os marcados vêm para a grade (FiltrarRegistros) marcados, menos os já enviados ('S'). Antes era um filtro por vencimento próprio do Apollo. |
+| `ValidaEnderecos` | Endereço incompleto: 'Endereço da conta "X" está incompleto. Verifique o cadastro do cliente: Y' e Boleto/Cancelar/Remessa travados. |
+| Grade: Imprimir, Nº do documento, Vencimento, Juros/Mora (%), Valor $, Dias protesto, Cliente, Endereço, Bairro, Cidade, UF, CEP, OBS, CODEND, ARQ.REMESSA, NOME ARQUIVO, LOGIN ARQUIVO, Data Arquivo, Cód.Banco | Todas, menos Dias protesto (`fkInternalCalc` sem fonte — sempre 0, ver acima); o enviado em verde negrito e o cancelado em vermelho (dbgDadosDrawColumnCell). Clicar no título "Imprimir" inverte as marcas, menos os cancelados (dbgDadosTitleClick). |
+| `JvArrowButton` "&Opções" → "Gerar instruções" | Mostra na coluna OBS as instruções que o boleto vai imprimir. "Geras instruções de mensalidades": fora — o texto vem de PERCSALARIO/VRSEGURO… (0 parceiros com PERCSALARIO na produção) e, mesmo gerado, o `Boleto()` chama o `GerarInstrucao` de novo (:2688) e o sobrescreve. "Layout da duplicata" (o designer do FastReport): fora. |
+| `btnBoleto` "&Boleto" + `chkImpresso` | Emite e imprime no BoletoFR.fr3; o filtro do taEmitirBoleto (:2610: sem arquivo de remessa ou cancelado, do banco da conta) e "Boletos selecionados já gravados em arquivo de remessa ou não estão selecionados. Verifique!". Depois, o **GERA_REMESSA_AUTOMATICAMENTE** (:3150): S gera a remessa de emissão, P pergunta "Deseja gerar o arquivo remessa?", N não. Sem nenhum tipo marcado: "Obrigatório selecionar tipo de geração do boleto: IMPRESSO, E-MAIL ou PDF. Verifique por favor!". |
+| `btnCancelarBoleto` "&Cancelar boleto" | **Não existia** — sem ele a "Remessa de Cancelamento" nunca achava título (exige STATUS_BOLETO = 'C'). Agora: "Deseja realmente efetuar o cancelamento deste(s) boleto(s)?" e os marcados do banco da conta, enviados ou sem registro (:2628), passam a 'C'; sem nenhum, "Não existem boletos a serem cancelados. Verifique!". `POST cobranca/cnab/cancelar-boleto`. |
+| `btnReimprimir` | Só aparece com algum título enviado ('S') na grade (edtNroContaExit / DrawColumnCell). |
+| `btnGerarRemessa` "&Remessa" → Emissão / Cancelamento / alteração de vencimento | O menu com os três, como o `ppmRemessa`. |
+| `btnImprimir` "Im&primir" | A duplicata, só sem conta (:2005). |
+| `chkemail`, `chkPDF` | Fora: o e-mail é canal SMTP da estação; o PDF grava um arquivo por boleto na pasta da estação (BOLETO_PDF_DIRETORIO com #CONVENIO_CODIGO#/#DIA##MES##ANO#, nome por BOLETO_PDF_NOME_ARQUIVO) — no Apollo a impressão sai no navegador, que salva em PDF. |
+| `dbgDadosKeyUp` F3 (trocar o endereço do título) / Espaço | Fora deste corte (o endereço é o do cadastro do cliente). |
+| Edição de Juros/OBS na grade ("( * ) As alterações feitas no boleto não serão salvas no banco") | A frase está na tela; a edição não: o OBS é sobrescrito pelo `GerarInstrucao` do `Boleto()` e o juros editado só mudaria a linha de mora do boleto impresso. |
+
+Smoke §328 (a conta e a config, a conta padrão, o banco sem boleto, o Importar títulos com as cores, a grade com o endereço, o Cancelar
+boleto); jsdom `cnabBoletoPage.spec.tsx`.

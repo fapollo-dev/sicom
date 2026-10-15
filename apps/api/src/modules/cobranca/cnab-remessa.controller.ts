@@ -1,7 +1,9 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import {
   cnabTitulosSchema, cnabEmitirSchema, cnabGerarSchema, cnabRemessasSchema, cnabArquivoSchema, cnabRetornoSchema, cnabBoletoSchema,
+  cnabContaSchema, cnabCancelarBoletoSchema,
   type CnabTitulosDto, type CnabEmitirDto, type CnabGerarDto, type CnabRemessasDto, type CnabArquivoDto, type CnabRetornoDto, type CnabBoletoDto,
+  type CnabContaDto, type CnabCancelarBoletoDto,
 } from '@apollo/shared';
 import { CnabRemessaService } from './cnab-remessa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -19,6 +21,22 @@ export class CnabRemessaController {
   @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
   titulos(@Body(new ZodValidationPipe(cnabTitulosSchema)) dto: CnabTitulosDto) {
     return this.svc.titulos(dto);
+  }
+
+  /** a conta do boleto com a configuração de integração que o legado acha sozinho (edtNroContaExit) */
+  @Post('conta')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
+  conta(@Body(new ZodValidationPipe(cnabContaSchema)) dto: CnabContaDto) {
+    return this.svc.conta(dto.codconta);
+  }
+
+  /** «Cancelar boleto»: STATUS_BOLETO = 'C' nos marcados do banco da conta (a remessa de cancelamento leva depois) */
+  @Post('cancelar-boleto')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
+  cancelarBoleto(@Body(new ZodValidationPipe(cnabCancelarBoletoSchema)) dto: CnabCancelarBoletoDto) {
+    return this.svc.cancelarBoleto(dto);
   }
 
   @Post('emitir')
