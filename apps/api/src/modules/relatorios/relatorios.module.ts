@@ -13,6 +13,8 @@ import { RelTicketMedioController } from './rel-ticket-medio.controller';
 import { RelTicketMedioService } from './rel-ticket-medio.service';
 import { RelCaixaDreController } from './rel-caixa-dre.controller';
 import { RelCaixaDreService } from './rel-caixa-dre.service';
+import { RelCaixaCompetenciaController } from './rel-caixa-competencia.controller';
+import { RelCaixaCompetenciaService } from './rel-caixa-competencia.service';
 import { RelSemMovimentoController } from './rel-sem-movimento.controller';
 import { RelSemMovimentoService } from './rel-sem-movimento.service';
 import { RelCurvaAbcController } from './rel-curva-abc.controller';
@@ -100,7 +102,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [AgendaPromocaoRelController, RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
+  controllers: [AgendaPromocaoRelController, RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelCaixaCompetenciaController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController, RelCanceladosController, RelVendasExtrasController, ConsHistVendasController,
     // FRMRELATORIO + FRMCADASTRORELATORIO — o construtor: catálogo de fontes, definição salva e execução.
     RelatorioConstrutorController,
     // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).
@@ -141,7 +143,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     RelEntSaiController,
     // FRMANALISEENTRADAXSAIDA — por fornecedor, saída de venda ou pedido (68 acessos).
     AnaliseEntradaSaidaController],
-  providers: [RelCurvaAbcFornecedorService, AgendaPromocaoRelService, AgendaPromocaoFr3Service, RelVendasFr3Service, RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelTrocaMercadoriaService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
+  providers: [RelCurvaAbcFornecedorService, AgendaPromocaoRelService, AgendaPromocaoFr3Service, RelVendasFr3Service, RelEntradasFinanService, DevolucaoVendasService, RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelCaixaCompetenciaService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, RelPedidosCompraService, ProdutosRel2Service, RelEntradasSaidasService, RelDdeService, RelTrocaMercadoriaService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService, AnaliseComportamentoPeriodoService, AnaliseComportamentoService],
   // a Pesquisa (CadastroModule) imprime os relatórios salvos da view com o filtro dela (o &Imprimir do frmPesquisa)
   exports: [RelatorioConstrutorService],
 })

@@ -21215,6 +21215,86 @@ async function main() {
       }
     }
 
+    // ══ §334) RELATÓRIO DE CAIXA — COMPETÊNCIA (FRMRELATORIOCAIXA, `TRelCompetencia`): o livro-caixa por centro de custo com a hierarquia
+    // da máscara (os _NVLn), crédito/débito pelo TPCONTA, os filtros do SetFiltro, a "duplicata de baixa parcial" de fora, a data da
+    // emissão × do vencimento, o recorte das contas de proprietário (quem não é PRO) e as exclusões do C.M.V. (com o grupo principal —
+    // DesconsideraPLCPaiCMV) e das taxas de cartão ═══
+    {
+      const RC = `${base}/relatorios/caixa-competencia`;
+      const pgCc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const emp0 = (await pgCc.query(`SELECT mascaraplc, contacmv, codplc_taxas_cartao FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const op0 = (await pgCc.query(`SELECT tipoop FROM operadores WHERE codoperador = 7`)).rows[0] as any;
+      try {
+        await pgCc.query(`UPDATE empresas SET mascaraplc = '#.##.###', contacmv = NULL, codplc_taxas_cartao = NULL WHERE idempresa = 1`);
+        await pgCc.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, tpconta, apenas_proprietario) VALUES
+            (933400,'8.','GRUPO 334',NULL,1,0,NULL), (933401,'8.34.','SUBGRUPO 334',933400,2,0,NULL),
+            (933402,'8.34.001','RECEITA 334',933401,3,0,NULL), (933403,'8.34.002','DESPESA 334',933401,3,1,NULL),
+            (933404,'8.34.003','NEUTRA 334',933401,3,2,NULL), (933405,'8.34.004','PROPRIETARIO 334',933401,3,0,'S')
+          ON CONFLICT (codplc) DO UPDATE SET desccodplc = EXCLUDED.desccodplc, codpai = EXCLUDED.codpai, tpconta = EXCLUDED.tpconta, apenas_proprietario = EXCLUDED.apenas_proprietario`);
+        await pgCc.query(`DELETE FROM caixa WHERE codcx BETWEEN 993401 AND 993410`);
+        await pgCc.query(`INSERT INTO caixa (codcx, data, dtvenc, valor, codplc, idempresa, tiporecurso, codpdv, operador, obs) VALUES
+          (993401,'2019-03-15 10:00:00-03',NULL, 100.00,933402,1,'D',3,7,'VENDA TESTE 334'),
+          (993402,'2019-03-16 10:00:00-03',NULL, -40.00,933403,1,'D',4,7,'Despesa teste 334'),
+          (993403,'2019-03-17 10:00:00-03',NULL,  25.00,933404,1,'D',4,7,'NEUTRA TESTE 334'),
+          (993404,'2019-03-18 10:00:00-03',NULL,  70.00,933405,1,'D',4,7,'PROPRIETARIO TESTE 334'),
+          (993405,'2019-03-19 10:00:00-03',NULL,  55.00,933402,1,'D',4,7,'DUPLICATA GERADA REFERENTE A BAIXA PARCIAL 334'),
+          (993406,'2019-01-05 10:00:00-03','2019-03-20', 33.00,933402,1,'D',4,7,'A PRAZO 334'),
+          (993407,'2019-03-31 23:30:00-03',NULL,  11.00,933402,1,'D',4,7,'FIM DO DIA 334')`);
+        const corpo = (x: Record<string, unknown> = {}) => JSON.stringify({ dtini: '2019-03-01', dtfim: '2019-03-31', regime: 'EMISSAO', modelo: 0, plc: '8.34', ...x });
+        const cons = async (x: Record<string, unknown> = {}, h = H) => {
+          const r = await fetch(`${RC}/consultar`, { method: 'POST', headers: h, body: corpo(x) });
+          return { status: r.status, body: (await r.json()) as any };
+        };
+        await pgCc.query(`UPDATE operadores SET tipoop = 'OPE' WHERE codoperador = 7`);
+        const e1 = await cons();
+        const cods = (b: any) => (b?.linhas ?? []).map((l: any) => Number(l.codcx)).sort();
+        const l401 = (e1.body.linhas ?? []).find((l: any) => Number(l.codcx) === 993401);
+        const l402 = (e1.body.linhas ?? []).find((l: any) => Number(l.codcx) === 993402);
+        const l403 = (e1.body.linhas ?? []).find((l: any) => Number(l.codcx) === 993403);
+        check('§334.1 RELATÓRIO DE CAIXA (competência/emissão): o livro-caixa do período pelo começo do código; sem a duplicata de baixa parcial, sem o lançamento a prazo de janeiro e (operador não PRO) sem a conta de proprietário; o lançamento das 23:30 no último dia entra (fuso da loja)',
+          e1.status === 200 && JSON.stringify(cods(e1.body)) === JSON.stringify([993401, 993402, 993403, 993407]), { s: e1.status, cods: cods(e1.body), b: e1.body });
+        check('§334.2 crédito/débito pelo TPCONTA (receita → crédito, despesa → débito, neutra → 0 no somar) e a hierarquia da máscara #.##.### (nível 1 e 2 acima da conta)',
+          Number(l401?.total_credito) === 100 && Number(l401?.total_debito) === 0 && l401?.tpconta === 'C' && Number(l402?.total_debito) === -40 && l402?.tpconta === 'D'
+          && Number(l403?.valor_somar) === 0 && Number(l403?.valor) === 25 && Number(l401?.codplc_nvl1) === 933400 && Number(l401?.codplc_nvl2) === 933401 && l401?.desccodplc_nvl2 === '8.34.'
+          && e1.body.niveis === 3, { l401, l402, l403 });
+        const eTp = await cons({ tpconta: 1 }); const eObs = await cons({ obs: 'despesa' }); const ePdv = await cons({ codpdv: 3 });
+        const eOp = await cons({ codoperador: 8 });
+        check('§334.3 os filtros do SetFiltro: tipo de conta (despesa), observação sem caixa (UPPER LIKE), PDV e operador',
+          JSON.stringify(cods(eTp.body)) === '[993402]' && JSON.stringify(cods(eObs.body)) === '[993402]' && JSON.stringify(cods(ePdv.body)) === '[993401]' && cods(eOp.body).length === 0,
+          { tp: cods(eTp.body), obs: cods(eObs.body), pdv: cods(ePdv.body), op: cods(eOp.body) });
+        const eV = await cons({ regime: 'VENCIMENTO' });
+        check('§334.4 no vencimento a data é o DTVENC: só o lançamento a prazo que vence em março',
+          eV.status === 200 && JSON.stringify(cods(eV.body)) === '[993406]', { cods: cods(eV.body) });
+        await pgCc.query(`UPDATE operadores SET tipoop = 'PRO' WHERE codoperador = 7`);
+        const ePro = await cons();
+        check('§334.5 o PRO (proprietário) vê a conta APENAS_PROPRIETARIO',
+          cods(ePro.body).includes(993404), { cods: cods(ePro.body) });
+        await pgCc.query(`UPDATE operadores SET tipoop = 'OPE' WHERE codoperador = 7`);
+        await pgCc.query(`UPDATE empresas SET contacmv = 933403, codplc_taxas_cartao = 933403 WHERE idempresa = 1`);
+        const eTx = await cons({ taxasCartao: true }); const eCmv = await cons({ cmv: true });
+        check('§334.6 taxas de cartão: sai a conta de taxas da empresa; C.M.V.: sai a conta de CMV e todo o grupo principal dela (o 8. inteiro — DesconsideraPLCPaiCMV)',
+          JSON.stringify(cods(eTx.body).filter((c: number) => c > 0)) === '[993401,993403,993407]' && cods(eCmv.body).filter((c: number) => c > 0).length === 0,
+          { tx: cods(eTx.body), cmv: eCmv.body });
+        const todasE = await cons({ cmv: true, taxasCartao: true, notasFiscais: true, custoReposicao: true, modelo: 1, ordenacao: 1 });
+        const todasV = await cons({ regime: 'VENCIMENTO', cmv: true, notasFiscais: true, custoReposicao: false, modelo: 2 });
+        check('§334.8 todas as pernas juntas (CAIXA + C.M.V. + taxas + notas fiscais) na emissão e no vencimento (o C.M.V. proporcional ao que entrou)',
+          todasE.status === 200 && Array.isArray(todasE.body.linhas) && todasV.status === 200 && Array.isArray(todasV.body.linhas), { e: todasE, v: todasV });
+        await pgCc.query(`UPDATE empresas SET contacmv = NULL, codplc_taxas_cartao = NULL WHERE idempresa = 1`);
+        const sem = await cons({}, H_SEM_ACESSO);
+        const imp = await fetch(`${RC}/impressao`, { method: 'POST', headers: H, body: corpo({ modelo: 3 }) });
+        const impB = (await imp.json()) as any;
+        const vazio = await fetch(`${RC}/impressao`, { method: 'POST', headers: H, body: corpo({ plc: '8.99' }) });
+        check('§334.7 sem acesso à tela → 403; o Imprimir pede o layout do modelo (Agrupado geral = cx_Totalizado_Geral_Caixa.fr3) e, sem dados, avisa como o legado',
+          sem.status === 403 && (imp.status === 200 || (impB?.code === 'RELATORIO_MODELO_NAO_ENCONTRADO' && String(impB?.message ?? '').includes('cx_Totalizado_Geral_Caixa.fr3')))
+          && vazio.status === 422 && ((await vazio.json()) as any)?.code === 'RELATORIO_SEM_REGISTROS', { sem: sem.status, imp: imp.status, impB, vazio: vazio.status });
+      } finally {
+        await pgCc.query(`UPDATE empresas SET mascaraplc = $1, contacmv = $2, codplc_taxas_cartao = $3 WHERE idempresa = 1`, [emp0?.mascaraplc ?? null, emp0?.contacmv ?? null, emp0?.codplc_taxas_cartao ?? null]);
+        await pgCc.query(`UPDATE operadores SET tipoop = $1 WHERE codoperador = 7`, [op0?.tipoop ?? null]);
+        await pgCc.query(`DELETE FROM caixa WHERE codcx BETWEEN 993401 AND 993410`);
+        await pgCc.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

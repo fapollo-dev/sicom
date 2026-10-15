@@ -664,6 +664,14 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // já tira o SICOM e os excluídos; o `campoCodigo` da web (codoperador) fica oculto no fim
   'lookup/operadores-da-loja': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMCTRLPERMISSOES',
     titulo: 'Operadores', retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa')] },
+  // o RELATÓRIO DE CAIXA (uRelatorioCaixa.pas:670-676 GetPesquisa): o operador (TIPO_SIGLA = 'OPE') e o fiscal de caixa (TIPO_SIGLA = 'SUP')
+  // da GET_OPERADORES na loja do login (CODIGO_EMPRESA)
+  'lookup/operadores-caixa': { view: 'get_operadores', relacao: 'rel_get_operadores', ocultas: OCULTAS.operadores, form: 'FRMRELATORIOCAIXA',
+    titulo: 'Operadores', retorno: 'codigo', extras: ['sigla'],
+    obrigatorios: (ctx) => [daLoja(ctx, 'codigo_empresa'), sql<SqlBool>`${sql.ref('tipo_sigla')} = ${ctx.extras.sigla === 'SUP' ? 'SUP' : 'OPE'}`] },
+  // o PDV do relatório de caixa (BitBtn1Click :219): a GET_PDV da loja do login, retorno NUMERO_PDV
+  'lookup/pdvs-da-loja': { view: 'get_pdv', form: 'FRMRELATORIOCAIXA', titulo: 'PDV', retorno: 'numero_pdv',
+    obrigatorios: (ctx) => [daLoja(ctx, 'codempresa')] },
   // o CADASTRO DE PERFIL (TfrmCadPerfilOperador): a GET_PERFIL do TIPO escolhido ao abrir a tela (`ObrigatoriosPesquisa := ' TIPO = ' + …`,
   // SetTipoPerfil, uCadPerfilOperador.pas:490), com o ATIVO = 'N' em vermelho, "Perfil Inativo" (SetaLegendaCamposGridPesquisa :227); o
   // rdgAtivo abre em Todos (FormShow :358) — sem campoAtivo a situação não filtra
