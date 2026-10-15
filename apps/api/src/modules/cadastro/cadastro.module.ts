@@ -133,6 +133,7 @@ import { DetAliquotaController } from './det-aliquota.controller';
 import { SituacaoNfAggregateController } from './situacao-nf.aggregate';
 import { CfopCrudController } from './cfop.crud';
 import { PlcCrudController } from './plc.crud';
+import { PlcTelaController } from './plc-tela.controller';
 import { PlanoContasController } from './plano-contas.controller';
 import { PlanoContasService } from './plano-contas.service';
 import { DreController } from './dre.controller';
@@ -215,6 +216,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     DetAliquotaController, // o editor da DET_ALIQUOTA (UcadAliquota)
     SituacaoNfAggregateController, // a tela Situação do documento (mig 317): 27 campos + 4 detalhes
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
+    PlcTelaController,
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)

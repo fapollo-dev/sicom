@@ -28076,6 +28076,34 @@ async function main() {
           && filha.status === 201 && Number(rf?.nivelconta) === 2 && Number(rf?.codpai) === raiz.id && (!conta || rf?.descplccontabil === conta.descricao) && rf?.flg_perda === 'S'
           && prefixo.code === 'PLC_CODIGO_PREFIXO_PAI' && dup.code === 'PLC_CODIGO_EXISTE',
           { raiz, raizLonga, filha, prefixo, dup, rr, rf });
+        // §233.3 — as regras de tela do uCadPLC no servidor: o código só na inclusão; "apenas proprietários" só o PRO e só na raiz; as
+        // marcações de setor/perda só no último nível (tem retrocedente e nenhuma filha)
+        const ler = async (id: number) => (await (await fetch(`${P}/${id}`, { headers: H })).json().catch(() => ({}))) as any;
+        const put = async (id: number, b: Record<string, unknown>) => {
+          const r = await fetch(`${P}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify(b) });
+          return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code as string | undefined };
+        };
+        const tipo0 = (await pgPl.query(`SELECT tipoop FROM operadores WHERE codoperador = 7`)).rows[0]?.tipoop ?? null;
+        const lr = await ler(raiz.id); const lf = await ler(filha.id);
+        const mudaCod = await put(raiz.id, { descricao: 'RAIZ SMOKE 233', desccodplc: '98' });
+        const setorRaiz = await put(raiz.id, { descricao: 'RAIZ SMOKE 233', flg_uso_setor: 'S' });
+        const setorFilha = await put(filha.id, { descricao: 'FILHA SMOKE 233', flg_uso_setor: 'S' });
+        await pgPl.query(`UPDATE operadores SET tipoop = 'OPE' WHERE codoperador = 7`);
+        const propNaoPro = await put(raiz.id, { descricao: 'RAIZ SMOKE 233', apenas_proprietario: 'S' });
+        const telaOpe = (await (await fetch(`${base}/cadastro/plc-tela`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgPl.query(`UPDATE operadores SET tipoop = 'PRO' WHERE codoperador = 7`);
+        const propFilha = await put(filha.id, { descricao: 'FILHA SMOKE 233', apenas_proprietario: 'S' });
+        const propRaiz = await put(raiz.id, { descricao: 'RAIZ SMOKE 233', apenas_proprietario: 'S' });
+        const telaPro = (await (await fetch(`${base}/cadastro/plc-tela`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgPl.query(`UPDATE operadores SET tipoop = $1 WHERE codoperador = 7`, [tipo0]);
+        await pgPl.query(`UPDATE plc SET apenas_proprietario = NULL WHERE codplc = $1`, [raiz.id]);
+        check('CENTRO DE CUSTOS §233.3 [as regras da tela]: a leitura diz o último nível (a raiz com filha não é; a filha é); o código não muda na alteração (422 PLC_CODIGO_NAO_ALTERAVEL); uso de setor só no último nível (raiz → 422, filha → 200); "apenas proprietários" só o PRO (não-PRO → 422) e só na raiz (filha → 422, raiz → 200); a tela sabe se o operador é PRO',
+          lr.ultimo_nivel === false && lr.possui_filhas === true && lf.ultimo_nivel === true
+          && mudaCod.code === 'PLC_CODIGO_NAO_ALTERAVEL' && setorRaiz.code === 'PLC_MARCACAO_ULTIMO_NIVEL' && setorFilha.status === 200
+          && propNaoPro.code === 'PLC_APENAS_PROPRIETARIO_PRO' && propFilha.code === 'PLC_APENAS_PROPRIETARIO_RAIZ' && propRaiz.status === 200
+          && telaOpe.proprietario === false && telaPro.proprietario === true && typeof telaPro.lancamentoContabil === 'boolean',
+          { lr: [lr.ultimo_nivel, lr.possui_filhas], lf: lf.ultimo_nivel, mudaCod, setorRaiz, setorFilha, propNaoPro, propFilha, propRaiz, telaOpe, telaPro });
+        await pgPl.query(`UPDATE plc SET flg_uso_setor = NULL WHERE codplc = $1`, [filha.id]);
         const delPai = await fetch(`${P}/${raiz.id}`, { method: 'DELETE', headers: H });
         const delPaiJ = (await delPai.json().catch(() => ({}))) as any;
         await pgPl.query(`UPDATE empresas SET contacmv = $1 WHERE idempresa = 1`, [filha.id]);

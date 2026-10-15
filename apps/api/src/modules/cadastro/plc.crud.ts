@@ -3,6 +3,7 @@ import { plcSchema, atualizarPlcSchema } from '@apollo/shared';
 import { createCrudController } from '../../shared/crud/crud.controller.factory';
 import type { CrudConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 
 /** os usos que impedem excluir o centro de custo (`CentroCustoUtilizado`, uCadPLC.pas:262-285): tabela, coluna e onde */
 const USOS: Array<[string, string, string]> = [
@@ -44,6 +45,11 @@ export const plcCrudConfig: CrudConfig = {
   replica: false,
   historico: false,
   colunasPesquisa: ['codplc', 'desccodplc', 'descricao'],
+  // o `PLCEstaUltimoNivel` (uRdmPLC.pas:202): tem conta retrocedente e nenhuma filha — as flags de setor/perda só nele
+  aoLer: async ({ db, row }) => {
+    const filha = await db.selectFrom('plc').select('codplc').where('codpai', '=', Number(row.codplc)).where(sql`coalesce(indr, 'I')`, '<>', 'E').executeTakeFirst();
+    return { ...row, possui_filhas: !!filha, ultimo_nivel: row.codpai != null && !filha };
+  },
   derivar: (dto) => {
     const out: Record<string, unknown> = {};
     for (const k of ['codpai', 'tpconta', 'codcontabil']) if (dto[k] === '') out[k] = null;
@@ -51,6 +57,8 @@ export const plcCrudConfig: CrudConfig = {
   },
   validarTrx: async ({ trx, id, dto }) => {
     const atual = id != null ? ((await trx.selectFrom('plc').selectAll().where('codplc', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined) : undefined;
+    // o código da conta só se digita na inclusão (`dsPLCDataChange`, :539: edtCodConta.Enabled := State = dsInsert)
+    if (id != null && dto.desccodplc !== undefined && String(dto.desccodplc ?? '').trim() !== String(atual?.desccodplc ?? '')) throw new BusinessRuleError('PLC_CODIGO_NAO_ALTERAVEL');
     const cod = dto.desccodplc !== undefined ? String(dto.desccodplc ?? '').trim() : String(atual?.desccodplc ?? '');
     if (dto.desccodplc !== undefined && cod !== String(atual?.desccodplc ?? '')) {
       let q = trx.selectFrom('plc').select('codplc').where('desccodplc', '=', cod).where(sql`coalesce(indr, 'I')`, '<>', 'E');
@@ -69,6 +77,22 @@ export const plcCrudConfig: CrudConfig = {
     } else {
       if (cod.replace(/\D/g, '').length > 2 && (dto.desccodplc !== undefined || dto.codpai !== undefined)) throw new BusinessRuleError('PLC_CODIGO_RAIZ');
       dto.nivelconta = 1;
+    }
+    // as marcações (uCadPLC.pas): "Visualizado apenas por proprietários" só o PRO marca (`VerificaCheckProprietarios` :926 — o nome
+    // "ACESSO DE PROGRAMADOR" do legado não vale) e só na conta raiz; uso de setor, perda, obriga motivo e "não mostrar scrap" só no
+    // último nível (`ControlaCheckVinculadoAoUltimoNivel` :491). Só a MUDANÇA é recusada — o que veio da carga fica como está.
+    const flag = (k: string) => (dto[k] !== undefined ? (dto[k] === 'S' ? 'S' : 'N') : null);
+    const antes = (k: string) => (atual?.[k] === 'S' ? 'S' : 'N');
+    const mudou = (k: string) => flag(k) != null && flag(k) !== antes(k);
+    if (mudou('apenas_proprietario')) {
+      const op = currentTenant().operadorId ?? null;
+      const tipo = op == null ? null : ((await trx.selectFrom('operadores').select('tipoop').where('codoperador', '=', op).executeTakeFirst()) as { tipoop?: string } | undefined)?.tipoop;
+      if (String(tipo ?? '') !== 'PRO') throw new BusinessRuleError('PLC_APENAS_PROPRIETARIO_PRO');
+      if (codpai != null) throw new BusinessRuleError('PLC_APENAS_PROPRIETARIO_RAIZ');
+    }
+    if (['flg_uso_setor', 'flg_perda', 'plc_obriga_motivo_perda', 'nao_mostrar_scrap_rel_partset'].some(mudou)) {
+      const filha = id != null ? await trx.selectFrom('plc').select('codplc').where('codpai', '=', id).where(sql`coalesce(indr, 'I')`, '<>', 'E').executeTakeFirst() : undefined;
+      if (codpai == null || filha) throw new BusinessRuleError('PLC_MARCACAO_ULTIMO_NIVEL');
     }
     if (dto.codcontabil !== undefined && dto.codcontabil !== '' && dto.codcontabil != null) {
       const conta = (await trx.selectFrom('plano_contas').select('descricao').where('codplanocontas', '=', Number(dto.codcontabil)).executeTakeFirst()) as { descricao?: string } | undefined;
