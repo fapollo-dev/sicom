@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 
 /**
  * FECHAMENTO DE SANGRIA (`FRMFECHAMENTOSANGRIA`) — a tesouraria. Dossiê: `tesouraria-sangria-fechamento.md`.
@@ -30,6 +31,8 @@ const CEDULAS: Array<[string, string]> = [['r200', 'R$ 200'], ['r100', 'R$ 100']
 
 export function FechamentoSangriaPage() {
   const mensagem = useMensagem();
+  // as permissões do legado: FRMFECHAMENTOSANGRIA (acessar/autenticar — 122) e BTNPROCESSO (fechar e estornar o lote — 119)
+  const { tem: pode } = useOpcoesDoForm('FRMFECHAMENTOSANGRIA');
   const [f, setF] = useState({ dataIni: hoje(), dataFim: hoje() });
   const [res, setRes] = useState<Consulta | null>(null);
   const [sel, setSel] = useState<Set<number>>(new Set());
@@ -94,7 +97,7 @@ export function FechamentoSangriaPage() {
           <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           <Button label="A&utenticar" variant="soft" disabled={ocupado || marcadas.length === 0} onClick={autenticar} />
-          <Button label="&Fechar lote" variant="soft" disabled={ocupado || marcadas.length === 0} onClick={() => setContando(true)} />
+          <Button label="&Fechar lote" variant="soft" disabled={ocupado || marcadas.length === 0 || !pode('BTNPROCESSO')} onClick={() => setContando(true)} />
         </div>
         {res?.exigeAutenticacao && <p className="mt-form-gap text-body-sm text-fg-muted">Nesta loja só fecha sangria autenticada.</p>}
       </section>
@@ -148,7 +151,7 @@ export function FechamentoSangriaPage() {
                     <td className="p-pad-xs text-right tabular-nums">{l.sangrias}</td>
                     <td className={`p-pad-xs text-right tabular-nums ${l.divergente ? 'text-fg-danger' : ''}`}>{moeda(l.valor)}</td>
                     <td className="p-pad-xs text-right tabular-nums">{moeda(l.soma_sangrias)}</td>
-                    <td className="p-pad-xs"><Button label="Estornar" variant="soft" disabled={ocupado} onClick={() => estornar(l)} /></td>
+                    <td className="p-pad-xs"><Button label="Estornar" variant="soft" disabled={ocupado || !pode('BTNPROCESSO')} onClick={() => estornar(l)} /></td>
                   </tr>))}</tbody>
               </table>
             </div>

@@ -407,3 +407,9 @@ do legado — FRMFECHAMENTOSANGRIA/BTNPROCESSO), `cobranca/fechamento-sangria.se
 POST fechar com as cédulas opcionais, POST lotes/:codcontagem/estornar), web `FechamentoSangriaPage` (a despesa vem desmarcada) e
 smoke §258.1-3. O VALOR da contagem é a Σ das sangrias distintas — a divergência consciente com os 33 lotes de 2026 em que a tela da
 operadora 3442 somou cada sangria 2 ou 3 vezes. C5 (marcar as despesas da conta de pagamento) segue parado, como no legado desde 2023.
+
+## Auditoria da tela (15/10/2026)
+
+Sem `.dfm` (a tela só existe no binário novo — §12): a auditoria controle a controle se resume às permissões da produção. FRMFECHAMENTOSANGRIA
+(122, acessar e autenticar) e BTNPROCESSO (119, fechar e estornar) já valiam na API; a tela agora desabilita "Fechar lote" e "Estornar"
+sem BTNPROCESSO. O resto segue como no §15 (C0-C4; C5 parado como no legado).
