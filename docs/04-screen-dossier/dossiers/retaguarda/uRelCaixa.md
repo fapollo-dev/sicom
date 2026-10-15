@@ -96,3 +96,20 @@ e o "Imprimir" no layout da classe pelo esquema do `TFrmRelMaster` (helper `shar
   os totais que a passada dupla escreveu), `case … of` no PascalScript, e a agregada sem banda soma a banda de dados da própria página (o
   resumo por recurso do Page2).
 Smoke §99 (6 verificações).
+
+## Auditoria controle a controle (15/10/2026) — `URelCaixa.dfm` × Apollo
+
+| controle do legado | regra | Apollo |
+|---|---|---|
+| `CmbTipoRelatorio` (5 modelos) · `Validacoes` (tipo obrigatório, data inicial ≤ final) | — | ✅ (schema recusa o período invertido) |
+| `DteDataInicial/Final` | — | ✅ |
+| `EdtCodOperador` + `BtnBuscaOperador`/F3 | Pesquisa de OPERADORES por NOME em qualquer lugar, o nome ao lado; código inexistente limpa (`EdtCodOperadorExit`) | ❌→✅ era um campo numérico cru; agora a Pesquisa `lookup/operadores` com o nome |
+| `CedCodPDV` | `C.CODPDV` | ✅ |
+| `CmbTipoRecurso` | só Divergências e Apuração (`CmbTipoRelatorioChange`); itens = DISTINCT CAIXA.TIPORECURSO + CORRESPONDENTE/RECARGA/VOUCHER, em ordem, com o branco | ✅ |
+| `CmbNiveisExpandidos` | `PreencheCmbNiveisExpandidos` ('' / '1 nível' / 'N níveis', o padrão do modelo) | ✅ |
+| `CkbImprimeResumoCC` / `CkbSomenteCCMovimentadas` | só na Apuração; marcar um marca/habilita o outro | ✅ |
+| `CkbExibeGrade` | mostra a grade (`IRelGrid.ExibeGrid`) | ✅ o "Gerar" |
+| Imprimir | sem opção própria — só `FRMRELCAIXA` (72 concessões na produção) | ✅ |
+
+Diferença pequena e consciente: a Pesquisa do legado é sobre a tabela OPERADORES (inclui excluídos); a do Apollo é a GET_OPERADORES
+(sem o SICOM e sem os excluídos). Prova: `relCaixaOperador.spec.tsx`.

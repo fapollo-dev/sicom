@@ -4,6 +4,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -149,7 +150,10 @@ export function RelCaixaPage() {
           <div className="w-40"><Field label="Data inicial" type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} /></div>
           <div className="w-40"><Field label="Data final" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} /></div>
           <div className="w-36"><Field label="&Empresas (1,2)" value={empresas} onChange={(e) => setEmpresas(e.target.value)} placeholder="esta loja" /></div>
-          <div className="w-28"><Field label="Operador" value={codoperador} onChange={(e) => setCodoperador(e.target.value.replace(/\D/g, ''))} /></div>
+          {/* o EdtCodOperador com a Pesquisa de OPERADORES pelo NOME em qualquer lugar (BtnBuscaOperadorClick / F3) e o nome ao lado; código
+              que não existe limpa os dois (EdtCodOperadorExit) */}
+          <div className="w-72"><LookupField label="Operador" recurso="lookup/operadores" campoCodigo="codigo" descricao="nome"
+            value={codoperador || null} onChange={(c) => setCodoperador(c ?? '')} /></div>
           <div className="w-20"><Field label="&PDV" value={codpdv} onChange={(e) => setCodpdv(e.target.value.replace(/\D/g, ''))} /></div>
           {comRecurso && (
             <div className="w-44"><SelectField label="Recurso" options={[{ value: '', label: '' }, ...recursos.map((r) => ({ value: r, label: r }))]} value={recurso} onChange={(v) => setRecurso(v ?? '')} /></div>
