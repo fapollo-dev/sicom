@@ -104,6 +104,13 @@ export class AreceberController {
 
   // ── AGRUPAMENTO (uAgrupaContasAReceber; dossiê uAgrupaContas.md) — o RBAC é o do legado: a tela de agrupar, e o menu do
   //    contas a receber (reverter, adicionar e remover não têm componente próprio: basta o acesso à tela) ──
+  /** o pnlCalc da tela de agrupar: a taxa administrativa da empresa (EMPRESAS.TXADM, valor fixo — o `SetaTotal` do legado) */
+  @Get('agrupar/parametros')
+  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'FRMAGRUPACONTASARECEBER')
+  parametrosAgrupar() {
+    return this.agrupamento.parametros();
+  }
+
   /** agrupa títulos abertos num consolidado (AGRUPAMENTO='S'); com clientes diversos, informe o parceiro. */
   @Post('agrupar')
   @HttpCode(200)

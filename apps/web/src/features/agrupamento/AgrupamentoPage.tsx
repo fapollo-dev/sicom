@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
@@ -7,7 +7,7 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  adicionarAoAgrupamento, agruparPagar, agruparReceber, membrosAgrupamento, titulosParaAgrupar,
+  adicionarAoAgrupamento, agruparPagar, agruparReceber, membrosAgrupamento, parametrosAgruparReceber, titulosParaAgrupar,
   removerDoAgrupamento, reverterAgrupamento,
   type ConvenioSugestao, type Lado, type TituloAgrupar,
 } from './agrupamentoApi';
@@ -50,6 +50,9 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   // o btnExcluirDoc ("Excluir documento do Grid") é Tag 1 — a opção BTNEXCLUIRDOC (28 de 105 operadores no A Pagar, 27 de 119 no A Receber)
   const { tem } = useOpcoesDoForm(ar ? 'FRMAGRUPACONTASARECEBER' : 'FRMAGRUPACONTASAPAGAR');
   const podeExcluir = tem('BTNEXCLUIRDOC');
+  // a taxa administrativa da empresa (EMPRESAS.TXADM) do pnlCalc do A Receber
+  const [txadm, setTxadm] = useState(0);
+  useEffect(() => { if (ar) parametrosAgruparReceber().then((p) => setTxadm(Number(p.txadm ?? 0))).catch(() => undefined); }, [ar]);
 
   const executar = async (fn: () => Promise<void>) => {
     setOcupado(true);
@@ -73,14 +76,24 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   const alternarJuro = (id: number) => setJuros((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
   // a tecla T do legado: marca todos se nem todos estão marcados, senão desmarca
   const marcarTodos = () => setSel((s) => (titulos && s.size === titulos.length ? (podeExcluir ? new Set() : s) : new Set((titulos ?? []).map(cod))));
+  // no A Receber o [T] do legado ("* [T] - Marcar todos", grdAgrupaReceberKeyDown) marca o Calc. Juros (SELECIONAR) de todas as linhas
+  const marcarTodosJuros = () => setJuros(new Set((titulos ?? []).map(cod)));
+  const teclaT = () => (ar ? marcarTodosJuros() : marcarTodos());
 
   const marcados = useMemo(() => (titulos ?? []).filter((t) => sel.has(cod(t))), [titulos, sel]); // eslint-disable-line react-hooks/exhaustive-deps
   const clientes = new Set(marcados.map((t) => Number(t.codparceiro)));
   // o total do legado (`SetaTotal`): Σ valor + Σ juro das linhas marcadas em "Calc. juros"; o desconto sai depois (a taxa é da empresa)
   // no A Pagar o VALOR da grade é o da GET_APAGAR_AGRUPAR: VALOR + VENDOR − DESCONTO
   const valorDoc = (t: TituloAgrupar) => Number((ar ? t.valor : (t.valor_agrupar ?? t.valor)) ?? 0);
-  const bruto = r2(marcados.reduce((s, t) => s + valorDoc(t) + (ar && juros.has(cod(t)) ? Number(t.juro ?? 0) : 0), 0));
+  // o pnlCalc do A Receber (`SetaTotal`): Total Documentos = Σ VALOR, Total Juros = Σ JURO das linhas de "Calc. Juros", Total Taxa
+  // Administrativa = EMPRESAS.TXADM se "Cobrar taxa administrativa", Total Geral = documentos + juros + taxa − desconto
+  const totalDoc = r2(marcados.reduce((s, t) => s + valorDoc(t), 0));
+  const totalJuros = ar ? r2(marcados.reduce((s, t) => s + (juros.has(cod(t)) ? Number(t.juro ?? 0) : 0), 0)) : 0;
+  const totalTx = ar && f.taxa ? txadm : 0;
+  const bruto = r2(totalDoc + totalJuros + totalTx);
   const total = r2(bruto - (ar ? n(f.desconto) ?? 0 : 0));
+  // o edtDescontoExit: "Desconto maior que o total!"
+  const conferirDesconto = () => { if ((n(f.desconto) ?? 0) > bruto) mensagem.erro(new Error('Desconto maior que o total!')); };
 
   const parcelasAp = (): Array<{ valor: number; dtvenc: string }> | undefined => {
     const qtd = Number(f.parcelas || 0);
@@ -182,14 +195,15 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   return (
     <div
       className="flex flex-col gap-gp-md"
-      onKeyDown={(e) => { if ((e.key === 't' || e.key === 'T') && !(e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') && !(e.target instanceof HTMLTextAreaElement)) { e.preventDefault(); marcarTodos(); } }}
+      onKeyDown={(e) => { if ((e.key === 't' || e.key === 'T') && !(e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') && !(e.target instanceof HTMLTextAreaElement)) { e.preventDefault(); teclaT(); } }}
     >
       <PageHeader title={ar ? 'Agrupar contas a receber' : 'Agrupar contas a pagar'} />
 
       <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <Button label="&Buscar títulos" variant="soft" onClick={() => setPesquisando(true)} disabled={ocupado} />
-          {titulos && titulos.length > 0 && podeExcluir && <Button label="Marcar/desmarcar &todos (T)" variant="ghost" onClick={marcarTodos} />}
+          {titulos && titulos.length > 0 && ar && <Button label="Marcar todos — Calc. Juros (T)" variant="ghost" onClick={marcarTodosJuros} />}
+          {titulos && titulos.length > 0 && podeExcluir && <Button label={ar ? 'Marcar/desmarcar todos' : 'Marcar/desmarcar &todos (T)'} variant="ghost" onClick={marcarTodos} />}
           {titulos && titulos.length > 0 && <Button label="Limpar a grade" variant="ghost" onClick={limparGrade} disabled={ocupado} />}
           <small className="text-fg-muted">A Pesquisa dos títulos abertos de todas as suas lojas{ar ? ' (boleto emitido em roxo)' : ''}: marque e confirme.</small>
         </div>
@@ -247,6 +261,13 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
         <small>
           {marcados.length} documento(s) · {clientes.size} {ar ? 'cliente(s)' : 'fornecedor(es)'} · total <strong className="tabular-nums">{moeda(total)}</strong>
         </small>
+        {ar && (
+          <dl aria-label="Totais do agrupamento" className="grid grid-cols-2 gap-gp-xs text-sm md:grid-cols-5">
+            {([['Total Documentos', totalDoc], ['Total Juros', totalJuros], ['Total Taxa Administrativa', totalTx], ['Desconto', n(f.desconto) ?? 0], ['Total Geral', total]] as const).map(([rot, v]) => (
+              <div key={rot} className="flex flex-col"><dt className="text-fg-muted">{rot}</dt><dd className="tabular-nums font-semibold">{moeda(v)}</dd></div>
+            ))}
+          </dl>
+        )}
         <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
           {/* o edtCliente do legado (uAgrupaContasAPagar.pas:96-101, uAgrupaContasAReceber.pas:103): a GET_PARCEIROS sem filtro, com o status
               da Pesquisa pela tela que o abriu (na produção, frmAgrupaContasAPagar|GET_PARCEIROS|edtCliente) */}
@@ -256,7 +277,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
           {ar && <Field label="Forma de pagamento (código)" inputMode="numeric" value={f.idpgto} onChange={(e) => setF({ ...f, idpgto: e.target.value })} />}
           {ar && <DateField label="Data do lançamento" value={f.dtvenda} onChange={(v) => setF({ ...f, dtvenda: v ?? '' })} />}
           <DateField label="Vencimento" value={f.dtvenc} onChange={(v) => setF({ ...f, dtvenc: v ?? '' })} />
-          {ar && <Field label="Desconto" inputMode="decimal" value={f.desconto} onChange={(e) => setF({ ...f, desconto: e.target.value })} />}
+          {ar && <Field label="Desconto" inputMode="decimal" value={f.desconto} onChange={(e) => setF({ ...f, desconto: e.target.value })} onBlur={conferirDesconto} />}
           {!ar && <Field label="Centro de custo (opcional)" inputMode="numeric" value={f.codplc} onChange={(e) => setF({ ...f, codplc: e.target.value })} />}
           {!ar && <Field label="Parcelas" inputMode="numeric" value={f.parcelas} onChange={(e) => setF({ ...f, parcelas: e.target.value })} />}
           <div className="col-span-2 md:col-span-4"><Field label="Observação" value={f.obs} onChange={(e) => setF({ ...f, obs: e.target.value })} /></div>

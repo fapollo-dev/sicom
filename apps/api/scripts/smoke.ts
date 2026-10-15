@@ -2860,6 +2860,13 @@ async function main() {
       && rA1.agrupado === 'S' && Number(rA1.codgrupo_agrupamento_rcb) === Number(rCons.codgrupo)
       && abertos.some((t) => t.codrcb === cons) && !abertos.some((t) => t.codrcb === a1 || t.codrcb === a2),
       { status: agr.status, body: agr.j, a1: rA1, cons: rCons });
+    // (a2) o pnlCalc: a taxa administrativa da empresa (EMPRESAS.TXADM) para o "Total Taxa Administrativa" da tela
+    const parAg = await fetch(`${base}/${AR}/agrupar/parametros`, { headers: H });
+    const parAgJ = (await parAg.json().catch(() => ({}))) as any;
+    const txEmp = Number((await pgAgr.query(`SELECT coalesce(txadm, 0) AS t FROM empresas WHERE idempresa = 1`)).rows[0].t);
+    const parAgSem = await fetch(`${base}/${AR}/agrupar/parametros`, { headers: H_SEM_ACESSO });
+    check('AR-agrup: os parâmetros da tela de agrupar devolvem a taxa administrativa da empresa (EMPRESAS.TXADM) e exigem o acesso à tela',
+      parAg.status === 200 && Number(parAgJ.txadm) === txEmp && parAgSem.status === 403, { s: parAg.status, j: parAgJ, txEmp, sem: parAgSem.status });
     // (b) validações: nenhum título → 400; clientes diversos sem o parceiro → 422 (com o parceiro, agrupa); quitado → 422
     const agrVazio = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [] }) });
     const bOutro = await crAR(20, 22); const b20 = await crAR(20, 20);

@@ -30,6 +30,8 @@ export const titulosParaAgrupar = async (lado: Lado, codigos: number[]): Promise
   return out;
 };
 export interface ConvenioSugestao { codplc: number | null; idpgto: number | null; data: string; obs: string }
+/** o pnlCalc da tela de agrupar a receber: a taxa administrativa da empresa (EMPRESAS.TXADM) */
+export const parametrosAgruparReceber = () => req<{ txadm: number }>('/cadastro/areceber/agrupar/parametros');
 export const agruparReceber = (body: {
   codrcbs: number[]; codparceiro?: number; idpgto?: number; dtvenda?: string; dtvenc?: string; obs?: string; desconto?: number; jurosDe?: number[];
   cobrarTaxaAdm?: boolean; convenio?: { codplc?: number; idpgto?: number; data?: string; obs?: string };

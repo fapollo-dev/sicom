@@ -608,3 +608,18 @@ O mesmo vale para o A Receber (a página é a mesma): a pergunta no fim (Agrupam
 convênio, o `TFrmOpcoes` "Imprimir relatório sintético / analítico / Não imprimir" para o A Pagar quitado (AgrupamentoCPCR[Agrupado].fr3);
 as colunas do A Receber (Calc. Juros, Código, Duplicata, Vencimento, Valor, Tx.Juros, Juro, Total, Venda, Cód.Cli, Cliente). Prova:
 smoke §33.10 (a2) e `agruparPagar.spec.tsx`.
+
+## Auditoria controle a controle (15/10/2026) — `uAgrupaContasAReceber.dfm` × Apollo
+
+| controle do legado | regra | Apollo |
+|---|---|---|
+| `grdAgrupaReceber` | Calc. Juros (SELECIONAR), Código, Duplicata, Vencimento, Valor, Tx.Juros, Juro, Total, Venda, Cód.Cli, Cliente | ✅ (corte do A Pagar) |
+| "* [T] - Marcar todos" (`grdAgrupaReceberKeyDown`) | marca o **Calc. Juros** de todas as linhas (não a inclusão) | ❌→✅ o T alternava a inclusão; agora marca o Calc. Juros |
+| `btnExcluirDoc` | Tag 1 → BTNEXCLUIRDOC (27 de 119) | ✅ (corte do A Pagar) |
+| `pnlCalc` (`SetaTotal`) | Total Documentos = Σ VALOR · Total Juros = Σ JURO das linhas de Calc. Juros · Total Taxa Administrativa = EMPRESAS.TXADM se "Cobrar taxa administrativa" · Total Geral = documentos + juros + taxa − desconto | ❌→✅ a tela só mostrava um total sem a taxa; agora o painel do legado (a taxa vem de `GET cadastro/areceber/agrupar/parametros`) |
+| `edtDescontoExit` | "Desconto maior que o total!" | ❌→✅ (o servidor já recusava — AGRUPAMENTO_DESCONTO_MAIOR) |
+| `cbxTaxaADM` | soma a taxa ao total | ✅ |
+| fim do agrupamento / convênio | a pergunta de impressão e o TFrmOpcoes do convênio | ✅ (corte do A Pagar) |
+
+O servidor já calculava certo (Σ valor + juro marcado + taxa − desconto); a diferença era a tela. Prova: smoke §33 (a2) e
+`agruparReceber.spec.tsx`.

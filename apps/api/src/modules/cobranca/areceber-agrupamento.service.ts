@@ -85,6 +85,13 @@ export class AreceberAgrupamentoService {
    * cliente diverso). Com mais de um cliente, "informe o parceiro para gerar o título"; a forma, o banco, o cobrador e o
    * vendedor vêm do último título da grade, como no legado.
    */
+  /** a taxa administrativa da empresa do login (EMPRESAS.TXADM), que o `SetaTotal` soma ao total quando "Cobrar taxa administrativa" */
+  async parametros(): Promise<{ txadm: number }> {
+    const emp = this.emp();
+    const r = (await sql<{ txadm: unknown }>`SELECT txadm FROM empresas WHERE idempresa = ${emp}`.execute(this.dbp.forTenantRead() as AnyDB)).rows[0];
+    return { txadm: num(r?.txadm) };
+  }
+
   async agrupar(dto: AgruparAreceberInput): Promise<{ codgrupo: number; consolidado: number | null; membros: number; total: number; convenio?: Record<string, unknown> }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
