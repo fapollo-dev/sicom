@@ -13,7 +13,7 @@ export class RegistroEsController {
 
   @Post('consultar')
   @HttpCode(200)
-  @RequerAcesso('FRMRELREGISTROS_ES', 'FRMRELREGISTROS_ES')
+  @RequerAcesso('FRMRELREGISTROS_ES', 'BTNCONSULTA') // o [F9] do registro de entradas/saídas também é o btnConsulta (uRelRegistros_ES.pas btnConsultaClick)
   consultar(@Body(new ZodValidationPipe(registroEsSchema)) dto: RegistroEsDto) {
     return this.svc.consultar(dto);
   }

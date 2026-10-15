@@ -3,6 +3,8 @@ import { PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
+
 import { useMensagem } from '../../shared/mensagem';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
@@ -42,6 +44,9 @@ export function RegistroEsPage({ tipo }: { tipo: 'E' | 'S' }) {
   const [dataini, setDataini] = useState<string | undefined>(m.ini);
   const [datafin, setDatafin] = useState<string | undefined>(m.fim);
   const [livro, setLivro] = useState('');
+  // o [F9] é o btnConsulta (Tag 1 → BTNCONSULTA)
+  const { tem } = useOpcoesDoForm('FRMRELREGISTROS_ES');
+  const podeExecutar = tem('BTNCONSULTA');
   const [folha, setFolha] = useState('');
   const [notas, setNotas] = useState<Linha[]>([]);
   const [detalhe, setDetalhe] = useState<Linha[]>([]);
@@ -102,7 +107,7 @@ export function RegistroEsPage({ tipo }: { tipo: 'E' | 'S' }) {
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-44"><DateField label="Data &inicial" value={dataini} onChange={setDataini} /></div>
         <div className="w-44"><DateField label="Data &final" value={datafin} onChange={setDatafin} /></div>
-        <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <Button label="&Consultar" variant="soft" disabled={busy || !podeExecutar} onClick={() => void consultar()} />
         <div className="w-24"><Field label="Nrº Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
         <div className="w-24"><Field label="Nrº F&olha" value={folha} inputMode="numeric" onChange={(e) => setFolha(e.target.value.replace(/\D/g, ''))} /></div>
         <Button label="&Imprimir livro (F11)" variant="ghost" disabled={busy} onClick={() => void imprimir()} />

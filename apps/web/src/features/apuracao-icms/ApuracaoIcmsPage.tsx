@@ -3,6 +3,8 @@ import { PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { Button } from '../../shared/ui/Button';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
+
 import { useMensagem } from '../../shared/mensagem';
 import { Field } from '../../shared/ui/Field';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -36,6 +38,9 @@ export function ApuracaoIcmsPage() {
   const [estornoCreditos, setEstornoCreditos] = useState<number | undefined>();
   const [deducoes, setDeducoes] = useState<number | undefined>();
   const [busy, setBusy] = useState(false);
+  // o "[F9] - Executar Apuração" é o btnConsulta (Tag 1 → BTNCONSULTA)
+  const { tem } = useOpcoesDoForm('FRMRELREGISTROS_ES');
+  const podeExecutar = tem('BTNCONSULTA');
   const [res, setRes] = useState<Apuracao | null>(null);
   // edtNR / edtFolha do legado: o número do livro e a folha que o livro impresso leva (vazios → 1)
   const [livro, setLivro] = useState('');
@@ -105,9 +110,9 @@ export function ApuracaoIcmsPage() {
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-44"><DateField label="De" value={dataini} onChange={setDataini} /></div>
           <div className="w-44"><DateField label="Até" value={datafin} onChange={setDatafin} /></div>
-          <Button label="&Apurar" variant="soft" disabled={busy} onClick={() => void processar(false)} />
-          <Button label="&Reprocessar" variant="ghost" disabled={busy} onClick={() => void reprocessar()} />
-          <Button label="&Consultar gravada" variant="ghost" disabled={busy} onClick={() => void consultar()} />
+          <Button label="&Apurar" variant="soft" disabled={busy || !podeExecutar} onClick={() => void processar(false)} />
+          <Button label="&Reprocessar" variant="ghost" disabled={busy || !podeExecutar} onClick={() => void reprocessar()} />
+          <Button label="&Consultar gravada" variant="ghost" disabled={busy || !podeExecutar} onClick={() => void consultar()} />
           <div className="w-24"><Field label="Nrº Livro" value={livro} inputMode="numeric" onChange={(e) => setLivro(e.target.value.replace(/\D/g, ''))} /></div>
           <div className="w-24"><Field label="Nrº &Folha" value={folha} inputMode="numeric" onChange={(e) => setFolha(e.target.value.replace(/\D/g, ''))} /></div>
           <Button label="&Imprimir livro" variant="ghost" disabled={busy || !c} onClick={() => void imprimir()} />

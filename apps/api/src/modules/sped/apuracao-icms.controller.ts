@@ -14,10 +14,10 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 export class ApuracaoIcmsController {
   constructor(private readonly svc: ApuracaoIcmsService) {}
 
-  /** processa (ou reprocessa) a apuração do período. */
+  /** processa (ou reprocessa) a apuração do período — o "[F9] - Executar Apuração" é o btnConsulta (Tag 1 → BTNCONSULTA, 73 concessões) */
   @Post('processar')
   @HttpCode(200)
-  @RequerAcesso('FRMRELREGISTROS_ES', 'FRMRELREGISTROS_ES')
+  @RequerAcesso('FRMRELREGISTROS_ES', 'BTNCONSULTA')
   processar(@Body(new ZodValidationPipe(apuracaoIcmsProcessarSchema)) dto: ApuracaoIcmsProcessarDto) {
     return this.svc.processar(dto);
   }

@@ -347,3 +347,13 @@ O mesmo form aberto pelos menus **186** ("Registro de entradas", **140 acessos**
 
 Cobertura: smoke §85.5 (as notas e o detalhe pelas regras do fonte, as alíquotas, o livro, período vazio → 422); testes de
 renderização dos layouts 849 e 850.
+
+## Auditoria controle a controle (15/10/2026) — `uRelRegistros_ES.dfm` × Apollo
+
+- **[F9] (`btnConsulta`, Tag 1 → BTNCONSULTA, 73 concessões)** é o único gatilho da tela: o `btnConsultaClick` executa a apuração de ICMS
+  OU o registro de entradas/saídas, conforme o menu. O Apollo pedia só o acesso à tela para processar a apuração e para consultar o
+  registro (e BTNCONSULTA só no "consultar gravada"). ❌→✅ os três exigem BTNCONSULTA (API + botões).
+- [F2] resumo da nota, [F4] altera a nota, [F11] imprime o livro (Notas_fiscais_Registro_Entrada/Saida/Apuracao.fr3, LIVRO/FOLHA) — ✅.
+- As abas de lançamentos de ajuste (Estorno de Crédito/Débitos, Outros Créditos/Débitos, Deduções, Mudança de tributação para STB — a
+  OPERACOES_ICMS), "Inf. Adic. da Apuração" (TB_INF_ADICIONAIS) e "Estoque escriturado" (APURACAO_ESTOQUE_ESCRITURADO): as três tabelas têm
+  **0 linhas** na produção — nunca usadas; o Apollo mantém um valor por categoria.
