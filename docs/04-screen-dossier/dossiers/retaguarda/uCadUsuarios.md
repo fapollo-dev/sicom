@@ -255,3 +255,18 @@ Pendente (MÉDIA): SENHAPDV/SENHARETAGUARDA e as 19 flags de PERMISSAOPDV (PDV f
 `FormKeyDown` (uCadUsuarios.pas:687-726): F2 abre o cadastro de perfil no tipo da aba ativa (Perfil de compras → Compras; senão
 Acessos) e, ao voltar, recarrega o operador (`edtCodigoExit`); aberto pelo F2 do cadastro de perfil, o F2 fecha. Os dois se abrem em
 janela por cima, cada um com os portões dele no servidor (o legado não confere o acesso à outra tela). Ver `uCadPerfilOperador.md` §5.
+
+## Auditoria controle a controle do `uCadUsuarios.dfm` (15/10/2026)
+
+Os 35 controles e 4 abas do dfm contra `/cadastro/operadores` (produção: 290 operadores, 31 desabilitados; nenhum PRO):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| `cbbTipo` + `VerificaComboTipoOperador` (:757): "Proprietário" só aparece para quem é PRO, o ADMIN e o "ACESSO DE PROGRAMADOR"; o operador PRO fica com o tipo travado para os outros | 0 PRO; o op 1 é "ACESSO DE PROGRAMADOR" (SUP) | ✅ o servidor recusa (422 OPERADOR_TIPO_PROPRIETARIO) e a tela esconde/trava a opção (⚠️ a sessão do app não traz o tipo do operador logado: a tela libera pelo nome; o PRO logado veria a opção travada — 0 na produção) |
+| Nome, Login (duplicado → "Login incorreto! Existe usuário cadastrado com o login informado." — o índice parcial da mig 173), Senha/Confirma, Desabilitado, Menu, Parceiro, Código auxiliar, Supervisor, as 3 flags, Empresas permitidas, Perfil operador / Perfil de compras (F2), Operadores supervisionados, Registro de log | — | ✅ já havia |
+| `edtSenhaPDV` (SENHAPDV) | 96 | ✗ PDV fora do escopo (ADR-017) |
+| `edtSenhaRetaguarda` (SENHARETAGUARDA, Tag 1) | 46 | ✗ não portada: é a senha-mestra do legado (backdoor) — regra de segurança; a permissão EDTSENHARETAGUARDA governa a senha do cadastro |
+| Aba Biometria (`BitBtn2` "Capturar Digital", BIOMETRIA) | 0 | ✗ morta (e hardware) |
+| BTNCLONAR (9 concessões) | — | binário mais novo que o fonte — sem fonte, não reconstruído |
+
+Smoke §324.

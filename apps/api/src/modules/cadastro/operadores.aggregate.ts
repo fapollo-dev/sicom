@@ -156,6 +156,18 @@ export const operadoresAggregateConfig: AggregateConfig = {
       exigirOpcao(await opcoesConcedidas(db, 'FRMCADUSUARIOS'), 'FRMCADUSUARIOS', 'EDTSENHARETAGUARDA', 'definir a senha do retaguarda');
     }
     if (id != null && (await loginProtegido(db, id))) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });
+    // `VerificaComboTipoOperador` (uCadUsuarios.pas:757): o tipo "Proprietário" (PRO) só aparece para quem é PRO, para o ADMIN e para o
+    // "ACESSO DE PROGRAMADOR"; para os outros, o operador PRO fica com o tipo travado e os demais não podem virar PRO
+    const sessao = currentTenant().operadorId ?? null;
+    if (sessao != null) {
+      const eu = (await db.selectFrom('operadores').select(['tipoop', 'nome']).where('codoperador', '=', sessao).executeTakeFirst()) as { tipoop?: string | null; nome?: string | null } | undefined;
+      const podePro = eu?.tipoop === 'PRO' || ['ADMIN', 'ACESSO DE PROGRAMADOR'].includes(String(eu?.nome ?? '').toUpperCase());
+      if (!podePro) {
+        const antes = id == null ? undefined : ((await db.selectFrom('operadores').select('tipoop').where('codoperador', '=', id).executeTakeFirst()) as { tipoop?: string | null } | undefined);
+        if (antes?.tipoop === 'PRO' && dto.tipoop !== undefined && dto.tipoop !== 'PRO') throw new BusinessRuleError('OPERADOR_TIPO_PROPRIETARIO');
+        if (dto.tipoop === 'PRO' && antes?.tipoop !== 'PRO') throw new BusinessRuleError('OPERADOR_TIPO_PROPRIETARIO');
+      }
+    }
     // o supervisor escolhido: a Pesquisa do legado só oferece SUPERVISOR não desabilitado (uCadUsuarios.pas:497-501). Só confere quando
     // muda — o que já está gravado não trava o Gravar se o supervisor for desabilitado depois.
     const sup = dto.idsupervisor == null ? null : Number(dto.idsupervisor);

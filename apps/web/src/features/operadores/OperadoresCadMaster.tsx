@@ -9,6 +9,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Tabs } from '../../shared/ui/Tabs';
+import { getSessao } from '../../shared/auth/session';
 import { ListaPesquisada } from '../../shared/pesquisa/ListaPesquisada';
 import { Modal } from '../../shared/ui/Modal';
 import { useShortcut } from '../../shared/keyboard';
@@ -91,6 +92,10 @@ function AbasDoOperador({ form, editavel, carregar, aoFechar }: {
  * A senha do cadastro vai ao hash do servidor (troca no 1º acesso). As abas de perfis e supervisionados: `AbasDoOperador`.
  * F2 abre o cadastro de perfil por cima (no tipo da aba). Fora: a biometria (leitor NBioBSP).
  */
+/** `VerificaComboTipoOperador` (uCadUsuarios.pas:757): "Proprietário" só para quem é PRO, o ADMIN ou o "ACESSO DE PROGRAMADOR" (o servidor confere) */
+const podeProprietario = () => ['ADMIN', 'ACESSO DE PROGRAMADOR'].includes(String(getSessao()?.operador?.nome ?? '').toUpperCase());
+const opcoesTipo = (atual?: string) => (podeProprietario() || atual === 'PRO' ? OPERADOR_TIPO_OPCOES : OPERADOR_TIPO_OPCOES.filter((o) => o.value !== 'PRO'));
+
 export function OperadoresCadMaster({ aoFechar }: { aoFechar?: () => void } = {}) {
   // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
   const { tem: pode } = useOpcoesDoForm('FRMCADUSUARIOS');
@@ -191,7 +196,8 @@ export function OperadoresCadMaster({ aoFechar }: { aoFechar?: () => void } = {}
             render={({ field }) => (
               <SelectField
                 label="&Tipo de operador"
-                options={OPERADOR_TIPO_OPCOES}
+                options={opcoesTipo(field.value as string | undefined)}
+                disabled={!editavel || (field.value === 'PRO' && !podeProprietario())}
                 value={field.value ?? undefined}
                 onChange={(v) => {
                   // quem deixa de ser supervisor perde os supervisionados — com confirmação; "não" fica no Supervisor (cbbTipoExit,

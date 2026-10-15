@@ -697,6 +697,7 @@ const CODE_PT: Record<string, string> = {
   CAIXA_MOV_ESTORNADO: 'Movimento já estornado — não há o que estornar.',
   OPERADOR_SEM_PARCEIRO: 'O operador não tem um parceiro (funcionário) vinculado — não é possível gerar o título de quebra de caixa.',
   OPERADOR_PROTEGIDO: 'Este é um usuário de sistema (SICOM) — não pode ser editado nem excluído.',
+  OPERADOR_TIPO_PROPRIETARIO: 'Somente o proprietário (ou o administrador) define o tipo de operador "Proprietário".',
   CAIXA_NAO_FECHADO: 'O caixa não está fechado — não há o que reabrir.',
   REABERTURA_QUEBRA_BAIXADA: 'O título de quebra deste caixa já foi baixado — estorne a baixa antes de reabrir o caixa.',
   CAIXA_JA_CONTABILIZADA: 'O fechamento deste caixa já foi contabilizado.',

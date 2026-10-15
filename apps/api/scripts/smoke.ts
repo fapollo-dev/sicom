@@ -20747,6 +20747,31 @@ async function main() {
         await pg3.end();
       }
     }
+    // ══ §324 CADASTRO DE USUÁRIOS — `VerificaComboTipoOperador` (uCadUsuarios.pas:757): o tipo "Proprietário" só para o PRO, o ADMIN e o "ACESSO DE PROGRAMADOR" ══
+    {
+      const pg4 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const H1 = { ...H, 'x-operador-id': '1' };
+        const novoPro = async (h: Record<string, string>, cod: number) => fetch(`${base}/cadastro/operadores`, { method: 'POST', headers: h, body: JSON.stringify({ senha: 'pro324', codoperador: cod, nome: `PRO ${cod}`, login: `PRO${cod}`, tipoop: 'PRO', empresas: [{ codempresa: 1 }] }) })
+          .then(async (r) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any }));
+        const pelo7 = await novoPro(H, 932401);
+        // o operador PRO cria outro PRO (o smoke não tem o op 1 com acesso à tela: o 7 vira PRO só para este passo)
+        const tipo7 = (await pg4.query(`SELECT tipoop FROM operadores WHERE codoperador = 7`)).rows[0]?.tipoop;
+        await pg4.query(`UPDATE operadores SET tipoop = 'PRO' WHERE codoperador = 7`);
+        const pelo1 = await novoPro(H, 932402);
+        await pg4.query(`UPDATE operadores SET tipoop = $1 WHERE codoperador = 7`, [tipo7 ?? null]);
+        void H1;
+        const trocar7 = await fetch(`${base}/cadastro/operadores/932402`, { method: 'PUT', headers: H, body: JSON.stringify({ tipoop: 'OPE' }) }).then(async (r) => ({ status: r.status, j: (await r.json().catch(() => ({}))) as any }));
+        const tipo = (await pg4.query(`SELECT tipoop FROM operadores WHERE codoperador = 932402`)).rows[0]?.tipoop;
+        check('USUÁRIOS §324 [VerificaComboTipoOperador :757]: o operador comum não cria um "Proprietário" (422 OPERADOR_TIPO_PROPRIETARIO) nem troca o tipo de um PRO; o operador PRO cria',
+          pelo7.status === 422 && pelo7.j.code === 'OPERADOR_TIPO_PROPRIETARIO' && pelo1.status === 201 && trocar7.status === 422 && trocar7.j.code === 'OPERADOR_TIPO_PROPRIETARIO' && tipo === 'PRO',
+          { pelo7: [pelo7.status, pelo7.j.code], pelo1: [pelo1.status, pelo1.j.code, pelo1.j.message], trocar7: [trocar7.status, trocar7.j.code], tipo });
+      } finally {
+        for (const t of ['relacao_operador_empresa']) await pg4.query(`DELETE FROM ${t} WHERE codoperador IN (932401, 932402)`).catch(() => {});
+        await pg4.query(`DELETE FROM operadores WHERE codoperador IN (932401, 932402)`).catch(() => {});
+        await pg4.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';
