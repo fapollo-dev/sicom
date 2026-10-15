@@ -57,3 +57,28 @@ final."), na ordem da data, com motivo, produto e operador. `GET cadastro/ajuste
 aspas; sem ajuste, "Não foram encontrados ajustes para imprimir". Os botões não têm Tag (o acesso à tela), e a aba também é a que o
 "Detalhar" do kardex do produto abre (`?idproduto=&data=`; aceita o acesso ao FRMCADPRODUTO). O "Exportar" (Excel) fica com a
 exportação genérica da grade. Smoke §285.
+
+## Auditoria do `UajusteEstoque.dfm` (15/10/2026) — controle a controle
+
+Produção 2025-26 (somente leitura): DIMINUIR 1.744 · AUMENTAR 912 · **SUBSTITUIR 19** (todos com QTDE = anterior = atual) — o binário novo
+troca o SUBSTITUIR pela diferença e só grava SUBSTITUIR quando o informado é igual ao saldo; QTDE 0 em 9 SUBSTITUIR e 1 DIMINUIR.
+TIPO_ESTOQUE = 'A' global e **'L' na loja 1** (específica).
+
+| Controle do legado | Apollo |
+|---|---|
+| `edtCodProd` + F3 (`btnBuscaProduto`) + `edtCodProdExit` | Produto. **O filho vira o pai** (RetornarProdutoPai, :574): "Atenção este produto é filho, ajuste permitido apenas no pai" — a tela troca para o pai e a API recusa o filho (`AJUSTE_PRODUTO_FILHO`, com o pai no detalhe). |
+| `lblEstLoja/lblEstMinLoja/lblEstMaxLoja`, `lblEstDep/…` (AbreSegs) | Os saldos da loja e do depósito ao escolher o produto (`GET cadastro/ajuste-estoque/saldos/:id`). A troca (`lblEstTroc`, ESTOQUETROCA) fica de fora: o combo do destino só tem LOJA e DEPOSITO e a tabela não tem saldo na produção. |
+| `CBoperacao` (DIMINUIR/AUMENTAR/SUBSTITUIR) | **O SUBSTITUIR grava AUMENTAR/DIMINUIR pela diferença** (btnOkClick :311-325) e, igual ao saldo, fica SUBSTITUIR com anterior = atual (o fonte de 2020 recusava "Ajuste não realizado…"; a produção grava, para mudar só o mínimo/máximo). Antes o Apollo gravava SUBSTITUIR com o saldo absoluto. |
+| `CBdestino` (LOJA/DEPOSITO) + `CBdestinoExit` | Destino; o mínimo e o máximo do destino abrem nos campos; **TIPO_ESTOQUE = 'L' bloqueia o depósito** ("Ajuste de estoque no depósito, bloqueado!", na tela e na API) — mig 426 traz a config. |
+| `edtQtde` | Quantidade ≥ 0 em qualquer operação (antes o Apollo exigia > 0 em Aumentar/Diminuir). |
+| `edtQtdeMinimo` / `edtQtdeMaximo` | Mínimo e máximo (já gravavam no saldo e no ajuste). |
+| `edtCodmotivo` + F3 | Motivo; "Informe o motivo do ajuste!". |
+| `MemObservacao` | Observação. |
+| `btnOk` "Ajustar" (Tag 1) | **"Ajustar"** com BTNOK na tela (antes "Aplicar ajuste" sem a checagem; a rota já exigia). "Obrigatório informar destino."; "Ajuste realizado com sucesso! Estoque atual: X"; a tela limpa o produto, o motivo, a observação e as quantidades, como o legado. |
+| Aba **Histórico**: produto, datas, Filtrar, grade (13 colunas), `BtnImprimir` | Já convertidos (01/10). |
+| `BtnExportarExcel` "&Exportar" | **Novo**: a grade do Histórico em planilha (CSV para o Excel, "AjusteEstoque"). |
+| `MniSalvarConfiguracao` / `MniRestaurarConfiguracoes` (o layout da grade) | Fora: preferência visual da estação. |
+| Lista "Ajustes recentes" + Estornar | Recurso do Apollo (o legado é só inclusão); a lista passou a pedir o acesso à tela (era livre). |
+
+Smoke §330 (o SUBSTITUIR pela diferença e o igual, o filho, os saldos, o depósito bloqueado, a lista sem acesso); §47.10 atualizado
+(quantidade 0); jsdom `ajusteEstoquePage.spec.tsx`.

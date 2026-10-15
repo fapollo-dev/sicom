@@ -3,12 +3,27 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { configNaTrx } from '../compras/pedido-heranca';
 import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
 import { colunasNumericas, dataBr, registroFr3, textoVariavel } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000; // numeric(13,3)
+
+/**
+ * o SUBSTITUIR como a produção grava (o binário novo): saldo diferente → vira AUMENTAR/DIMINUIR pela diferença (o btnOkClick :311-325
+ * troca a operação e a quantidade); IGUAL → fica SUBSTITUIR com a quantidade do saldo, sem mexer no estoque (o fonte de 2020 recusava com
+ * "Ajuste não realizado. … é igual ao informado."; a produção grava — 19 de 2025-26, todos com QTDE = anterior = atual — para mudar só o
+ * mínimo/máximo). AUMENTAR/DIMINUIR passam como vieram.
+ */
+export function operacaoDoAjuste(operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR', qtde: number, anterior: number): { operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR'; qtde: number } {
+  if (operacao !== 'SUBSTITUIR') return { operacao, qtde };
+  const dif = r3(qtde - anterior);
+  if (dif > 0) return { operacao: 'AUMENTAR', qtde: dif };
+  if (dif < 0) return { operacao: 'DIMINUIR', qtde: r3(-dif) };
+  return { operacao: 'SUBSTITUIR', qtde: anterior };
+}
 
 /**
  * AJUSTE DE ESTOQUE (FRMAJUSTEESTOQUE) — serviço vertical (molde caixa/nf-processamento): o movimento MANUAL
@@ -44,24 +59,34 @@ export class AjusteEstoqueService {
     const op = this.op();
     const qtde = r3(num(dto.qtde));
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const prod = await trx.selectFrom('produtos').select('idproduto').where('idproduto', '=', dto.idproduto).executeTakeFirst();
+      const prod = (await trx.selectFrom('produtos as p').leftJoin('produtos as pai', 'pai.idproduto', 'p.idproduto_pai')
+        .select(['p.idproduto', 'pai.idproduto as pai_id', 'pai.codbarra as pai_codbarra', 'pai.descricao as pai_descricao'])
+        .where('p.idproduto', '=', dto.idproduto).executeTakeFirst()) as Record<string, unknown> | undefined;
       if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: dto.idproduto });
+      // edtCodProdExit (:574-581): o produto FILHO vira o pai — "Atenção este produto é filho, ajuste permitido apenas no pai"
+      if (prod.pai_id != null) throw new BusinessRuleError('AJUSTE_PRODUTO_FILHO', { idproduto: Number(prod.pai_id), codbarra: prod.pai_codbarra, descricao: prod.pai_descricao });
       const mot = await trx.selectFrom('motivos').select('codmotivo').where('codmotivo', '=', dto.codmotivo).where(sql`coalesce(indr,'I')`, '=', 'I').executeTakeFirst();
       if (!mot) throw new BusinessRuleError('MOTIVO_NAO_ENCONTRADO', { codmotivo: dto.codmotivo });
 
       // o DESTINO (CBdestino, UajusteEstoque.pas:336-395): 'E' = o saldo da LOJA (ESTOQUE), 'D' = o do DEPÓSITO (ESTOQUE_DEP)
       const destino = dto.destino === 'D' ? 'D' : 'E';
-      if (destino === 'D') return this.ajustarDeposito(trx, emp, op, dto, qtde);
+      // CBdestinoExit (:487): com TIPO_ESTOQUE = 'L' (só loja) o depósito é bloqueado — "Ajuste de estoque no depósito, bloqueado!"
+      if (destino === 'D') {
+        const tipo = String((await configNaTrx(trx, 'TIPO_ESTOQUE', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? '').trim().toUpperCase();
+        if (tipo === 'L') throw new BusinessRuleError('AJUSTE_DEPOSITO_BLOQUEADO');
+        return this.ajustarDeposito(trx, emp, op, dto, qtde);
+      }
       // lê e TRAVA o saldo (por produto+empresa). Sem linha → saldo 0 (será criada).
       const est = await trx
         .selectFrom('estoque').select(['id_estoque', 'qtde', 'minimo', 'maximo'])
         .where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp)
         .forUpdate().executeTakeFirst();
       const qtdeanterior = r3(num((est as any)?.qtde));
+      const mov = operacaoDoAjuste(dto.operacao, qtde, qtdeanterior);
       const qtdeatual =
-        dto.operacao === 'AUMENTAR' ? r3(qtdeanterior + qtde)
-        : dto.operacao === 'DIMINUIR' ? r3(qtdeanterior - qtde)
-        : qtde; // SUBSTITUIR
+        mov.operacao === 'AUMENTAR' ? r3(qtdeanterior + mov.qtde)
+        : mov.operacao === 'DIMINUIR' ? r3(qtdeanterior - mov.qtde)
+        : mov.qtde; // SUBSTITUIR (só sobra quando é igual ao saldo)
       // saldo NEGATIVO é PERMITIDO (fiel: o legado tem 677 ajustes manuais com saldo<0 — ex.: corrigir
       // produto já negativado por venda sem entrada). Divergência do NF (que bloqueia negativo por gate).
 
@@ -87,13 +112,13 @@ export class AjusteEstoqueService {
       const ins = await trx
         .insertInto('ajuste_estoque')
         .values({
-          idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino,
-          qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
+          idproduto: dto.idproduto, idempresa: emp, operacao: mov.operacao, destino,
+          qtde: mov.qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
           // DATA = a hora do servidor (`GetDataHoraServidor`, :414) — é a coluna que o legado e o histórico migrado usam
           obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
         })
         .returning('codajuste').executeTakeFirstOrThrow();
-      return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: dto.operacao, qtdeanterior, qtdeatual };
+      return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: mov.operacao, qtdeanterior, qtdeatual };
     });
   }
 
@@ -103,15 +128,40 @@ export class AjusteEstoqueService {
     const minimo = dto.minimo != null ? r3(num(dto.minimo)) : (dep as any)?.minimo ?? null;
     const maximo = dto.maximo != null ? r3(num(dto.maximo)) : (dep as any)?.maximo ?? null;
     const qtdeanterior = r3(num((dep as any)?.qtde));
-    const qtdeatual = dto.operacao === 'AUMENTAR' ? r3(qtdeanterior + qtde) : dto.operacao === 'DIMINUIR' ? r3(qtdeanterior - qtde) : qtde;
+    const mov = operacaoDoAjuste(dto.operacao, qtde, qtdeanterior);
+    const qtdeatual = mov.operacao === 'AUMENTAR' ? r3(qtdeanterior + mov.qtde) : mov.operacao === 'DIMINUIR' ? r3(qtdeanterior - mov.qtde) : mov.qtde;
     if (dep) await trx.updateTable('estoque_dep').set({ qtde: qtdeatual, minimo, maximo }).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).execute();
     else await trx.insertInto('estoque_dep').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual, minimo, maximo }).execute();
     const ins = await trx.insertInto('ajuste_estoque').values({
-      idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino: 'D',
-      qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
+      idproduto: dto.idproduto, idempresa: emp, operacao: mov.operacao, destino: 'D',
+      qtde: mov.qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
       obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
     }).returning('codajuste').executeTakeFirstOrThrow();
-    return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: dto.operacao, qtdeanterior, qtdeatual };
+    return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: mov.operacao, qtdeanterior, qtdeatual };
+  }
+
+  /**
+   * os saldos que a tela mostra ao escolher o produto (edtCodProdExit → AbreSegs, :619): a LOJA (ESTOQUE: qtde, mínimo, máximo) e o
+   * DEPÓSITO (ESTOQUE_DEP) da loja do login — o mínimo e o máximo do destino abrem nos campos (CBdestinoExit :476). E o pai, quando o
+   * produto é filho (o ajuste vai para ele), e o TIPO_ESTOQUE (com 'L' o depósito é bloqueado). A troca (ESTOQUETROCA) fica de fora:
+   * o combo do destino só tem LOJA e DEPOSITO, e a tabela não tem saldo na produção.
+   */
+  async saldos(idproduto: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const prod = (await db.selectFrom('produtos as p').leftJoin('produtos as pai', 'pai.idproduto', 'p.idproduto_pai')
+      .select(['p.idproduto', 'p.descricao', 'pai.idproduto as pai_id', 'pai.codbarra as pai_codbarra', 'pai.descricao as pai_descricao'])
+      .where('p.idproduto', '=', idproduto).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto });
+    const alvo = prod.pai_id != null ? Number(prod.pai_id) : idproduto;
+    const loja = (await db.selectFrom('estoque').select(['qtde', 'minimo', 'maximo']).where('idproduto', '=', alvo).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+    const dep = (await db.selectFrom('estoque_dep').select(['qtde', 'minimo', 'maximo']).where('idproduto', '=', alvo).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+    const tipoEstoque = String((await configNaTrx(db, 'TIPO_ESTOQUE', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? '').trim().toUpperCase();
+    const s3 = (r?: Record<string, unknown>) => ({ qtde: r3(num(r?.qtde)), minimo: r3(num(r?.minimo)), maximo: r3(num(r?.maximo)) });
+    return {
+      idproduto: alvo, pai: prod.pai_id != null ? { idproduto: Number(prod.pai_id), codbarra: prod.pai_codbarra, descricao: prod.pai_descricao } : null,
+      loja: s3(loja), deposito: s3(dep), tipoEstoque,
+    };
   }
 
   private async historicoLegado(trx: AnyDB, codmotivo: number, op: number | null): Promise<string> {

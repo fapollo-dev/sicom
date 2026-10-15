@@ -24,7 +24,16 @@ export function listarAjustes(limite = 50): Promise<AjusteEstoque[]> {
   return req(`/cadastro/ajuste-estoque?limite=${limite}`);
 }
 
-export function ajustarEstoque(dto: AjustarEstoqueDto): Promise<{ codajuste: number; qtdeanterior: number; qtdeatual: number }> {
+export interface SaldosAjuste {
+  idproduto: number; pai: { idproduto: number; codbarra?: string; descricao?: string } | null;
+  loja: { qtde: number; minimo: number; maximo: number }; deposito: { qtde: number; minimo: number; maximo: number }; tipoEstoque: string;
+}
+/** os saldos da loja e do depósito do produto (AbreSegs), o pai do filho e o TIPO_ESTOQUE */
+export function saldosAjuste(idproduto: number): Promise<SaldosAjuste> {
+  return req(`/cadastro/ajuste-estoque/saldos/${idproduto}`);
+}
+
+export function ajustarEstoque(dto: AjustarEstoqueDto): Promise<{ codajuste: number; operacao?: string; qtdeanterior: number; qtdeatual: number }> {
   return req(`/cadastro/ajuste-estoque`, { method: 'POST', body: JSON.stringify(dto) });
 }
 

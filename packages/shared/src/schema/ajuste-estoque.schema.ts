@@ -22,18 +22,15 @@ export const ajustarEstoqueSchema = z
     idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto.'),
     operacao: z.enum(AJUSTE_OPERACAO, { message: 'Operação inválida (Aumentar/Diminuir/Substituir).' }),
     destino: z.enum(AJUSTE_DESTINO, { message: 'Destino inválido.' }).optional(),
-    // qtde ≥ 0: SUBSTITUIR aceita 0 (zerar o saldo); AUMENTAR/DIMINUIR exigem > 0 (mover 0 é no-op) — no superRefine.
+    // qtde ≥ 0 (o edtQtde do legado aceita 0 em qualquer operação)
     qtde: z.coerce.number({ message: 'Quantidade inválida.' }).min(0, 'Quantidade inválida.'),
     codmotivo: z.coerce.number({ message: 'Motivo inválido.' }).int().positive('Informe o motivo do ajuste.'),
     obs: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().trim().max(1000).optional()),
     // o mínimo e o máximo da tela (edtQtdeMinimo/edtQtdeMaximo) — gravados no saldo e no ajuste; vazio = mantém os atuais
     minimo: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).optional()),
     maximo: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).optional()),
-  })
-  .superRefine((v, ctx) => {
-    if (v.operacao !== 'SUBSTITUIR' && !(v.qtde > 0))
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['qtde'], message: 'A quantidade deve ser maior que zero.' });
   });
+// a quantidade 0 vale nas três operações: a produção grava DIMINUIR 0 e SUBSTITUIR igual ao saldo para mudar só o mínimo/máximo
 export type AjustarEstoqueDto = z.infer<typeof ajustarEstoqueSchema>;
 
 /** registro devolvido (lista/histórico). */

@@ -4281,10 +4281,12 @@ async function main() {
       aj9p.status === 422 && ((await aj9p.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_ENCONTRADO'
       && aj9m.status === 422 && ((await aj9m.json().catch(() => ({}))) as any).code === 'MOTIVO_NAO_ENCONTRADO',
       { prod: aj9p.status, mot: aj9m.status });
-    // 47.10) validação: sem motivo → 400; AUMENTAR qtde 0 → 400 (mover 0 é no-op).
+    // 47.10) validação: sem motivo → 400; quantidade 0 vale em qualquer operação (a produção grava DIMINUIR 0 / SUBSTITUIR igual ao saldo
+    // para mudar só o mínimo e o máximo — o edtQtde do legado aceita 0) e não mexe no saldo.
     const aj10a = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 5 });
+    const saldoAntes0 = await saldoDe(PRD);
     const aj10b = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 0, codmotivo: 1 });
-    check('AJUSTE: sem motivo → 400; AUMENTAR qtde 0 → 400', aj10a.status === 400 && aj10b.status === 400, { semMotivo: aj10a.status, qtdeZero: aj10b.status });
+    check('AJUSTE: sem motivo → 400; AUMENTAR qtde 0 → 200 sem mexer no saldo', aj10a.status === 400 && aj10b.status === 200 && (await saldoDe(PRD)) === saldoAntes0, { semMotivo: aj10a.status, qtdeZero: aj10b.status });
     // 47.11) RBAC sem grant → 403.
     const aj11 = await fetch(`${base}/${AJ}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 1, codmotivo: 1 }) });
     check('AJUSTE: POST sem grant RBAC → 403', aj11.status === 403, { status: aj11.status });
@@ -21041,6 +21043,62 @@ async function main() {
           await pgTr.query(`DELETE FROM parceiros WHERE codparceiro = $1`, [novo]).catch(() => undefined);
         }
         await pgTr.end();
+      }
+    }
+
+    // ══ §330 AJUSTE DE ESTOQUE (a auditoria do UajusteEstoque.dfm): o SUBSTITUIR grava AUMENTAR/DIMINUIR pela diferença (igual ao saldo:
+    // SUBSTITUIR sem mexer no estoque, só mínimo/máximo — como a produção); o produto filho vira o pai; o depósito bloqueado pelo
+    // TIPO_ESTOQUE 'L'; os saldos da loja e do depósito ao escolher o produto; a lista pede o acesso à tela.
+    {
+      const pgAe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AE = `${base}/cadastro/ajuste-estoque`;
+      const espAntes = (await pgAe.query(`SELECT e.valor FROM configuracoes_especificas e JOIN configuracoes c ON c.id = e.id WHERE c.codigo = 'TIPO_ESTOQUE' AND e.tipo = 'Empresa' AND e.chave = '1'`)).rows[0]?.valor ?? null;
+      const ajs: number[] = [];
+      try {
+        const mot = Number((await pgAe.query(`SELECT min(codmotivo) AS m FROM motivos WHERE coalesce(indr,'I') = 'I'`)).rows[0].m);
+        await pgAe.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (99330, '7000000099330', 'PAI AJE 330', 'UN', 1, 'T01', 'S')
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgAe.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idproduto_pai) VALUES (99331, '7000000099331', 'FILHO AJE 330', 'UN', 1, 'T01', 'S', 99330)
+          ON CONFLICT (idproduto) DO UPDATE SET idproduto_pai = 99330`);
+        await pgAe.query(`DELETE FROM estoque WHERE idproduto IN (99330, 99331) AND idempresa = 1`);
+        await pgAe.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo) VALUES (99330, 1, 10, 1, 20)`);
+        await pgAe.query(`DELETE FROM estoque_dep WHERE idproduto = 99330 AND idempresa = 1`);
+        await pgAe.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde, minimo, maximo) VALUES (99330, 1, 4, 2, 8)`);
+        const aj = async (body: Record<string, unknown>) => { const r = await fetch(AE, { method: 'POST', headers: H, body: JSON.stringify({ codmotivo: mot, ...body }) }); const j = (await r.json().catch(() => ({}))) as any; if (j?.codajuste) ajs.push(Number(j.codajuste)); return { status: r.status, j }; };
+        const linha = async (cod: number) => (await pgAe.query(`SELECT operacao, qtde::float AS qtde, qtdeanterior::float AS ant, qtdeatual::float AS atu, minimo::float AS minimo FROM ajuste_estoque WHERE codajuste = $1`, [cod])).rows[0] as any;
+        const sobe = await aj({ idproduto: 99330, operacao: 'SUBSTITUIR', qtde: 15 });
+        const desce = await aj({ idproduto: 99330, operacao: 'SUBSTITUIR', qtde: 12 });
+        const igual = await aj({ idproduto: 99330, operacao: 'SUBSTITUIR', qtde: 12, minimo: 3 });
+        const lSobe = await linha(Number(sobe.j.codajuste)); const lDesce = await linha(Number(desce.j.codajuste)); const lIgual = await linha(Number(igual.j.codajuste));
+        const est = (await pgAe.query(`SELECT qtde::float AS q, minimo::float AS mn FROM estoque WHERE idproduto = 99330 AND idempresa = 1`)).rows[0] as any;
+        check('AJUSTE §330 [o SUBSTITUIR]: 10 → 15 grava AUMENTAR 5 e 15 → 12 grava DIMINUIR 3 (o btnOkClick troca pela diferença); igual ao saldo grava SUBSTITUIR 12 com anterior = atual e muda só o mínimo (3) — os 19 de 2025-26 da produção',
+          sobe.status === 200 && lSobe?.operacao === 'AUMENTAR' && lSobe?.qtde === 5 && lSobe?.atu === 15
+          && desce.status === 200 && lDesce?.operacao === 'DIMINUIR' && lDesce?.qtde === 3 && lDesce?.atu === 12
+          && igual.status === 200 && lIgual?.operacao === 'SUBSTITUIR' && lIgual?.qtde === 12 && lIgual?.ant === 12 && lIgual?.atu === 12 && lIgual?.minimo === 3
+          && est?.q === 12 && est?.mn === 3,
+          { sobe: [sobe.status, lSobe], desce: [desce.status, lDesce], igual: [igual.status, lIgual], est });
+
+        const filho = await aj({ idproduto: 99331, operacao: 'AUMENTAR', qtde: 1 });
+        const sal = await fetch(`${AE}/saldos/99331`, { headers: H }); const salJ = (await sal.json().catch(() => ({}))) as any;
+        await pgAe.query(`DELETE FROM configuracoes_especificas WHERE tipo = 'Empresa' AND chave = '1' AND id = (SELECT id FROM configuracoes WHERE codigo = 'TIPO_ESTOQUE')`);
+        await pgAe.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Empresa', '1', 'L' FROM configuracoes WHERE codigo = 'TIPO_ESTOQUE'`);
+        const dep = await aj({ idproduto: 99330, operacao: 'AUMENTAR', destino: 'D', qtde: 1 });
+        const semAcesso = await fetch(AE, { headers: H_SEM_ACESSO });
+        check('AJUSTE §330 [filho, depósito, saldos]: o filho é recusado com o pai no detalhe ("ajuste permitido apenas no pai"); os saldos do filho vêm do pai (loja 12/mín 3, depósito 4/2/8); com TIPO_ESTOQUE = L na loja o depósito é bloqueado; a lista sem o acesso à tela → 403',
+          filho.status === 422 && filho.j.code === 'AJUSTE_PRODUTO_FILHO' && Number(filho.j.detalhe?.idproduto) === 99330
+          && sal.status === 200 && Number(salJ.idproduto) === 99330 && Number(salJ.pai?.idproduto) === 99330 && salJ.loja?.qtde === 12 && salJ.loja?.minimo === 3
+          && salJ.deposito?.qtde === 4 && salJ.deposito?.maximo === 8
+          && dep.status === 422 && dep.j.code === 'AJUSTE_DEPOSITO_BLOQUEADO' && semAcesso.status === 403,
+          { filho: [filho.status, filho.j], sal: [sal.status, salJ], dep: [dep.status, dep.j.code], semAcesso: semAcesso.status });
+      } finally {
+        await pgAe.query(`DELETE FROM configuracoes_especificas WHERE tipo = 'Empresa' AND chave = '1' AND id = (SELECT id FROM configuracoes WHERE codigo = 'TIPO_ESTOQUE')`).catch(() => undefined);
+        if (espAntes != null) await pgAe.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Empresa', '1', $1 FROM configuracoes WHERE codigo = 'TIPO_ESTOQUE'`, [espAntes]).catch(() => undefined);
+        if (ajs.length) await pgAe.query(`DELETE FROM ajuste_estoque WHERE codajuste = ANY($1::int[])`, [ajs]).catch(() => undefined);
+        await pgAe.query(`DELETE FROM historico_prod WHERE idproduto IN (99330, 99331)`).catch(() => undefined);
+        await pgAe.query(`DELETE FROM estoque WHERE idproduto IN (99330, 99331)`).catch(() => undefined);
+        await pgAe.query(`DELETE FROM estoque_dep WHERE idproduto IN (99330, 99331)`).catch(() => undefined);
+        await pgAe.query(`DELETE FROM produtos WHERE idproduto IN (99331, 99330)`).catch(() => undefined);
+        await pgAe.end();
       }
     }
 

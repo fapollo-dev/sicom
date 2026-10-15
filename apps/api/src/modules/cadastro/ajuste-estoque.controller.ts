@@ -6,8 +6,8 @@ import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso, RequerAcessoDeAlgum } from '../../shared/acesso/requer-acesso.decorator';
 
 /**
- * AJUSTE DE ESTOQUE (FRMAJUSTEESTOQUE) — controller VERTICAL (o service filtra por idempresa). Leitura livre
- * (histórico); as AÇÕES (ajustar/estornar) exigem RBAC FRMAJUSTEESTOQUE.
+ * AJUSTE DE ESTOQUE (FRMAJUSTEESTOQUE) — controller VERTICAL (o service filtra por idempresa). A leitura pede o acesso à tela (a
+ * consulta também aceita o do cadastro de produto, por onde o "Detalhar" do kardex a abre); o Ajustar (Tag 1) exige BTNOK.
  */
 @Controller('cadastro/ajuste-estoque')
 @UseGuards(AcessoGuard)
@@ -15,8 +15,16 @@ export class AjusteEstoqueController {
   constructor(private readonly svc: AjusteEstoqueService) {}
 
   @Get()
+  @RequerAcesso('FRMAJUSTEESTOQUE', 'FRMAJUSTEESTOQUE')
   listar(@Query('limite') limite?: string) {
     return this.svc.listar(limite ? Number(limite) : undefined);
+  }
+
+  /** os saldos da loja e do depósito ao escolher o produto (AbreSegs), o pai do produto filho e o TIPO_ESTOQUE */
+  @Get('saldos/:idproduto')
+  @RequerAcesso('FRMAJUSTEESTOQUE', 'FRMAJUSTEESTOQUE')
+  saldos(@Param('idproduto', ParseIntPipe) idproduto: number) {
+    return this.svc.saldos(idproduto);
   }
 
   /** a aba Histórico (Filtrar sem Tag: o acesso à tela) — período e produto opcionais, a loja do login. Também o "Detalhar" do

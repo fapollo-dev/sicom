@@ -3,14 +3,15 @@ import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design
 import { Undo2 } from 'lucide-react';
 import { AJUSTE_OPERACAO_OPCOES, AJUSTE_DESTINO_OPCOES, type AjusteEstoque } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
-import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
-import { listarAjustes, ajustarEstoque, estornarAjuste, consultarAjustes, consultaAjusteQuery, type FiltroConsultaAjuste } from './ajusteEstoqueApi';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
+import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
+import { listarAjustes, ajustarEstoque, estornarAjuste, consultarAjustes, consultaAjusteQuery, type FiltroConsultaAjuste, saldosAjuste, type SaldosAjuste } from './ajusteEstoqueApi';
 import { Field } from '../../shared/ui/Field';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 
@@ -30,6 +31,7 @@ export function AjusteEstoquePage() {
 
   const [idproduto, setIdproduto] = useState<number | undefined>(undefined);
   const [operacao, setOperacao] = useState<string>('AUMENTAR');
+  const { tem: pode } = useOpcoesDoForm('FRMAJUSTEESTOQUE'); // o "Ajustar" tem Tag 1 (BTNOK)
   const [destino, setDestino] = useState<string>('E');
   const [qtde, setQtde] = useState<number | undefined>(undefined);
   const [codmotivo, setCodmotivo] = useState<number | undefined>(undefined);
@@ -55,16 +57,42 @@ export function AjusteEstoquePage() {
   }, [mensagem]);
   useEffect(() => { void recarregar(); }, [recarregar]);
 
+  // edtCodProdExit / AbreSegs: os saldos da loja e do depósito; o produto FILHO vira o pai ("ajuste permitido apenas no pai")
+  const [saldos, setSaldos] = useState<SaldosAjuste | null>(null);
+  const escolherProduto = async (cod?: string) => {
+    const id = cod ? Number(cod) : undefined;
+    setIdproduto(id); setSaldos(null);
+    if (!id) return;
+    try {
+      const s = await saldosAjuste(id);
+      if (s.pai) { mensagem.erro('Atenção este produto é filho, ajuste permitido apenas no pai'); setIdproduto(s.pai.idproduto); }
+      setSaldos(s);
+      aplicarMinMax(s, destino);
+    } catch (e) { mensagem.erro(e); }
+  };
+  // CBdestinoExit: o mínimo e o máximo do destino abrem nos campos; com TIPO_ESTOQUE = 'L' o depósito é bloqueado
+  const aplicarMinMax = (s: SaldosAjuste | null, d: string) => {
+    if (!s) return;
+    const b = d === 'D' ? s.deposito : s.loja;
+    setMinimo(b.minimo); setMaximo(b.maximo);
+  };
+  const trocarDestino = (d: string) => {
+    if (d === 'D' && saldos?.tipoEstoque === 'L') { mensagem.erro('Ajuste de estoque no depósito, bloqueado!'); return; }
+    setDestino(d); aplicarMinMax(saldos, d);
+  };
+
   const ajustar = async () => {
     if (executando) return;
     if (idproduto == null) return mensagem.erro('Selecione o produto.');
-    if (codmotivo == null) return mensagem.erro('Selecione o motivo.');
-    if (qtde == null || qtde <= 0) return mensagem.erro('Informe a quantidade (maior que zero).');
+    if (!destino) return mensagem.erro('Obrigatório informar destino.');
+    if (codmotivo == null) return mensagem.erro('Informe o motivo do ajuste!');
+    if (qtde == null || qtde < 0) return mensagem.erro('Informe a quantidade.');
     setExecutando(true);
     try {
       const r = await ajustarEstoque({ idproduto, operacao: operacao as any, destino: destino as any, qtde, codmotivo, obs: obs || undefined, minimo, maximo });
-      mensagem.sucesso(`Ajuste aplicado: saldo ${fmtQtd(r.qtdeanterior)} → ${fmtQtd(r.qtdeatual)}.`);
-      setQtde(undefined); setObs('');
+      mensagem.sucesso(`Ajuste realizado com sucesso!\nEstoque atual: ${fmtQtd(r.qtdeatual)}`);
+      // o legado limpa a tela e volta a operação para a última escolhida (UltimaAlteracao)
+      setQtde(undefined); setObs(''); setIdproduto(undefined); setSaldos(null); setCodmotivo(undefined); setMinimo(undefined); setMaximo(undefined);
       await recarregar();
     } catch (e) {
       mensagem.erro(e);
@@ -113,8 +141,15 @@ export function AjusteEstoquePage() {
           {/* UajusteEstoque.pas:165 — GET_PRODUTOS sem filtro (o legado devolve o CODBARRA ao edit; aqui o campo grava o idproduto) */}
           <div className="w-96">
             <LookupField label="Produto" recurso="lookup/produtos" campoCodigo="idproduto" descricao="descricao" value={idproduto}
-              onChange={(cod) => setIdproduto(cod ? Number(cod) : undefined)} />
+              onChange={(cod) => void escolherProduto(cod)} />
           </div>
+          {/* os saldos do produto na loja do login (lblEstLoja/lblEstMinLoja/lblEstMaxLoja e os do depósito) */}
+          {saldos && (
+            <div className="flex gap-gp-md text-body-sm tabular-nums" aria-label="Saldos">
+              <span><b>Loja</b> {fmtQtd(saldos.loja.qtde)} · mín {fmtQtd(saldos.loja.minimo)} · máx {fmtQtd(saldos.loja.maximo)}</span>
+              <span><b>Depósito</b> {fmtQtd(saldos.deposito.qtde)} · mín {fmtQtd(saldos.deposito.minimo)} · máx {fmtQtd(saldos.deposito.maximo)}</span>
+            </div>
+          )}
           <div className="w-52">
             <SelectField label="Operação" options={AJUSTE_OPERACAO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={operacao} onChange={setOperacao} />
           </div>
@@ -131,14 +166,14 @@ export function AjusteEstoquePage() {
             <SelectField label="Motivo" options={motivoOptions} value={codmotivo != null ? String(codmotivo) : undefined} onChange={(v) => setCodmotivo(v ? Number(v) : undefined)} placeholder="Motivo…" />
           </div>
           <div className="w-40">
-            <SelectField label="Destino" options={AJUSTE_DESTINO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={destino} onChange={setDestino} />
+            <SelectField label="Destino" options={AJUSTE_DESTINO_OPCOES.map((o) => ({ value: o.value, label: o.label }))} value={destino} onChange={trocarDestino} />
           </div>
           <div className="w-72">
             <TextArea label="Observação" value={obs} onChange={(e) => setObs(e.target.value)} rows={1} />
           </div>
-          <Button label="&Aplicar ajuste" variant="soft" onClick={() => void ajustar()} />
+          <Button label="&Ajustar" variant="soft" disabled={!pode('BTNOK')} onClick={() => void ajustar()} />
         </div>
-        <small className="mt-form-gap block text-fg-muted">O ajuste move o saldo de estoque e grava no kardex. Substituir define o saldo absoluto.</small>
+        <small className="mt-form-gap block text-fg-muted">O ajuste move o saldo de estoque e grava no kardex. Substituir informa o saldo final: grava-se Aumentar ou Diminuir pela diferença (igual ao saldo, só o mínimo e o máximo mudam).</small>
       </fieldset>
 
       <section>
@@ -200,6 +235,9 @@ function ConsultaAjustes() {
         <div className="w-40"><Field label="Data final" type="date" value={f.dtfim ?? ''} onChange={(e) => setF({ ...f, dtfim: e.target.value || undefined })} /></div>
         <Button label={ocupado ? 'Filtrando…' : 'Filtrar'} variant="soft" disabled={ocupado} onClick={() => void filtrar()} />
         <Button label="&Imprimir" variant="ghost" disabled={ocupado} onClick={imprimir} />
+        {/* BtnExportarExcelClick: a grade do Histórico como está (o legado grava AjusteEstoque.xlsx) */}
+        <Button label="&Exportar" variant="ghost" disabled={ocupado || !linhas?.length}
+          onClick={() => exportarGradeCsv(linhas ?? [], cols.map((c) => ({ titulo: c.t, valor: (l: Record<string, unknown>) => (c.fmt ? c.fmt(l[c.k]) : l[c.k]) })), 'AjusteEstoque')} />
       </div>
       {linhas && (linhas.length === 0 ? <small className="text-fg-muted">Nenhum ajuste foi encontrado</small> : (
         <div className="overflow-x-auto">
