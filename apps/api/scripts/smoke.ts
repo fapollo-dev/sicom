@@ -16394,6 +16394,30 @@ async function main() {
         g40b.status === 422 && g40bJ.code === 'PROMOCAO_PRECO_INVALIDO' && g40c.status === 422 && g40cJ.code === 'PROMOCAO_QUANTIDADE_INVALIDA',
         { df: [g40b.status, g40bJ.code], d: [g40c.status, g40cJ.code] });
 
+      // 91.41) ValidacaoOutraPromocao (UCadPromocao.pas:3276-3515): o mesmo alvo noutra promoção ativa e simultânea, na mesma loja → barra
+      // (Combo); no destino cruzado do Atacarejo → "Deseja continuar?" e com `confirmado` grava; Fornecedor × Marca entre promoções → barra
+      {
+        const per = { datainicio: '2031-03-01T05:00', datafim: '2031-03-10T23:59', empresas: '1' };
+        const cmb = (descricao: string) => crGp({ descricao, tipo: 'O', destino: 'T', valorcombo: 10, tipocombo: 'C', ...per, itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 2, valor: 1, tipo: '$' }] });
+        const c1 = await cmb('OUTRA PROMO C1'); const c1J = (await c1.json().catch(() => ({}))) as any;
+        const c2 = await cmb('OUTRA PROMO C2'); const c2J = (await c2.json().catch(() => ({}))) as any;
+        const at = (descricao: string, destino: string, confirmado?: boolean) => crGp({ descricao, tipo: 'A', destino, ...per, ...(confirmado ? { confirmado: true } : {}),
+          itens: [{ origem: 'A', idorigempromocao: 2, quantidade: 6, valor: 5, tipo: '$' }] });
+        const a1 = await at('OUTRA PROMO A1', 'C'); const a1J = (await a1.json().catch(() => ({}))) as any;
+        const a2 = await at('OUTRA PROMO A2', 'T'); const a2J = (await a2.json().catch(() => ({}))) as any;
+        const a3 = await at('OUTRA PROMO A3', 'T', true); const a3J = (await a3.json().catch(() => ({}))) as any;
+        const k1 = await crGp({ descricao: 'OUTRA PROMO K1', tipo: 'C', destino: 'T', ...per, itens: [{ origem: 'C', subtipo: 'F', idorigempromocao: 1, valor: 5 }] });
+        const k2 = await crGp({ descricao: 'OUTRA PROMO K2', tipo: 'C', destino: 'T', ...per, itens: [{ origem: 'C', subtipo: 'M', idorigempromocao: 1, valor: 5 }] });
+        const k2J = (await k2.json().catch(() => ({}))) as any;
+        check('GP 91.41 [ValidacaoOutraPromocao]: o mesmo produto/quantidade num Combo simultâneo → "Este registro foi encontrado em outra promoção (N)."; no Atacarejo o destino cruzado (C × T) pergunta "Deseja continuar?" e com confirmado grava; Marca numa promoção simultânea a uma de Fornecedor → barra',
+          c1.status === 201 && c2.status === 422 && c2J.message === `Este registro foi encontrado em outra promoção (${c1J.idpromocao}).`
+          && a1.status === 201 && a2.status === 422 && a2J.code === 'PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR' && String(a2J.message).endsWith('Deseja continuar?') && a3.status === 201
+          && k1.status === 201 && k2.status === 422 && String(k2J.message).startsWith('Apenas um registro do tipo "Fornecedor" ou "Marca"'),
+          { c: [c1.status, c2.status, c2J.message], a: [a1.status, a2.status, a2J.code, a3.status, a3J.code], k: [k1.status, k2.status, k2J.message] });
+        await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao LIKE 'OUTRA PROMO %')`);
+        await pgGp.query(`DELETE FROM promocao WHERE descricao LIKE 'OUTRA PROMO %'`);
+      }
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
       await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO','PROMO BONIFICACAO','PROMO GRATIS','PROMO ADICIONAL'))`);
       await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO','PROMO BONIFICACAO','PROMO GRATIS','PROMO ADICIONAL')`);

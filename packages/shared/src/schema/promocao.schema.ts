@@ -67,6 +67,8 @@ const base = z.object({
   tipocombo: opcional(z.string().trim().max(1)),
   valor_minimo_compra: dec(z.number().nonnegative()),
   itens: z.array(promocaoItemSchema).optional().default([]),
+  /** o "Deseja continuar?" do ValidacaoOutraPromocao (o mesmo alvo noutra promoção, no destino cruzado do Atacarejo e da Categoria) */
+  confirmado: z.boolean().optional(),
 });
 
 const refineDatas = (d: { datainicio?: string; datafim?: string }, ctx: z.RefinementCtx) => {

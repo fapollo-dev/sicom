@@ -511,7 +511,7 @@ export function PromocaoCadMaster() {
     setValorComboHdr(undefined); setTipoComboHdr('C'); // header do combo: limpa na troca de aba (não a cada Adicionar)
   };
 
-  const gravar = async () => {
+  const gravar = async (confirmado = false) => {
     // o Validado do legado (UCadPromocao.pas:3517), na ordem e com as mensagens dele
     if (!dtini) return mensagem.erro('Informe a data inicial da promoção.');
     if (!dtfim) return mensagem.erro('Informe a data final da promoção.');
@@ -559,6 +559,7 @@ export function PromocaoCadMaster() {
         ...(mec?.shape === 'combo' ? { valorcombo: n(valorComboHdr), tipocombo: tipoComboHdr } : {}),
         // só a mecânica com tela leva itens; a sem tela (o 'T' do binário novo) NÃO manda a chave — os itens dela ficam como estão
         ...(mec ? { itens } : {}),
+        ...(confirmado ? { confirmado: true } : {}),
       } as any;
       if (editando != null) await atualizarPromocao(editando, corpo);
       else await criarPromocao(corpo);
@@ -566,6 +567,13 @@ export function PromocaoCadMaster() {
       novaPromocao();
       await recarregar();
     } catch (e) {
+      // ValidacaoOutraPromocao com Perguntar (o destino cruzado do Atacarejo e da Categoria): "Deseja continuar?"
+      const env = (e as { envelope?: { code?: string; message?: string } }).envelope;
+      if (env?.code === 'PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR' && !confirmado && window.confirm(env.message ?? 'Deseja continuar?')) {
+        setSalvando(false);
+        await gravar(true);
+        return;
+      }
       mensagem.erro(e);
     } finally {
       setSalvando(false);
@@ -930,7 +938,7 @@ export function PromocaoCadMaster() {
         </div>
 
         <div className="mt-form-gap flex justify-end">
-          <Button label={salvando ? 'Gravando…' : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar()} />
+          <Button label={salvando ? 'Gravando…' : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar(false)} />
         </div>
       </section>
 

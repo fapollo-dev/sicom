@@ -53,10 +53,21 @@ eram, no Apollo, "Produto + valor/quantidade". Agora são as do legado:
   ⚠️ O legado testa `DataSetFilho.IsEmpty` (o dataset sem filtro): com o Grupo B preenchido, qualquer "Grupo" no A seria barrado. O Apollo
   aplica a regra que a mensagem descreve.
 
+## A validação entre promoções (15/10/2026)
+
+`ValidacaoOutraPromocao` / `RegistroEmOutraPromocao` (pas:3276-3515), chamada pelas validações de Categoria, Combo, Atacarejo e
+Bonificação: o mesmo alvo numa **outra** promoção ativa, com período sobreposto (`DATA_INICIO >= ini AND < fim` OU `DATA_FIM > ini AND <
+fim` OU contém o período), mesma origem e destino — o 'T' cruza com 'C' e 'F', e estes com 'T' —, numa das lojas da promoção (e, no Combo,
+Atacarejo e Bonificação, a mesma QUANTIDADE) → "Este registro foi encontrado em outra promoção (N).". No destino **cruzado** do Atacarejo
+e da Categoria o legado pergunta "…Deseja continuar?" (o Apollo: 422 `PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR`, a tela confirma e reenvia com
+`confirmado`). Categoria Fornecedor × Marca: "Apenas um registro do tipo "Fornecedor" ou "Marca" podem ser informados em promoções
+simultâneas (N).". O Apollo não validava nada disso. ❌→✅
+⚠️ Na Categoria o `RegistroEmOutraPromocao(…, False)` não compara o SUBTIPO — a Seção 5 colidiria com o Produto 5. O Apollo compara o
+subtipo (o alvo de verdade), documentado.
+
 ## Falta auditar (próximo corte desta tela)
 
 Categoria, Combo, Atacarejo, Bonificação e Código Promocional controle a controle; os botões Adicionar/Editar/Excluir/Gravar por aba;
-a aba **Perfil de Cliente** (destino P); a aba **Log**; as validações entre promoções (`ValidacaoOutraPromocao`: "Este registro foi
-encontrado em outra promoção (N)…"); e a clonagem.
+a aba **Perfil de Cliente** (destino P); a aba **Log**; e a clonagem.
 
-Prova: smoke §91.13, §91.13b, §91.27b + `apps/web/test/promocaoCadMaster.spec.tsx` (3) + `promocaoLote.spec.tsx`.
+Prova: smoke §91.13, §91.13b, §91.27b, §91.41 + `apps/web/test/promocaoCadMaster.spec.tsx` (3) + `promocaoLote.spec.tsx`.
