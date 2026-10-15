@@ -133,6 +133,60 @@ const mecOf = (origem: unknown): MecanicaCfg | undefined => {
 /** as grades com a coluna "Grupo" (PRECO_GRUPO) — as que chamam o GrupoPrecoValidada no legado */
 const ORIGENS_COM_GRUPO = new Set(['F', 'V', 'P', 'L', 'G', 'GF', 'D', 'DF']);
 
+/**
+ * ValidacaoOutraPromocao / RegistroEmOutraPromocao (UCadPromocao.pas:3276-3515) — Categoria, Combo, Atacarejo e Bonificação: o mesmo alvo em
+ * OUTRA promoção ativa com período sobreposto, mesma origem e destino (o 'T' cruza com 'C' e 'F' e vice-versa), numa das lojas desta (e, no
+ * Combo/Atacarejo/Bonificação, a mesma QUANTIDADE); a Categoria Fornecedor/Marca não convive com a outra dimensão numa promoção simultânea.
+ * Devolve TODOS os conflitos, na ordem do legado (por item: o próprio destino, os cruzados, Fornecedor × Marca) — o gravar barra no
+ * primeiro; a clonagem (MniClonarRegistroClick) inativa cada item em conflito e escreve na aba Log.
+ * ⚠️ na Categoria o legado não compara o SUBTIPO (a Seção 5 colidiria com o Produto 5); aqui compara.
+ */
+export async function conflitosOutraPromocao(db: any, dto: Record<string, unknown>, id: number | null): Promise<Array<{ indice: number; promocao: number; tipo: 'proprio' | 'cruzado' | 'fornmarca'; origem: string }>> {
+  const itens = (dto.itens ?? []) as Array<Record<string, unknown>>;
+  const ini = dto.datainicio as string | undefined, fim = dto.datafim as string | undefined;
+  if (!ini || !fim) return [];
+  const lojasDesta = String(dto.empresas ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!lojasDesta.length) lojasDesta.push(String(currentTenant().empresaId ?? ''));
+  const naLoja = (idempresa: unknown) => String(idempresa ?? '').split(',').map((x) => x.trim()).some((x) => lojasDesta.includes(x));
+  const outra = async (it: Record<string, unknown>, destino: string, opts: { qtde?: boolean; subtipoOutro?: string } = {}) => {
+    const rs = (await sql<{ idpromocao: number; idempresa: string | null }>`
+      SELECT c.idpromocao, c.idempresa::text AS idempresa
+        FROM clube_desconto c JOIN promocao p ON p.idpromocao = c.idpromocao AND coalesce(p.indr, '') <> 'E'
+       WHERE c.idpromocao <> ${id ?? -1}
+         AND ((c.data_inicio >= ${ini}::timestamptz AND c.data_inicio < ${fim}::timestamptz)
+           OR (c.data_fim > ${ini}::timestamptz AND c.data_fim < ${fim}::timestamptz)
+           OR (c.data_inicio <= ${ini}::timestamptz AND c.data_fim >= ${fim}::timestamptz))
+         AND trim(c.origem) = ${String(it.origem)}
+         ${opts.subtipoOutro ? sql`AND c.subtipo = ${opts.subtipoOutro}` : sql`AND c.idorigempromocao = ${Number(it.idorigempromocao)}`}
+         ${opts.subtipoOutro == null && String(it.origem) === 'C' ? sql`AND c.subtipo = ${String(it.subtipo ?? '')}` : sql``}
+         AND c.destino = ${destino} AND coalesce(c.ativo, 'S') = 'S'
+         ${opts.qtde ? sql`AND c.quantidade = ${Number(it.quantidade)}` : sql``}
+       ORDER BY c.idpromocao`.execute(db)).rows;
+    return rs.find((r) => naLoja(r.idempresa))?.idpromocao ?? null;
+  };
+  const cruzados = (d: string) => (d === 'T' ? ['C', 'F'] : d === 'C' || d === 'F' ? ['T'] : []);
+  const out: Array<{ indice: number; promocao: number; tipo: 'proprio' | 'cruzado' | 'fornmarca'; origem: string }> = [];
+  for (const [indice, it] of itens.entries()) {
+    const origem = String(it.origem);
+    if (!['C', 'O', 'A', 'B'].includes(origem)) continue;
+    const destino = String(it.destino ?? dto.destino ?? 'T');
+    const qtde = origem !== 'C';
+    const proprio = await outra(it, destino, { qtde });
+    if (proprio != null) { out.push({ indice, promocao: proprio, tipo: 'proprio', origem }); continue; }
+    let achou = false;
+    for (const d of cruzados(destino)) {
+      const c = await outra(it, d, { qtde });
+      if (c != null) { out.push({ indice, promocao: c, tipo: 'cruzado', origem }); achou = true; break; }
+    }
+    if (achou) continue;
+    if (origem === 'C' && (it.subtipo === 'F' || it.subtipo === 'M')) {
+      const c = await outra(it, destino, { subtipoOutro: it.subtipo === 'F' ? 'M' : 'F' });
+      if (c != null) out.push({ indice, promocao: c, tipo: 'fornmarca', origem });
+    }
+  }
+  return out;
+}
+
 export const promocaoAggregateConfig: AggregateConfig = {
   tabela: 'promocao',
   pk: 'idpromocao',
@@ -309,54 +363,15 @@ export const promocaoAggregateConfig: AggregateConfig = {
           .filter((n) => Number.isFinite(n) && n > 0),
       ),
     ];
-    // ValidacaoOutraPromocao / RegistroEmOutraPromocao (UCadPromocao.pas:3276-3515) — Categoria, Combo, Atacarejo e Bonificação: o mesmo alvo
-    // em OUTRA promoção ativa com período sobreposto, mesma origem e destino (o 'T' cruza com 'C' e 'F' e vice-versa), numa das lojas desta
-    // (e, no Combo/Atacarejo/Bonificação, a mesma QUANTIDADE) → "Este registro foi encontrado em outra promoção (N)."; no destino cruzado do
-    // Atacarejo e da Categoria o legado pergunta "Deseja continuar?" (aqui: `confirmado`). A Categoria Fornecedor/Marca não convive com a
-    // outra dimensão numa promoção simultânea.
-    {
-      const ini = dto.datainicio as string | undefined, fim = dto.datafim as string | undefined;
-      const lojasDesta = String(dto.empresas ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-      if (!lojasDesta.length) lojasDesta.push(String(currentTenant().empresaId ?? ''));
-      const naLoja = (idempresa: unknown) => String(idempresa ?? '').split(',').map((x) => x.trim()).some((x) => lojasDesta.includes(x));
-      const outra = async (it: Record<string, unknown>, destino: string, opts: { qtde?: boolean; subtipoOutro?: string } = {}) => {
-        if (!ini || !fim) return null;
-        const rs = (await sql<{ idpromocao: number; idempresa: string | null }>`
-          SELECT c.idpromocao, c.idempresa::text AS idempresa
-            FROM clube_desconto c JOIN promocao p ON p.idpromocao = c.idpromocao AND coalesce(p.indr, '') <> 'E'
-           WHERE c.idpromocao <> ${id ?? -1}
-             AND ((c.data_inicio >= ${ini}::timestamptz AND c.data_inicio < ${fim}::timestamptz)
-               OR (c.data_fim > ${ini}::timestamptz AND c.data_fim < ${fim}::timestamptz)
-               OR (c.data_inicio <= ${ini}::timestamptz AND c.data_fim >= ${fim}::timestamptz))
-             AND trim(c.origem) = ${String(it.origem)}
-             ${opts.subtipoOutro ? sql`AND c.subtipo = ${opts.subtipoOutro}` : sql`AND c.idorigempromocao = ${Number(it.idorigempromocao)}`}
-             ${opts.subtipoOutro == null && String(it.origem) === 'C' ? sql`AND c.subtipo = ${String(it.subtipo ?? '')}` : sql``}
-             AND c.destino = ${destino} AND coalesce(c.ativo, 'S') = 'S'
-             ${opts.qtde ? sql`AND c.quantidade = ${Number(it.quantidade)}` : sql``}
-           ORDER BY c.idpromocao`.execute(db)).rows;
-        return rs.find((r) => naLoja(r.idempresa))?.idpromocao ?? null;
-      };
-      const cruzados = (d: string) => (d === 'T' ? ['C', 'F'] : d === 'C' || d === 'F' ? ['T'] : []);
-      for (const it of itens) {
-        const origem = String(it.origem);
-        if (!['C', 'O', 'A', 'B'].includes(origem)) continue;
-        const destino = String(it.destino ?? dto.destino ?? 'T');
-        const qtde = origem !== 'C';
-        const proprio = await outra(it, destino, { qtde });
-        if (proprio != null) throw new BusinessRuleError('PROMOCAO_OUTRA_PROMOCAO', { promocao: proprio }, `Este registro foi encontrado em outra promoção (${proprio}).`);
-        for (const d of cruzados(destino)) {
-          const c = await outra(it, d, { qtde });
-          if (c == null) continue;
-          // Atacarejo e Categoria perguntam; Combo e Bonificação barram
-          if ((origem === 'A' || origem === 'C') && dto.confirmado === true) continue;
-          if (origem === 'A' || origem === 'C') throw new BusinessRuleError('PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR', { promocao: c }, `Este registro foi encontrado em outra promoção (${c}).\nDeseja continuar?`);
-          throw new BusinessRuleError('PROMOCAO_OUTRA_PROMOCAO', { promocao: c }, `Este registro foi encontrado em outra promoção (${c}).`);
-        }
-        if (origem === 'C' && (it.subtipo === 'F' || it.subtipo === 'M')) {
-          const c = await outra(it, destino, { subtipoOutro: it.subtipo === 'F' ? 'M' : 'F' });
-          if (c != null) throw new BusinessRuleError('PROMOCAO_CATEGORIA_FORN_MARCA_OUTRA', { promocao: c }, `Apenas um registro do tipo "Fornecedor" ou "Marca" podem ser informados em promoções simultâneas (${c}).`);
-        }
+    // ValidacaoOutraPromocao / RegistroEmOutraPromocao (UCadPromocao.pas:3276-3515) — ver `conflitosOutraPromocao`; o primeiro conflito barra
+    // (o destino cruzado do Atacarejo e da Categoria pergunta "Deseja continuar?" — com `confirmado`, segue)
+    for (const c of await conflitosOutraPromocao(db, dto, id ?? null)) {
+      if (c.tipo === 'fornmarca') throw new BusinessRuleError('PROMOCAO_CATEGORIA_FORN_MARCA_OUTRA', { promocao: c.promocao }, `Apenas um registro do tipo "Fornecedor" ou "Marca" podem ser informados em promoções simultâneas (${c.promocao}).`);
+      if (c.tipo === 'cruzado' && (c.origem === 'A' || c.origem === 'C')) {
+        if (dto.confirmado === true) continue;
+        throw new BusinessRuleError('PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR', { promocao: c.promocao }, `Este registro foi encontrado em outra promoção (${c.promocao}).\nDeseja continuar?`);
       }
+      throw new BusinessRuleError('PROMOCAO_OUTRA_PROMOCAO', { promocao: c.promocao }, `Este registro foi encontrado em outra promoção (${c.promocao}).`);
     }
     // GrupoPrecoValidada (UCadPromocao.pas:2669): o item marcado "Grupo" não pode ter outro produto do MESMO grupo de preço na mesma grade
     // nem na outra (A × B). O legado testa `DataSetFilho.IsEmpty` (o dataset sem filtro) e, com o Grupo B preenchido, barraria qualquer

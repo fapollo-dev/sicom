@@ -9,7 +9,8 @@ import { ShortcutScope } from '../src/shared/keyboard';
 const LISTA = [{ idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z', qtde_itens: 1 },
   { idpromocao: 6, descricao: 'PRECO FIXO X', tipo: 'P', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
   { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
-  { idpromocao: 9, descricao: 'PERFIL Z', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 }];
+  { idpromocao: 9, descricao: 'PERFIL Z', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
+  { idpromocao: 10, descricao: 'COMBO W', tipo: 'O', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 2 }];
 const PROMOS: Record<number, unknown> = {
   5: { idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', opcao: 'O', destino: 'T', empresas: '1', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z',
     itens: [{ idclubedesconto: 1148, origem: 'T ', operacao: 'DESCONTO_POR_PDV', pdv: 72, minimo: 90, maximo: 160 }] },
@@ -19,6 +20,9 @@ const PROMOS: Record<number, unknown> = {
     itens: [{ idclubedesconto: 10, origem: 'F', idorigempromocao: 2, valor: 6, quantidade: 3, ativo: 'S', preco_grupo: 'N' }] },
   9: { idpromocao: 9, descricao: 'PERFIL Z', tipo: 'F', opcao: 'O', destino: 'P', empresas: '1', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
     itens: [{ idclubedesconto: 11, origem: 'F', idorigempromocao: 2, valor: 6, quantidade: 3, codperfil_parceiro: 'I3,E4,' }] },
+  10: { idpromocao: 10, descricao: 'COMBO W', tipo: 'O', opcao: 'O', destino: 'T', empresas: '1', valorcombo: 10, tipocombo: 'C', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
+    itens: [{ idclubedesconto: 20, origem: 'O', idorigempromocao: 1, valor: 1, quantidade: 2, tipo: '$', ativo: 'S', descricao: 'ARROZ 5KG' },
+      { idclubedesconto: 21, origem: 'O', idorigempromocao: 2, valor: 1, quantidade: 2, tipo: '$', ativo: 'S', descricao: 'FEIJAO 1KG' }] },
 };
 let chamadas: Array<{ url: string; method: string; body: any }> = [];
 beforeEach(() => {
@@ -27,7 +31,8 @@ beforeEach(() => {
     const u = String(url); const method = init?.method ?? 'GET';
     chamadas.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : null });
     const m = u.match(/\/cadastro\/promocao\/(\d+)$/);
-    const r = u.includes('/promocao-produtos') ? [{ idproduto: 2, codbarra: '7890002', descricao: 'FEIJAO 1KG', codgrupopreco: 0, vrvenda: 10 }, { idproduto: 1, codbarra: '7890001', descricao: 'ARROZ 5KG', codgrupopreco: 0, vrvenda: 5 }]
+    const r = u.includes('/promocao-produtos/clonagem') ? { conflitos: [{ indice: 1, promocao: 77, tipo: 'proprio', origem: 'O' }] }
+      : u.includes('/promocao-produtos') ? [{ idproduto: 2, codbarra: '7890002', descricao: 'FEIJAO 1KG', codgrupopreco: 0, vrvenda: 10 }, { idproduto: 1, codbarra: '7890001', descricao: 'ARROZ 5KG', codgrupopreco: 0, vrvenda: 5 }]
       : m && method === 'GET' ? PROMOS[Number(m[1])] : u.includes('/cadastro/promocao') && method === 'GET' ? LISTA : {};
     return { ok: true, status: 200, json: async () => r };
   }) as any;
@@ -113,5 +118,25 @@ describe('Gestão de promoções (UCadPromocao.dfm) — abrir, alterar e o cabe�
     fireEvent.click(botao('Gravar promoção'));
     await waitFor(() => expect(chamadas.some((c) => c.method === 'PUT')).toBe(true));
     expect(chamadas.find((c) => c.method === 'PUT')!.body.itens[0].codperfil_parceiro).toBe('E3,E4,');
+  });
+
+  it('Clonar: pede o período, copia cabeçalho e itens numa promoção nova; o item que esbarra noutra promoção entra inativo e vai para a aba Log', async () => {
+    tela();
+    expect(await screen.findByText('COMBO W')).toBeTruthy();
+    acao('COMBO W', 'Clonar');
+    fireEvent.change(screen.getByLabelText('Início da clonagem'), { target: { value: '2030-06-01T05:00' } });
+    fireEvent.change(screen.getByLabelText('Fim da clonagem'), { target: { value: '2030-06-05T23:59' } });
+    fireEvent.click(botao('Clonar'));
+    expect(await screen.findByText('Ocorreram erros durante a clonagem, verifique a guia logs.')).toBeTruthy();
+    expect(screen.getByLabelText('Log').textContent).toContain('Erro ao clonar o produto FEIJAO 1KG, será cadastrado como inativo.');
+    expect(screen.getByLabelText('Log').textContent).toContain('Este registro foi encontrado em outra promoção (77).');
+    fireEvent.click(screen.getByRole('button', { name: /ok/i }));
+    expect(screen.queryByText('Promoção nº 10')).toBeNull();
+    fireEvent.click(botao('Gravar promoção'));
+    await waitFor(() => expect(chamadas.some((c) => c.method === 'POST' && /\/cadastro\/promocao$/.test(c.url))).toBe(true));
+    const post = chamadas.find((c) => c.method === 'POST' && /\/cadastro\/promocao$/.test(c.url))!.body;
+    expect(post.descricao).toBe('COMBO W');
+    expect(post.itens.map((i: any) => i.ativo)).toEqual(['S', 'N']);
+    expect(post.itens[0].idclubedesconto).toBeUndefined();
   });
 });

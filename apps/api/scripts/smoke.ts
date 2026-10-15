@@ -16414,6 +16414,11 @@ async function main() {
           && a1.status === 201 && a2.status === 422 && a2J.code === 'PROMOCAO_OUTRA_PROMOCAO_CONFIRMAR' && String(a2J.message).endsWith('Deseja continuar?') && a3.status === 201
           && k1.status === 201 && k2.status === 422 && String(k2J.message).startsWith('Apenas um registro do tipo "Fornecedor" ou "Marca"'),
           { c: [c1.status, c2.status, c2J.message], a: [a1.status, a2.status, a2J.code, a3.status, a3J.code], k: [k1.status, k2.status, k2J.message] });
+        // a clonagem (MniClonarRegistroClick): o mesmo Combo clonado para o mesmo período → o item volta como conflito (a tela o inativa)
+        const cl = (await (await fetch(`${base}/cadastro/promocao-produtos/clonagem`, { method: 'POST', headers: H, body: JSON.stringify({ ...per, destino: 'T',
+          itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 2 }, { origem: 'O', idorigempromocao: 99999, quantidade: 2 }] }) })).json().catch(() => ({}))) as any;
+        check('GP 91.41b [a clonagem]: a verificação aponta só o item que esbarra noutra promoção (índice 0, promoção C1) sem barrar',
+          Array.isArray(cl.conflitos) && cl.conflitos.length === 1 && cl.conflitos[0].indice === 0 && Number(cl.conflitos[0].promocao) === Number(c1J.idpromocao), { cl });
         await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao LIKE 'OUTRA PROMO %')`);
         await pgGp.query(`DELETE FROM promocao WHERE descricao LIKE 'OUTRA PROMO %'`);
       }

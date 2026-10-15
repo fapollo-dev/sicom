@@ -72,9 +72,17 @@ subtipo (o alvo de verdade), documentado.
 (`AtualizaPerfilCliente`) cada item leva CODPERFIL_PARCEIRO = a lista "I<cod>,E<cod>," — o excluído **continua** na lista, com 'E'. Faltava.
 ❌→✅ (Pesquisa `promocao/perfis` com o filtro no servidor.) 0 itens com perfil na produção.
 
+## A clonagem (15/10/2026)
+
+`MniClonarRegistroClick`: o período novo (`TFrmPeriodo`), o cabeçalho e os itens copiados numa promoção **nova** (a gravar); cada item
+passa pela validação com `Clonando` — o que esbarra noutra promoção simultânea entra **inativo** (ATIVO='N') e a aba **Log** (`TbsLogs`,
+o `MemLog`) recebe "Erro ao clonar o produto X, será cadastrado como inativo." + "Este registro foi encontrado em outra promoção (N)."
+(ou a linha de Fornecedor/Marca); com log, "Ocorreram erros durante a clonagem, verifique a guia logs.". Faltava. ❌→✅
+(Ação "Clonar" na lista; `POST cadastro/promocao-produtos/clonagem` aponta os conflitos sem barrar.)
+
 ## Falta auditar (próximo corte desta tela)
 
 Categoria, Combo, Atacarejo, Bonificação e Código Promocional controle a controle; os botões Adicionar/Editar/Excluir/Gravar por aba;
-a aba **Log** e a clonagem (`MniClonarRegistroClick`).
+a **Relação** (`MniRelacaoClick` → `GeraRelatorio` de cada tipo).
 
-Prova: smoke §91.13, §91.13b, §91.27b, §91.41 + `apps/web/test/promocaoCadMaster.spec.tsx` (4) + `promocaoLote.spec.tsx`.
+Prova: smoke §91.13, §91.13b, §91.27b, §91.41, §91.41b + `apps/web/test/promocaoCadMaster.spec.tsx` (5) + `promocaoLote.spec.tsx`.

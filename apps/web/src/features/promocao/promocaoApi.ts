@@ -56,3 +56,8 @@ export function removerPromocao(id: number): Promise<void> {
 export function apiPromocaoProdutos(ids: number[]): Promise<Array<{ idproduto: number; codbarra: string | null; descricao: string | null; codgrupopreco: number; vrvenda: number | null }>> {
   return req(`/cadastro/promocao-produtos?ids=${ids.join(',')}`);
 }
+
+/** a clonagem (MniClonarRegistroClick): as linhas que esbarram noutra promoção simultânea — a tela as grava inativas e escreve no Log */
+export function verificarClonagem(corpo: Record<string, unknown>): Promise<{ conflitos: Array<{ indice: number; promocao: number; tipo: 'proprio' | 'cruzado' | 'fornmarca'; origem: string }> }> {
+  return req('/cadastro/promocao-produtos/clonagem', { method: 'POST', body: JSON.stringify(corpo) });
+}

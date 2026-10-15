@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { Pencil, Trash2, X } from 'lucide-react';
+import { Copy, Pencil, Trash2, X } from 'lucide-react';
 import { ListaPesquisada } from '../../shared/pesquisa/ListaPesquisada';
 import type { Promocao, PromocaoItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
@@ -13,7 +13,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { LookupField } from '../../shared/ui/LookupField';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
-import { listarPromocoes, criarPromocao, removerPromocao, obterPromocao, atualizarPromocao, apiPromocaoProdutos } from './promocaoApi';
+import { listarPromocoes, criarPromocao, removerPromocao, obterPromocao, atualizarPromocao, apiPromocaoProdutos, verificarClonagem } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -219,6 +219,9 @@ export function PromocaoCadMaster() {
   const [opcao, setOpcao] = useState<string>('');
   // a aba "Perfil de Cliente" (destino P): os perfis com o INDR do legado ('I' incluído, 'E' excluído — o excluído segue na lista gravada)
   const [perfis, setPerfis] = useState<Array<{ codperfil: number; perfil?: string | null; indr: 'I' | 'E' }>>([]);
+  // a clonagem (MniClonarRegistroClick): o período novo (TFrmPeriodo) e a aba Log (TbsLogs/MemLog)
+  const [clonar, setClonar] = useState<{ id: number; ini: string; fim: string } | null>(null);
+  const [logClonagem, setLogClonagem] = useState<string[]>([]);
   const [descricao, setDescricao] = useState('');
   const [tipo, setTipo] = useState<string>('P'); // aba ativa (default Preço Fixo)
   const [destino, setDestino] = useState<string | undefined>('T');
@@ -440,10 +443,49 @@ export function PromocaoCadMaster() {
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
   const novaPromocao = () => {
-    setEditando(null); setOpcao(''); setPerfis([]); setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
+    setEditando(null); setOpcao(''); setPerfis([]); setLogClonagem([]); setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
     setValorComboHdr(undefined); setTipoComboHdr('C'); limparAdder();
   };
   // abrir a promoção gravada (o cadastro do legado): o cabeçalho, a aba do TIPO e os itens dela; o rótulo do produto vem da DESCRICAO do item
+  /**
+   * CLONAR (MniClonarRegistroClick): o período informado, o cabeçalho e os itens copiados numa promoção NOVA (a gravar); o item que esbarra
+   * noutra promoção simultânea (ValidacaoOutraPromocao com `Clonando`) entra INATIVO e vai para a aba Log; com log, "Ocorreram erros durante
+   * a clonagem, verifique a guia logs.".
+   */
+  const executarClonagem = async () => {
+    if (!clonar) return;
+    if (!clonar.ini || !clonar.fim || clonar.fim <= clonar.ini) return mensagem.erro('Informe um período válido');
+    try {
+      await abrir(clonar.id);
+      const p = await obterPromocao(clonar.id);
+      const its = (p.itens ?? []).map((it: any) => {
+        const { idclubedesconto: _i, idpromocao: _p, data_inicio: _di, data_fim: _df, ...resto } = it;
+        return { ...resto, origem: String(it.origem ?? '').trim() };
+      });
+      const iso = (x: string) => new Date(x).toISOString();
+      const { conflitos } = await verificarClonagem({ datainicio: iso(clonar.ini), datafim: iso(clonar.fim), empresas: p.empresas, destino: p.destino, itens: its });
+      const linhas: string[] = [];
+      for (const c of conflitos) {
+        const it = its[c.indice];
+        if (!it) continue;
+        it.ativo = 'N';
+        linhas.push('------------------------------------------------------');
+        if (c.tipo === 'fornmarca') {
+          linhas.push(`Erro ao clonar ${it.subtipo === 'F' ? 'o fornecedor' : 'a marca'}, será cadastrado como inativo.`);
+          linhas.push(`Apenas um registro do tipo "Fornecedor" ou "Marca" podem ser informados em promoções simultâneas (${c.promocao}).`);
+        } else {
+          linhas.push(`Erro ao clonar o produto ${String(it.descricao ?? rotuloProduto(it.idorigempromocao))}, será cadastrado como inativo.`);
+          linhas.push(`Este registro foi encontrado em outra promoção (${c.promocao}).`);
+        }
+      }
+      setEditando(null);
+      setDtini(clonar.ini); setDtfim(clonar.fim);
+      setItens(its as PromocaoItemDto[]);
+      setLogClonagem(linhas);
+      setClonar(null);
+      if (linhas.length) mensagem.erro('Ocorreram erros durante a clonagem, verifique a guia logs.');
+    } catch (e) { mensagem.erro(e); }
+  };
   const abrir = async (id: number) => {
     try {
       const p = await obterPromocao(id);
@@ -604,6 +646,7 @@ export function PromocaoCadMaster() {
       field: 'acoes', headerName: '', type: 'actions', width: 90,
       getActions: ({ row: r }: { row: Promocao }) => [
         { id: 'abrir', label: 'Abrir', icon: <Pencil size={16} />, onClick: () => void abrir(Number(r.idpromocao)) },
+        { id: 'clonar', label: 'Clonar', icon: <Copy size={16} />, onClick: () => setClonar({ id: Number(r.idpromocao), ini: '', fim: '' }) },
         { id: 'excluir', label: 'Excluir', icon: <Trash2 size={16} />, destructive: true, onClick: () => void acao(() => removerPromocao(Number(r.idpromocao)), 'Promoção excluída.') },
       ],
     },
@@ -967,6 +1010,28 @@ export function PromocaoCadMaster() {
           <Button label={salvando ? 'Gravando…' : 'Gravar promoção'} disabled={salvando} onClick={() => void gravar(false)} />
         </div>
       </section>
+
+      {/* o TFrmPeriodo da clonagem */}
+      {clonar && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md" aria-label="Clonar promoção">
+          <div className="mb-form-gap text-body-sm font-semibold">Clonar a promoção nº {clonar.id} — informe o período</div>
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <label className="flex flex-col gap-gp-2xs text-body-sm"><span className="text-fg-muted">Início</span>
+              <input aria-label="Início da clonagem" type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={clonar.ini} onChange={(e) => setClonar({ ...clonar, ini: e.target.value })} /></label>
+            <label className="flex flex-col gap-gp-2xs text-body-sm"><span className="text-fg-muted">Fim</span>
+              <input aria-label="Fim da clonagem" type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={clonar.fim} onChange={(e) => setClonar({ ...clonar, fim: e.target.value })} /></label>
+            <Button label="Clonar" onClick={() => void executarClonagem()} />
+            <Button label="Cancelar" variant="ghost" onClick={() => setClonar(null)} />
+          </div>
+        </section>
+      )}
+      {/* TbsLogs: o MemLog da clonagem */}
+      {logClonagem.length > 0 && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md" aria-label="Log">
+          <div className="mb-gp-2xs text-body-sm font-semibold">Log</div>
+          <pre className="whitespace-pre-wrap text-body-sm">{logClonagem.join('\n')}</pre>
+        </section>
+      )}
 
       {/* Lista de promoções */}
       {lote && (
