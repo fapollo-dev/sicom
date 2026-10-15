@@ -77,3 +77,10 @@ vazias na produção. 4 lançamentos no futuro (2 de 2026, 2 de 07/2027) — ru�
 5. as origens ativas em ordem, todas as empresas, a árvore com o dia de hoje marcado;
 6. as diferenças por lote e o filtro do lote que derruba os outros;
 7. a importação (empresa opcional, conta reduzida, valor, tudo ou nada).
+
+## Auditoria controle a controle (15/10/2026)
+
+Árvore de datas + Atualizar, origens e empresas com marcar/desmarcar, "somente partidas dobradas", filtro auxiliar (campos × operações),
+Filtrar, Detalhar (Tag 5 = só a tela), e o menu (salvar/restaurar configuração, exportar Excel/CSV, totais, importar arquivo, diferenças)
+— conferem. O "Exportar para txt" continua bloqueado: `FuncoesApollo`/`CriarTxt` refeito com busca binária (`LC_ALL=C grep -a` — o grep
+comum pula os .pas em Latin-1) em todos os repositórios: não existe.
