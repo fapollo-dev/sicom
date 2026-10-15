@@ -20655,6 +20655,26 @@ async function main() {
         await pg0.end();
       }
     }
+    // ══ §321 PENDÊNCIAS DO OPERADOR — o QryPendencias atravessa as lojas (a coluna "Empresa"): a CFN da loja 2 aparece para o operador logado na loja 1 ══
+    {
+      const pg1 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ins = (await pg1.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, po_observacao, po_data, codempresa, codoperador_origem)
+            VALUES (7, 'CFN', 'A', '321001', 'Finalize na tela de Conferência da nota Fiscal', now(), 2, 1) RETURNING po_id`)).rows[0] as any;
+        const outroOp = (await pg1.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, po_observacao, po_data, codempresa, codoperador_origem)
+            VALUES (1, 'CFN', 'A', '321002', 'de outro operador', now(), 2, 1) RETURNING po_id`)).rows[0] as any;
+        const r = await fetch(`${base}/compras/pendencias/listar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const L = (j.linhas ?? []) as any[];
+        const minha = L.find((l) => Number(l.po_id) === Number(ins.po_id));
+        check('PENDÊNCIAS §321 [QryPendencias — UDMPendenciasOperador.dfm, sem filtro de loja]: logado na loja 1, a CFN do operador 7 na loja 2 aparece com a Empresa 2 e a observação do binário; a do operador 1 (CFN não entra no UNION de supervisor) não aparece',
+          r.status === 200 && minha != null && Number(minha.codempresa) === 2 && minha.po_observacao === 'Finalize na tela de Conferência da nota Fiscal' && !L.some((l) => Number(l.po_id) === Number(outroOp.po_id)),
+          { status: r.status, code: j.code, minha, n: L.length });
+      } finally {
+        await pg1.query(`DELETE FROM pendencia_operador WHERE po_complemento IN ('321001', '321002')`).catch(() => {});
+        await pg1.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
@@ -19,6 +20,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
+/** "Data/Hora" da grade do legado (PO_DATA) */
+const dataHora = (s: unknown) => (s ? new Date(String(s)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const q3 = (v: unknown) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 }));
 const brl = (v: unknown) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 
@@ -40,7 +43,9 @@ interface Analise {
  */
 export function PendenciasPage() {
   const mensagem = useMensagem();
-  const [status, setStatus] = useState('A');
+  const navigate = useNavigate();
+  // o QryPendencias não filtra o status: a fila abre com todas as pendências do operador (o filtro é do Apollo)
+  const [status, setStatus] = useState('');
   const [tipo, setTipo] = useState('');
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Record<string, unknown> | null>(null);
@@ -69,8 +74,22 @@ export function PendenciasPage() {
       setLinhas(r.linhas); setTotais(r.totais);
       setSupervisor(Boolean(r.filtro?.supervisor));
       setAnalise(null); // o detalhe aberto não pertence mais à lista que está na tela
-      if (!r.linhas.length) mensagem.sucesso('Nenhuma pendência no filtro.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  // o FormShow abre a fila (DM.AbrePendenciasOperador) — não espera o Atualizar
+  useEffect(() => { void consultar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // RPN: o botão "Análise" do legado gera uma NOVA análise com os mesmos pedidos e notas (GeraNovaAnalise) e a abre
+  const refazerAnalise = async (l: Linha) => {
+    if (abrindo) return;
+    setAbrindo(true);
+    try {
+      const r = await post<{ apn_id_nova: number }>('/compras/pendencias/analise/refazer', { apn_id: Number(l.po_complemento) });
+      const nova = await post<Analise>('/compras/pendencias/analise', { apn_id: r.apn_id_nova });
+      await consultar();
+      setAnalise(nova);
+    } catch (e) { mensagem.erro(e); } finally { setAbrindo(false); }
   };
 
   const mudarStatus = async (l: Linha, finalizar: boolean) => {
@@ -114,7 +133,7 @@ export function PendenciasPage() {
         <table className="w-full text-body-sm">
           <thead>
             <tr className="text-left text-fg-muted">
-              <th className="p-pad-xs">Data</th><th className="p-pad-xs">Tipo</th>
+              <th className="p-pad-xs">Empresa</th><th className="p-pad-xs">Data/Hora</th><th className="p-pad-xs">Tipo</th>
               {supervisor && <th className="p-pad-xs">Operador</th>}
               <th className="p-pad-xs">Fornecedor</th><th className="p-pad-xs">Status</th>
               <th className="p-pad-xs">Observação</th><th className="p-pad-xs">Criada por</th>
@@ -124,7 +143,8 @@ export function PendenciasPage() {
           <tbody>
             {linhas.map((l) => (
               <tr key={String(l.po_id)} className="border-t border-border">
-                <td className="p-pad-xs tabular-nums">{dia(l.po_data)}</td>
+                <td className="p-pad-xs tabular-nums">{String(l.codempresa ?? '')}</td>
+                <td className="p-pad-xs tabular-nums whitespace-nowrap">{dataHora(l.po_data)}</td>
                 {/* fora de APN/RPN e A/F o CASE do legado devolve NULL — aqui cai no código cru p/ não ficar vazio */}
                 <td className="p-pad-xs">{String(l.tipo_str ?? l.po_tipo_pendencia_operador ?? '')}</td>
                 {supervisor && <td className="p-pad-xs">{String(l.nome ?? '—')}</td>}
@@ -135,7 +155,14 @@ export function PendenciasPage() {
                 <td className="p-pad-xs">
                   {/* só APN: numa RPN o legado NÃO abre a análise antiga — gera uma NOVA (GeraNovaAnalise), que é corte-2b */}
                   {String(l.po_tipo_pendencia_operador) === 'APN' && /^\d{1,9}$/.test(String(l.po_complemento ?? '')) && (
-                    <><button className="underline" disabled={abrindo} onClick={() => void abrirAnalise(l)}>abrir análise</button>{' · '}</>
+                    <><button className="underline" disabled={abrindo} onClick={() => void abrirAnalise(l)}>Análise</button>{' · '}</>
+                  )}
+                  {String(l.po_tipo_pendencia_operador) === 'RPN' && /^\d{1,9}$/.test(String(l.po_complemento ?? '')) && (
+                    <><button className="underline" disabled={abrindo} onClick={() => void refazerAnalise(l)}>Análise (nova)</button>{' · '}</>
+                  )}
+                  {/* CFN (binário novo: "Finalize na tela de Conferência da nota Fiscal"; o complemento é o CODNF) — o atalho para a tela */}
+                  {String(l.po_tipo_pendencia_operador) === 'CFN' && /^\d{1,9}$/.test(String(l.po_complemento ?? '')) && (
+                    <><button className="underline" onClick={() => navigate(`/compras/conferencia-nota?codnf=${String(l.po_complemento)}`)}>Conferência</button>{' · '}</>
                   )}
                   {l.po_status === 'A'
                     ? <button className="underline" onClick={() => void mudarStatus(l, true)}>finalizar</button>
@@ -143,7 +170,7 @@ export function PendenciasPage() {
                 </td>
               </tr>
             ))}
-            {!linhas.length && <tr><td colSpan={supervisor ? 8 : 7} className="p-pad-md text-fg-muted">Clique em Atualizar para carregar a fila.</td></tr>}
+            {!linhas.length && <tr><td colSpan={supervisor ? 10 : 9} className="p-pad-md text-fg-muted">Nenhuma pendência.</td></tr>}
           </tbody>
         </table>
       </div>

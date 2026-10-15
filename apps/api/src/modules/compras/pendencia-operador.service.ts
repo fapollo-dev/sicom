@@ -98,8 +98,10 @@ export class PendenciaOperadorService {
                     where a.apn_id = p.po_complemento::int)
               else ''
             end`.as('fornecedor'),
-      ])
-      .where('p.codempresa', '=', emp);
+      ]);
+    // o QryPendencias NÃO filtra a loja (UDMPendenciasOperador.dfm): a fila do operador atravessa as lojas e a grade mostra a coluna
+    // "Empresa" — na produção as APN são da loja 1 e as CFN da loja 2 (o operador da loja 1 não veria as dele); a âncora é o operador
+    void emp;
     // visibilidade fiel (o UNION do .dfm), SEMPRE ancorada na SESSÃO: minhas ∪ APN/RPN de terceiros quando
     // a sessão é supervisora do E8. O f.codoperador só refina DEPOIS (nunca amplia).
     if (op != null) {
@@ -150,9 +152,9 @@ export class PendenciaOperadorService {
     const db = this.dbp.forTenantRead() as AnyDB;
     const op = this.logado();
     if (op != null) {
+      // a linha visível da fila (que atravessa as lojas, como o QryPendencias): a análise abre pela pendência do operador
       const visivel = await db.selectFrom('pendencia_operador as p')
         .select('p.po_id')
-        .where('p.codempresa', '=', emp)
         .where('p.po_tipo_pendencia_operador', 'in', ['APN', 'RPN'])
         .where(sql<boolean>`p.po_complemento ~ '^[0-9]{1,9}$' and p.po_complemento::int = ${apnId}`)
         .where(sql<boolean>`(p.codoperador = ${op} or ${this.supervisorSql(op)})`)
@@ -167,7 +169,7 @@ export class PendenciaOperadorService {
         'a.apn_diferenca_valor', 'a.apn_status_finalizacao', 'a.codoperador',
         sql`o.nome`.as('operador'), sql`ofim.nome`.as('operador_finalizado'),
       ])
-      .where('a.apn_id', '=', apnId).where('a.codempresa', '=', emp)
+      .where('a.apn_id', '=', apnId).where(op != null ? sql<boolean>`true` : sql<boolean>`a.codempresa = ${emp}`)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!cab) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
 
