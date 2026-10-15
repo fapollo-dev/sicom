@@ -13,6 +13,7 @@ import {
 } from './agrupamentoApi';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 
 type ModoAR = 'analitico' | 'totalizado' | 'funcionario';
 
@@ -43,6 +44,12 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   const [convenio, setConvenio] = useState<(ConvenioSugestao & { codplcTxt: string; idpgtoTxt: string }) | null>(null);
   const [consulta, setConsulta] = useState<{ cod: string; membros: Array<Record<string, unknown>> | null }>({ cod: '', membros: null });
   const [ocupado, setOcupado] = useState(false);
+  // a pergunta do fim do agrupamento ("Deseja imprimir o relatório do agrupamento?"): o título gerado e, no convênio, as 3 opções do
+  // TFrmOpcoes (sintético / analítico / não imprimir) para o A Pagar quitado (uAgrupaContasAReceber.pas:109-130/270-280)
+  const [perguntaImpressao, setPerguntaImpressao] = useState<{ tipo: 'apagar' | 'areceber' | 'convenio'; id: number } | null>(null);
+  // o btnExcluirDoc ("Excluir documento do Grid") é Tag 1 — a opção BTNEXCLUIRDOC (28 de 105 operadores no A Pagar, 27 de 119 no A Receber)
+  const { tem } = useOpcoesDoForm(ar ? 'FRMAGRUPACONTASARECEBER' : 'FRMAGRUPACONTASAPAGAR');
+  const podeExcluir = tem('BTNEXCLUIRDOC');
 
   const executar = async (fn: () => Promise<void>) => {
     setOcupado(true);
@@ -52,6 +59,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
   // os marcados na Pesquisa entram na grade de trabalho já marcados (o que já está não repete); a grade deixa desmarcar e escolher o juro
   const trazerDaPesquisa = (linhas: Array<Record<string, unknown>>) => executar(async () => {
     setPesquisando(false);
+    setPerguntaImpressao(null);
     const ja = new Set((titulos ?? []).map(cod));
     const codigos = [...new Set(linhas.map((l) => Number(l.codigo)).filter((c) => Number.isInteger(c) && c > 0 && !ja.has(c)))];
     if (!codigos.length) return;
@@ -61,15 +69,17 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
     setConvenio(null);
   });
   const limparGrade = () => { setTitulos(null); setSel(new Set()); setJuros(new Set()); setConvenio(null); };
-  const alternar = (id: number) => setSel((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
+  const alternar = (id: number) => setSel((s) => { const x = new Set(s); if (x.has(id)) { if (!podeExcluir) return s; x.delete(id); } else x.add(id); return x; });
   const alternarJuro = (id: number) => setJuros((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
   // a tecla T do legado: marca todos se nem todos estão marcados, senão desmarca
-  const marcarTodos = () => setSel((s) => (titulos && s.size === titulos.length ? new Set() : new Set((titulos ?? []).map(cod))));
+  const marcarTodos = () => setSel((s) => (titulos && s.size === titulos.length ? (podeExcluir ? new Set() : s) : new Set((titulos ?? []).map(cod))));
 
   const marcados = useMemo(() => (titulos ?? []).filter((t) => sel.has(cod(t))), [titulos, sel]); // eslint-disable-line react-hooks/exhaustive-deps
   const clientes = new Set(marcados.map((t) => Number(t.codparceiro)));
   // o total do legado (`SetaTotal`): Σ valor + Σ juro das linhas marcadas em "Calc. juros"; o desconto sai depois (a taxa é da empresa)
-  const bruto = r2(marcados.reduce((s, t) => s + Number(t.valor ?? 0) + (ar && juros.has(cod(t)) ? Number(t.juro ?? 0) : 0), 0));
+  // no A Pagar o VALOR da grade é o da GET_APAGAR_AGRUPAR: VALOR + VENDOR − DESCONTO
+  const valorDoc = (t: TituloAgrupar) => Number((ar ? t.valor : (t.valor_agrupar ?? t.valor)) ?? 0);
+  const bruto = r2(marcados.reduce((s, t) => s + valorDoc(t) + (ar && juros.has(cod(t)) ? Number(t.juro ?? 0) : 0), 0));
   const total = r2(bruto - (ar ? n(f.desconto) ?? 0 : 0));
 
   const parcelasAp = (): Array<{ valor: number; dtvenc: string }> | undefined => {
@@ -101,6 +111,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
         mensagem.sucesso(r.convenio
           ? `A conta à pagar nº ${r.convenio.codapg} foi gerada com sucesso.`
           : `Agrupamento realizado: título ${r.consolidado} de ${moeda(r.total)} (${r.membros} documento(s)).`);
+        setPerguntaImpressao(r.convenio ? { tipo: 'convenio', id: Number(r.convenio.codapg) } : { tipo: 'areceber', id: Number(r.consolidado) });
         setConvenio(null);
       } catch (e) {
         const env = (e as { envelope?: { code?: string; detalhe?: { sugestao?: ConvenioSugestao } } }).envelope;
@@ -115,9 +126,22 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
         codapgs: marcados.map(cod), codparceiro: n(f.codparceiro), dtvenc: f.dtvenc || undefined, obs: f.obs || undefined, codplc: n(f.codplc), parcelas: parcelasAp(),
       });
       mensagem.sucesso(`Agrupamento realizado: título ${r.consolidado} de ${moeda(r.total)} (${r.membros} documento(s)).`);
+      setPerguntaImpressao({ tipo: 'apagar', id: Number(r.consolidado) });
     }
     limparGrade();
   });
+
+  // a resposta da pergunta do fim do agrupamento: o A Receber no Agrupamento.fr3 (o rgTipoRel padrão do frmCadAReceber), o A Pagar no
+  // AgrupamentoCP.fr3 (RdgTipoRel 0) e o do convênio no AgrupamentoCPCR (analítico) ou AgrupamentoCPCRAgrupado (sintético)
+  const imprimirGerado = (agrupado: 0 | 1) => {
+    const p = perguntaImpressao;
+    setPerguntaImpressao(null);
+    if (!p) return;
+    const path = p.tipo === 'areceber'
+      ? `/cadastro/areceber/${p.id}/relatorio-agrupamento/impressao?modo=analitico`
+      : `/cadastro/apagar/${p.id}/relatorio-agrupamento/impressao?agrupado=${agrupado}`;
+    imprimirRelatorio(path).catch((e) => mensagem.erro(e));
+  };
 
   // IMPRIMIR (o relatório do agrupamento do legado) no layout .fr3 do cliente
   const imprimir = (modo: ModoAR | 'agrupado' | 'analiticoAp') => {
@@ -165,7 +189,7 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
       <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <Button label="&Buscar títulos" variant="soft" onClick={() => setPesquisando(true)} disabled={ocupado} />
-          {titulos && titulos.length > 0 && <Button label="Marcar/desmarcar &todos (T)" variant="ghost" onClick={marcarTodos} />}
+          {titulos && titulos.length > 0 && podeExcluir && <Button label="Marcar/desmarcar &todos (T)" variant="ghost" onClick={marcarTodos} />}
           {titulos && titulos.length > 0 && <Button label="Limpar a grade" variant="ghost" onClick={limparGrade} disabled={ocupado} />}
           <small className="text-fg-muted">A Pesquisa dos títulos abertos de todas as suas lojas{ar ? ' (boleto emitido em roxo)' : ''}: marque e confirme.</small>
         </div>
@@ -179,27 +203,38 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
             <div className="max-h-96 overflow-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead>
+                  {/* as colunas do JvDBUltimGrid1 do legado: A Pagar — Código, Duplicata, Vencimento, Venda, Valor, Cód.Forn., Razão; A Receber —
+                      Calc. Juros, Código, Duplicata, Vencimento, Valor, Tx.Juros, Juro, Total, Venda, Cód.Cli, Cliente */}
                   <tr className="text-left text-fg-muted">
-                    <th className="px-2 py-1" /><th className="px-2 py-1">Código</th><th className="px-2 py-1">Documento</th><th className="px-2 py-1">{ar ? 'Cliente' : 'Fornecedor'}</th>
-                    <th className="px-2 py-1">Vencimento</th><th className="px-2 py-1 text-right">Valor</th>
-                    {ar && <><th className="px-2 py-1 text-right">Juro</th><th className="px-2 py-1">Calc. juros</th></>}
+                    <th className="px-2 py-1" />
+                    {ar && <th className="px-2 py-1">Calc. Juros</th>}
+                    <th className="px-2 py-1">Código</th><th className="px-2 py-1">Duplicata</th><th className="px-2 py-1">Vencimento</th>
+                    {!ar && <th className="px-2 py-1">Venda</th>}
+                    <th className="px-2 py-1 text-right">Valor</th>
+                    {ar && <><th className="px-2 py-1 text-right">Tx.Juros</th><th className="px-2 py-1 text-right">Juro</th><th className="px-2 py-1 text-right">Total</th><th className="px-2 py-1">Venda</th></>}
+                    <th className="px-2 py-1">{ar ? 'Cód.Cli' : 'Cód.Forn.'}</th><th className="px-2 py-1">{ar ? 'Cliente' : 'Razão'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {titulos.map((t) => (
                     <tr key={cod(t)} className="border-t border-border">
-                      <td className="px-2 py-1"><CheckboxField label="Selecionar" value={sel.has(cod(t)) ? 'S' : 'N'} onChange={() => alternar(cod(t))} /></td>
+                      <td className="px-2 py-1"><CheckboxField label="Selecionar" value={sel.has(cod(t)) ? 'S' : 'N'} disabled={!podeExcluir && sel.has(cod(t))} onChange={() => alternar(cod(t))} /></td>
+                      {ar && <td className="px-2 py-1"><CheckboxField label="Juro" value={juros.has(cod(t)) ? 'S' : 'N'} onChange={() => alternarJuro(cod(t))} /></td>}
                       <td className="px-2 py-1 tabular-nums">{cod(t)}</td>
                       <td className="px-2 py-1">{String(t.duplicata ?? '')}</td>
-                      <td className="px-2 py-1">{Number(t.codparceiro)} · {String(t.razao ?? '')}</td>
                       <td className="px-2 py-1 tabular-nums">{dataBr(t.dtvenc)}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{moeda(t.valor)}</td>
+                      {!ar && <td className="px-2 py-1 tabular-nums">{dataBr(t.dtcompra)}</td>}
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(valorDoc(t))}</td>
                       {ar && (
                         <>
+                          <td className="px-2 py-1 text-right tabular-nums">{Number(t.txjuros ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-2 py-1 text-right tabular-nums">{moeda(t.juro)}</td>
-                          <td className="px-2 py-1"><CheckboxField label="Juro" value={juros.has(cod(t)) ? 'S' : 'N'} onChange={() => alternarJuro(cod(t))} /></td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(t.total)}</td>
+                          <td className="px-2 py-1 tabular-nums">{dataBr(t.dtvenda)}</td>
                         </>
                       )}
+                      <td className="px-2 py-1 tabular-nums">{Number(t.codparceiro)}</td>
+                      <td className="px-2 py-1">{String(t.razao ?? '')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -240,6 +275,23 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
               <Button label="Cancelar" variant="ghost" onClick={() => setConvenio(null)} disabled={ocupado} />
               <Button label="&Gravar baixa" onClick={() => void agrupar(convenio)} disabled={ocupado} />
             </div>
+          </div>
+        )}
+        {perguntaImpressao && (
+          <div role="dialog" aria-label="Imprimir o relatório do agrupamento" className="flex flex-wrap items-center gap-gp-sm rounded-radius-md border border-border bg-bg-subtle p-pad-sm">
+            <strong className="text-sm">Deseja imprimir o relatório do agrupamento?</strong>
+            {perguntaImpressao.tipo === 'convenio' ? (
+              <>
+                <Button label="Imprimir relatório sintético" variant="soft" onClick={() => imprimirGerado(1)} />
+                <Button label="Imprimir relatório analítico" variant="soft" onClick={() => imprimirGerado(0)} />
+                <Button label="Não imprimir" variant="ghost" onClick={() => setPerguntaImpressao(null)} />
+              </>
+            ) : (
+              <>
+                <Button label="Sim" variant="soft" onClick={() => imprimirGerado(0)} />
+                <Button label="Não" variant="ghost" onClick={() => setPerguntaImpressao(null)} />
+              </>
+            )}
           </div>
         )}
         {!convenio && <div className="flex justify-end"><Button label="&Agrupar" onClick={() => void agrupar()} disabled={ocupado || marcados.length === 0} /></div>}

@@ -78,7 +78,16 @@ export class ApagarService {
     } else {
       q = q.orderBy('dtvenc', 'asc');
     }
-    return q.limit(codigos.length ? codigos.length : Math.min(Number(query.limite) || 200, 500)).execute();
+    const linhas = (await q.limit(codigos.length ? codigos.length : Math.min(Number(query.limite) || 200, 500)).execute()) as Record<string, unknown>[];
+    if (query.paraAgrupar !== 'S' || !linhas.length) return linhas;
+    // a grade do agrupamento é a GET_APAGAR_AGRUPAR: VALOR = VALOR + VENDOR − DESCONTO e EMISSAO = TRUNC(DTCOMPRA) — o que a get_apagar não traz
+    const extra = new Map((await sql<{ codapg: number; vendor: unknown; desconto: unknown; dtcompra: string | null }>`
+      SELECT codapg, vendor, desconto, to_char(dtcompra, 'YYYY-MM-DD') AS dtcompra FROM apagar WHERE codapg = ANY(${linhas.map((l) => Number(l.codapg))}::int[])`.execute(db0)).rows
+      .map((r) => [Number(r.codapg), r]));
+    return linhas.map((l) => {
+      const x = extra.get(Number(l.codapg));
+      return { ...l, vendor: x?.vendor ?? null, desconto: x?.desconto ?? null, dtcompra: x?.dtcompra ?? null, valor_agrupar: r2(num(l.valor) + num(x?.vendor) - num(x?.desconto)) };
+    });
   }
 
   async read(id: number): Promise<Record<string, unknown> | undefined> {

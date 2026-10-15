@@ -3182,6 +3182,17 @@ async function main() {
       && rPa1.agrupado === 'S' && Number(rPa1.codgrupo_agrupamento_apg) === Number(rPCons.codgrupo)
       && apAbertos.some((t) => t.codapg === pCons) && !apAbertos.some((t) => t.codapg === pa1 || t.codapg === pa2),
       { status: pAgr.status, body: pAgr.j, a1: rPa1, cons: rPCons });
+    // (a2) o total é o VALOR da GET_APAGAR_AGRUPAR: VALOR + VENDOR − DESCONTO (na produção o consolidado bate com essa soma — grupo 64065)
+    const pv1 = await crAp(), pv2 = await crAp({ valor: 50 });
+    await pgAp.query(`UPDATE apagar SET vendor = 3.60 WHERE codapg = $1`, [pv1]);
+    await pgAp.query(`UPDATE apagar SET desconto = 1.00 WHERE codapg = $1`, [pv2]);
+    const gradeAg = (await (await fetch(`${base}/${AP}?paraAgrupar=S&codigos=${pv1},${pv2}`, { headers: H })).json()) as any[];
+    const pvAgr = await agruparAp({ codapgs: [pv1, pv2] });
+    const rPvCons = await agRowAp(Number(pvAgr.j.consolidado));
+    check('CP-agrup: a grade e o total do agrupamento são os da GET_APAGAR_AGRUPAR — 100 + 3,60 de vendor e 50 − 1,00 de desconto → consolidado de 152,60 (e a grade mostra 103,60 / 49,00 com a data de compra)',
+      gradeAg.find((t) => t.codapg === pv1)?.valor_agrupar === 103.6 && gradeAg.find((t) => t.codapg === pv2)?.valor_agrupar === 49
+      && 'dtcompra' in (gradeAg[0] ?? {}) && pvAgr.status === 200 && Number(pvAgr.j.total) === 152.6 && Number(rPvCons?.valor) === 152.6,
+      { grade: gradeAg.map((t) => [t.codapg, t.valor_agrupar, t.dtcompra]), agr: pvAgr.j, cons: rPvCons });
     // (b) validações
     const pVazio = await agruparAp({ codapgs: [] });
     const pOutro = await crAp({ codparceiro: 20, valor: 20 }); const p22 = await crAp({ valor: 20 });

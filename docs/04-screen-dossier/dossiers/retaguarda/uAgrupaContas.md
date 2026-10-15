@@ -591,3 +591,20 @@ As impressões do agrupamento saem nos layouts da RELATORIOS pelo motor .fr3 (o 
   `Engine.FinalPass` falso e a final escreve nos cabeçalhos; o motor agora roda as duas passadas com o estado do script (variáveis, listas e
   os objetos como o OnStartReport os deixou) atravessando, e o OnStartReport/bloco principal uma vez só.
 - O `AgrupamentoAR.fr3` (o do desconto de títulos, `frmDescontoTitulo`) fica para a tela do desconto. Smoke §190.2.
+
+## Auditoria controle a controle (15/10/2026) — `uAgrupaContasAPagar.dfm` × Apollo
+
+| controle do legado | regra | Apollo |
+|---|---|---|
+| `btnBuscaTitulos` | Pesquisa GET_APAGAR_AGRUPAR (AGRUPADO 'N'), multisseleção | ✅ |
+| `JvDBUltimGrid1` | Código, Duplicata, Vencimento, **Venda** (`EMISSAO` = TRUNC(DTCOMPRA)), **Valor** (= `VALOR + VENDOR − DESCONTO`), Cód.Forn., Razão | ❌→✅ faltava a Venda e o Valor era o puro |
+| `btnExcluirDoc` "Excluir documento do Grid" | **Tag 1 → BTNEXCLUIRDOC** (28 de 105 operadores no A Pagar; 27 de 119 no A Receber) | ❌→✅ qualquer um desmarcava; agora sem a opção o documento fica (e o "marcar/desmarcar todos" some) |
+| `btnAgrupar` — o total | `nTotal = Σ cdsTemp.VALOR` = Σ(VALOR + VENDOR − DESCONTO) | ❌→✅ o serviço somava só o VALOR. Prova na produção: 95 membros com vendor/desconto; o consolidado bate com a soma com vendor (grupo 64065: valor 259,48 → consolidado 263,08; 69567: 220,18 → 221,74) |
+| `btnAgrupar` — fornecedores diferentes | "Foi detectado mais de um fornecedor, informe o parceiro para gerar o titulo!" + GET_PARCEIROS | ✅ |
+| `btnAgrupar` — OBS | "Notas fiscais: …" / "Códigos das contas: …" | ✅ |
+| fim do agrupamento | "Deseja imprimir o relatório do agrupamento?" → `frmAPagar.btnImprimirClick` (RdgTipoRel 0 = AgrupamentoCP.fr3) | ❌→✅ a pergunta não existia |
+
+O mesmo vale para o A Receber (a página é a mesma): a pergunta no fim (Agrupamento.fr3, o rgTipoRel padrão do frmCadAReceber) e, no
+convênio, o `TFrmOpcoes` "Imprimir relatório sintético / analítico / Não imprimir" para o A Pagar quitado (AgrupamentoCPCR[Agrupado].fr3);
+as colunas do A Receber (Calc. Juros, Código, Duplicata, Vencimento, Valor, Tx.Juros, Juro, Total, Venda, Cód.Cli, Cliente). Prova:
+smoke §33.10 (a2) e `agruparPagar.spec.tsx`.

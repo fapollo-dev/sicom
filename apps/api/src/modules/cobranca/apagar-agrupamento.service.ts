@@ -70,7 +70,7 @@ export class ApagarAgrupamentoService {
       // os títulos de QUALQUER loja do operador: a GET_APAGAR_AGRUPAR do legado não filtra loja (desde 2025, 51 dos 864 títulos
       // agrupados eram de outra loja que não a do consolidado)
       const lojas = await todasAsEmpresasDoOperador(trx);
-      const lidos = (await sql<Record<string, unknown>>`SELECT a.codapg, a.codparceiro, a.valor, a.quitada, a.agrupado, n.nronf
+      const lidos = (await sql<Record<string, unknown>>`SELECT a.codapg, a.codparceiro, a.valor, a.vendor, a.desconto, a.quitada, a.agrupado, n.nronf
           FROM apagar a LEFT JOIN nf n ON n.codnf = a.idnf
          WHERE a.codapg = ANY(${ids}::int[]) AND a.codempresa = ANY(${lojas}::int[]) FOR UPDATE OF a`.execute(trx)).rows;
       if (lidos.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
@@ -83,7 +83,9 @@ export class ApagarAgrupamentoService {
       const codparceiro = num(dto.codparceiro) || (fornecedores.size === 1 ? [...fornecedores][0] : 0);
       if (!codparceiro) throw new BusinessRuleError('AGRUPAMENTO_INFORME_FORNECEDOR');
       if (!(await sql`SELECT 1 FROM parceiros WHERE codparceiro = ${codparceiro}`.execute(trx)).rows.length) throw new BusinessRuleError('PARCEIRO_NAO_ENCONTRADO', { codparceiro });
-      const total = r2(membros.reduce((s, m) => s + num(m.valor), 0));
+      // o total é a soma do VALOR da GET_APAGAR_AGRUPAR: VALOR + VENDOR − DESCONTO de cada título (na produção o consolidado bate com essa
+      // soma: grupo 64065 — 259,48 de valor, 263,08 com o vendor — e o do valor puro ficava abaixo)
+      const total = r2(membros.reduce((s, m) => s + num(m.valor) + num(m.vendor) - num(m.desconto), 0));
 
       // a OBS do legado: a do usuário, "Referente Agrupamento" e as notas fiscais / os códigos das contas sem nota
       const notas = [...new Set(membros.filter((m) => m.nronf != null && String(m.nronf) !== '').map((m) => String(m.nronf)))];
