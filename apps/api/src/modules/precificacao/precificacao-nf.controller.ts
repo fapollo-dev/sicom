@@ -10,7 +10,7 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
  * PRECIFICAÇÃO DE NF (`FRMPRECIFICACAONF`) — onde o preço nasce quando a mercadoria chega.
- * O gate de tela deixa VER; **aplicar exige permissão própria** (`BTNAPLICAR`), porque é o que muda preço.
+ * Os botões da tela não têm Tag (nenhuma permissão de controle; na produção só existe o grant da tela, 59 operadores).
  */
 @Controller('precificacao/nf')
 @UseGuards(AcessoGuard)
@@ -21,6 +21,20 @@ export class PrecificacaoNfController {
   @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
   listar(@Query(new ZodValidationPipe(precificacaoNfFiltroSchema)) q: PrecificacaoNfFiltroDto) {
     return this.svc.listar(q as never);
+  }
+
+  /** o que o FormShow decide ao abrir: o custo do "Considerar", o botão Etiquetas e o rótulo da coluna de markup fixo */
+  @Get('tela')
+  @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
+  tela() {
+    return this.svc.tela();
+  }
+
+  /** o exit do Número NF (BuscarNroNotaFiscal): o CODNF da NF de entrada da loja com esse número */
+  @Get('nota')
+  @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
+  nota(@Query('nronf') nronf?: string) {
+    return this.svc.nota(String(nronf ?? '').slice(0, 20));
   }
 
   /** o "Imprimir" da tela: a grade como está (com o que foi editado e não aplicado) no PrecificacaoNF.fr3 do cliente */

@@ -14816,6 +14816,25 @@ async function main() {
           && Math.abs(Number(item.quantidade) - 60) < 0.005,
           { item: item && { vrcusto: item.vrcusto, quantidade: item.quantidade, fatorembal: item.fatorembal } });
 
+        // §104.19) o FormShow (o "Considerar" no custo configurado, o rótulo MARKDOWN FIXO) e o exit do Número NF (BuscarNroNotaFiscal):
+        // o CODNF da NF de entrada da loja com o número exato; nenhuma → "Nota fiscal não encontrada."; repetida → a mensagem da pesquisa
+        {
+          const tl = (await (await fetch(`${base}/${PN}/tela`, { headers: H })).json().catch(() => ({}))) as any;
+          const ok1 = (await (await fetch(`${base}/${PN}/nota?nronf=994501`, { headers: H })).json().catch(() => ({}))) as any;
+          const nenhuma = await fetch(`${base}/${PN}/nota?nronf=99450199`, { headers: H });
+          const nenhumaJ = (await nenhuma.json().catch(() => ({}))) as any;
+          // o mesmo número em OUTRA série (a chave natural da NF é número+série+modelo+loja+tipoemissão+parceiro)
+          const dupNf = Number((await pgPn.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop)
+            VALUES (1,'E',55,'2','994501','2044-10-06','2044-10-06',2,$1,'N','N',10.00,'1102') RETURNING codnf`, [cend])).rows[0].codnf);
+          const repetida = await fetch(`${base}/${PN}/nota?nronf=994501`, { headers: H });
+          const repetidaJ = (await repetida.json().catch(() => ({}))) as any;
+          await pgPn.query(`DELETE FROM nf WHERE codnf = $1`, [dupNf]);
+          check('PRECIFICAÇÃO NF §104.19 [o filtro do legado]: a tela abre no custo configurado (BRUTO/CSI) e sabe o rótulo do markup fixo; o Número NF 994501 resolve o CODNF; o inexistente → "Nota fiscal não encontrada."; o número repetido → "Encontrada mais de uma nota fiscal para este mesmo número. Utilize a pesquisa…"',
+            ['BRUTO', 'CSI'].includes(tl.tipoCusto) && typeof tl.markdownFixo === 'boolean' && typeof tl.mostrarEtiquetas === 'boolean'
+            && Number(ok1.codnf) === nfCompra && nenhuma.status === 422 && nenhumaJ.message === 'Nota fiscal não encontrada.'
+            && repetida.status === 422 && repetidaJ.message === 'Encontrada mais de uma nota fiscal para este mesmo número. Utilize a pesquisa para selecionar a nota fiscal desejada.',
+            { tl, ok1, nenhuma: [nenhuma.status, nenhumaJ.message], repetida: [repetida.status, repetidaJ.message] });
+        }
         check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup é PERCENTUAL — 12,00 contra custo 9,00 = **33,33%**. A consulta traz a razão (venda ÷ custo), mas `btnVisualizar:412` percorre TODAS as linhas assim que a consulta abre e sobrescreve a coluna com `CalcularMargem`: a razão nunca chega aos olhos do operador. O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
           Math.abs(Number(item.markup) - 33.33) < 0.02
           && Math.abs(Number(item.icms) - 12) < 0.005

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { useNavigate } from 'react-router-dom';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
@@ -13,6 +13,7 @@ import { hojeNaLoja } from '../../shared/tempo';
 import { useConfirmarSaida } from '../../shared/navegacao/useConfirmarSaida';
 import { abrirEtiquetasCom } from '../etiqueta/etiquetaApi';
 import { useShortcut } from '../../shared/keyboard';
+import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -35,9 +36,9 @@ interface Resultado { tipoCusto: TipoCusto; mostrarEtiquetas: boolean; linhas: I
 
 /** o `rgPreco` do legado — e cada opção troca a fórmula da margem, não só o que se vê. */
 const CUSTOS: Array<{ v: TipoCusto; rotulo: string; ajuda: string }> = [
-  { v: 'CSI', rotulo: 'Custo sem imposto', ajuda: 'a coluna vira MARGEM LÍQUIDA %: desconta ICMS e PIS/COFINS de saída, despesa operacional, IR e CSLL' },
-  { v: 'BRUTO', rotulo: 'Custo bruto', ajuda: 'markup % sobre o custo que veio na nota' },
-  { v: 'REPOSICAO', rotulo: 'Custo de reposição', ajuda: 'markup % sobre o custo de reposição (nota + encargos − bonificação)' },
+  { v: 'CSI', rotulo: 'Valor custo C.S.I', ajuda: 'a coluna vira MARGEM LÍQUIDA %: desconta ICMS e PIS/COFINS de saída, despesa operacional, IR e CSLL' },
+  { v: 'BRUTO', rotulo: 'Valor custo bruto', ajuda: 'markup % sobre o custo que veio na nota' },
+  { v: 'REPOSICAO', rotulo: 'Valor reposição', ajuda: 'markup % sobre o custo de reposição (nota + encargos − bonificação)' },
 ];
 
 /**
@@ -66,7 +67,8 @@ const gradeFocada = (e: KeyboardEvent) => {
   if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return false;
   return !(el.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes((el as HTMLInputElement).type));
 };
-const dias = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// o btnVisualizarClick sem nada a listar
+const SEM_REGISTROS = 'Registros não encontrados.\nObs.: Notas de transferência ou com CFOP 1910 e 2910, não serão listadas.';
 
 export function PrecificacaoNfPage() {
   const mensagem = useMensagem();
@@ -76,12 +78,39 @@ export function PrecificacaoNfPage() {
    * navegador guarda o caminho de volta — que é o que o operador faz de qualquer forma.
    */
   const navegar = (destino: string) => navigate(destino);
+  // o filtro do legado: o Número NF resolve o CODNF (Código NF); o período só vale com "Data NF" marcado (chkData); o "Considerar" abre
+  // no custo que a empresa configurou (FormShow)
   const [f, setF] = useState({
-    nronf: '', descricao: '', fornecedor: '', grupo: '',
-    dataIni: dias(-30), dataFim: hoje(),
+    nronf: '', codnf: '', descricao: '', fornecedor: '', grupo: '',
+    dataNf: false, dataIni: hoje(), dataFim: hoje(),
     incluirTransferencias: false, incluirBonificacao: false, somenteMargemNegativa: false,
     tipoCusto: '' as '' | TipoCusto,
   });
+  const [tela, setTela] = useState<{ tipoCusto: TipoCusto; mostrarEtiquetas: boolean; markdownFixo: boolean } | null>(null);
+  const [pesqNota, setPesqNota] = useState(false);
+  useEffect(() => {
+    fetch(`${BASE}/precificacao/nf/tela`, { headers: apiHeaders() })
+      .then(async (r) => { if (r.ok) { const t = await r.json(); setTela(t); setF((x) => (x.tipoCusto ? x : { ...x, tipoCusto: t.tipoCusto })); } })
+      .catch(() => undefined);
+  }, []);
+  // o exit do Número NF (BuscarNroNotaFiscal): sem Código NF e com número ≠ 0, o CODNF da NF de entrada da loja; o número repetido limpa
+  const resolverNota = async (nronf: string): Promise<string | null> => {
+    const r = await fetch(`${BASE}/precificacao/nf/nota?nronf=${encodeURIComponent(nronf.trim())}`, { headers: apiHeaders() });
+    handle401(r);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+      if (env.code === 'PRECIFICACAO_NF_NUMERO_REPETIDO') setF((x) => ({ ...x, nronf: '', codnf: '' }));
+      mensagem.erro(Object.assign(new Error(env.code), { envelope: env }));
+      return null;
+    }
+    const codnf = String(((await r.json()) as { codnf: number }).codnf);
+    setF((x) => ({ ...x, codnf }));
+    return codnf;
+  };
+  const sairDoNumero = () => {
+    if (!f.codnf && Number(f.nronf.replace(',', '.')) !== 0 && f.nronf.trim()) void resolverNota(f.nronf);
+  };
   const [res, setRes] = useState<Resultado | null>(null);
   /** o que o operador digitou, por item: preço e markup andam juntos. */
   const [edit, setEdit] = useState<Record<number, { vrvenda: number; markup: number }>>({});
@@ -103,7 +132,20 @@ export function PrecificacaoNfPage() {
     setOcupado(true);
     try {
       const q = new URLSearchParams();
-      Object.entries(f).forEach(([k, v]) => { if (v !== '' && v !== false) q.set(k, String(v)); });
+      // GeraConsulta: com Número NF, filtra pelo CODNF dele
+      let codnf = f.codnf;
+      if (f.nronf.trim() && !codnf) {
+        const c = await resolverNota(f.nronf);
+        if (!c) return;
+        codnf = c;
+      }
+      if (f.nronf.trim() && codnf) q.set('codnf', codnf);
+      for (const k of ['descricao', 'fornecedor', 'grupo'] as const) if (f[k].trim()) q.set(k, f[k].trim());
+      if (f.dataNf) { q.set('dataIni', f.dataIni); q.set('dataFim', f.dataFim); }
+      if (f.incluirTransferencias) q.set('incluirTransferencias', 'true');
+      if (f.incluirBonificacao) q.set('incluirBonificacao', 'true');
+      if (f.somenteMargemNegativa) q.set('somenteMargemNegativa', 'true');
+      if (f.tipoCusto) q.set('tipoCusto', f.tipoCusto);
       const r = await fetch(`${BASE}/precificacao/nf?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -113,6 +155,7 @@ export function PrecificacaoNfPage() {
       }
       const j = (await r.json()) as Resultado;
       setRes(j); setSel(new Set());
+      if (!j.linhas.length) mensagem.erro(SEM_REGISTROS);
       // parte de onde o sistema sugeriu; se não houver sugestão, do preço que está valendo
       setTemEdicao(false);
       setEdit(Object.fromEntries(j.linhas.map((l) => {
@@ -247,6 +290,9 @@ export function PrecificacaoNfPage() {
       ),
     },
     { field: 'nronf', headerName: 'NF', type: 'text', width: 90, isPrimary: true },
+    // NRONF, CODNF e EMISSAO são colunas visíveis da grade do legado
+    { field: 'codnf', headerName: 'Código NF', type: 'text', width: 95 },
+    { field: 'dtemissao', headerName: 'Emissão', type: 'text', width: 100, valueGetter: (l) => dataBr(l.dtemissao) },
     // as colunas da grade do legado que faltavam: a loja (LJ), o item da nota (CODNFPROD) e o CSI gravado na nota
     { field: 'idempresa', headerName: 'LJ', type: 'text', width: 50 },
     { field: 'codnfprod', headerName: 'Item NF', type: 'text', width: 90 },
@@ -277,7 +323,8 @@ export function PrecificacaoNfPage() {
       ),
     },
     { field: 'markdown', headerName: 'Markdown', type: 'text', width: 100, valueGetter: (l) => `${nfmt(l.markdown, 2)}%` },
-    { field: 'markupfixo', headerName: 'Markup fixo', type: 'text', width: 105, valueGetter: (l) => nfmt(l.markupfixo, 2) },
+    // FormShow: TIPO_PRECIFICACAO = 'D' troca o rótulo para MARKDOWN FIXO
+    { field: 'markupfixo', headerName: tela?.markdownFixo ? 'Markdown fixo' : 'Markup fixo', type: 'text', width: 105, valueGetter: (l) => nfmt(l.markupfixo, 2) },
     { field: 'pmz', headerName: 'PMZ', type: 'text', width: 100, valueGetter: (l) => moeda(l.pmz) },
     { field: 'vrpromo', headerName: 'Promoção', type: 'text', width: 105, valueGetter: (l) => (Number(l.vrpromo) > 0 ? moeda(l.vrpromo) : '—') },
     { field: 'aliquota', headerName: 'Alíq.', type: 'text', width: 70 },
@@ -308,7 +355,7 @@ export function PrecificacaoNfPage() {
     } as DataTableColumnDef<Item>,
     { field: 'parceiro_razao', headerName: 'Fornecedor', type: 'text', width: 200 },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [sel, edit, res?.tipoCusto]);
+  ], [sel, edit, res?.tipoCusto, tela?.markdownFixo]);
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -316,30 +363,42 @@ export function PrecificacaoNfPage() {
 
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32"><Field label="&Nº NF" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
-          <div className="w-52"><Field label="&Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
+          {/* edtNroNf: digitar limpa o Código NF (edtNroNfChange); sair resolve (BuscarNroNotaFiscal); [F3]/… abre a Pesquisa das notas */}
+          <div className="flex items-end gap-gp-xs">
+            <div className="w-36"><Field label="&Número NF [F3]" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value, codnf: '' })}
+              onBlur={sairDoNumero} onKeyDown={(e) => { if (e.key === 'F3') { e.preventDefault(); setPesqNota(true); } }} /></div>
+            <Button label="…" variant="soft" onClick={() => setPesqNota(true)} />
+          </div>
+          <div className="w-28"><Field label="Código NF" value={f.codnf} readOnly /></div>
+          <div className="w-52"><Field label="&Descrição Produto" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></div>
           <div className="w-52"><Field label="F&ornecedor" value={f.fornecedor} onChange={(e) => setF({ ...f, fornecedor: e.target.value })} /></div>
           <div className="w-44"><Field label="&Grupo" value={f.grupo} onChange={(e) => setF({ ...f, grupo: e.target.value })} /></div>
-          <div className="w-40"><Field label="Emissão &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
-          <div className="w-40"><Field label="até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
-          <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
+          {/* chkData: marcar limpa a nota, põe hoje nas duas datas e libera o "Período NF"; desmarcado, sem filtro de data */}
+          <label className="flex items-center gap-gp-xs pb-2 text-body-sm">
+            <input type="checkbox" checked={f.dataNf}
+              onChange={(e) => setF(e.target.checked ? { ...f, dataNf: true, nronf: '', codnf: '', dataIni: hoje(), dataFim: hoje() } : { ...f, dataNf: false })} /> Data NF
+          </label>
+          <div className="w-40"><Field label="Período NF" type="date" disabled={!f.dataNf} value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
+          <div className="w-40"><Field label="Até" type="date" disabled={!f.dataNf} value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+          <Button label="&Visualizar" disabled={ocupado} onClick={() => void buscar()} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-center gap-gp-md text-body-sm">
+          {/* rgPreco "Considerar" */}
+          <fieldset className="flex items-center gap-gp-sm rounded border border-border px-pad-sm py-1">
+            <legend className="px-1 text-fg-muted">Considerar</legend>
+            {CUSTOS.map((c) => (
+              <label key={c.v} className="flex items-center gap-gp-xs" title={c.ajuda}>
+                <input type="radio" name="precnf-considerar" checked={f.tipoCusto === c.v} onChange={() => setF({ ...f, tipoCusto: c.v })} /> {c.rotulo}
+              </label>
+            ))}
+          </fieldset>
           <label className="flex items-center gap-gp-sm">
-            Preço sobre o
-            <select className="rounded border border-border px-1 py-0.5"
-              value={f.tipoCusto} onChange={(e) => setF({ ...f, tipoCusto: e.target.value as '' | TipoCusto })}>
-              <option value="">(o configurado na empresa)</option>
-              {CUSTOS.map((c) => <option key={c.v} value={c.v}>{c.rotulo}</option>)}
-            </select>
+            <input type="checkbox" checked={f.incluirBonificacao} onChange={(e) => setF({ ...f, incluirBonificacao: e.target.checked })} />
+            Visualizar Bonificação/Verbas
           </label>
           <label className="flex items-center gap-gp-sm">
             <input type="checkbox" checked={f.incluirTransferencias} onChange={(e) => setF({ ...f, incluirTransferencias: e.target.checked })} />
-            Incluir transferências <span className="text-fg-muted">(mercadoria de outra loja)</span>
-          </label>
-          <label className="flex items-center gap-gp-sm">
-            <input type="checkbox" checked={f.incluirBonificacao} onChange={(e) => setF({ ...f, incluirBonificacao: e.target.checked })} />
-            Incluir bonificação
+            Listar Transferências
           </label>
           <label className="flex items-center gap-gp-sm">
             <input type="checkbox" checked={f.somenteMargemNegativa} onChange={(e) => setF({ ...f, somenteMargemNegativa: e.target.checked })} />
@@ -348,6 +407,10 @@ export function PrecificacaoNfPage() {
         </div>
       </section>
 
+      {pesqNota && (
+        <Pesquisa resourcePath="precificacao/nf-notas" onFechar={() => setPesqNota(false)}
+          onSelecionar={(l) => { setF((x) => ({ ...x, codnf: String(l.codigo ?? ''), nronf: String(l.nro_nf ?? '') })); setPesqNota(false); }} />
+      )}
       {res && (
         <>
           <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">

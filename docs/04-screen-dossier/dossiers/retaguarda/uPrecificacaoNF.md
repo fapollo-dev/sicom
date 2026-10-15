@@ -263,3 +263,32 @@ isso a página manda as linhas visíveis (API `POST precificacao/nf/impressao`, 
 média e contagem do grupo) e o resumo lê o `MEDIAMARGEM`, o `TAggregateField` `AVG(MARKUP)` do dataset (o mesmo valor em todas as
 linhas). Variáveis: DtInicial = a `DTEMISSAO` do registro corrente (o selecionado; senão o primeiro) e DtFinal = `DateTimeToStr(Now)`.
 Smoke §104.18; teste de renderização do layout 875.
+
+## Auditoria controle a controle (15/10/2026) — `uPrecificacaoNF.dfm` × Apollo
+
+A grade do legado tem **29 colunas** (24 visíveis + CODPRODUTO, CODBARRA, CODNFPROD, IDPRODUTO e MARKUP_AUTORIZADO ocultas) — o "35"
+da tabela do §8 contava outra coisa. Todas estão no Apollo; faltavam as visíveis **CODNF** e **EMISSAO**. ❌→✅
+
+O filtro (`grp1`) era o que mais divergia:
+
+- **Número NF [F3]** (`edtNroNf`): digitar limpa o Código NF (`edtNroNfChange`); **sair resolve o CODNF** (`BuscarNroNotaFiscal`) — a
+  NF de **entrada** da loja com o número **exato**: nenhuma → "Nota fiscal não encontrada."; mais de uma → "Encontrada mais de uma nota
+  fiscal para este mesmo número. Utilize a pesquisa para selecionar a nota fiscal desejada." (e limpa). A consulta filtra pelo
+  **CODNF**. O Apollo filtrava `nronf LIKE '%x%'` (trazia os itens de todas as notas que contêm o número). ❌→✅ (`GET precificacao/nf/nota`)
+- **[F3] / botão** (`btnAddPLCClick` — o nome engana): é a **Pesquisa da GET_NF** de entrada da loja, abrindo em NRO_NF "igual" ordenada
+  por CODIGO, com 5 cores (NFe emitida, cancelada, processada, importada, transferência entre lojas). A coloração é **da Pesquisa das
+  notas**, não da grade de itens — o §8.5 tinha lido como coloração da grade. ❌→✅ (`precificacao/nf-notas`)
+- **Código NF** (`edtCodNf`): o CODNF resolvido, ao lado. ❌→✅
+- **Data NF** (`chkData`): só com ele marcado o **Período NF** vale (marcar limpa a nota e põe hoje nas duas datas); desmarcado, sem
+  filtro de data. O Apollo aplicava sempre os últimos 30 dias. ❌→✅
+- **Considerar** (`rgPreco`): rádio com "Valor custo C.S.I", "Valor custo bruto", "Valor reposição", abrindo no custo que a empresa
+  configurou (`FormShow`: MARGEM_LIQUIDA_PRECIFICACAO_NF). Era um seletor com "(o configurado na empresa)". ❌→✅ (`GET precificacao/nf/tela`)
+- **Rótulo MARKDOWN FIXO** (`FormShow`, TIPO_PRECIFICACAO = 'D') — a pendência "troca de rótulo ainda não" do §8. ❌→✅
+- "Visualizar Bonificação/Verbas", "Listar Transferências", "&Descrição Produto", "&Visualizar": os rótulos do legado.
+- Sem registros: "Registros não encontrados. Obs.: Notas de transferência ou com CFOP 1910 e 2910, não serão listadas." ❌→✅
+- Permissões: os botões não têm Tag — só existe o grant da tela (59 operadores na produção). O comentário do controller que dizia
+  "aplicar exige BTNAPLICAR" estava errado (o código já pedia só a tela).
+- Sem Número NF e sem Data NF o legado lista os itens de **todas** as notas de entrada da loja (as validações estão comentadas no
+  `btnVisualizarClick`); o Apollo idem, com o teto de 3.001 linhas.
+
+Prova: smoke §104.19 + `apps/web/test/precificacaoNfFiltro.spec.tsx` (2).

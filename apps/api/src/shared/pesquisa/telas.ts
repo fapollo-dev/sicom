@@ -282,6 +282,19 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
       { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
       { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'NFe Transferência entre lojas' },
     ] },
+  // PRECIFICAÇÃO DE NF (btnAddPLCClick / o [F3] do Número NF, uPrecificacaoNF.pas:206-286): a GET_NF de ENTRADA da loja, abrindo em
+  // NRO_NF "igual" ordenada por CODIGO (o SetDefault), com as 5 cores que a tela monta (emitida, cancelada, processada, importada,
+  // transferência entre lojas)
+  'precificacao/nf-notas': { view: 'get_nf', relacao: 'rel_get_nf', ocultas: OCULTAS.nf, form: 'FRMPRECIFICACAONF', titulo: 'Notas fiscais', retorno: 'codigo',
+    abertura: { campo: 'nro_nf', operacao: 'igual', ordenacao: 'codigo' },
+    obrigatorios: (ctx) => [sql<SqlBool>`${sql.ref('tipo')} = 'E'`, daLoja(ctx, 'idempresa')],
+    cores: [
+      { coluna: 'status_nfe', op: '=', valor: 'NFE ENVIADA A RECEITA', cor: 'AZUL', legenda: 'NFe Emitida' },
+      { coluna: 'status_nfe', op: '=', valor: 'NFE CANCELADA NA RECEITA', cor: 'VERMELHO', legenda: 'NFe Cancelada' },
+      { coluna: 'processada', op: '=', valor: 'S', cor: 'VERDE', legenda: 'Notas processadas' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'S', cor: 'ROXO', legenda: 'NFe Importada' },
+      { coluna: 'nf_importacao_nfe', op: '=', valor: 'T', cor: 'AZUL_PETROLEO', legenda: 'NFe Transferência entre lojas' },
+    ] },
   // MANUTENÇÃO DE NF-e (btnPesquisarNotasFiscaisClick, uExportaNFe.pas:165-300): a GET_NF das lojas do operador (SelecionaEmpresa), processada,
   // emissão própria, modelo 55, com chave, status e número, com as cores da tela (emitida, cancelada, processada, importada); em
   // multisseleção, até 999 notas vão para a grade de manutenção

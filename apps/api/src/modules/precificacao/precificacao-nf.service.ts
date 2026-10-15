@@ -92,6 +92,30 @@ export class PrecificacaoNfService {
     return e;
   }
 
+  /**
+   * O que o FormShow decide ao abrir (uPrecificacaoNF.pas:868): o `rgPreco` no custo que a empresa configurou (MARGEM_LIQUIDA_PRECIFICACAO_NF
+   * 'S' ⇒ CSI e sem o botão Etiquetas; senão bruto) e o rótulo "MARKDOWN FIXO" da coluna com TIPO_PRECIFICACAO = 'D'.
+   */
+  async tela(): Promise<{ tipoCusto: TipoCusto; mostrarEtiquetas: boolean; markdownFixo: boolean }> {
+    const emp = this.emp();
+    const margemLiq = String((await this.config.resolver('MARGEM_LIQUIDA_PRECIFICACAO_NF', { empresaId: emp })) ?? 'B').toUpperCase();
+    const tipo = String((await this.config.resolver('TIPO_PRECIFICACAO', { empresaId: emp })) ?? 'P').toUpperCase();
+    return { tipoCusto: margemLiq === 'S' ? 'CSI' : 'BRUTO', mostrarEtiquetas: margemLiq !== 'S', markdownFixo: tipo === 'D' };
+  }
+
+  /**
+   * O exit do Número NF (`BuscarNroNotaFiscal`, uPrecificacaoNF.pas:454): a NF de ENTRADA da loja com esse número exato. Nenhuma →
+   * "Nota fiscal não encontrada."; mais de uma → "Encontrada mais de uma nota fiscal para este mesmo número. Utilize a pesquisa…".
+   */
+  async nota(nronf: string): Promise<{ codnf: number }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const rs = (await sql<{ codnf: number }>`SELECT codnf FROM nf WHERE nronf = ${nronf.trim()} AND tipo = 'E' AND idempresa = ${emp} LIMIT 2`.execute(db)).rows;
+    if (!rs.length) throw new BusinessRuleError('PRECIFICACAO_NF_NAO_ENCONTRADA');
+    if (rs.length > 1) throw new BusinessRuleError('PRECIFICACAO_NF_NUMERO_REPETIDO');
+    return { codnf: Number(rs[0].codnf) };
+  }
+
   async listar(f: FiltroPrecificacaoNf): Promise<{
     tipoCusto: TipoCusto;
     mostrarEtiquetas: boolean;

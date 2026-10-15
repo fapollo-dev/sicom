@@ -442,6 +442,9 @@ const CODE_PT: Record<string, string> = {
   EMPRESA_FORMA_PGTO_NAO_QUEBRA: 'A forma de pagamento não possui destino "Quebra de caixa".',
   // ValidaATALHO do uCadFormaPgto.pas
   FORMA_PGTO_ATALHO_EM_USO: 'Atalho já utilizado para outra Forma de Pagamento, Verifique!',
+  // BuscarNroNotaFiscal do uPrecificacaoNF.pas
+  PRECIFICACAO_NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada.',
+  PRECIFICACAO_NF_NUMERO_REPETIDO: 'Encontrada mais de uma nota fiscal para este mesmo número. Utilize a pesquisa para selecionar a nota fiscal desejada.',
   EMPRESA_FORMA_PGTO_OUTRA_EMPRESA: 'A forma de pagamento não pertence à empresa.',
   EMPRESA_CONTINGENCIA_INICIO_APOS_FIM: 'A data inicial e hora da Contigência de NFC, não deve ser após a data e hora final.',
   EMPRESA_CONTINGENCIA_LONGA: 'Período de contigência muito Longo.',
