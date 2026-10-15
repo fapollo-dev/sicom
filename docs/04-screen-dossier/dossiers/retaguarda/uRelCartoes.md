@@ -49,3 +49,10 @@ Corte único, **completo** — nada ficou de fora. Nenhuma migration de schema f
   VALOR_CREDITO/DEBITO/ALIMENTACAO e os _BRUTO) agrupado por loja, e as variáveis `DtInicial`, `DtFinal`, `Empresa`. Sem dados:
   "Não há dados no filtro informado. Verifique!". A impressão HTML da grade saiu.
 - smoke §101.5; teste de renderização.
+
+## Auditoria controle a controle (15/10/2026)
+
+Período, `edtOperadora` (maiúsculas, o filtro do frmFiltro: igual/começa/termina/contém/diferente sobre UPPER(O.OPERADORA)), lojas do
+GetMultiEmpresa, Imprimir no Rel_Total_Cartao.fr3 com DtInicial/DtFinal/Empresa e o aviso "Não há dados no filtro informado. Verifique!" —
+conferem. O F3 do `edtOperadora` abre a Pesquisa da `GET_CARTAO_RAZAO`, view que **não existe na produção** (USER_TAB_COLUMNS vazio): o
+legado daria ORA-00942 — não há o que portar.
