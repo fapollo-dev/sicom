@@ -62,3 +62,9 @@ O `TFrmRelDREContabil` herda o `TFrmRelMaster`: o "Imprimir" monta o `DBDRelator
   na produção). Vale a intenção: as lojas escolhidas; todas marcadas dá o consolidado. O checklist de natureza é invisível no legado (todas
   marcadas): sem filtro.
 - **Motor .fr3:** linha com `Frame.Width := 0` pelo script some (as linhas da fórmula). Smoke §35.2.
+
+## Auditoria controle a controle (15/10/2026)
+
+Período, lojas, "Filtro de plano de contas" (Adicionar/Excluir/Limpar → a Pesquisa), níveis expandidos (padrão '2 níveis') e o Imprimir
+— conferem. A "Natureza do plano de contas" (`CkbNatureza` + marcar/desmarcar) é `Visible = False` no .dfm e o FormShow marca todas:
+sem filtro, como o Apollo já faz.
