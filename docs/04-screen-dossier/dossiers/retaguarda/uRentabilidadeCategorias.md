@@ -74,3 +74,30 @@ imprimem. Agora portado expressão a expressão (`rentabilidade-legado.ts`):
   relatório. Refaça a pesquisa.".
 - a tela passou a mostrar a grade do legado (por produto). O endpoint antigo por nível segue (o smoke dele também).
 - smoke §297 (4 checks, a conta feita à mão); teste de renderização dos três layouts.
+
+## Auditoria controle a controle (15/10/2026) — `uRentabilidadeCategorias.dfm` × Apollo
+
+- **`btnConsulta` "[F9] Consultar"** (Tag 1 → BTNCONSULTA, 65 operadores): o `btnConsultaClick` consulta **e imprime** no Tipo
+  Relatório. No Completo com **"Exibe grade"** (`CkbExibeGrid`, marcado de fábrica) mostra antes a grade (`TFrmRelRentabilidadeCategoriasGrid`)
+  e só imprime pelo Imprimir dela (mrOk); sem a grade (Simplificado, Totais ou desmarcado) vai direto à impressão. O Apollo tinha
+  Consultar e Imprimir separados e a grade sempre. ❌→✅ (a API já exigia BTNCONSULTA nas duas rotas.)
+- **`RgTipoClick`**: o "Exibe grade" só vale no Completo — fora dele desmarca e trava. ❌→✅
+- **A grade** (`UFrmRelRentabilidadeCategoriasGrid.dfm`): as 30 colunas na ordem e com os rótulos do legado (Categoria, PLU, Produto,
+  Custo, Venda, Prom., Total custo, Desp. acessórias, Frete, Frete 2, ST, FCP ST, IPI, Seguro, Bonificação, Crédito ICMS, Crédito P/C,
+  Total custo real, Total venda, Débito ICMS, Débito P/C, Total venda líquida, Perda, Lucro bruto, MLB %, Desp. op., IR, Ct. social,
+  Lucro final, MLF %) e **as 22 somas do rodapé** (skSum). A grade do Apollo era outra (índice, qtde, participação, acumulado, PIS/COFINS
+  somado) — esses ficam na impressão, como no legado. ❌→✅
+- **Os botões da grade** (`TFrmRelVendasMaster`): Exportar ("Rentabilidade por categoria" — CSV para o Excel, como o resto do Apollo),
+  Imprimir, Sair. O "Exportar" TXT do form-base não tem nome de arquivo nesta tela (`FNomeArquivoTxt` vazio) e cai na mensagem de
+  configuração incorreta — morto aqui.
+- **`rdgPesquisa` "Tipo Consulta"**: Vendas / Vendas e Notas Fiscais (era um checkbox). ✅ mesma regra (`GetSQLNf`).
+- **`chkFiltroSCRAP`**: "Considerar apenas SCRAP's com nota fiscal para calcular perdas" (rótulo do legado). ✅
+- **`edtDpto`/`edtGrupo`/`edtSubGrupo`**: o **[F3]** abre a Pesquisa da GET_FAMILIAS_PROD com `TIPO = 'DEPARTAMENTO'|'GRUPO'|'SUBGRUPO'`
+  e devolve o NOME; o modo do `CapturaFiltroR` (=, começa, termina, contém, <>) fica no seletor ao lado. ❌→✅ (o F3 faltava). No
+  legado, cancelar o diálogo do filtro deixa o texto cru e o SQL vira `D.DESCRICAO ARROZ` (erro) — o seletor do Apollo não tem esse caso.
+- **Sub-Grupo do Fornecedor** (`edtFornecedor` + `btnCodFornecedor`): Pesquisa GET_PARCEIROS com `FRN = 'S'` e ativo (a produção não
+  tem ATIVADO nulo entre os 12.852 fornecedores, então `ativado = 'S'` equivale) e o nome ao lado. ❌→✅ (era só o código.)
+- Período (`edtDtFinalExit` → ValidaDatas; a função não veio no fonte): a API recusa final < inicial. Despesa operacional e empresas
+  conferem.
+
+Prova: `apps/web/test/rentabilidadePage.spec.tsx` (3) + smoke §297 (a conta).
