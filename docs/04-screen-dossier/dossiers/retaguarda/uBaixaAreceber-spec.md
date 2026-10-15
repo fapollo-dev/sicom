@@ -516,3 +516,18 @@ fornecedor no lote. O lote revertido lê a `GET_APAGARBX_REVERTIDAS` / `GET_AREC
 mesmo nome existe no lote de `Relatorios\` com outro desenho; o de Config é o de código menor (`modeloFr3(…, { pasta: 'Config' })`). O
 recibopagar de Config pergunta o "Layout de impressão" (Recibo — um por fornecedor — × Lista de recibos): o diálogo do FastReport sai na
 janela de impressão e o OnClick do layout escolhe a página. O HTML próprio (`imprimirRecibo.ts`) saiu. Smoke §295.
+
+## Auditoria controle a controle do `UBaixaAreceber.dfm` (15/10/2026)
+
+Os 42 controles do dfm contra `/cobranca/baixa-receber` (produção 2024-26: 10.495 baixas ativas; juros, multa e troco nunca usados):
+
+| Controle do legado | Produção | Apollo |
+|---|---|---|
+| `btnConsulta` "Consulta titulos" (Tag 1; BTNCONSULTA 100) → `frmConsRCBbx` | — | ✅ botão fora do lote → `/cobranca/cons-rcb-bx` |
+| Permissões de controle (Tag 1): BTNADICIONARREGISTRO, BTNGRAVAR, BTNCONSULTA, BTNADDRECURSO, BTNPOSTRECURSO (100), BTNDELRECURSO (98) | — | ✅ os botões desabilitam sem a opção (a API já recusava iniciar/gravar) |
+| Painel: Total de Recursos · Total de Recursos consolidados (o SALDO do `InformarRecurso`: DINHEIRO e CARTÃO na hora) · Data · Tx Juros [F8] · Desc/Acre · Troco · Total a baixar · "Saldo do cliente" | JUROS/TX_JUROS/MULTA = 0 em toda baixa de 2024-26; troco (`LancaTroco`, "Troco referente a baixa…") 0 movimentos; o saldo do cliente só com BAIXA_RCB_POR_CLIENTE (N; só o usuário 1 = S) e o recurso SALDO nunca usado | ✅ os dois totais de recursos; Tx Juros/Troco/Saldo do cliente fora (sem uso — §4 corte E) |
+| Recursos 2 CHEQUE · 6 PERMUTA · 9 CHEQUE PRE · SALDO | 0 | ✗ fora (§4) |
+| `btnImportaArqRetornoBoleto` | — | ✅ já havia (§8) |
+| Grade (Documento … Nro. Pedido), Novo/Excluir documento, CCs, recursos, parcial, desconto com liberação, manutenção, recibo | — | ✅ já havia (§6/§7, smoke §197/§295) |
+
+Web `baixaReceberPage.spec.tsx`.

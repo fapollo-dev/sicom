@@ -9,6 +9,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { useShortcut } from '../../shared/keyboard';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
 import { Pesquisa } from '../../shared/cadmaster/Pesquisa';
+import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import {
   contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, retornoBaixaReceber, titulosBaixaReceber,
   type ContaReceber, type FormaCartao, type PadroesReceber, type TituloReceber,
@@ -32,6 +33,9 @@ interface Recurso { tipo: number; codconta: number; valor: number; historico: st
 
 export function BaixaReceberPage() {
   const mensagem = useMensagem();
+  // as PERMISSÕES DE CONTROLE da tela (UBaixaAreceber.dfm, Tag 1): Iniciar, Gravar, Consulta títulos, Adicionar/Salvar/Excluir recurso
+  // (produção 15/10/2026: 100 concessões; 98 para excluir recurso)
+  const { tem: pode } = useOpcoesDoForm('FRMBAIXAARECEBER');
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [padroes, setPadroes] = useState<PadroesReceber | null>(null);
@@ -91,6 +95,9 @@ export function BaixaReceberPage() {
   }, [docs, globalN, totalValor]);
   const totalDocs = r2(docs.reduce((s, d, i) => s + d.valor + acreDoc[i], 0));
   const totalRecursos = r2(recursos.reduce((s, r) => s + r.valor, 0));
+  // "Total de Recursos consolidados" (TOTALSALDO): o SALDO que o `InformarRecurso` consolida — DINHEIRO e CARTÃO na hora; DOC,
+  // TRANSFERÊNCIA e DÉBITO só na baixa (cheque, permuta e saldo não estão na tela: 0 uso)
+  const totalConsolidado = r2(recursos.filter((r) => r.tipo === 0 || r.tipo === 7).reduce((s, r) => s + r.valor, 0));
   const restante = r2(totalDocs - totalRecursos);
 
   const iniciar = () => executar(async () => {
@@ -249,7 +256,9 @@ export function BaixaReceberPage() {
       <PageHeader title="Baixa de contas a receber" />
 
       <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado} />}
+        {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado || !pode('BTNADICIONARREGISTRO')} />}
+        {/* "Consulta titulos" (btnConsulta, Tag 1): a consulta de baixas (FRMCONSRCBBX) — só fora de um lote, como o legado desabilita */}
+        {!lote && <Button label="Consulta &títulos" variant="soft" onClick={() => navigate('/cobranca/cons-rcb-bx')} disabled={ocupado || !pode('BTNCONSULTA')} />}
         {!lote && ultimoLote && <Button label={`Imprimir &recibo do lote ${ultimoLote}`} variant="ghost" onClick={() => imprimirReciboLote(ultimoLote)} disabled={ocupado} />}
         {!lote && (
           <label className="inline-flex cursor-pointer items-center gap-gp-xs rounded-radius-md border border-border px-pad-sm py-pad-xs text-body-sm focus-within:ring-2">
@@ -264,7 +273,7 @@ export function BaixaReceberPage() {
             <div className="w-44"><DateField label="Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
             <div className="flex-1" />
             <Button label="&Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
-            <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length} />
+            <Button label="&Gravar baixa" onClick={() => void gravar()} disabled={ocupado || !docs.length || !recursos.length || !pode('BTNGRAVAR')} />
           </>
         )}
       </section>
@@ -329,6 +338,8 @@ export function BaixaReceberPage() {
           )}
           <div className="flex flex-wrap items-end gap-gp-sm">
             <span className="text-sm">Total a baixar <strong className="tabular-nums">{moeda(totalDocs)}</strong></span>
+            <span className="text-sm">Total de recursos <strong className="tabular-nums">{moeda(totalRecursos)}</strong></span>
+            <span className="text-sm">Total de recursos consolidados <strong className="tabular-nums">{moeda(totalConsolidado)}</strong></span>
             <div className="flex-1" />
             <div className="w-40"><Field label="Acréscimo/desconto geral" inputMode="decimal" value={global.valor} disabled={recursos.length > 0} onChange={(e) => setGlobal({ ...global, valor: e.target.value })} /></div>
             {globalN !== 0 && <div className="w-40"><Field label="Senha de desconto" type="password" value={global.senha} onChange={(e) => setGlobal({ ...global, senha: e.target.value })} /></div>}
@@ -354,7 +365,7 @@ export function BaixaReceberPage() {
             <strong className="text-sm">Recursos</strong>
             <span className="text-sm">Restante <strong className="tabular-nums">{moeda(Math.max(restante, 0))}</strong></span>
             <div className="flex-1" />
-            {!novo && <span ref={addRecursoRef} className="contents"><Button label="Adicionar &recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado} /></span>}
+            {!novo && <span ref={addRecursoRef} className="contents"><Button label="Adicionar &recurso" variant="soft" onClick={abrirRecurso} disabled={ocupado || !pode('BTNADDRECURSO')} /></span>}
           </div>
           {novo && (
             <div className="grid grid-cols-1 gap-gp-sm rounded-md border border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -370,7 +381,7 @@ export function BaixaReceberPage() {
               <div className="sm:col-span-2 lg:col-span-4"><Field label="Histórico" value={novo.historico} onChange={(e) => setNovo({ ...novo, historico: e.target.value })} /></div>
               <div className="flex justify-end gap-gp-sm sm:col-span-2 lg:col-span-4">
                 <Button label="&Cancelar" variant="ghost" onClick={() => setNovo(null)} />
-                <Button label="&Salvar recurso" onClick={salvarRecurso} />
+                <Button label="&Salvar recurso" onClick={salvarRecurso} disabled={!pode('BTNPOSTRECURSO')} />
               </div>
             </div>
           )}
@@ -387,7 +398,7 @@ export function BaixaReceberPage() {
                         <td className="px-2 py-1">{c ? nomeConta(c) : r.codconta}</td>
                         <td className="px-2 py-1">{r.historico}</td>
                         <td className="px-2 py-1 text-right tabular-nums">{moeda(r.valor)}</td>
-                        <td className="px-2 py-1"><Button label="Excluir" variant="ghost" onClick={() => setRecursos(recursos.filter((_, k) => k !== i))} /></td>
+                        <td className="px-2 py-1"><Button label="Excluir" variant="ghost" onClick={() => setRecursos(recursos.filter((_, k) => k !== i))} disabled={!pode('BTNDELRECURSO')} /></td>
                       </tr>
                     );
                   })}
