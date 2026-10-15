@@ -20675,6 +20675,34 @@ async function main() {
         await pg1.end();
       }
     }
+    // ══ §322 DEVOLUÇÃO DE VENDAS — os controles auditados do uDevolucaoVendas.dfm: "Trazer pesquisa de vendas" (o cupom em NFC-e e ECF), o cupom cancelado e as colunas da grade ══
+    {
+      const pg2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const DV2 = 'relatorios/devolucao-vendas';
+      try {
+        await pg2.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (993220, '7899000993220', 'DEV 322', 'KG', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pg2.query(`INSERT INTO vendas (codvendas, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, desc_promocao, cancelado, venda_nfc, aliquota) VALUES
+            (99322001, 1, '2060-05-10 09:00:00-03', 'P993220A', '3', 993220, 1, 993220, 2, 10, 1, 'N', 'S', 'T01'),
+            (99322002, 1, '2060-05-11 09:00:00-03', 'P993220B', '3', 993220, 1, 993220, 1, 7, 0, 'N', 'N', 'T01')`);
+        await pg2.query(`INSERT INTO vendas (codvendas, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cancelado, tipocanc, venda_nfc) VALUES
+            (99322003, 1, '2060-05-12 09:00:00-03', 'P993221', '3', 993221, 1, 993220, 1, 5, 'S', 'C', 'S')`);
+        const amb = (await (await fetch(`${base}/${DV2}/venda?nrocupom=993220`, { headers: H })).json().catch(() => ({}))) as any;
+        const soNfc = (await (await fetch(`${base}/${DV2}/venda?nrocupom=993220&venda_nfc=S`, { headers: H })).json().catch(() => ({}))) as any;
+        const soEcf = (await (await fetch(`${base}/${DV2}/venda?nrocupom=993220&venda_nfc=N`, { headers: H })).json().catch(() => ({}))) as any;
+        const canc = (await (await fetch(`${base}/${DV2}/venda?nrocupom=993221`, { headers: H })).json().catch(() => ({}))) as any;
+        const nada = (await (await fetch(`${base}/${DV2}/venda?nrocupom=993229`, { headers: H })).json().catch(() => ({}))) as any;
+        const i0 = (soNfc.itens ?? [])[0] ?? {};
+        check('DEVOLUÇÃO DE VENDAS §322 [ExisteNroCupomParaNFCeECF :110; VendaEstaCancelada; dbugItens]: o cupom com venda NFC-e e ECF devolve `escolherOrigem` (sem itens); "Com vendas de NFC" traz só a NFC-e (KG, T01, Desc/Acre −1, total 19) e "de ECF" só a ECF; o cupom cancelado (CANCELADO S, TIPOCANC C) volta vazio com `cupomCancelado`; o inexistente, vazio sem a marca',
+          amb.escolherOrigem === true && (amb.itens ?? []).length === 0 && (soNfc.itens ?? []).length === 1 && i0.vendaNfc === 'S' && i0.unidade === 'KG' && String(i0.aliquota).trim() === 'T01'
+          && Number(i0.descAcre) === -1 && Number(i0.totalItem) === 19 && (soEcf.itens ?? []).length === 1 && soEcf.itens[0].vendaNfc === 'N'
+          && (canc.itens ?? []).length === 0 && canc.cupomCancelado === true && (nada.itens ?? []).length === 0 && nada.cupomCancelado === false,
+          { amb: [amb.escolherOrigem, amb.itens?.length, amb.code, amb.message], soNfc: soNfc.itens, soEcf: soEcf.itens?.length, canc: [canc.itens?.length, canc.cupomCancelado], nada: [nada.itens?.length, nada.cupomCancelado] });
+      } finally {
+        await pg2.query(`DELETE FROM vendas WHERE codvendas IN (99322001, 99322002, 99322003)`).catch(() => {});
+        await pg2.query(`DELETE FROM produtos WHERE idproduto = 993220`).catch(() => {});
+        await pg2.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

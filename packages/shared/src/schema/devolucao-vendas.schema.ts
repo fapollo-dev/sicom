@@ -10,6 +10,8 @@ export const devolucaoVendasBuscaSchema = z.object({
   dataIni: dia.optional(),
   dataFim: dia.optional(),
   codparceiro: z.coerce.number().int().positive().optional(),
+  /** "Trazer pesquisa de vendas": Com vendas de NFC (S) / Com vendas de ECF (N) — quando o mesmo cupom existe nos dois (ExisteNroCupomParaNFCeECF) */
+  venda_nfc: z.enum(['S', 'N']).optional(),
   limite: z.coerce.number().int().positive().max(5000).default(500),
 }).refine((f) => f.nrocupom != null || f.nropedido != null || (f.dataIni != null && f.dataFim != null), {
   message: 'informe o cupom, o pedido, ou um período', path: ['nrocupom'],

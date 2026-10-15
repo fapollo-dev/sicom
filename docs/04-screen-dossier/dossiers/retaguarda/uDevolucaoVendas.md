@@ -85,3 +85,17 @@ Impressões (o legado imprime em seguida ao registrar):
   com a quantidade devolvida e o total gravado. `GET relatorios/devolucao-vendas/reimpressao`.
 - O `ven_DevolucaoVendas_Reimpressao.fr3` da RELATORIOS (ausente no fonte de 2020) não tem botão que o carregue no fonte — fica sem uso.
 O GeraSaldoCliente segue fora (GERA_SALDO_CLIENTE_DEVOLUCAO_VENDA = 'N' na produção). Smoke §288.
+
+## Auditoria controle a controle do `uDevolucaoVendas.dfm` (15/10/2026)
+
+| Controle do legado | Apollo |
+|---|---|
+| `AbreDatasetVendas` → `ExisteNroCupomParaNFCeECF` (:110): o mesmo cupom com venda NFC-e **e** ECF abre "Trazer pesquisa de vendas" (Com vendas de NFC / Com vendas de ECF; cancelar = "Seleção de pesquisa de vendas cancelada.") e filtra `VENDA_NFC` | ✅ a busca devolve `escolherOrigem` (sem itens) e a tela pergunta e refaz com `venda_nfc` |
+| `VendaEstaCancelada` — sem linhas, "O cupom informado está cancelado." (CANCELADO 'S' e TIPOCANC 'C'); senão "Não foi possível encontrar dados para a pesquisa especificada. Verifique!" | ✅ `cupomCancelado` + as duas mensagens |
+| `edtDescricaoItem` (aparece com a grade; `Locate` parcial pela descrição) | ✅ "Localizar (descrição)" filtra a grade |
+| Grade `dbugItens`: ST, Cód.Barra, Descrição, Unid., Qtde, Vlr.Venda, Desc/Acre, Total Item, Alíquota, Qtde.Devolver, Tot. devolver | ✅ as colunas que faltavam (Cód.Barra, Unid., Desc/Acre, Alíquota) e o "Tot. devolver" pelo `CalculaDevolucao` (`totalADevolver`) |
+| `btnPesquisa` (a Pesquisa da GET_VENDAS da loja) | ✅ a busca por período ("Venda de/até") |
+| `btnConsultar` / `btnEstornar` (registrar) / `btnReverter` / Modo Normal / Modo preenchimento / Pré Visualizar Extrato / Sair | ✅ já havia (§ das impressões) |
+| `dbugItensKeyUp` (Espaço marca/desmarca e desce) | — a caixa de marcar da linha (teclado nativo) |
+
+Smoke §322; web `devolucaoVendasPage.spec.tsx`.

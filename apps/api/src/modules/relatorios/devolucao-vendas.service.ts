@@ -70,10 +70,12 @@ export class DevolucaoVendasService {
     const ped = q.nropedido?.trim() || null;
     const ini = q.dataIni ?? null;
     const fim = q.dataFim ?? null;
+    const nfc = q.venda_nfc ?? null;
 
     const rows = (await sql<Record<string, unknown>>`
       SELECT v.codvendas, v.nroitem, v.nropedido, v.nrocupom, v.nroserie, v.dtvenda, v.codproduto,
-             p.descricao, p.codbarra, v.qtde, v.vrvenda, round((${LIQUIDO})::numeric, 2) AS total_item,
+             p.descricao, p.codbarra, p.unidade, v.aliquota, coalesce(v.venda_nfc, 'N') AS venda_nfc,
+             v.qtde, v.vrvenda, round((${LIQUIDO})::numeric, 2) AS total_item,
              coalesce(v.devolucao, '') AS devolucao, coalesce(v.qtde_devolvido, 0) AS qtde_devolvido,
              coalesce(v.total_item_devolvido, 0) AS total_item_devolvido,
              d.coddevolucaovenda, d.datadevolucao, d.operador AS operador_devolucao,
@@ -91,6 +93,7 @@ export class DevolucaoVendasService {
          AND (${ped}::text IS NULL OR v.nropedido = ${ped}::text)
          AND (${ini}::date IS NULL OR v.dtvenda >= ${ini}::date)
          AND (${fim}::date IS NULL OR v.dtvenda < ${fim}::date + 1)
+         AND (${nfc}::text IS NULL OR coalesce(v.venda_nfc, 'N') = ${nfc}::text)
        ORDER BY v.dtvenda, v.nrocupom, v.nroitem
        LIMIT ${q.limite}`.execute(db)).rows;
 
@@ -98,15 +101,24 @@ export class DevolucaoVendasService {
       codvendas: Number(r.codvendas), nroitem: Number(r.nroitem), nropedido: r.nropedido ?? null,
       nrocupom: r.nrocupom == null ? null : Number(r.nrocupom), nroserie: r.nroserie ?? null, dtvenda: r.dtvenda,
       codproduto: Number(r.codproduto), descricao: r.descricao ?? '', codbarra: r.codbarra ?? null,
+      unidade: r.unidade ?? null, aliquota: r.aliquota ?? null, vendaNfc: String(r.venda_nfc ?? 'N'),
       qtde: num(r.qtde), vrvenda: num(r.vrvenda), totalItem: num(r.total_item),
+      // a coluna "Desc/Acre" da grade (DESC_ACRE): o líquido menos qtde × preço
+      descAcre: r2(num(r.total_item) - num(r.qtde) * num(r.vrvenda)),
       devolvido: String(r.devolucao).trim() === 'D',
       qtdeDevolvido: num(r.qtde_devolvido), totalItemDevolvido: num(r.total_item_devolvido),
       coddevolucaovenda: r.coddevolucaovenda == null ? null : Number(r.coddevolucaovenda),
       datadevolucao: r.datadevolucao ?? null, operadorDevolucao: r.operador_devolucao ?? null,
       codmotivoop: r.codmotivoop == null ? null : Number(r.codmotivoop), motivo: r.motivo ?? null,
     }));
+    // `ExisteNroCupomParaNFCeECF` (uDevolucaoVendas.pas:110): o mesmo cupom com venda NFC-e e ECF → "Trazer pesquisa de vendas"
+    // (Com vendas de NFC / Com vendas de ECF) antes de abrir; aqui a tela pergunta e refaz a busca com `venda_nfc`
+    const escolherOrigem = nfc == null && cupom != null && new Set(itens.map((i) => i.vendaNfc)).size > 1;
+    // `VendaEstaCancelada`: sem linhas, o cupom cancelado (CANCELADO 'S' e TIPOCANC 'C') ganha a mensagem própria
+    const cupomCancelado = !itens.length && cupom != null && (await sql`SELECT 1 FROM vendas v WHERE v.idempresa = ${emp} AND v.nrocupom = ${cupom}::integer
+        AND v.cancelado = 'S' AND v.tipocanc = 'C' AND (${pdv}::integer IS NULL OR v.nroserie = ${pdv}::text) LIMIT 1`.execute(db)).rows.length > 0;
     return {
-      itens, truncado: rows.length >= q.limite,
+      itens: escolherOrigem ? [] : itens, truncado: rows.length >= q.limite, escolherOrigem, cupomCancelado,
       totais: {
         itens: itens.length,
         devolvidos: itens.filter((i) => i.devolvido).length,

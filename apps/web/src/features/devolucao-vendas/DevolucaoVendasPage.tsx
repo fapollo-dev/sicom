@@ -22,10 +22,13 @@ const hoje = () => hojeNaLoja();
 interface Item {
   codvendas: number; nroitem: number; nropedido: string | null; nrocupom: number | null; nroserie: string | null;
   dtvenda: string; codproduto: number; descricao: string; codbarra: string | null; qtde: number; vrvenda: number;
+  unidade?: string | null; aliquota?: string | null; descAcre?: number;
   totalItem: number; devolvido: boolean; qtdeDevolvido: number; totalItemDevolvido: number;
   coddevolucaovenda: number | null; datadevolucao: string | null; operadorDevolucao: string | null; motivo: string | null;
 }
-interface Busca { itens: Item[]; truncado: boolean; totais: { itens: number; devolvidos: number; valor: number; valorDevolvido: number } }
+interface Busca { itens: Item[]; truncado: boolean; escolherOrigem?: boolean; cupomCancelado?: boolean; totais: { itens: number; devolvidos: number; valor: number; valorDevolvido: number } }
+/** `CalculaDevolucao`: o "Tot. devolver" da grade — RoundTo(qtde a devolver × líquido do item / qtde, −2) */
+export const totalADevolver = (qtdeDevolver: number, totalItem: number, qtde: number) => (qtde > 0 ? Math.round((qtdeDevolver * totalItem / qtde) * 100) / 100 : 0);
 interface Motivo { codmotivoop: number; descricao: string }
 interface Consulta { itens: Array<Record<string, unknown>>; totais: { devolucoes: number; valor: number; semMotivo: number } }
 
@@ -42,6 +45,9 @@ export function DevolucaoVendasPage() {
   const [hist, setHist] = useState<Consulta | null>(null);
   const [periodo, setPeriodo] = useState({ dataIni: `${hoje().slice(0, 8)}01`, dataFim: hoje() });
   const [ocupado, setOcupado] = useState(false);
+  // "Trazer pesquisa de vendas" (o cupom existe em NFC-e e em ECF) e o localizar pela descrição (edtDescricaoItem)
+  const [escolhendo, setEscolhendo] = useState(false);
+  const [descricao, setDescricao] = useState('');
 
   const pedir = async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const r = await fetch(url, { ...init, headers: { ...apiHeaders(), ...(init?.headers ?? {}) } });
@@ -55,14 +61,19 @@ export function DevolucaoVendasPage() {
   };
   useEffect(() => { pedir<Motivo[]>(`${BASE}/relatorios/devolucao-vendas/motivos`).then(setMotivos).catch((e) => mensagem.erro(e)); }, []);
 
-  const buscar = async () => {
+  const buscar = async (vendaNfc?: 'S' | 'N') => {
     setOcupado(true);
     try {
       const q = new URLSearchParams();
       for (const k of ['nrocupom', 'nropdv', 'dataIni', 'dataFim'] as const) if (f[k].trim()) q.set(k, f[k].trim());
+      if (vendaNfc) q.set('venda_nfc', vendaNfc);
       const r = await pedir<Busca>(`${BASE}/relatorios/devolucao-vendas/venda?${q}`);
-      setRes(r); setSel(new Set());
+      if (r.escolherOrigem) { setEscolhendo(true); return; }
+      setRes(r); setSel(new Set()); setDescricao('');
       setQtdes(Object.fromEntries(r.itens.map((i) => [chave(i), String(i.qtde)])));
+      if (!r.itens.length) {
+        mensagem.erro(new Error(r.cupomCancelado ? 'O cupom informado está cancelado.' : 'Não foi possível encontrar dados para a pesquisa especificada. Verifique!'));
+      }
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
   const alternar = (k: string) => { const n = new Set(sel); if (n.has(k)) n.delete(k); else n.add(k); setSel(n); };
@@ -115,6 +126,9 @@ export function DevolucaoVendasPage() {
           <div className="w-40"><Field label="Venda &de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
           <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
+          {res && res.itens.length > 0 && (
+            <div className="w-56"><Field label="Locali&zar (descrição)" value={descricao} onChange={(e) => setDescricao(e.target.value)} /></div>
+          )}
           <div className="w-64">
             <label className="mb-1 block text-body-sm text-fg-muted">Motivo</label>
             <select className="w-full rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-body-sm" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
@@ -130,6 +144,15 @@ export function DevolucaoVendasPage() {
         </div>
       </section>
 
+      {escolhendo && (
+        <section className="flex flex-wrap items-center gap-gp-sm rounded-radius-md border border-border bg-bg-subtle p-pad-md">
+          <strong className="text-body-sm">Trazer pesquisa de vendas</strong>
+          <Button label="Com vendas de NFC" variant="soft" onClick={() => { setEscolhendo(false); void buscar('S'); }} />
+          <Button label="Com vendas de ECF" variant="soft" onClick={() => { setEscolhendo(false); void buscar('N'); }} />
+          <Button label="Cancelar" variant="ghost" onClick={() => { setEscolhendo(false); mensagem.erro(new Error('Seleção de pesquisa de vendas cancelada.')); }} />
+        </section>
+      )}
+
       {res && (
         <>
           <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -142,25 +165,29 @@ export function DevolucaoVendasPage() {
             </div>
           </section>
           <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
-            <table className="w-full min-w-[1000px] border-collapse text-body-sm">
+            <table className="w-full min-w-[1300px] border-collapse text-body-sm">
               <thead><tr className="border-b border-border text-left text-fg-muted">
-                <th className="p-pad-xs"></th><th className="p-pad-xs">Venda</th><th className="p-pad-xs">Cupom</th><th className="p-pad-xs">Item</th>
-                <th className="p-pad-xs">Produto</th><th className="p-pad-xs text-right">Qtde</th><th className="p-pad-xs text-right">Preço</th><th className="p-pad-xs text-right">Total</th>
-                <th className="p-pad-xs text-right">Devolver</th><th className="p-pad-xs">Situação</th>
+                <th className="p-pad-xs">ST</th><th className="p-pad-xs">Venda</th><th className="p-pad-xs">Cupom</th><th className="p-pad-xs">Item</th>
+                <th className="p-pad-xs">Cód.Barra</th><th className="p-pad-xs">Descrição</th><th className="p-pad-xs">Unid.</th><th className="p-pad-xs text-right">Qtde</th>
+                <th className="p-pad-xs text-right">Vlr.Venda</th><th className="p-pad-xs text-right">Desc/Acre</th><th className="p-pad-xs text-right">Total Item</th><th className="p-pad-xs">Alíquota</th>
+                <th className="p-pad-xs text-right">Qtde.Devolver</th><th className="p-pad-xs text-right">Tot. devolver</th><th className="p-pad-xs">Situação</th>
               </tr></thead>
-              <tbody>{res.itens.map((i) => {
+              <tbody>{res.itens.filter((i) => !descricao.trim() || i.descricao.toUpperCase().includes(descricao.trim().toUpperCase())).map((i) => {
                 const k = chave(i);
+                const qDev = Number((qtdes[k] ?? '').replace(',', '.')) || 0;
                 return (
                   <tr key={k} className={`border-b border-border ${i.devolvido ? 'bg-bg-muted' : ''}`}>
                     <td className="p-pad-xs"><input type="checkbox" checked={sel.has(k)} onChange={() => alternar(k)} /></td>
                     <td className="p-pad-xs">{dataBr(i.dtvenda)}</td><td className="p-pad-xs tabular-nums">{i.nrocupom ?? ''}</td><td className="p-pad-xs tabular-nums">{i.nroitem}</td>
-                    <td className="p-pad-xs">{i.codproduto} · {i.descricao}</td>
+                    <td className="p-pad-xs tabular-nums">{i.codbarra ?? ''}</td><td className="p-pad-xs">{i.codproduto} · {i.descricao}</td><td className="p-pad-xs">{i.unidade ?? ''}</td>
                     <td className="p-pad-xs text-right tabular-nums">{qt(i.qtde)}</td><td className="p-pad-xs text-right tabular-nums">{moeda(i.vrvenda)}</td>
-                    <td className="p-pad-xs text-right tabular-nums">{moeda(i.totalItem)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{moeda(i.descAcre ?? 0)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{moeda(i.totalItem)}</td><td className="p-pad-xs">{i.aliquota ?? ''}</td>
                     <td className="p-pad-xs text-right">
                       <input className="w-20 rounded-radius-sm border border-border bg-bg-surface p-pad-xs text-right tabular-nums" disabled={i.devolvido}
                              value={qtdes[k] ?? ''} onChange={(e) => setQtdes({ ...qtdes, [k]: e.target.value })} />
                     </td>
+                    <td className="p-pad-xs text-right tabular-nums">{i.devolvido ? moeda(i.totalItemDevolvido) : moeda(totalADevolver(qDev, i.totalItem, i.qtde))}</td>
                     <td className="p-pad-xs">{i.devolvido ? `devolvido ${qt(i.qtdeDevolvido)}${i.motivo ? ` · ${i.motivo}` : ''}` : ''}</td>
                   </tr>
                 );
