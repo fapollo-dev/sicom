@@ -3829,9 +3829,11 @@ async function main() {
     // 41.3) MODALIDADE única por empresa (case-insensitive) → 409.
     const fpDupMod = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'dinheiro', atalho: 'X', destino: 'CXA' }) });
     check('FP: modalidade duplicada na empresa → 409', fpDupMod.status === 409, { status: fpDupMod.status });
-    // 41.4) ATALHO único por empresa (case-insensitive) → 409 (D já é do DINHEIRO).
+    // 41.4) ATALHO único por empresa (case-insensitive) → o ValidaATALHO do legado (D já é do DINHEIRO).
     const fpDupAt = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'OUTRA X', atalho: 'd', destino: 'CXA' }) });
-    check('FP: atalho duplicado na empresa → 409', fpDupAt.status === 409, { status: fpDupAt.status });
+    const fpDupAtJ = (await fpDupAt.json().catch(() => ({}))) as any;
+    check('FP: atalho duplicado na empresa → 422 "Atalho já utilizado para outra Forma de Pagamento, Verifique!"',
+      fpDupAt.status === 422 && fpDupAtJ.message === 'Atalho já utilizado para outra Forma de Pagamento, Verifique!', { status: fpDupAt.status, fpDupAtJ });
     // 41.5) DESTINO='QUE' + RECEBE_PDV='S' → 400 (regra QUE≠PDV); com 'N' → 201.
     const fpQueBad = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'QUEBRA X', atalho: 'W', destino: 'QUE', recebe_pdv: 'S' }) });
     check('FP: QUE + recebe_pdv S → 400 (regra QUE≠PDV)', fpQueBad.status === 400, { status: fpQueBad.status });
@@ -3855,6 +3857,49 @@ async function main() {
     // 41.8) RBAC sem grant → 403.
     const fpRbac = await fetch(`${base}/${FP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ modalidade: 'X', atalho: 'X', destino: 'CXA' }) });
     check('FP: POST sem grant RBAC → 403', fpRbac.status === 403, { status: fpRbac.status });
+    // 41.9) a auditoria do uCadFormaPgto.dfm: todos os campos (comissão, troco, desc/acres., código contábil, condição, valor mínimo, CFOP,
+    // entregas, forma pai, exige permissão, baixa automática) e a aba Condições de pagamento; o Troco Limite zera fora de TEF/CRT; a filha
+    // pode repetir o atalho de outra forma (o índice da produção inclui IDPGTO_PAI); o Desc/Acres. ≠ 0 se propaga a toda modalidade que
+    // CONTÉM o nome, em todas as lojas; o campo se limpa com null
+    {
+      const pgFp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const criados: Array<[number, Record<string, string>]> = [];
+      try {
+        const conds = (await pgFp.query(`SELECT codconpagto, descricao FROM condicoes_pagto ORDER BY codconpagto LIMIT 2`)).rows as any[];
+        const din = Number(fpList.find((f) => f.modalidade === 'DINHEIRO')?.idpgto);
+        const cria = async (h: Record<string, string>, corpo: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${FP}`, { method: 'POST', headers: h, body: JSON.stringify(corpo) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          if (Number(j.idpgto) > 0) criados.push([Number(j.idpgto), h]);
+          return { r, j };
+        };
+        const tudo = await cria(H, { modalidade: 'FP TODOS 41', atalho: 'S41A', destino: 'CXA', comissao: 1.5, troco_limite: 10, codcontabil: '77',
+          codconpagto: Number(conds[0]?.codconpagto), valor_minimo_fv: 5, cfopdentrodoestado: 5102, cfopforadoestado: 6102, tipo: 'E',
+          exige_permissao: 'S', baixa_documento_automatico: 'N', condicoes: conds.map((c) => Number(c.codconpagto)) });
+        const lido = (await (await fetch(`${base}/${FP}/${Number(tudo.j.idpgto)}`, { headers: H })).json().catch(() => ({}))) as any;
+        const filha = await cria(H, { modalidade: 'FP FILHA 41', atalho: 'D', destino: 'TEF', idpgto_pai: din, troco_limite: 7 });
+        const filhaLida = (await (await fetch(`${base}/${FP}/${Number(filha.j.idpgto)}`, { headers: H })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/${FP}/${Number(tudo.j.idpgto)}`, { method: 'PUT', headers: H, body: JSON.stringify({ codconpagto: null, condicoes: [] }) });
+        const limpo = (await (await fetch(`${base}/${FP}/${Number(tudo.j.idpgto)}`, { headers: H })).json().catch(() => ({}))) as any;
+        const a1 = await cria(H, { modalidade: 'ACRE SMOKE', atalho: 'S41B', destino: 'CXA' });
+        const a2 = await cria(H, { modalidade: 'ACRE SMOKE 2', atalho: 'S41C', destino: 'CXA' });
+        const a3 = await cria(H_EMP2, { modalidade: 'ACRE SMOKE E2', atalho: 'S41D', destino: 'CXA' });
+        await fetch(`${base}/${FP}/${Number(a1.j.idpgto)}`, { method: 'PUT', headers: H, body: JSON.stringify({ modalidade: 'ACRE SMOKE', atalho: 'S41B', destino: 'CXA', acre_desc: -3 }) });
+        const acres = (await pgFp.query(`SELECT modalidade, acre_desc FROM formas_pgto WHERE idpgto = ANY($1::int[]) ORDER BY modalidade`, [[a1.j.idpgto, a2.j.idpgto, a3.j.idpgto].map(Number)])).rows as any[];
+        check('FP (uCadFormaPgto): grava e lê todos os campos e as condições; troco zera fora de TEF/CRT; a filha repete o atalho D; o Desc/Acres. −3 vai às 3 "ACRE SMOKE*" (2 lojas); limpar a condição grava null',
+          tudo.r.status === 201 && Number(lido.comissao) === 1.5 && Number(lido.troco_limite) === 0 && lido.codcontabil === '77' && Number(lido.codconpagto) === Number(conds[0]?.codconpagto)
+          && Number(lido.valor_minimo_fv) === 5 && Number(lido.cfopdentrodoestado) === 5102 && Number(lido.cfopforadoestado) === 6102 && lido.tipo === 'E'
+          && lido.exige_permissao === 'S' && lido.baixa_documento_automatico === 'N' && (lido.condicoes ?? []).length === conds.length
+          && (lido.condicoes ?? [])[0]?.condicao_pagamento === conds[0]?.descricao
+          && filha.r.status === 201 && Number(filhaLida.idpgto_pai) === din && Number(filhaLida.troco_limite) === 7
+          && limpo.codconpagto == null && (limpo.condicoes ?? []).length === 0
+          && acres.length === 3 && acres.every((x) => Number(x.acre_desc) === -3),
+          { tudo: tudo.r.status, lido, filha: [filha.r.status, filha.j], limpo: [limpo.codconpagto, limpo.condicoes], acres });
+      } finally {
+        for (const [id, h] of criados) await fetch(`${base}/${FP}/${id}`, { method: 'DELETE', headers: h });
+        await pgFp.end();
+      }
+    }
 
     // 42) CAIXA corte-2d — CONTÁBIL da quebra/sobra do fechamento (situações 2019 sobra / 2002 quebra).
     const pgCx2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

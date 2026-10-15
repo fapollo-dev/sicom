@@ -696,6 +696,13 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   'lookup/bancos': { view: 'get_bancos', form: 'FRMPESQUISA', titulo: 'Bancos', retorno: 'codigo' },
   // o grupo TEF das Operadoras de Cartão (UcadOperadoras.pas): a rede (GET_REDE) e a operadora base (GET_OPERADORAS, btnPesquisaOperadorBase)
   'lookup/rede': { view: 'get_rede', form: 'FRMPESQUISA', titulo: 'Rede', retorno: 'codigo' },
+  // as Pesquisas do Cadastro de Formas de Pagamento (uCadFormaPgto.pas): o código contábil (GET_CODCONTABIL), a condição de pagamento
+  // (GET_CONDICOES_PAGTO_FVENDA, abre em DESCRICAO em qualquer lugar — o SetDefault) e a forma pai (as formas da loja)
+  'lookup/codcontabil': { view: 'get_codcontabil', form: 'FRMPESQUISA', titulo: 'Código contábil', retorno: 'codigo_contabil' },
+  'lookup/condicoes-pagto-fvenda': { view: 'get_condicoes_pagto_fvenda', form: 'FRMPESQUISA', titulo: 'Condições de pagamento', retorno: 'codigo',
+    abertura: { campo: 'descricao', operacao: 'qualquer' } },
+  'lookup/formas-pgto': { view: 'get_formas_pgto', relacao: 'rel_get_formas_pgto', ocultas: OCULTAS.formasPgto, form: 'FRMPESQUISA',
+    titulo: 'Formas de pagamento', retorno: 'codigo', obrigatorios: (ctx) => [daLoja(ctx, 'idempresa')] },
   'lookup/operadoras': { view: 'get_operadoras', form: 'FRMPESQUISA', titulo: 'Operadoras', retorno: 'codigo' },
   // a condição de pagamento do fornecedor (uCadClientes `SegCondicaoPagto`/`btnBuscaCondicaoPagto` sobre CONDICOES_PAGTO)
   'lookup/condicoes-pagto': { view: 'get_condicoes_pagto', form: 'FRMPESQUISA', titulo: 'Condições de pagamento', retorno: 'codigo' },

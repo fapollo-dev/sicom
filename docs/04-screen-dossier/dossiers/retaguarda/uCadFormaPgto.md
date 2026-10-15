@@ -36,3 +36,35 @@ Dois auditores adversariais (paridade vs. legado/Oracle; regressão/segurança/m
 
 ## 4. Riscos
 Soft-delete legado é `INATIVO` (não INDR) — o engine soft-delete assume INDR; corte-1 modela `inativo` como campo editável + hard-delete (como `contas_bancarias.ativo`), documentado. Vínculos plccofre/codplanocontas são soft-refs (sem FK, como no Oracle); codcontacorrente é FK no legado mas corte-1 usa soft-ref p/ não acoplar ao seed de contas_bancarias (documentado). DESTINO sem check no banco (enum na aplicação). A regra DESTINO='QUE'≠PDV é cross-field (fora do CRUD puro) → hook/validação dedicada.
+
+## 5. Auditoria controle a controle (15/10/2026) — `uCadFormaPgto.dfm` × Apollo (o "corte-2 adiado" fechado)
+
+242 acessos. Na produção: 47 formas; destinos em uso CHQ/CRT/CXA/QUE/RCB/TEF; atalhos todos de uma letra.
+
+- **Modalidade** (`edtMODALIDADEKeyPress`): só letras, dígitos e espaço — o campo filtra (0 modalidades fora disso na produção). ❌→✅
+- **Atalho** (`cbbATALHO`): o combo A..Z do legado (o valor fora da lista se preserva). Único por loja **e por forma pai**: "Atalho já
+  utilizado para outra Forma de Pagamento, Verifique!" (`ValidaATALHO`). O índice da produção é `PGTO_IDEMPRESA_ATALHO (IDEMPRESA, ATALHO,
+  IDPGTO_PAI)` — a "PIX II" da loja 2 é filha da DINHEIRO; o fonte de 2020 só olhava loja+atalho, o binário novo grava a forma pai. O
+  índice do Apollo passou a `(idempresa, upper(atalho), coalesce(idpgto_pai, 0))` (o nulo da chave composta do Oracle conta como igual).
+  Era 409 genérico. ❌→✅ (mig 432)
+- **Troco Limite** (`dtsPrincipalDataChange`): só para destino TEF/CRT; fora deles desabilita e zera (tela e API). ❌→✅
+- **Comissão (%)**, **Desc/Acres. (+/-)**, **Vr. mínimo para venda**, **Entregas** (TIPO E/N): faltavam. ❌→✅ (todos vazios na produção.)
+- **Desc/Acres. no gravar** (`btnGravarClick`): com valor ≠ 0, `UPDATE FORMAS_PGTO SET ACRE_DESC = x WHERE MODALIDADE LIKE '%<modalidade>%'`
+  — em **todas as lojas** e em toda modalidade que **contém** o nome (a de "CARTAO" leva junto "CARTAO CREDITO"). Portado como está
+  (`aposGravarTrx`), na mesma transação. Hoje nenhuma forma da produção tem Desc/Acres.
+- **Código contábil** (`edtCodContabil` + `btnBuscaCodContabil`, GET_CODCONTABIL): o código digitado (sem validação no exit, como lá), o
+  [F3] e a descrição. A CODCONTABIL da produção existe e está vazia; tabela e view criadas (mig 432). ❌→✅
+- **Condição de pagamento** (`edtCodCondicaoPagto`, GET_CONDICOES_PAGTO_FVENDA abrindo em DESCRIÇÃO "em qualquer lugar"): view criada
+  (mig 432). ❌→✅ — no legado o [F3] desse campo chama `btnBuscaCodContabilClick` (abre a Pesquisa do código contábil): cópia de código,
+  não portada.
+- **Aba CFOP**: CFOP dentro / fora do estado. ❌→✅ As contas débito/crédito da aba são `Visible = False` (mortas na tela).
+- **Aba Condições de pagamento** (REL_FORMA_PAGAMENTO_CONDICAO): a grade + Adicionar (Pesquisa da GET_CONDICOES_PAGTO em multisseleção;
+  o que já está é pulado — o `Locate`) + Excluir. Tabela criada (mig 432; 0 linhas na produção). ❌→✅
+- **Do binário novo** (fora do .dfm de 2020, gravados na produção): a forma pai (IDPGTO_PAI, 1 forma), "Exige permissão" (25 gravadas, 2
+  com S), "Baixa documento automático" (25) e "Lançamento individual na movimentação" (LANC_MOVIMENT_INDIVIDUAL, 14). Os rótulos são do
+  Apollo — o .dfm que os tem não veio no fonte.
+- **Limpar um vínculo**: o schema descartava o null e o campo não se limpava (a conta corrente, o centro de custo); agora os opcionais
+  aceitam null — como o exit vazio do legado (`edtCodContaExit`, `edtCodPLCExit`).
+- A mensagem do QUE + PDV do legado tem erro de digitação ("Qubra de caixa"); o Apollo grafa "Quebra de caixa".
+
+Prova: smoke §41.4 e §41.9 + `apps/web/test/formasPgtoCampos.spec.tsx` (2).

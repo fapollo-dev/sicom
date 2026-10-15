@@ -149,6 +149,8 @@ export class CrudEngineService {
         await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), antes as Record<string, unknown>, d, 'UPDATE');
       await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'UPDATE', id);
+      // o efeito do gravar além da linha também na alteração (`criado: false` — quem só age na inclusão o testa)
+      if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: false, emp: currentTenant().empresaId ?? null });
     });
   }
 
