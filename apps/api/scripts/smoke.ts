@@ -12701,6 +12701,38 @@ async function main() {
           && Number(dep.totais?.cupons) === 2,
           { totais: dep.totais });
 
+        // §100.5-8 — a TELA DO LEGADO (corte 2): o combo dos layouts at&m_* da RELATORIOS, o ParticipacaoSetor e o RankingFamilias
+        await pgCo.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES
+            (991001, 1, 'at&m_participacao_dos_setores.fr3', 'x', 'DEFAULT', 'x'), (991002, 1, 'at&m_rentabilidade_da_familia.fr3', 'x', 'DEFAULT', 'x'),
+            (991003, 1, 'at&m_faturamento_x_rentabilidade.fr3', 'x', 'DEFAULT', 'x'), (991004, 1, 'at&m_ranking_geral_por_familias.fr3', 'x', 'DEFAULT', 'x'),
+            (991005, 1, 'at&m_rentabilidade_da_familia_totais.fr3', 'x', 'DEFAULT', 'x')
+          ON CONFLICT (codrelatorio) DO NOTHING`);
+        const lay = (await (await fetch(`${base}/${CO}/layouts`, { headers: H })).json().catch(() => [])) as any[];
+        const laySem = await fetch(`${base}/${CO}/layouts`, { headers: H_SEM_ACESSO });
+        const nomes = lay.map((l) => l.nome);
+        check('CONSULTORIA §100.5 [o CmbRelatorio]: os layouts at&m_* com o rótulo do legado ("participacao dos setores"), sem os dois da rentabilidade da família (têm tela própria) e sem o faturamento × rentabilidade (PREVISAO com 0 linhas na produção); sem acesso → 403',
+          nomes.includes('participacao dos setores') && nomes.includes('ranking geral por familias') && nomes.includes('rentabilidade da familia totais')
+          && !nomes.includes('rentabilidade da familia') && !nomes.some((x: string) => x.includes('faturamento')) && laySem.status === 403, { nomes, sem: laySem.status });
+        const corpoCo = (arquivo: string, x: Record<string, unknown> = {}) => JSON.stringify({ arquivo, tipo: 0, dataIni: '2040-06-01', dataFim: '2040-06-30', ...x });
+        const part = (await (await fetch(`${base}/${CO}/consultar`, { method: 'POST', headers: H, body: corpoCo('at&m_participacao_dos_setores.fr3') })).json().catch(() => ({}))) as any;
+        const merc = (part.linhas ?? []).find((l: any) => l.setores === 'MERCEARIA TESTE');
+        check('CONSULTORIA §100.6 [ParticipacaoSetor]: o departamento com faturamento 16,49, lucro 7,15, custo 9,34 e 2 cupons; markup = (16,49 / 9,34 − 1) × 100 = 76,55 e markdown = (16,49 − 9,34) / 16,49 × 100 = 43,36',
+          part.tipo === 'PARTICIPACAO' && !!merc && Math.abs(merc.resultado2 - 16.49) < 0.005 && Math.abs(merc.resultado4 - 7.15) < 0.005
+          && Math.abs(merc.total_custo - 9.34) < 0.005 && merc.qtde_cupom === 2 && merc.margem === 76.55 && merc.markdown === 43.36, { merc, part });
+        // o ranking agrupa pela seção da VENDA (V.CODSUBGRUPO)
+        await pgCo.query(`UPDATE vendas v SET codsubgrupo = p.codsubgrupo FROM produtos p WHERE p.idproduto = v.codproduto AND v.nropedido IN ('P-1','P-2','P-3')`);
+        const rk = (await (await fetch(`${base}/${CO}/consultar`, { method: 'POST', headers: H, body: corpoCo('at&m_ranking_geral_por_familias.fr3') })).json().catch(() => ({}))) as any;
+        const fam = (rk.linhas ?? []).filter((l: any) => l.familia === 'ARROZ TESTE' || l.familia === 'FEIJAO TESTE');
+        const feij = fam.find((l: any) => l.familia === 'FEIJAO TESTE'); const arr = fam.find((l: any) => l.familia === 'ARROZ TESTE');
+        const rkForn = (await (await fetch(`${base}/${CO}/consultar`, { method: 'POST', headers: H, body: corpoCo('at&m_ranking_geral_por_familias.fr3', { fornecedor: 'ZZZ NAO EXISTE', filtroFornecedor: 'contem' }) })).json().catch(() => ({}))) as any;
+        check('CONSULTORIA §100.7 [RankingFamilias]: por seção da venda — feijão (11,99 de venda, 6,67 de custo) antes do arroz (4,50 / 2,67), na ordem do lucro final; o fornecedor filtra (nenhum com "ZZZ NAO EXISTE")',
+          rk.tipo === 'RANKING' && !!feij && !!arr && Math.abs(feij.vlvenda - 11.99) < 0.005 && Math.abs(feij.vlcusto - 6.67) < 0.005
+          && Math.abs(arr.vlvenda - 4.5) < 0.005 && rk.linhas.indexOf(feij) < rk.linhas.indexOf(arr) && (rkForn.linhas ?? []).length === 0, { rk: rk.linhas, forn: rkForn });
+        const tot = await fetch(`${base}/${CO}/impressao`, { method: 'POST', headers: H, body: corpoCo('at&m_rentabilidade_da_familia_totais.fr3') });
+        check('CONSULTORIA §100.8: o "rentabilidade da familia totais" responde como o legado — "Relatório não disponível."',
+          tot.status === 422 && ((await tot.json()) as any)?.message === 'Relatório não disponível.', { s: tot.status });
+        await pgCo.query(`DELETE FROM relatorios WHERE codrelatorio BETWEEN 991001 AND 991005`);
+
         await pgCo.query(`DELETE FROM vendas WHERE nropedido IN ('P-1','P-2','P-3')`);
         await pgCo.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [prods]);
         await pgCo.query(`DELETE FROM familias_prod WHERE codfamilia IN (9901,9902,9903,9904)`);

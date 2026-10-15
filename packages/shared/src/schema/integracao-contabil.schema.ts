@@ -194,6 +194,25 @@ export const relCaixaSchema = z
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data inicial não pode ser maior que a final.', path: ['dataFim'] });
 export type RelCaixaDto = z.infer<typeof relCaixaSchema>;
 
+/**
+ * CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) — a tela do legado: o layout `at&m_*` do `CmbRelatorio` (`arquivo`), o "Tipo Consulta"
+ * (`tipo`: 0 Vendas · 1 Vendas e Notas Fiscais), o período, as lojas, o centro de custo (código extenso, só no "participacao dos setores")
+ * e o fornecedor com o filtro do frmFiltro (só no ranking).
+ */
+export const consultoriaAtmSchema = z
+  .object({
+    arquivo: z.string().trim().min(1).max(120),
+    tipo: z.union([z.literal(0), z.literal(1)]).default(0),
+    dataIni: dataISO,
+    dataFim: dataISO,
+    empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
+    plc: z.string().trim().max(30).nullish(),
+    fornecedor: z.string().trim().max(120).nullish(),
+    filtroFornecedor: z.enum(['igual', 'comeca', 'termina', 'contem', 'diferente']).nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data inicial não pode ser maior que a final.', path: ['dataFim'] });
+export type ConsultoriaAtmDto = z.infer<typeof consultoriaAtmSchema>;
+
 /** CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) — participação e rentabilidade por nível da árvore de famílias. */
 export const consultoriaSchema = z
   .object({
