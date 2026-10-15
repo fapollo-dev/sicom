@@ -13132,6 +13132,18 @@ async function main() {
           rc1.status === 200 && !!lA && Math.abs(Number(lA.total_compra) - 211.4) < 0.005,
           { linha: lA, esperado: 211.4 });
 
+        // §105.9) a grade do "Exibe grade" (TFrmRelComprasPorCategoriaGrid): o % do subgrupo é DENTRO do seu grupo (cada um destes dois está
+        // sozinho no grupo → 100%, não a fatia do total); a loja tem a participação dela no total; o período invertido → a mensagem do Validacoes
+        {
+          const inv = await fetch(`${base}/${RC}?tipo=CATEGORIA&dataIni=2045-03-31&dataFim=2045-03-01`, { headers: H });
+          const invJ = (await inv.json().catch(() => ({}))) as any;
+          const loja1 = (j1.lojas ?? []).find((x: any) => Number(x.idempresa) === 1);
+          check('RELATÓRIO DE COMPRAS §105.9 [a grade do legado]: o % do subgrupo é a participação DENTRO do grupo (os dois, sozinhos nos seus grupos, dão 100%); a loja traz o total e o % no total; período invertido → "A data inicial não pode ser maior que a final."',
+            Number(lA?.total_porc) === 100 && Number(lB?.total_porc) === 100 && Number(lA?.total_compra) > 0 && Number(lB?.total_compra) > 0
+            && loja1 && Number(loja1.total_porc) === 100 && Math.abs(Number(loja1.total_compra) - Number(j1.totais?.compra)) < 0.01
+            && inv.status === 422 && invJ.message === 'A data inicial não pode ser maior que a final.',
+            { lA: lA?.total_porc, lB: lB?.total_porc, lojas: j1.lojas, inv: [inv.status, invJ.message] });
+        }
         check('RELATÓRIO DE COMPRAS §105.2 [o defeito do desconto nulo, corrigido]: no legado o frete e o seguro usam `NP.DESCONTO` SEM `COALESCE` (`:115-116`) enquanto as outras três parcelas protegem o nulo — com desconto nulo a conta inteira vira NULL, o SUM descarta e **o item some do relatório**. Em produção são 23 itens com desconto nulo em 496.455, e 1 deles com frete. Aqui o item aparece, a 50,00 + 2% = **51,00**: perder linha em relatório de compra é pior que divergir num item que ninguém conferiu',
           !!lB && Math.abs(Number(lB.total_compra) - 51) < 0.005
           && Number(lB.codsecao) === -1 && Number(lB.coddpto) === -2 && Number(lB.codgrupo) === -3 && Number(lB.codsubgrupo) === -4,

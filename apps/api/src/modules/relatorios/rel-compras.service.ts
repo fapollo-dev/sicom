@@ -90,11 +90,14 @@ export class RelComprasService {
     considerar: ConsiderarRelCompras | null;
     campoData: CampoDataCompras;
     linhas: Array<Record<string, unknown>>;
+    /** o nível da loja da grade (GetSQLEmpresa): o total e a participação no total */
+    lojas: Array<{ idempresa: unknown; fantasia: unknown; total_compra: number; total_porc: number }>;
     totais: { compra: number; venda: number };
   }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
-    if (f.dataIni > f.dataFim) throw new BusinessRuleError('DATA_INICIAL_MAIOR', { dataIni: f.dataIni, dataFim: f.dataFim });
+    // Validacoes (URelCompras.pas:372)
+    if (f.dataIni > f.dataFim) throw new BusinessRuleError('DATA_INICIAL_MAIOR', { dataIni: f.dataIni, dataFim: f.dataFim }, 'A data inicial não pode ser maior que a final.');
     const campoData: CampoDataCompras = f.campoData ?? 'CONTABIL';
     const colData = COLUNA_DATA[campoData];
     if (!colData) throw new BusinessRuleError('CAMPO_DATA_INVALIDO', { campoData });
@@ -254,8 +257,10 @@ export class RelComprasService {
   }
 
   /**
-   * `TOTAL_PORC` sai zerado da consulta do legado (`:172`) e é o relatório impresso que calcula a
-   * participação. Como aqui a grade É o relatório, a participação vem pronta.
+   * `TOTAL_PORC` sai zerado da consulta do legado (`:172`); quem o calcula é a grade (`TFrmRelComprasPorCategoriaGrid`, o "Exibe grade"):
+   * no sintético a participação do SUBGRUPO dentro do seu grupo (loja, data, seção, departamento, grupo — `CalculaPorcentagemUltimoNivel`
+   * do TfrmRelVendasGrid41), no analítico a do PRODUTO dentro do seu subgrupo (`CalculaPorcentagemProduto`); e no nível da loja a
+   * participação dela no total (`GetSQLEmpresa`). O compras × vendas não tem grade (`ExibeGrid` = False).
    */
   private comPercentual(
     tipo: TipoRelCompras, considerar: ConsiderarRelCompras | null,
@@ -263,14 +268,30 @@ export class RelComprasService {
   ) {
     const compra = r2(linhas.reduce((s, l) => s + num(l.total_compra), 0));
     const venda = r2(linhas.reduce((s, l) => s + num(l.total_venda), 0));
+    const cod = (v: unknown) => String(v ?? 0);
+    const pai = (l: Record<string, unknown>) => [l.idempresa, String(l.data ?? '').slice(0, 10), l.codsecao, l.coddpto, l.codgrupo]
+      .concat(tipo === 'CATEGORIA_ANALITICO' ? [l.codsubgrupo] : []).map(cod).join('|');
+    const somaPai = new Map<string, number>();
+    if (tipo !== 'COMPRAS_VENDAS') for (const l of linhas) somaPai.set(pai(l), (somaPai.get(pai(l)) ?? 0) + num(l.total_compra));
+    const lojas = new Map<string, { idempresa: unknown; fantasia: unknown; total_compra: number }>();
+    for (const l of linhas) {
+      const k = cod(l.idempresa);
+      const atual = lojas.get(k) ?? { idempresa: l.idempresa, fantasia: l.fantasia, total_compra: 0 };
+      atual.total_compra += num(l.total_compra);
+      lojas.set(k, atual);
+    }
     return {
       tipo, considerar, campoData,
-      linhas: linhas.map((l) => ({
-        ...l,
-        total_compra: num(l.total_compra),
-        total_venda: num(l.total_venda),
-        total_porc: compra === 0 ? 0 : r2((num(l.total_compra) / compra) * 100),
-      })),
+      linhas: linhas.map((l) => {
+        const t = somaPai.get(pai(l)) ?? 0;
+        return {
+          ...l,
+          total_compra: num(l.total_compra),
+          total_venda: num(l.total_venda),
+          total_porc: tipo === 'COMPRAS_VENDAS' || t <= 0 ? 0 : r2((num(l.total_compra) / t) * 100),
+        };
+      }),
+      lojas: [...lojas.values()].map((x) => ({ ...x, total_compra: r2(x.total_compra), total_porc: compra === 0 ? 0 : r2((x.total_compra / compra) * 100) })),
       totais: { compra, venda },
     };
   }

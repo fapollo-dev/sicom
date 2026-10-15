@@ -122,3 +122,30 @@ subgrupo — e produto no analítico), com TOTAL_PORC zerado como a consulta; os
 - **Lojas:** o serviço aceitava qualquer lista de `empresas`; agora passa pelo `empresasDoOperador` (as do operador; fora delas → 422).
 - **A 4ª data do `CmbData`:** "Processamento" (`NF.DTPROCESSAMENTO`) faltava e entrou.
 Smoke §105.8.
+
+## Auditoria controle a controle (15/10/2026) — `URelCompras.dfm` × Apollo
+
+O §8 deixava de fora "o grid intermediário" e dizia que "a grade é o relatório". No legado não é: a ação da tela é o **Imprimir** do
+`TFrmRelMaster`, e a grade é a **prévia** dele.
+
+- **Imprimir + "Exibe grade"** (`CkbExibeGrade`, `AntesImprimir`): nos tipos 1 e 2, com a marcação, a grade (`TFrmRelComprasPorCategoriaGrid`)
+  aparece antes e o layout só sai pelo Imprimir dela (mrOk); sem a marcação, ou no tipo 3 (`TComprasVendas.ExibeGrid` = False), vai direto
+  ao layout. O Apollo tinha "Gerar" (grade sempre, inclusive no tipo 3) e "Imprimir" separados. ❌→✅
+- **A grade** (herda o `TfrmRelVendasGrid41`): loja → data → seção → departamento → grupo → subgrupo (→ produto no analítico), com os
+  totais por nível, "TOTAL DE COMPRAS (R$)" e "TOTAL DE COMPRAS (%)". O **%** é o do legado: no sintético a participação do **subgrupo
+  dentro do seu grupo** (`CalculaPorcentagemUltimoNivel`), no analítico a do **produto dentro do subgrupo** (`CalculaPorcentagemProduto`),
+  e na loja a participação dela no total (`GetSQLEmpresa`). O Apollo mostrava uma grade plana com a fatia do total geral. ❌→✅ (API:
+  `total_porc` com a semântica da grade + `lojas`; tela em árvore.) Botões da grade: Exportar ("1 - Compras por categoria"), Imprimir, Sair.
+- **`CmbTipoRelatorioChange`**: nos tipos 1 e 2 o Considerar desliga (sem escolha) e o "Exibe grade" volta marcado; no 3, Considerar
+  ligado em "Compras" e "Exibe grade" desmarcado e travado. O combo **abre vazio** (sem ItemIndex) e o `FormShow` cai no ramo do tipo 3.
+  ❌→✅
+- **Considerar** (`rgConsiderar`): rádio "Compras" / "Vendas" / "Compras e Vendas" (era um seletor que só aparecia no tipo 3). ❌→✅
+- **Os códigos com Pesquisa** (`BtnBuscaFornecedorClick`, [F3]): departamento, grupo, subgrupo e seção na GET_FAMILIAS_PROD pelo TIPO,
+  produto (PRODUTOS) e fornecedor (PARCEIROS, FRN = 'S'), com a descrição ao lado; o código que não existe limpa (`EdtCodFornecedorExit`).
+  Eram campos de número soltos. ❌→✅
+- **Limpar** (`BtnLimparClick`): campos em branco, datas em hoje, combos vazios (inclusive o tipo e a data). ❌→✅
+- **Validacoes**: "A data inicial não pode ser maior que a final." (API e tela — o serviço lançava o código sem mensagem), "Selecione um
+  tipo de relatório.", e o "Favor informar a data." do `OnExitData`. ❌→✅
+- Níveis expandidos: o combo do `PreencheCmbNiveisExpandidos` (vazio, "1 nível", "N níveis"; 5 no sintético, 6 no analítico, travado no 3). ✅
+
+Prova: smoke §105.9 + `apps/web/test/relComprasPage.spec.tsx` (2).
