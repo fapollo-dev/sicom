@@ -5,6 +5,7 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
+import { LookupField } from '../../shared/ui/LookupField';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirRelatorio } from '../../shared/fr3/imprimirRelatorio';
@@ -57,9 +58,9 @@ export function NfAnalisePage() {
   const preco = modelo === 'PRECIFICACAO' || modelo === 'PRECO_FORNECEDOR' || modelo === 'PRECO_FORNECEDOR_ITENS';
   const [f, setF] = useState({
     dataIni: inicioMes(), dataFim: hoje(), tipo: 'T' as 'T' | 'E' | 'S',
-    nronf: '', razao: '', cfop: '', processadas: 'T' as 'S' | 'N' | 'T', multiplosCfops: false, cfops: '',
+    nronf: '', razao: '', codparceiro: '' as string, buscaDireta: false, cfop: '', processadas: 'T' as 'S' | 'N' | 'T', multiplosCfops: false, cfops: '',
     incluirDevolucao: false, somenteDiferencas: false, movimentaEstoque: false, empresas: '',
-    coddpto: '', codbarra: '', codgrupo: '', codsubgrupo: '', cfopPrecificacao: false, desconsiderarTransfEntrada: true, agrupar: false,
+    coddpto: '', codbarra: '', idprodutoSel: '', codgrupo: '', codsubgrupo: '', cfopPrecificacao: false, desconsiderarTransfEntrada: true, agrupar: false,
     modalidade: '', cfopEstado: '' as '' | 'D' | 'F',
   });
   const [modalidades, setModalidades] = useState<string[]>([]);
@@ -72,7 +73,8 @@ export function NfAnalisePage() {
 
   const corpo = (): AnaliseNfDto => ({
     modelo, dataIni: f.dataIni, dataFim: f.dataFim, tipo: f.tipo,
-    nronf: f.nronf || null, razao: f.razao || null,
+    // ckBuscaDireta: com ele, a parte da razão (P.RAZAO LIKE); sem ele, o código do parceiro (N.CODPARCEIRO = …) — UNFAnalise.pas:717-720
+    nronf: f.nronf || null, razao: f.buscaDireta ? f.razao || null : null, codparceiro: !f.buscaDireta && f.codparceiro ? Number(f.codparceiro) : null,
     // "Múltiplos CFOPs" (só no "Por CST"): a lista no lugar do CFOP único
     cfop: f.multiplosCfops && modelo === 'POR_CST' ? null : f.cfop ? Number(f.cfop) : null,
     cfops: f.multiplosCfops && modelo === 'POR_CST'
@@ -183,7 +185,14 @@ export function NfAnalisePage() {
           <div className="w-36"><SelectField label="Tipo" options={[{ value: 'T', label: 'Todas' }, { value: 'E', label: 'Entrada' }, { value: 'S', label: 'Saída' }]}
             value={f.tipo} onChange={(v) => setF({ ...f, tipo: (v ?? 'T') as 'T' })} /></div>
           <div className="w-36"><Field label="&Nº NF" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
-          <div className="w-56"><Field label="Cliente / fornecedor" value={f.razao} onChange={(e) => setF({ ...f, razao: e.target.value })} placeholder="parte da razão social" /></div>
+          {/* edtCliente + F3 (SegFornecedor) com a razão ao lado; "Busca Direto pela Descrição" troca pelo texto (edtRazaoLike) */}
+          {f.buscaDireta
+            ? <div className="w-56"><Field label="Cliente / fornecedor" value={f.razao} onChange={(e) => setF({ ...f, razao: e.target.value })} placeholder="parte da razão social" /></div>
+            : <div className="w-96"><LookupField label="Cliente / fornecedor" recurso="lookup/parceiros" campoCodigo="codparceiro" descricao="razao" value={f.codparceiro || undefined}
+                onChange={(cod) => setF({ ...f, codparceiro: cod ?? '' })} /></div>}
+          <label className="flex items-center gap-gp-sm text-body-sm">
+            <input type="checkbox" checked={f.buscaDireta} onChange={(e) => setF({ ...f, buscaDireta: e.target.checked, razao: '', codparceiro: '' })} /> Busca direto pela descrição
+          </label>
           {modelo === 'POR_CST' && f.multiplosCfops ? (
             // UNFAnalise.pas:188-215 — a GET_CFOP em multisseleção; o legado mostra "VARIOS" e a lista na descrição
             <CodigosComPesquisa label="CFOPs (vários)" value={f.cfops} onChange={(v) => setF({ ...f, cfops: v })} recurso="lookup/cfops" campo="cfop" />
@@ -224,18 +233,24 @@ export function NfAnalisePage() {
           )}
           {modelo === 'POR_CST' && (
             <>
-              <div className="w-24"><Field label="Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value.replace(/\D/g, '') })} /></div>
-              <div className="w-36"><Field label="Produto (barras)" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value.trim() })} /></div>
+              <div className="w-80"><LookupField label="Departamento" recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao" fixos={{ tipo: 'DEPARTAMENTO' }}
+                value={f.coddpto || undefined} onChange={(cod) => setF({ ...f, coddpto: cod ?? '' })} /></div>
+              <div className="w-80"><LookupField label="Produto" recurso="lookup/produtos" campoCodigo="idproduto" campoDigitado="codbarra" descricao="descricao"
+                value={f.idprodutoSel || undefined} onChange={(cod, linha) => setF({ ...f, idprodutoSel: cod ?? '', codbarra: linha ? String(linha.codbarra ?? '') : '' })} /></div>
             </>
           )}
           {preco && (
             <>
-              <div className="w-24"><Field label="Depto" value={f.coddpto} onChange={(e) => setF({ ...f, coddpto: e.target.value.replace(/\D/g, '') })} /></div>
+              <div className="w-80"><LookupField label="Departamento" recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao" fixos={{ tipo: 'DEPARTAMENTO' }}
+                value={f.coddpto || undefined} onChange={(cod) => setF({ ...f, coddpto: cod ?? '' })} /></div>
               {modelo !== 'PRECO_FORNECEDOR' && (
                 <>
-                  <div className="w-36"><Field label="Produto (barras)" value={f.codbarra} onChange={(e) => setF({ ...f, codbarra: e.target.value.trim() })} /></div>
-                  <div className="w-24"><Field label="Grupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value.replace(/\D/g, '') })} /></div>
-                  <div className="w-24"><Field label="Subgrupo" value={f.codsubgrupo} onChange={(e) => setF({ ...f, codsubgrupo: e.target.value.replace(/\D/g, '') })} /></div>
+                  <div className="w-80"><LookupField label="Produto" recurso="lookup/produtos" campoCodigo="idproduto" campoDigitado="codbarra" descricao="descricao"
+                value={f.idprodutoSel || undefined} onChange={(cod, linha) => setF({ ...f, idprodutoSel: cod ?? '', codbarra: linha ? String(linha.codbarra ?? '') : '' })} /></div>
+                  <div className="w-80"><LookupField label="Grupo" recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao" fixos={{ tipo: 'GRUPO' }}
+                value={f.codgrupo || undefined} onChange={(cod) => setF({ ...f, codgrupo: cod ?? '' })} /></div>
+                  <div className="w-80"><LookupField label="Subgrupo" recurso="lookup/familias" campoCodigo="codfamilia" descricao="descricao" fixos={{ tipo: 'SUBGRUPO' }}
+                value={f.codsubgrupo || undefined} onChange={(cod) => setF({ ...f, codsubgrupo: cod ?? '' })} /></div>
                   {modelo === 'PRECIFICACAO' && (
                     <label className="flex items-center gap-gp-sm text-body-sm">
                       <input type="checkbox" checked={f.cfopPrecificacao} onChange={(e) => setF({ ...f, cfopPrecificacao: e.target.checked })} /> CFOP precificação

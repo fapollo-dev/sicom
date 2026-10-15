@@ -126,3 +126,18 @@ seu próprio parâmetro (`GET_VLR_MIN_ICMSARECOLHER`).
 - **Veredito**: nas 7/8/9 o legado monta o número da nota como `N.NRONF LIKE %x%` sem aspas — a consulta falha quando o campo é
   preenchido; aqui o filtro é a intenção (LIKE).
 - **A tela está completa: as 9 análises e as 9 impressões.** Smoke §291.
+
+## Auditoria do `UNFAnalise.dfm` (15/10/2026) — controle a controle
+
+As nove opções (`rgOpcao`), as impressões (F11) e os filtros já estavam convertidos (cortes 1-4). O que a auditoria trouxe é a forma dos
+filtros que o legado escolhe por Pesquisa:
+
+| Controle do legado | Apollo |
+|---|---|
+| `edtCliente` + F3 (`btnCliente`, SegFornecedor) + `edtRazao` | **Cliente / fornecedor pela Pesquisa** (o código, com a razão ao lado) → `N.CODPARCEIRO = …` (UNFAnalise.pas:719-720). Antes só havia o texto da razão. |
+| `ckBuscaDireta` "Busca Direto pela Descrição" + `edtRazaoLike` | O checkbox troca o campo pelo texto da razão → `P.RAZAO LIKE '%…%'` (:717-718); desligado, vale o código. |
+| `edtCodDpto`/`btnBuscaCodDepto`/`edtDepartamento`, `edtCodGrupo`/`btnBuscaGrupo`/`edtGrupo`, `edtCodSubGrupo`/`btnBuscaSubGrupo`/`edtSubGrupo` (SegDepartamento 'D', SegCodGrupo 'G', SegSubGrupo 'S') | Departamento, Grupo e Subgrupo pela Pesquisa de famílias do tipo (com a descrição), em vez de código digitado. |
+| `edtCodProd`/`btnBuscaProduto`/`edtDescProd` (GetProduto pelo CODBARRA) | Produto pela Pesquisa (digita-se o código de barras; a descrição ao lado). |
+| `edtDataInicial/Final`, `cbTipo`, `edtNronf`, `edtCFOP`/`btnAddCFOP`, `chkMultiplosCFOPs`, `cbCFOP`, `cbxNotas`, `cbxDev`, `ckbNFmovimentastk`, `chkDesconsiderarTransfEntrada`, `chkCFOPPrecificacao`, `ckDiferenca`, `cbxAgrupar`, `btnImprimir` [F11] | Já. `cbbFormaPagto` (invisível no .dfm) é a forma de pagamento da opção 6 (já). `rdgTipoRelGrid` invisível. |
+
+jsdom `nfAnalisePage.spec.tsx`.
