@@ -1227,6 +1227,24 @@ async function main() {
     check('GET /cadastro/situacoes-nf lista o seed (≥6)', Array.isArray(sits) && sits.length >= 6, sits?.length);
     const cfops = (await (await fetch(`${base}/cadastro/cfops`, { headers: H })).json()) as any[];
     check('GET /cadastro/cfops lista o catálogo (tem 5102)', Array.isArray(cfops) && cfops.some((c) => c.codcfop === '5102'), cfops?.length);
+    // o cmbALIQUOTA do UCadCFOP: a DET_ALIQUOTA da UF da empresa com o ICM_EFETIVO ("ICMS Saída") — gate da tela de CFOP
+    {
+      const pgAq = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ufEmp = String((await pgAq.query(`SELECT uf FROM empresas WHERE idempresa = 1`)).rows[0]?.uf ?? '');
+      const outraUf = ufEmp === 'SP' ? 'RJ' : 'SP';
+      const criou = (await pgAq.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo, base) VALUES ('Z99', $1, 17, 12.5, 100), ('Z99', $2, 4, 4, 100)
+        ON CONFLICT DO NOTHING RETURNING uf`, [ufEmp, outraUf])).rows.length;
+      try {
+        const aliqCfop = (await (await fetch(`${base}/cadastro/cfop-aliquotas`, { headers: H })).json().catch(() => [])) as any[];
+        const aliqSem = await fetch(`${base}/cadastro/cfop-aliquotas`, { headers: H_SEM_ACESSO });
+        const z = Array.isArray(aliqCfop) ? aliqCfop.filter((a) => a.aliquota === 'Z99') : [];
+        check('CFOP: as alíquotas do combo de saída são as da DET_ALIQUOTA da UF DA EMPRESA (a Z99 aparece uma vez, a da UF da loja, com o ICMS efetivo 12,50 — a da outra UF não); sem acesso à tela → 403',
+          z.length === 1 && Number(z[0].icm_efetivo) === 12.5 && aliqSem.status === 403, { ufEmp, z, sem: aliqSem.status, criou });
+      } finally {
+        await pgAq.query(`DELETE FROM det_aliquota WHERE aliquota = 'Z99'`);
+        await pgAq.end();
+      }
+    }
 
     // 16.12b) SITUAÇÃO DO DOCUMENTO — a tela (mig 317; UCadSituacaoNF): 27 campos + CFOPs, CCs, parceiros e contas
     {

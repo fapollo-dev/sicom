@@ -132,6 +132,7 @@ import { AliquotaCrudController } from './aliquota.crud';
 import { DetAliquotaController } from './det-aliquota.controller';
 import { SituacaoNfAggregateController } from './situacao-nf.aggregate';
 import { CfopCrudController } from './cfop.crud';
+import { CfopAliquotasController } from './cfop-aliquotas.controller';
 import { PlcCrudController } from './plc.crud';
 import { PlcTelaController } from './plc-tela.controller';
 import { PlanoContasController } from './plano-contas.controller';
@@ -215,6 +216,7 @@ import { PesquisaService } from '../../shared/pesquisa/pesquisa.service';
     AliquotaCrudController, // engine (catálogo fiscal; chave natural CODIGO)
     DetAliquotaController, // o editor da DET_ALIQUOTA (UcadAliquota)
     SituacaoNfAggregateController, // a tela Situação do documento (mig 317): 27 campos + 4 detalhes
+    CfopAliquotasController,
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     PlcTelaController,
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)

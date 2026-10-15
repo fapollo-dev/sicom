@@ -1,8 +1,8 @@
 import { Controller } from 'react-hook-form';
-import { useOpcoesDoForm } from '../../shared/acesso/useOpcoesDoForm';
 import { cfopSchema, type CriarCfopDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
+import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
@@ -44,13 +44,14 @@ const CLASSIFICACAO: Array<[Flag, string]> = [
 ];
 
 export function CfopCadMaster() {
-  // permissões de controle da tela — docs/05-migration-engineering/permissoes-de-controle.md
-  const { tem: pode } = useOpcoesDoForm('FRMCADCFOP');
   const { data: situacoes = [] } = useResourceOptions(
     'cadastro/situacoes-nf',
     (s: any) => ({ value: String(s.idsituacao_nf), label: `${s.idsituacao_nf} - ${s.descricao}` }),
   );
-  const { data: aliquotas = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({ value: String(a.codigo), label: `${a.codigo} - ${a.descricao}` }));
+  // o cmbALIQUOTA (sqqAliquota): a DET_ALIQUOTA da UF da empresa, com o ICM_EFETIVO que a tela mostra como "ICMS Saída"
+  const { data: aliquotasUf = [] } = useResourceOptions('cadastro/cfop-aliquotas', (a: any) => ({ value: String(a.aliquota), label: String(a.aliquota), efetivo: a.icm_efetivo }));
+  const aliquotas = aliquotasUf.map((a: any) => ({ value: a.value, label: a.label }));
+  const efetivoDe = (codigo: unknown) => (aliquotasUf as any[]).find((a) => a.value === String(codigo ?? '').trim())?.efetivo;
 
   const codigo = (name: Flag, label: string, form: any, options: Array<{ value: string; label: string }>, disabled = false) => (
     <Controller
@@ -133,8 +134,14 @@ export function CfopCadMaster() {
                   <LookupField label="CFOP para devolução de compra" recurso="lookup/cfops" campoCodigo="codcfop" descricao="descricao"
                     fixos={fixosDevolucao} value={field.value || undefined} onChange={(cod) => field.onChange(cod?.trim() ?? '')} disabled={!editavel} />
                 )} />
+                {/* Tag 1 num TDBLookupComboBox só muda a COR no uMaster (:644-700) — o CMBALIQUOTA não trava o combo; "Excluir Alíquota"
+                    limpa (btnExcluirAliqClick) e o "ICMS Saída" é o ICM_EFETIVO da alíquota na UF da empresa */}
                 <Controller control={form.control} name="aliquota" render={({ field }) => (
-                  <SelectField label="&Alíquota de saída" options={aliquotas} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!pode('CMBALIQUOTA')} />
+                  <div className="flex items-end gap-gp-xs">
+                    <div className="flex-1"><SelectField label="&Alíquota de saída" options={aliquotas} value={field.value ? String(field.value).trim() : undefined} onChange={(v) => field.onChange(v ?? '')} placeholder="Nenhuma" disabled={!editavel} /></div>
+                    <div className="w-24"><Field label="ICMS Saída" disabled readOnly value={field.value && efetivoDe(field.value) != null ? Number(efetivoDe(field.value)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''} /></div>
+                    <Button label="Excluir Alíquota" variant="ghost" disabled={!editavel || !field.value} onClick={() => field.onChange('')} />
+                  </div>
                 )} />
                 <Controller control={form.control} name="codplanocontas" render={({ field }) => (
                   <NumberField label="Conta &contábil (código no plano)" value={typeof field.value === 'number' ? field.value : undefined} onChange={(v) => field.onChange(v ?? '')} decimais={0} min={0} disabled={!editavel} />
