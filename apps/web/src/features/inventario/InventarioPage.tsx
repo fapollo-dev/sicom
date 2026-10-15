@@ -431,7 +431,7 @@ export function InventarioPage() {
         <div className="w-72"><Field label="&Descrição do inventário" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: Inventário geral jul/2026" /></div>
         <Button label="&Novo inventário" variant="soft" disabled={busy} onClick={() => void criar()} />
       </div>
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: any) => Number(r.codinvent)} />
     </div>
   );
 }

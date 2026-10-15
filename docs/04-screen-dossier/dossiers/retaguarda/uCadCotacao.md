@@ -62,3 +62,25 @@ por fornecedor vencedor (agrupa itens ganhos), re-explode COTACAO_PRODQTDE → P
   gerar-pedido (corte-2) valida a loja ao re-explodir; não é IDOR (db-per-tenant, a idempresa nomeia loja do próprio tenant).
 
 **Verde pós-fold:** api tsc 0 · api test 156 · smoke **597/0** (§84, 8 checks) · web tsc 0.
+
+## 6. Auditoria controle a controle (15/10/2026) — `uCadCotacao.dfm` × Apollo — corte do CABEÇALHO
+
+Uso na produção (COTACAO por ano): 2024 = 8, 2025 = 3, 2026 = 1 — toda cotação tem a janela de preenchimento e as lojas; 'Liberar' na
+maioria; o e-mail aos fornecedores **nunca foi usado** (DTENVIOEMAIL vazio em todas).
+
+| controle (pnlCabCotacao) | regra | Apollo |
+|---|---|---|
+| `edtDESCRICAO` | — | ✅ |
+| `edtDATA` (DATA) | — | ❌→✅ |
+| `edtDtInicio` + `mskHoraInicio` / `edtDtFim` + `mskHoraFim` | a janela com hora; sem janela gravada a tela mostra hoje 00:01 → hoje 23:59 (`edtCodigoExit` :1285); fim ≤ início → "Hora fim não pode ser MENOR ou IGUAL hora início." (`btnGravarClick` :710-716) | ❌→✅ (o `atualizar` ignorava a janela; a criação a aceitava sem a hora na tela) |
+| `edtempresas` (EMPRESAS) | o `GravarEmpresas` grava as lojas do multiempresa como ";1;2;" e o campo nunca habilita | ❌→✅ (só na inclusão; só leitura depois) |
+| `DBCheckBox1` "Liberar Cotação" (LIBERADA) | editável no desktop (o comentário "write-once 'N' no desktop" da mig 091 estava errado: 2/3 das cotações da produção estão liberadas) | ❌→✅ |
+| `DBMemo1` (PEDIDOS) | os pedidos gerados | ✅ (só leitura) |
+
+`get_cotacao` recriada (mig 429): a view de 091 era `c.*` congelado e não trazia EMPRESAS. A lista da tela também não renderizava:
+sem `getRowId`, a DataTable do design system usa `row.id` (inexistente) e quebra no `editingCell?.rowId === rowId` — corrigido aqui e
+nas outras 5 listas com o mesmo risco (ajuste de estoque, operadoras, produção, inventário, trocas, devolução de compra).
+
+**Próximos cortes da Cotação** (por ordem de valor): as quantidades por loja (GrdQuantidades, com o estoque), a aba de status dos
+fornecedores (total/preenchidos/não preenchidos, participa da apuração, itens do fornecedor), as impressões (cotação / por empresa / sem
+custo), duplicar, a análise geral do produto [F6], agrupar produtos e o coletor. Fora com prova: o envio de e-mail (nunca usado).

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
@@ -11,12 +12,49 @@ import { useLinhasDosCodigos } from '../../shared/pesquisa/useLinhasDosCodigos';
 import {
   listarCotacoes, obterCotacao, criarCotacao, excluirCotacao,
   lancarPrecosCotacao, apurarCotacao, definirGanhadorCotacao, gerarPedidoCotacao,
-  fecharCotacao, reabrirCotacao,
+  fecharCotacao, reabrirCotacao, atualizarCabecalhoCotacao,
   type CotacaoLista, type CotacaoDetalhe } from './cotacaoApi';
 
 
 const brl = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const chave = (codctcforn: number, codcpr: number) => `${codctcforn}:${codcpr}`;
+
+interface Cab { descricao: string; data: string; iniD: string; iniH: string; fimD: string; fimH: string; liberada: boolean; empresas: string }
+const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+/** a data e a hora locais de um carimbo (o edtDtInicio + mskHoraInicio do legado) */
+const partes = (iso: string | null | undefined, horaPadrao: string): { d: string; h: string } => {
+  if (!iso) return { d: hojeIso(), h: horaPadrao };
+  const x = new Date(iso);
+  if (Number.isNaN(x.getTime())) return { d: hojeIso(), h: horaPadrao };
+  return { d: `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`, h: `${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}` };
+};
+/** o cabeçalho de uma cotação já gravada; sem janela, o legado mostra hoje 00:01 e hoje 23:59 (edtCodigoExit :1285-1288) */
+const cabDe = (c: { descricao?: string | null; data?: string | null; dtinicio_preenchimento?: string | null; dtfim_preenchimento?: string | null; liberada?: string | null; empresas?: string | null }): Cab => {
+  const i = partes(c.dtinicio_preenchimento, '00:01'); const f = partes(c.dtfim_preenchimento, '23:59');
+  return { descricao: c.descricao ?? '', data: c.data ? partes(c.data, '00:00').d : hojeIso(), iniD: i.d, iniH: i.h, fimD: f.d, fimH: f.h, liberada: c.liberada === 'S', empresas: c.empresas ?? '' };
+};
+const cabNovo = (): Cab => ({ descricao: '', data: hojeIso(), iniD: hojeIso(), iniH: '00:01', fimD: hojeIso(), fimH: '23:59', liberada: false, empresas: '' });
+/** o btnGravarClick (:710-716): a janela com hora, e a mensagem do legado quando o fim não passa do início */
+const janelaDo = (c: Cab): { dtinicio_preenchimento: string; dtfim_preenchimento: string } | string => {
+  const ini = `${c.iniD}T${c.iniH || '00:00'}:00`; const fim = `${c.fimD}T${c.fimH || '00:00'}:00`;
+  return fim <= ini ? 'Hora fim não pode ser MENOR ou IGUAL hora início.' : { dtinicio_preenchimento: ini, dtfim_preenchimento: fim };
+};
+
+/** o pnlCabCotacao: Descrição, Data, Data/Hora início, Data/Hora fim, Empresas (só leitura depois de gravada) e "Liberar Cotação" */
+function CabecalhoCotacaoCampos({ cab, setCab, editavel, novo }: { cab: Cab; setCab: (c: Cab) => void; editavel: boolean; novo: boolean }) {
+  return (
+    <div className="flex flex-wrap items-end gap-gp-sm">
+      <div className="w-80"><Field label="&Descrição da cotação" value={cab.descricao} disabled={!editavel} onChange={(e) => setCab({ ...cab, descricao: e.target.value })} placeholder="ex.: Cotação hortifruti jul/2026" /></div>
+      <div className="w-40"><Field label="Data" type="date" value={cab.data} disabled={!editavel} onChange={(e) => setCab({ ...cab, data: e.target.value })} /></div>
+      <div className="w-40"><Field label="Data início" type="date" value={cab.iniD} disabled={!editavel} onChange={(e) => setCab({ ...cab, iniD: e.target.value })} /></div>
+      <div className="w-28"><Field label="Hora início" type="time" value={cab.iniH} disabled={!editavel} onChange={(e) => setCab({ ...cab, iniH: e.target.value })} /></div>
+      <div className="w-40"><Field label="Data fim" type="date" value={cab.fimD} disabled={!editavel} onChange={(e) => setCab({ ...cab, fimD: e.target.value })} /></div>
+      <div className="w-28"><Field label="Hora fim" type="time" value={cab.fimH} disabled={!editavel} onChange={(e) => setCab({ ...cab, fimH: e.target.value })} /></div>
+      <div className="w-40"><Field label="Empresas" value={cab.empresas} disabled={!novo || !editavel} onChange={(e) => setCab({ ...cab, empresas: e.target.value })} placeholder={novo ? 'esta loja (1,2)' : ''} /></div>
+      <CheckboxField label="Liberar Cotação" value={cab.liberada ? 'S' : 'N'} disabled={!editavel} onChange={(v) => setCab({ ...cab, liberada: v === 'S' })} />
+    </div>
+  );
+}
 
 /**
  * COTAÇÃO DE COMPRA (RFQ, uCadCotacao) — corte-3 front. Fluxo fiel: cria a cotação (produtos + fornecedores
@@ -32,7 +70,9 @@ export function CotacaoPage() {
   const [busy, setBusy] = useState(false);
 
   // ── criar ──
-  const [novaDesc, setNovaDesc] = useState('');
+  const [cabNova, setCabNova] = useState<Cab>(cabNovo());
+  // o cabeçalho da cotação aberta (editável enquanto ela está aberta)
+  const [cabSel, setCabSel] = useState<Cab>(cabNovo());
   const [prodSel, setProdSel] = useState('');
   const [prodQtd, setProdQtd] = useState<number | undefined>(1);
   const [prodRotulo, setProdRotulo] = useState('');
@@ -65,6 +105,7 @@ export function CotacaoPage() {
     try {
       const d = await obterCotacao(id);
       setSel(d);
+      setCabSel(cabDe(d));
       setFornPreco('');
       setPrecoEdit({});
     } catch (e) {
@@ -118,14 +159,18 @@ export function CotacaoPage() {
     if (busy) return;
     if (!novosProdutos.length) return mensagem.erro('Adicione ao menos um produto.');
     if (!novosFornecedores.length) return mensagem.erro('Convide ao menos um fornecedor.');
+    const janela = janelaDo(cabNova);
+    if (typeof janela === 'string') return mensagem.erro(janela);
+    const lojas = cabNova.empresas.split(/[,;]/).map((x) => Number(x.trim())).filter((x) => Number.isInteger(x) && x > 0);
     setBusy(true);
     try {
       const r = await criarCotacao({
-        descricao: novaDesc || undefined,
+        descricao: cabNova.descricao || undefined, data: cabNova.data, ...janela, liberada: cabNova.liberada ? 'S' : 'N',
+        ...(lojas.length ? { empresas: lojas } : {}),
         produtos: novosProdutos.map((p) => ({ idproduto: p.idproduto, quantidade: p.quantidade })),
         fornecedores: novosFornecedores.map((f) => ({ codparceiro: f.codparceiro })),
       });
-      setNovaDesc('');
+      setCabNova(cabNovo());
       setNovosProdutos([]);
       setNovosFornecedores([]);
       mensagem.sucesso(`Cotação ${r.codctc} criada. Lance os preços de cada fornecedor.`);
@@ -233,6 +278,18 @@ export function CotacaoPage() {
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
         </div>
 
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <CabecalhoCotacaoCampos cab={cabSel} setCab={setCabSel} editavel={aberta} novo={false} />
+          {sel.pedidos && <div className="text-body-sm"><span className="text-fg-muted">Pedidos:</span> {sel.pedidos}</div>}
+          {aberta && (
+            <div><Button label="Salvar cabeçalho" variant="soft" disabled={busy} onClick={() => {
+              const janela = janelaDo(cabSel);
+              if (typeof janela === 'string') { mensagem.erro(janela); return; }
+              void acao(() => atualizarCabecalhoCotacao(sel.codctc, { descricao: cabSel.descricao, data: cabSel.data, ...janela, liberada: cabSel.liberada ? 'S' : 'N' }), 'Cabeçalho da cotação gravado.');
+            }} /></div>
+          )}
+        </div>
+
         {/* MATRIZ produto × fornecedor (vencedor destacado). Clique numa célula com preço p/ forçar o vencedor. */}
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
           <table className="w-full text-body-sm">
@@ -331,9 +388,7 @@ export function CotacaoPage() {
       <PageHeader title="Cotação de compra (RFQ)" />
 
       <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-80"><Field label="&Descrição da cotação" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: Cotação hortifruti jul/2026" /></div>
-        </div>
+        <CabecalhoCotacaoCampos cab={cabNova} setCab={setCabNova} editavel novo />
         <div className="flex flex-wrap items-end gap-gp-sm">
           {/* uCadCotacao.pas:870 — GET_PRODUTOS com ATIVO_COMPRA <> 'N' (:833; com mais de uma loja, o subselect da MULTI_PRECO, :847-851):
               nenhum dos dois é igualdade numa coluna da view do destino — fica no servidor */}
@@ -388,7 +443,8 @@ export function CotacaoPage() {
         <div><Button label="&Criar cotação" variant="soft" disabled={busy || !novosProdutos.length || !novosFornecedores.length} onClick={() => void criar()} /></div>
       </div>
 
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      {/* a chave da linha é o CODCTC: sem `getRowId` a DataTable do design system usa `row.id` (inexistente aqui) e quebra ao renderizar */}
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: CotacaoLista) => Number(r.codctc)} />
     </div>
   );
 }

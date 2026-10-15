@@ -100,7 +100,7 @@ export function DevolucaoCompraCadMaster() {
         ? <div><Button label="&Nova devolução" variant="soft" onClick={() => setAberto(null)} /></div>
         : <DevolucaoCompraEditor codigo={aberto} onFechar={() => setAberto(undefined)} onMudou={() => void recarregar()} />}
 
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: any) => Number(r.codpeddevcompra)} />
 
       {faturando != null && (
         <Modal open onClose={() => setFaturando(null)} size="sm" title="Faturar devolução"

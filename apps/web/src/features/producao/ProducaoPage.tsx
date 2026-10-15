@@ -229,7 +229,7 @@ export function ProducaoPage() {
         <Button label="&Nova requisição de produção" variant="soft" disabled={busy} onClick={() => void novo()} />
         <small className="text-fg-muted">Manufatura (açougue/padaria): produza acabados a partir da ficha técnica, baixando ingredientes do estoque.</small>
       </div>
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: any) => Number(r.codproducao)} />
     </div>
   );
 }

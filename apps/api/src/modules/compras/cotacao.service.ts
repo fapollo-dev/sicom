@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { empresasDoOperador } from '../../shared/acesso/empresas-do-operador';
 import { sql, type Kysely } from 'kysely';
 import type { CriarCotacaoDto, LancarPrecosCotacaoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -93,7 +94,15 @@ export class CotacaoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const c = (await trx
         .insertInto('cotacao')
-        .values({ idempresa: emp, descricao: dto.descricao ?? null, situacao: 'A', flg_origem: dto.flg_origem ?? 'C', dtinicio_preenchimento: dto.dtinicio_preenchimento ?? null, dtfim_preenchimento: dto.dtfim_preenchimento ?? null, codoperador: op, dtcadastro: sql`now()` })
+        .values({
+          idempresa: emp, descricao: dto.descricao ?? null, situacao: 'A', flg_origem: dto.flg_origem ?? 'C',
+          ...(dto.data ? { data: dto.data } : {}),
+          dtinicio_preenchimento: dto.dtinicio_preenchimento ?? null, dtfim_preenchimento: dto.dtfim_preenchimento ?? null,
+          liberada: dto.liberada ?? 'N',
+          // o GravarEmpresas (uCadCotacao.pas:398): as lojas do multiempresa, ";1;2;" — só na inclusão (o edtempresas nunca habilita)
+          empresas: `;${(await empresasDoOperador(trx, dto.empresas ?? null)).join(';')};`,
+          codoperador: op, dtcadastro: sql`now()`,
+        })
         .returning('codctc')
         .executeTakeFirstOrThrow()) as { codctc: number };
       await this.gravarArvore(trx, Number(c.codctc), emp, dto);
@@ -117,6 +126,11 @@ export class CotacaoService {
       await this.carregar(trx, codctc, emp, true);
       const set: Record<string, unknown> = { usultalteracao: op, dtultimalteracao: sql`now()` };
       if (dto.descricao !== undefined) set.descricao = dto.descricao ?? null; // só zera/altera se veio
+      // o cabeçalho editável da cotação aberta: a data, a janela de preenchimento e o "Liberar Cotação" (as lojas não mudam)
+      if (dto.data !== undefined) set.data = dto.data ?? null;
+      if (dto.dtinicio_preenchimento !== undefined) set.dtinicio_preenchimento = dto.dtinicio_preenchimento ?? null;
+      if (dto.dtfim_preenchimento !== undefined) set.dtfim_preenchimento = dto.dtfim_preenchimento ?? null;
+      if (dto.liberada !== undefined) set.liberada = dto.liberada ?? 'N';
       await trx.updateTable('cotacao').set(set).where('codctc', '=', codctc).where('idempresa', '=', emp).execute();
 
       if (dto.produtos) {

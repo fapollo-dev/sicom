@@ -178,7 +178,7 @@ export function AjusteEstoquePage() {
 
       <section>
         <h2 className="mb-form-gap text-body-sm font-semibold text-fg-default">Ajustes recentes</h2>
-        <DataTable columns={colunas} rows={ajustes} loading={carregando} />
+        <DataTable columns={colunas} rows={ajustes} loading={carregando} getRowId={(r: any) => Number(r.codajuste)} />
       </section>
 
       <ConsultaAjustes />

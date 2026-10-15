@@ -25,6 +25,10 @@ export interface CotacaoLista {
   situacao: string; // 'A' aberta / 'F' fechada
   data: string | null;
   pedidos: string | null;
+  liberada?: string | null;
+  empresas?: string | null;
+  dtinicio_preenchimento?: string | null;
+  dtfim_preenchimento?: string | null;
   qtde_produtos?: number;
   qtde_fornecedores?: number;
 }
@@ -57,14 +61,23 @@ export interface CotacaoDetalhe extends CotacaoLista {
   precos: CotacaoPreco[];
 }
 
-export interface NovaCotacao {
+export interface CabecalhoCotacao {
   descricao?: string;
+  data?: string;
+  dtinicio_preenchimento?: string;
+  dtfim_preenchimento?: string;
+  liberada?: 'S' | 'N';
+}
+export interface NovaCotacao extends CabecalhoCotacao {
+  empresas?: number[];
   produtos: Array<{ idproduto: number; quantidade: number }>;
   fornecedores: Array<{ codparceiro: number; participa_apuracao?: 'S' | 'N' }>;
 }
 
 export const listarCotacoes = (): Promise<CotacaoLista[]> => req('/compras/cotacao', { method: 'GET' });
 export const obterCotacao = (id: number): Promise<CotacaoDetalhe> => req(`/compras/cotacao/${id}`, { method: 'GET' });
+/** o cabeçalho da cotação aberta (PUT parcial: produtos e fornecedores ficam como estão) */
+export const atualizarCabecalhoCotacao = (id: number, body: CabecalhoCotacao): Promise<{ codctc: number }> => req(`/compras/cotacao/${id}`, { method: 'PUT', body: JSON.stringify(body) });
 export const criarCotacao = (body: NovaCotacao): Promise<{ codctc: number }> => req('/compras/cotacao', { method: 'POST', body: JSON.stringify(body) });
 export const excluirCotacao = (id: number): Promise<{ codctc: number }> => req(`/compras/cotacao/${id}`, { method: 'DELETE' });
 

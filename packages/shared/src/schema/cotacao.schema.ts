@@ -48,15 +48,20 @@ export const cotacaoFornSchema = z.object({
 const cotacaoBaseSchema = z.object({
   descricao: opcional(z.string().max(120)),
   flg_origem: opcional(z.enum(['C', 'L'])),
+  /** o cabeçalho do uCadCotacao: DATA (edtDATA), a janela de preenchimento com hora (edtDtInicio+mskHoraInicio / edtDtFim+mskHoraFim),
+   *  "Liberar Cotação" (LIBERADA) e as lojas (EMPRESAS — o GravarEmpresas grava as do multiempresa, só na inclusão) */
+  data: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (AAAA-MM-DD).')),
   dtinicio_preenchimento: opcional(z.string()),
   dtfim_preenchimento: opcional(z.string()),
+  liberada: opcional(z.enum(['S', 'N'])),
+  empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
   produtos: z.array(cotacaoProdSchema).min(1, 'Inclua ao menos um produto na cotação.').max(5000),
   fornecedores: z.array(cotacaoFornSchema).min(1, 'Convide ao menos um fornecedor.').max(500),
 });
 // janela de preenchimento: fim > início (fiel uCadCotacao.pas:711-716).
 const janelaValida = (v: { dtinicio_preenchimento?: string; dtfim_preenchimento?: string }, ctx: z.RefinementCtx) => {
   if (v.dtinicio_preenchimento && v.dtfim_preenchimento && v.dtfim_preenchimento <= v.dtinicio_preenchimento) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dtfim_preenchimento'], message: 'A data fim do preenchimento deve ser posterior à data início.' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dtfim_preenchimento'], message: 'Hora fim não pode ser MENOR ou IGUAL hora início.' });
   }
 };
 export const criarCotacaoSchema = cotacaoBaseSchema.superRefine(janelaValida);

@@ -179,7 +179,7 @@ export function TrocaPage() {
         <Button label="&Nova troca" variant="soft" disabled={busy} onClick={() => void criar()} />
         <small className="text-fg-muted">Devolução de avariados/vencidos ao fornecedor (o estoque sai ao incluir o item).</small>
       </div>
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: any) => Number(r.codtroca)} />
     </div>
   );
 }

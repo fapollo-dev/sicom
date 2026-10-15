@@ -15004,6 +15004,24 @@ async function main() {
       check('COTAÇÃO §84.3: preço de fornecedor não-convidado→422; produto não-cotado→422',
         lpNaoConv.status === 422 && ((await lpNaoConv.json().catch(() => ({}))) as any).code === 'COTACAO_FORNECEDOR_NAO_CONVIDADO' && lpNaoCot.status === 422 && ((await lpNaoCot.json().catch(() => ({}))) as any).code === 'COTACAO_PRODUTO_NAO_COTADO', { conv: lpNaoConv.status, cot: lpNaoCot.status });
 
+      // 84.3b) o cabeçalho do uCadCotacao: DATA, a janela de preenchimento com hora, "Liberar Cotação" e as lojas (";1;" — o GravarEmpresas);
+      // o PUT parcial grava só o cabeçalho (os preços lançados sobrevivem); a janela invertida → a mensagem do legado
+      const ctCab = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'CAB SMOKE', data: '2026-10-01',
+        dtinicio_preenchimento: '2026-10-01T08:30:00', dtfim_preenchimento: '2026-10-03T18:00:00', liberada: 'S', empresas: [1],
+        produtos: [{ idproduto: 1, quantidade: 1 }], fornecedores: [{ codparceiro: 22 }] }) });
+      const ctCabId = Number(((await ctCab.json().catch(() => ({}))) as any).codctc);
+      const cab1 = (await (await fetch(`${base}/${CT}/${ctCabId}`, { headers: H })).json().catch(() => ({}))) as any;
+      const putCab = await fetch(`${base}/${CT}/${ctCabId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtfim_preenchimento: '2026-10-05T12:00:00', liberada: 'N' }) });
+      const cab2 = (await (await fetch(`${base}/${CT}/${ctCabId}`, { headers: H })).json().catch(() => ({}))) as any;
+      const janelaRuim = await fetch(`${base}/${CT}/${ctCabId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtinicio_preenchimento: '2026-10-05T12:00:00', dtfim_preenchimento: '2026-10-05T11:00:00' }) });
+      const janelaRuimJ = (await janelaRuim.json().catch(() => ({}))) as any;
+      const fmt = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
+      check('COTAÇÃO §84.3b [o cabeçalho]: a data, a janela 01/10 08:30 → 03/10 18:00, "Liberar" S e as lojas ";1;" gravam; o PUT do cabeçalho troca o fim e o liberar sem mexer nos produtos; fim antes do início → 400 com a mensagem do legado',
+        ctCab.status === 201 && cab1.liberada === 'S' && cab1.empresas === ';1;' && fmt(cab1.dtinicio_preenchimento) === new Date('2026-10-01T08:30:00-03:00').toISOString()
+        && putCab.status === 200 && cab2.liberada === 'N' && fmt(cab2.dtfim_preenchimento) === new Date('2026-10-05T12:00:00-03:00').toISOString() && (cab2.produtos ?? []).length === 1
+        && janelaRuim.status === 400 && JSON.stringify(janelaRuimJ).includes('Hora fim não pode ser MENOR ou IGUAL hora início.'),
+        { cab1: [cab1.liberada, cab1.empresas, cab1.dtinicio_preenchimento], put: putCab.status, cab2: [cab2.liberada, cab2.dtfim_preenchimento], ruim: [janelaRuim.status, janelaRuimJ] });
+
       // 84.4) criar com fornecedor NÃO-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO.
       const ctFrn = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', produtos: [{ idproduto: 1, quantidade: 1 }], fornecedores: [{ codparceiro: 20 }] }) });
       check('COTAÇÃO §84.4: criar com fornecedor não-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO', ctFrn.status === 422 && ((await ctFrn.json().catch(() => ({}))) as any).code === 'COTACAO_FORNECEDOR_INVALIDO', { status: ctFrn.status });

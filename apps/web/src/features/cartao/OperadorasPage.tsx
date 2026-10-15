@@ -127,7 +127,7 @@ export function OperadorasPage() {
         <Button label="&Nova operadora" variant="soft" onClick={novo} />
         <small className="text-fg-muted">Administradora/adquirente + taxa % e dias de compensação (base do líquido e vencimento dos recebíveis).</small>
       </div>
-      <DataTable columns={colunas} rows={lista} loading={carregando} />
+      <DataTable columns={colunas} rows={lista} loading={carregando} getRowId={(r: any) => Number(r.codoperadoras)} />
     </div>
   );
 }
