@@ -75,6 +75,11 @@ export function FechamentoDiarioPage() {
     const r = await mesInteiro(ano, mes, fechar_);
     mensagem.sucesso(`${r.dias} dia(s) ${fechar_ ? 'fechados' : 'reabertos'}.`);
   });
+  // F6/F7 = btnOkClick / BitBtn1Click: fechar e reabrir o dia da linha corrente da grade (clique na linha para escolher)
+  const [selecionado, setSelecionado] = useState<string | null>(null);
+  const diaSel = dias.find((d) => d.data === selecionado) ?? null;
+  useShortcut('f6', () => { if (diaSel && !diaSel.fechado) void fechar(diaSel); }, { when: !ocupado && !!diaSel });
+  useShortcut('f7', () => { if (diaSel?.fechado) void reabrir(diaSel); }, { when: !ocupado && !!diaSel });
   // F8 = btnFechaTotalClick (FormKeyDown do uFechamentoDiario; "[F8] - F&echamento total") — com o botão habilitado
   useShortcut('f8', () => { void total(true); }, { when: !ocupado });
   // F9 = btnAberturaTotalClick (FormKeyDown do uFechamentoDiario; "[F9] - Re&abertura total") — com o botão habilitado
@@ -125,8 +130,10 @@ export function FechamentoDiarioPage() {
           </div>
         </div>
         <div className="mt-form-gap flex flex-wrap gap-gp-sm">
-          <Button label="F&echamento total" variant="soft" disabled={ocupado} onClick={() => void total(true)} />
-          <Button label="Re&abertura total" variant="soft" disabled={ocupado} onClick={() => void total(false)} />
+          <Button label="[F6] - &Fechar dia" variant="soft" disabled={ocupado || !diaSel || diaSel.fechado} onClick={() => diaSel && void fechar(diaSel)} />
+          <Button label="[F7] - &Reabrir dia" variant="soft" disabled={ocupado || !diaSel?.fechado} onClick={() => diaSel && void reabrir(diaSel)} />
+          <Button label="[F8] - F&echamento total" variant="soft" disabled={ocupado} onClick={() => void total(true)} />
+          <Button label="[F9] - Re&abertura total" variant="soft" disabled={ocupado} onClick={() => void total(false)} />
         </div>
         <p className="mt-form-gap text-body-sm text-fg-muted">
           Fechar um dia marca que ele está conferido e leva a data contábil das notas ainda não processadas para
@@ -134,7 +141,8 @@ export function FechamentoDiarioPage() {
         </p>
       </section>
 
-      <DataTable rows={dias} columns={cols} getRowId={(d: DiaFechamento) => d.data} />
+      <DataTable rows={dias} columns={cols} getRowId={(d: DiaFechamento) => d.data} onRowClick={(d: DiaFechamento) => setSelecionado(d.data)} />
+      {diaSel && <p className="text-body-sm text-fg-muted">Dia selecionado: {ptBR(diaSel.data)} — {diaSel.fechado ? 'fechado' : 'aberto'}.</p>}
     </div>
   );
 }

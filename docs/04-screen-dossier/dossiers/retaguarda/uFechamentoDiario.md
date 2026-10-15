@@ -19,6 +19,10 @@ olhar antes de travar o dia. Botões: fechar o dia (`btnOkClick`), reabrir (`Abr
 
 ## 2. Estado no Oracle (liveness — e é aqui que a leitura muda)
 
+> ⚠️ **CORREÇÃO (15/10/2026): os números abaixo são da HOMOLOGAÇÃO (cópia parada em 2024).** Na **produção** o fechamento diário é
+> USADO: lojas 1 e 2 com 639 dias fechados em 2025 e 271 em 2026 (último 'F' em 29/06/2026 na loja 1 e 31/07/2026 na loja 2). Ver a
+> auditoria no fim.
+
 **3.439 linhas · 4 empresas · 2019-08 → 2026-04 · `STATUS='F'` em 1.997, nulo em 1.442** — e
 `(IDEMPRESA, DATA)` é **único** (3.439 de 3.439 distintos ⇒ chave natural).
 
@@ -95,3 +99,23 @@ Se/quando entrar, o corte-1 é:
 4. Um helper `assertDiaNaoFechado(data, empresa)` para os épicos fiscais chamarem (o papel do
    `uTron.PeriodoFechado`), convivendo com o `periodo_contabil` **por mês** — são níveis diferentes e não se
    substituem: o mês bloqueia contabilização/baixa; o dia é pré-requisito da exportação fiscal.
+
+## Auditoria do `uFechamentoDiario.dfm` (15/10/2026) — controle a controle
+
+**Produção** (somente leitura): o fechamento é vivo nas lojas 1 e 2 (2026: 120 e 151 dias fechados). E o dia fechado tem um consumidor
+que o recon de 08/2026 não viu (só achou TRON e Sintegra): **a nota fiscal** — `uNF.pas` consulta FECHAMENTO no **Editar** (:3933, "Dia
+FECHADO não é permitida alteração dos documentos!"), no **Excluir** (:4090, a mesma) e no **Gravar** (:4565, "Dia FECHADO não é permitida
+alteração ou inclusão de documentos!"); também o `uCadProducao` (:3770, a exclusão das notas da produção — caminho que o Apollo não tem)
+e a Redução Z (REDUCAOZ vazia).
+
+| Controle do legado | Apollo |
+|---|---|
+| `cmbMes` / `edtAno` (+ `cmbMesChange` materializa o mês) | Mês e ano (já). |
+| `dbgDados` (os dias, fechado colorido) | A grade dos dias; **clique na linha escolhe o dia** (a linha corrente do legado). |
+| `btnOk` "[F6] - &Fechar dia" / `BitBtn1` "[F7] - &Reabrir dia" | **Os dois botões e as teclas F6/F7** sobre o dia escolhido (antes só as ações por linha). |
+| `btnFechaTotal` "[F8]" / `btnAberturaTotal` "[F9]" | Já (F8/F9). |
+| `btnRateioGeral` "[F10] - R&ateio Geral" / F11 (`ApagaRegistrosTabelaRES_ALIQ_60D`) | Fora com prova: o RES_ALIQ_60D (o resumo 60D do Sintegra) e a REDUCAOZ estão vazios na produção. |
+| `JvDBUltimGrid1/2/3` (conferência 50E/54E, 50S/54S e 60 do dia — Sintegra) | Fora deste corte: são os totais dos registros do Sintegra (o 60 lê a REDUCAOZ, vazia); o Sintegra não está convertido. |
+| — (regra do uNF que depende desta tela) | **A trava do dia fechado na NF**: `assertDiaNaoFechado` (`modules/shared/periodo-contabil.ts`) no validar do agregado da NF (a data gravada barra a edição; a nova, a gravação — inclusive a nota nova) e na exclusão. |
+
+Smoke §331 (editar, excluir, mudar para o dia e gravar nota nova no dia fechado; reaberto, passa).

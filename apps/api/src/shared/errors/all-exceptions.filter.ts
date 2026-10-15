@@ -761,6 +761,8 @@ const CODE_PT: Record<string, string> = {
   BOLETO_SEM_CANCELAVEIS: 'Não existem boletos a serem cancelados. Verifique!',
   INTEGRACAO_CADASTRO_VAZIA: 'Não há parceiros a integrar. Verifique!',
   AJUSTE_PRODUTO_FILHO: 'Atenção este produto é filho, ajuste permitido apenas no pai',
+  DIA_FECHADO: 'Dia FECHADO não é permitida alteração dos documentos!',
+  DIA_FECHADO_INCLUSAO: 'Dia FECHADO não é permitida alteração ou inclusão de documentos!',
   AJUSTE_DEPOSITO_BLOQUEADO: 'Ajuste de estoque no depósito, bloqueado!',
   INTEGRACAO_CADASTRO_SEM_CONTA: 'Necessário configurar a conta do plano de contas (Configuração de plano de contas).',
   INTEGRACAO_CADASTRO_SINTETICA: 'A integração de cadastros pela conta SINTÉTICA (uma conta por parceiro no plano) não foi migrada: a configuração do cliente usa a analítica.',

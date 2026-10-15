@@ -21102,6 +21102,41 @@ async function main() {
       }
     }
 
+    // ══ §331 FECHAMENTO DIÁRIO (a auditoria do uFechamentoDiario.dfm): o dia fechado TRAVA a nota fiscal — editar, excluir e gravar (inclusive
+    // a nova e a que muda para o dia) — como o uNF faz no btnEditarClick (:3933), btnExcluirClick (:4090) e btnGravarClick (:4565). A produção
+    // fecha dias nas lojas 1 e 2 (120 e 151 em 2026); o Apollo não tinha a trava.
+    {
+      const pgFd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgFd.query(`DELETE FROM fechamento WHERE idempresa = 1 AND data IN ('2031-03-10', '2031-03-12')`);
+        await pgFd.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, tipoemissao) VALUES
+          (99331, 1, 'E', 55, '1', '99331', '2031-03-10', '2031-03-10', 22, 'N', '1'), (99332, 1, 'E', 55, '1', '99332', '2031-03-12', '2031-03-12', 22, 'N', '1')
+          ON CONFLICT (codnf) DO UPDATE SET dtcontabil = EXCLUDED.dtcontabil, proc = 'N'`);
+        await pgFd.query(`INSERT INTO fechamento (codfechamento, data, status, idempresa) VALUES (9933101, '2031-03-10', 'F', 1)`);
+        const editar = await fetch(`${base}/fiscal/nf/99331`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'DIA FECHADO 331' }) });
+        const editarJ = (await editar.json().catch(() => ({}))) as any;
+        const excluir = await fetch(`${base}/fiscal/nf/99331`, { method: 'DELETE', headers: H });
+        const excluirJ = (await excluir.json().catch(() => ({}))) as any;
+        const mover = await fetch(`${base}/fiscal/nf/99332`, { method: 'PUT', headers: H, body: JSON.stringify({ dtcontabil: '2031-03-10' }) });
+        const moverJ = (await mover.json().catch(() => ({}))) as any;
+        const nova = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'E', nronf: 'FD331', codparceiro: 22, tipoemissao: '0',
+          dtemissao: '2031-03-10', dtcontabil: '2031-03-10', cfop: '1102', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 3.5, cfop: '1102', aliquota: 'T01' }] }) });
+        const novaJ = (await nova.json().catch(() => ({}))) as any;
+        await pgFd.query(`UPDATE fechamento SET status = NULL WHERE codfechamento = 9933101`);
+        const reaberto = await fetch(`${base}/fiscal/nf/99331`, { method: 'DELETE', headers: H });
+        check('FECHAMENTO DIÁRIO §331 [o dia fechado trava a nota]: editar e excluir a nota do dia fechado → "Dia FECHADO não é permitida alteração dos documentos!"; mudar outra nota PARA o dia e gravar uma nova nele → "…alteração ou inclusão de documentos!"; reaberto o dia, a exclusão passa',
+          editar.status === 422 && editarJ.code === 'DIA_FECHADO' && excluir.status === 422 && excluirJ.code === 'DIA_FECHADO' && String(excluirJ.message).includes('Dia FECHADO')
+          && mover.status === 422 && moverJ.code === 'DIA_FECHADO_INCLUSAO' && nova.status === 422 && novaJ.code === 'DIA_FECHADO_INCLUSAO'
+          && (reaberto.status === 200 || reaberto.status === 204),
+          { editar: [editar.status, editarJ.code], excluir: [excluir.status, excluirJ.code], mover: [mover.status, moverJ.code], nova: [nova.status, novaJ.code], reaberto: reaberto.status });
+      } finally {
+        await pgFd.query(`DELETE FROM fechamento WHERE codfechamento = 9933101`).catch(() => undefined);
+        await pgFd.query(`DELETE FROM nf_prod WHERE codnf IN (99331, 99332)`).catch(() => undefined);
+        await pgFd.query(`DELETE FROM nf WHERE codnf IN (99331, 99332) OR (nronf = 'FD331' AND idempresa = 1)`).catch(() => undefined);
+        await pgFd.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

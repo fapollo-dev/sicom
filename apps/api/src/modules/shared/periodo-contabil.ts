@@ -28,3 +28,20 @@ export async function assertPeriodoNaoFechado(db: AnyDB, emp: number, data: unkn
     .executeTakeFirst()) as { competencia_contabil?: unknown } | undefined;
   if (fechado) throw new BusinessRuleError('PERIODO_FECHADO', { competencia: fechado.competencia_contabil, area: flag });
 }
+
+/**
+ * Trava do DIA FECHADO (FECHAMENTO.STATUS = 'F' do «Fechamento diário», FRMFECHAMENTODIARIO) — o `RetornarValores('FECHAMENTO', DATA;IDEMPRESA)`
+ * que o legado faz antes de mexer em documento fiscal: a NF no Editar (uNF.pas:3933 — "Dia FECHADO não é permitida alteração dos
+ * documentos!"), no Excluir (:4090) e no Gravar (:4565 — "…alteração ou inclusão de documentos!"). Compara pela DATA (o
+ * `FormataCastData('DATA')`). `data` nula não trava. Produção: as lojas 1 e 2 fecham dias (120 e 151 em 2026).
+ */
+export async function assertDiaNaoFechado(db: AnyDB, emp: number, data: unknown, inclusao = false): Promise<void> {
+  if (data == null || data === '') return;
+  const fechado = await db.selectFrom('fechamento').select('data')
+    .where('idempresa', '=', emp).where('status', '=', 'F').where('data', '=', sql`cast(${data} as date)`)
+    .executeTakeFirst();
+  if (fechado) {
+    throw new BusinessRuleError(inclusao ? 'DIA_FECHADO_INCLUSAO' : 'DIA_FECHADO', { data: String(data).slice(0, 10) },
+      inclusao ? 'Dia FECHADO não é permitida alteração ou inclusão de documentos!' : 'Dia FECHADO não é permitida alteração dos documentos!');
+  }
+}

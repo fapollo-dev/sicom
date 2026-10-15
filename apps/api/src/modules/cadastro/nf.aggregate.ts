@@ -8,7 +8,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { estornarVinculoRotativo } from './inventario-rotativo-nf';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
-import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { assertPeriodoNaoFechado, assertDiaNaoFechado } from '../shared/periodo-contabil';
 import { leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
 import { configNaTrx } from '../compras/pedido-heranca';
@@ -410,6 +410,18 @@ export const nfAggregateConfig: AggregateConfig = {
       }
     }
 
+    // período contábil FECHADO (BLOQ_NF, uNF.pas:4565 ValidaPeriodoFechado) barra gravar/editar a NF na DTCONTABIL —
+    // reusa o gate do bucket-A. Barra pela data GRAVADA (abrir a edição) E pela nova (salvar), como AR/AP. Vem ANTES do Total NF
+    // (:4644), como no btnGravarClick.
+    if (emp != null) {
+      if (atual?.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, atual.dtcontabil, 'bloq_nf');
+      if (dto.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, dto.dtcontabil, 'bloq_nf');
+      // e o DIA fechado do «Fechamento diário»: a nota gravada num dia fechado não se edita (btnEditarClick :3933) e não se grava
+      // nota num dia fechado (btnGravarClick :4565) — inclusive a nova
+      if (atual?.dtcontabil != null) await assertDiaNaoFechado(db, emp, atual.dtcontabil);
+      if (dto.dtcontabil != null) await assertDiaNaoFechado(db, emp, dto.dtcontabil, true);
+    }
+
     // o TOTAL NF da entrada (o "Total NF" que o operador confere com a nota em papel — uNF.pas:4644-4652): sem ele o gravar não segue
     // (nunca 0 nas 6.522 notas de entrada de 2026). A nota que um serviço cria como rascunho (o receber pedido) é conferida depois, na tela
     if (String(dto.tipo ?? atual?.tipo ?? '').toUpperCase() === 'E' && dto._origemServico !== true) {
@@ -418,12 +430,6 @@ export const nfAggregateConfig: AggregateConfig = {
       if (!(Math.abs(num(informado)) > 0)) throw new BusinessRuleError('NF_TOTAL_NF_OBRIGATORIO');
     }
 
-    // período contábil FECHADO (BLOQ_NF, uNF.pas:4565 ValidaPeriodoFechado) barra gravar/editar a NF na DTCONTABIL —
-    // reusa o gate do bucket-A. Barra pela data GRAVADA (abrir a edição) E pela nova (salvar), como AR/AP.
-    if (emp != null) {
-      if (atual?.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, atual.dtcontabil, 'bloq_nf');
-      if (dto.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, dto.dtcontabil, 'bloq_nf');
-    }
 
     // duplicidade da chave fiscal — tupla de identidade confirmada no golden (V$SQL real):
     // (IDEMPRESA, CODPARCEIRO, MODELO, SERIE, NRONF, TIPOEMISSAO). NÃO inclui TIPO (E/S): o
@@ -539,6 +545,8 @@ export const nfAggregateConfig: AggregateConfig = {
       | undefined;
     if (!nf) return; // not-found é tratado pelo fluxo normal
     if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA'); // reverter o processamento antes
+    // o dia fechado do «Fechamento diário» (btnExcluirClick, uNF.pas:4090)
+    if (emp != null) await assertDiaNaoFechado(db, emp, nf.dtcontabil);
     // o financeiro barra pela EXISTÊNCIA do título (btnExcluirClick, uNF.pas:4105-4121), não pelo flag: primeiro o baixado, depois qualquer um.
     // A parcela pendente (FATURAMENTO) não barra — sai junto com a nota (o detalhe).
     const fin = (await sql<{ baixa: boolean; titulo: boolean }>`SELECT
