@@ -35,10 +35,20 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // sessão só carimba o parceiro novo.
   empresaScoped: false,
   // e o NewRecord do binário novo: as 5 flags que o legado grava 'N' em todo parceiro novo (500 de 500 em 2026)
-  derivarTrx: async ({ dto, emp }) => {
+  derivarTrx: async ({ dto, emp, trx }) => {
     const out: Record<string, unknown> = emp != null ? { idempresa: emp } : {};
     for (const k of ['soma_st_bonificacao', 'habilita_retencao_senar_nf', 'visualiza_pc_parc', 'participa_cotacao', 'clubefidelidade']) {
       if (dto[k] === undefined) out[k] = 'N';
+    }
+    // as contas contábeis do parceiro novo: as analíticas do CONFIG_PLANO_CONTAS (TIPO 'E') — o binário da produção grava as duas em todo
+    // parceiro novo, cliente ou não (os 134 criados de jul a out/2026 saíram com CODCONTABIL 211 e CODCONTABIL_FOR 11141 no mesmo
+    // minuto; o fonte de 2020 deixava nulo até a integração "Cadastro de Fornecedores/Clientes" do uTron)
+    const vazio = (v: unknown) => v == null || String(v).trim() === '';
+    if (vazio(dto.codcontabil) || vazio(dto.codcontabil_for)) {
+      const cfg = (await trx.selectFrom('config_plano_contas').select(['codcontaanalitica_cli', 'codcontaanalitica_for']).where('tipo', '=', 'E')
+        .executeTakeFirst()) as { codcontaanalitica_cli?: unknown; codcontaanalitica_for?: unknown } | undefined;
+      if (vazio(dto.codcontabil) && !vazio(cfg?.codcontaanalitica_cli)) out.codcontabil = String(cfg!.codcontaanalitica_cli);
+      if (vazio(dto.codcontabil_for) && !vazio(cfg?.codcontaanalitica_for)) out.codcontabil_for = String(cfg!.codcontaanalitica_for);
     }
     return out;
   },

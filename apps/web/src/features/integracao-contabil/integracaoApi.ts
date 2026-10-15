@@ -23,9 +23,13 @@ export interface Periodo { dataIni: string; dataFim: string; codigo?: number | n
 /** o que cada rodada devolve; os campos variam por origem e a tela mostra o que veio. */
 export interface Resultado {
   lotes?: number; cartoes?: number; baixas?: number; documentos?: number; lancamentos?: number;
-  total?: number; linhas?: number; fechamentos?: number;
+  total?: number; linhas?: number; fechamentos?: number; integrados?: number;
   avisos?: Array<{ documento: string; mensagem: string }>;
 }
+
+/** as origens 11-13 (os cadastros): a conta contábil de quem não tem — sem período, sem estorno */
+export const integrarCadastro = (tipo: 'FOR' | 'CLI' | 'BCO'): Promise<Resultado> =>
+  req(`${P}/cadastro/${tipo}`, { method: 'POST', body: '{}' });
 
 export const cartaoPendentes = (p: Periodo): Promise<Array<{ idlote: number; cartoes: number; total_liquido: number }>> =>
   req(`${P}/cartao/pendentes?dataIni=${p.dataIni}&dataFim=${p.dataFim}${p.idlote ? `&idlote=${p.idlote}` : ''}`);

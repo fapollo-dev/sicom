@@ -70,6 +70,16 @@ export class IntegracaoContabilController {
   }
 
   // ── corte-3: os lançamentos por DOCUMENTO (a situação vem de cada documento, não da config) ──────────────
+  // ── opções 11-13 do radio: os cadastros (fornecedores, clientes, contas bancárias) — a conta contábil de quem não tem ──────────────
+  @Post('cadastro/:tipo')
+  @HttpCode(200)
+  @RequerAcesso('FRMTRON', 'FRMTRON')
+  cadastro(@Param('tipo') tipo: string) {
+    const t = String(tipo).toUpperCase();
+    if (t !== 'FOR' && t !== 'CLI' && t !== 'BCO') throw new BusinessRuleError('INTEGRACAO_CADASTRO_TIPO', { tipo });
+    return this.docs.integrarCadastro(t);
+  }
+
   @Post('documento/:tipo')
   @HttpCode(200)
   @RequerAcesso('FRMTRON', 'FRMTRON')

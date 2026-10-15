@@ -427,3 +427,19 @@ estão pendurados numa situação que vai falhar.
   contabilização, muito depois.
 - O **chaveamento de período** continua como está: a comparação é `<=` (a data final digitada tem de ser
   POSTERIOR ao chaveamento) e no cliente o campo está NULO, então hoje não bloqueia nada.
+
+## Auditoria do `uTron.dfm` (15/10/2026) — controle a controle
+
+A tela tem **três abas de exportação** e uma de Log; o Apollo tinha só a "Apollo".
+
+| Controle do legado | Apollo |
+|---|---|
+| `edtDataIni`/`edtDataFim` (+ `edtDataFimExit`) | Período de/até (a data final não pode ser anterior). |
+| Aba **Apollo**: `rgOrigens` (16 origens) + `btnExportar` + `btnEstornar` | As origens que o cliente usa, com Exportar e Estornar (cortes 1-4). **Novas: as origens 11-13** — "Cadastro de Fornecedores", "Cadastro de Clientes", "Cadastro de Contas Bancárias" (`POST contabil/integracao/cadastro/:tipo`), com o Estornar desabilitado como no `rgOrigensClick` (:2535) e os avisos do legado na ordem dele: "Não há parceiros a integrar. Verifique!" antes de "Necessário configurar uma conta sintética ou analítica para fornecedores/clientes. Configuração de plano de contas." Com a ANALÍTICA configurada o parceiro recebe o código dela (`vCodPlano := CODPAI_A`, :937). O modo SINTÉTICO (uma conta por parceiro criada no plano) é recusado: a CONFIG_PLANO_CONTAS da produção tem as três sintéticas nulas. Contas bancárias só têm o modo sintético (:619). "Importação": Exportar desabilitado (:2536), como já estava. |
+| — (achado da auditoria, no cadastro de parceiros) | **O parceiro novo nasce com as contas analíticas** (CODCONTABIL = a de cliente, CODCONTABIL_FOR = a de fornecedor): na produção, os 134 parceiros criados de jul a out/2026 — clientes, fornecedores e os demais — saíram com 211/11141 no mesmo minuto; o fonte de 2020 deixava nulo até a integração. O Apollo já resolvia a conta no lançamento (`conta-parceiro.ts`), mas o cadastro ficava nulo. |
+| Aba **Tron informatica**: `RgArquivos` (Escrita, Financeiro, Lançamentos fora da escrita, Contabilização das Reduções, Baixas do receber, Baixas do pagar, NFCe) + `BitBtn1` "&Exportar" | **Não migrada — decisão pendente do usuário.** Gera arquivos XML/TXT (Cademides.XML, Observ.XML, …) na pasta `Exportacao` da estação para o sistema contábil externo da Tron; não deixa rastro no banco (exceto "Contabilização das Reduções", que marca REDUCAOZ.CONTABILIZADO — tabela vazia na produção). Não há como provar uso nem desuso. |
+| Aba **Borba consultoria**: `rgbBorba` "Contas Correntes" + `BitBtn2` "&Exportar" | **Não migrada — decisão pendente do usuário.** Gera `Exportacao\ARQCONTABIL.txt` (linhas data, conta, valor e histórico dos lotes de pagamento/recebimento) para a Borba; sem rastro no banco. O cliente usa a Borba Fiscal (há a tela de Integração Borba Fiscal, 388 acessos, ainda na fila). |
+| Aba **Log** (`MemoLogs`) | O resultado de cada rodada fica na lista de execuções da tela (as pendências do "processo finalizado com observações"). |
+| `btnCancelar` "&Sair" | — |
+
+Smoke §329 (o parceiro novo com as contas; as origens de cadastro com os avisos e a recusa do modo sintético).

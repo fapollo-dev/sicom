@@ -118,6 +118,43 @@ export class DocumentosContabilService {
     return r.length;
   }
 
+  /**
+   * as origens 11-13 do rgOrigens — "Cadastro de Fornecedores / de Clientes / de Contas Bancárias" (ApolloExportarFornecedores :866,
+   * ApolloExportarClientes :378, ApolloExportarContasBancarias :583): dão a conta contábil a quem não tem. A ordem dos avisos é a do legado
+   * — primeiro "Não há … a integrar. Verifique!", depois a configuração do plano (CONFIG_PLANO_CONTAS TIPO 'E'). Com a ANALÍTICA
+   * configurada (a produção: 11141 fornecedor, 211 cliente) o parceiro recebe o código dela (`vCodPlano := CODPAI_A`, :937); com a
+   * SINTÉTICA o legado cria uma conta por parceiro no plano — modo que a produção não configura (as três sintéticas nulas) e que fica
+   * recusado aqui. Conta bancária só tem o modo sintético (:619). O Estornar fica desabilitado nas três (rgOrigensClick :2535).
+   */
+  async integrarCadastro(tipo: 'FOR' | 'CLI' | 'BCO'): Promise<{ integrados: number }> {
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      if (tipo === 'BCO') {
+        const n = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM contas_bancarias WHERE codlanccontabil IS NULL AND codbco > 0`.execute(trx)).rows[0]?.n ?? 0);
+        if (!n) throw new BusinessRuleError('INTEGRACAO_CADASTRO_VAZIA', { tipo }, 'Não há contas bancárias a integrar. Verifique!');
+        const cfg = (await trx.selectFrom('config_plano_contas').select(['codcontasintetica_bco']).where('tipo', '=', 'E').executeTakeFirst()) as { codcontasintetica_bco?: unknown } | undefined;
+        if (cfg?.codcontasintetica_bco == null) throw new BusinessRuleError('INTEGRACAO_CADASTRO_SEM_CONTA', { tipo }, 'Necessário configurar uma conta sintética para contas bancárias. Configuração de plano de contas.');
+        throw new BusinessRuleError('INTEGRACAO_CADASTRO_SINTETICA', { tipo });
+      }
+      const fornecedor = tipo === 'FOR';
+      const coluna = fornecedor ? 'codcontabil_for' : 'codcontabil';
+      const flag = fornecedor ? 'frn' : 'cli';
+      const quem = fornecedor ? 'fornecedores' : 'clientes';
+      const pendentes = sql`${sql.ref(coluna)} IS NULL AND ${sql.ref(flag)} = 'S' AND coalesce(ativado, 'S') = 'S'`;
+      const n = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM parceiros WHERE ${pendentes}`.execute(trx)).rows[0]?.n ?? 0);
+      if (!n) throw new BusinessRuleError('INTEGRACAO_CADASTRO_VAZIA', { tipo }, 'Não há parceiros a integrar. Verifique!');
+      const cfg = (await trx.selectFrom('config_plano_contas')
+        .select(fornecedor ? ['codcontasintetica_for as sintetica', 'codcontaanalitica_for as analitica'] : ['codcontasintetica_cli as sintetica', 'codcontaanalitica_cli as analitica'])
+        .where('tipo', '=', 'E').executeTakeFirst()) as { sintetica?: unknown; analitica?: unknown } | undefined;
+      if (cfg?.sintetica != null) throw new BusinessRuleError('INTEGRACAO_CADASTRO_SINTETICA', { tipo });
+      if (cfg?.analitica == null) {
+        throw new BusinessRuleError('INTEGRACAO_CADASTRO_SEM_CONTA', { tipo }, `Necessário configurar uma conta sintética ou analítica para ${quem}. Configuração de plano de contas.`);
+      }
+      const r = await sql`UPDATE parceiros SET ${sql.ref(coluna)} = ${String(cfg.analitica)} WHERE ${pendentes}`.execute(trx);
+      return { integrados: Number(r.numAffectedRows ?? 0) };
+    });
+  }
+
   async integrar(tipo: TipoDocumento, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;

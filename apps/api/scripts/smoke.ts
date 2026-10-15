@@ -20988,6 +20988,62 @@ async function main() {
       }
     }
 
+    // ══ §329 INTEGRAÇÃO CONTÁBIL (a auditoria do uTron.dfm): o parceiro novo já nasce com as contas analíticas da configuração do plano
+    // (o binário da produção: 134 de 134 parceiros de jul–out/2026 com 211/11141 no mesmo minuto); e as origens 11-13 do rgOrigens —
+    // "Cadastro de Fornecedores/Clientes/Contas Bancárias" — com os avisos do legado, na ordem dele.
+    {
+      const pgTr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cfgAntes = (await pgTr.query(`SELECT codcontasintetica_for, codcontaanalitica_for, codcontasintetica_cli, codcontaanalitica_cli, codcontasintetica_bco FROM config_plano_contas WHERE tipo = 'E'`)).rows[0] as any;
+      // quem já estava sem conta antes do teste volta a ficar sem (a integração mexe em todos os pendentes do banco)
+      const semFor = (await pgTr.query(`SELECT codparceiro FROM parceiros WHERE codcontabil_for IS NULL`)).rows.map((r: any) => Number(r.codparceiro));
+      const semCli = (await pgTr.query(`SELECT codparceiro FROM parceiros WHERE codcontabil IS NULL`)).rows.map((r: any) => Number(r.codparceiro));
+      let novo = 0;
+      try {
+        // as analíticas da produção (CODCONFIG 1, TIPO 'E': 11141 fornecedor, 211 cliente)
+        await pgTr.query(`UPDATE config_plano_contas SET codcontaanalitica_for = 11141, codcontaanalitica_cli = 211, codcontasintetica_for = NULL, codcontasintetica_cli = NULL WHERE tipo = 'E'`);
+        const cad = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({
+          razao: 'PARCEIRO TRON 329', fantasia: 'TRON329', tipofj: 'F', cli: 'S',
+          enderecos: [{ ...END_OK, endereco_padrao: 'S', ativado: 'S' }] }) });
+        const cadJ = (await cad.json().catch(() => ({}))) as any;
+        novo = Number(cadJ.codparceiro) || 0;
+        const contas = (await pgTr.query(`SELECT codcontabil, codcontabil_for FROM parceiros WHERE codparceiro = $1`, [novo])).rows[0] as any;
+        check('INTEGRAÇÃO CONTÁBIL §329 [o parceiro novo]: nasce com CODCONTABIL = a analítica de cliente (211) e CODCONTABIL_FOR = a de fornecedor (11141) da CONFIG_PLANO_CONTAS — mesmo não sendo fornecedor, como o binário da produção grava',
+          cad.status === 201 && contas?.codcontabil === '211' && contas?.codcontabil_for === '11141',
+          { cad: [cad.status, cadJ.code], contas, cfg: cfgAntes });
+
+        await pgTr.query(`INSERT INTO parceiros (codparceiro, razao, frn, cli, ativado, codcontabil_for, codcontabil) VALUES (99329, 'FORN TRON 329', 'S', 'N', 'S', NULL, NULL)
+          ON CONFLICT (codparceiro) DO UPDATE SET frn = 'S', ativado = 'S', codcontabil_for = NULL`);
+        const tr = async (t: string) => { const r = await fetch(`${base}/contabil/integracao/cadastro/${t}`, { method: 'POST', headers: H, body: '{}' }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const forn = await tr('FOR');
+        const depois = (await pgTr.query(`SELECT codcontabil_for FROM parceiros WHERE codparceiro = 99329`)).rows[0]?.codcontabil_for;
+        const deNovo = await tr('FOR');
+        await pgTr.query(`UPDATE parceiros SET codcontabil_for = NULL WHERE codparceiro = 99329`);
+        await pgTr.query(`UPDATE config_plano_contas SET codcontaanalitica_for = NULL WHERE tipo = 'E'`);
+        const semConfig = await tr('FOR');
+        await pgTr.query(`UPDATE config_plano_contas SET codcontasintetica_for = 11141 WHERE tipo = 'E'`);
+        const sintetica = await tr('FOR');
+        const bco = await tr('BCO');
+        check('INTEGRAÇÃO CONTÁBIL §329 [Cadastro de Fornecedores/Contas Bancárias]: o fornecedor ativo sem conta recebe a analítica (11141); de novo → "Não há parceiros a integrar"; sem a conta configurada → "Necessário configurar uma conta sintética ou analítica para fornecedores"; com a sintética → recusado (o modo de uma conta por parceiro não foi migrado: a produção não o configura); contas bancárias pedem a sintética',
+          forn.status === 200 && forn.j.integrados >= 1 && depois === '11141'
+          && deNovo.status === 422 && deNovo.j.code === 'INTEGRACAO_CADASTRO_VAZIA' && String(deNovo.j.message).includes('Não há parceiros a integrar')
+          && semConfig.status === 422 && String(semConfig.j.message).includes('para fornecedores')
+          && sintetica.status === 422 && sintetica.j.code === 'INTEGRACAO_CADASTRO_SINTETICA'
+          && bco.status === 422 && ['INTEGRACAO_CADASTRO_SEM_CONTA', 'INTEGRACAO_CADASTRO_VAZIA'].includes(bco.j.code),
+          { forn: [forn.status, forn.j], depois, deNovo: [deNovo.status, deNovo.j.code], semConfig: [semConfig.status, semConfig.j.message], sintetica: [sintetica.status, sintetica.j.code], bco: [bco.status, bco.j.code] });
+      } finally {
+        await pgTr.query(`UPDATE config_plano_contas SET codcontasintetica_for = $1, codcontaanalitica_for = $2, codcontasintetica_cli = $3, codcontaanalitica_cli = $4, codcontasintetica_bco = $5 WHERE tipo = 'E'`,
+          [cfgAntes?.codcontasintetica_for ?? null, cfgAntes?.codcontaanalitica_for ?? null, cfgAntes?.codcontasintetica_cli ?? null, cfgAntes?.codcontaanalitica_cli ?? null, cfgAntes?.codcontasintetica_bco ?? null]).catch(() => undefined);
+        if (semFor.length) await pgTr.query(`UPDATE parceiros SET codcontabil_for = NULL WHERE codparceiro = ANY($1::int[])`, [semFor]).catch(() => undefined);
+        if (semCli.length) await pgTr.query(`UPDATE parceiros SET codcontabil = NULL WHERE codparceiro = ANY($1::int[])`, [semCli]).catch(() => undefined);
+        await pgTr.query(`DELETE FROM parceiros WHERE codparceiro = 99329`).catch(() => undefined);
+        if (novo) {
+          await pgTr.query(`DELETE FROM parceiros_end WHERE codparceiro = $1`, [novo]).catch(() => undefined);
+          await pgTr.query(`DELETE FROM parceiros WHERE codparceiro = $1`, [novo]).catch(() => undefined);
+        }
+        await pgTr.end();
+      }
+    }
+
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

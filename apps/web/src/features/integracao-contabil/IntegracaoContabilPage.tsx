@@ -5,8 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import {
   cartaoPendentes, integrarCartao, estornarCartao, integrarBaixa, estornarBaixa,
-  integrarDocumento, estornarDocumento, integrarFechamento, estornarFechamento, type Periodo, type Resultado, type TipoDoc,
-} from './integracaoApi';
+  integrarDocumento, estornarDocumento, integrarFechamento, estornarFechamento, type Periodo, type Resultado, type TipoDoc, integrarCadastro } from './integracaoApi';
 import { hojeNaLoja } from '../../shared/tempo';
 
 /**
@@ -95,6 +94,13 @@ const ORIGENS: Origem[] = [
   { id: 'cheque', label: 'Baixas de cheques', codigos: '52', nota: 'Não migrada: o cliente não usa (zero lançamentos no razão).' },
   { id: 'reducaoz', label: 'Vendas — Redução Z', codigos: '18', nota: 'Não migrada: a tabela REDUCAOZ está vazia.' },
   { id: 'nfce', label: 'NFC-e', codigos: '67', nota: 'É do PDV, fora do escopo da retaguarda.' },
+  // rgOrigens 11-13 (ApolloExportarFornecedores/Clientes/ContasBancarias): o Estornar fica desabilitado (rgOrigensClick :2535)
+  { id: 'cadfor', label: 'Cadastro de Fornecedores', codigos: '—', nota: 'Dá aos fornecedores ativos sem conta contábil a conta analítica da configuração do plano de contas.',
+    integrar: um(() => integrarCadastro('FOR')) },
+  { id: 'cadcli', label: 'Cadastro de Clientes', codigos: '—', nota: 'Dá aos clientes ativos sem conta contábil a conta analítica da configuração do plano de contas.',
+    integrar: um(() => integrarCadastro('CLI')) },
+  { id: 'cadbco', label: 'Cadastro de Contas Bancárias', codigos: '—', nota: 'Só pela conta sintética da configuração do plano de contas (o cliente não a configura).',
+    integrar: um(() => integrarCadastro('BCO')) },
   { id: 'importacao', label: 'Importação', codigos: '66', nota: 'Grava no razão sem situação de documento; precisa de análise própria.' },
 ];
 
@@ -112,6 +118,7 @@ function resumir(rs: Resultado[]): string {
   push(soma('cartoes') + soma('baixas'), 'item', 'itens');
   push(soma('lancamentos'), 'lançamento', 'lançamentos');
   push(soma('linhas'), 'linha apagada', 'linhas apagadas');
+  push(soma('integrados'), 'cadastro integrado', 'cadastros integrados');
   const total = soma('total');
   if (total > 0) partes.push(`total ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
   // o que falhou por dentro sem derrubar a rodada (o título da quebra, o do troco) fica listado
