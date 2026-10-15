@@ -65,9 +65,16 @@ simultâneas (N).". O Apollo não validava nada disso. ❌→✅
 ⚠️ Na Categoria o `RegistroEmOutraPromocao(…, False)` não compara o SUBTIPO — a Seção 5 colidiria com o Produto 5. O Apollo compara o
 subtipo (o alvo de verdade), documentado.
 
+## A aba Perfil de Cliente (15/10/2026)
+
+`TbsPerfilCliente` (só com o destino "Perfil de Cliente" — `VerificaDestinoPromocao`): Adicionar = a Pesquisa da GET_PERFIL com
+`ATIVO = 'S' AND TIPO = 'PARCEIRO'` em multisseleção; Excluir marca o perfil com INDR 'E' (`btnExcluirPerfilClienteClick`); no gravar
+(`AtualizaPerfilCliente`) cada item leva CODPERFIL_PARCEIRO = a lista "I<cod>,E<cod>," — o excluído **continua** na lista, com 'E'. Faltava.
+❌→✅ (Pesquisa `promocao/perfis` com o filtro no servidor.) 0 itens com perfil na produção.
+
 ## Falta auditar (próximo corte desta tela)
 
 Categoria, Combo, Atacarejo, Bonificação e Código Promocional controle a controle; os botões Adicionar/Editar/Excluir/Gravar por aba;
-a aba **Perfil de Cliente** (destino P); a aba **Log**; e a clonagem.
+a aba **Log** e a clonagem (`MniClonarRegistroClick`).
 
-Prova: smoke §91.13, §91.13b, §91.27b, §91.41 + `apps/web/test/promocaoCadMaster.spec.tsx` (3) + `promocaoLote.spec.tsx`.
+Prova: smoke §91.13, §91.13b, §91.27b, §91.41 + `apps/web/test/promocaoCadMaster.spec.tsx` (4) + `promocaoLote.spec.tsx`.

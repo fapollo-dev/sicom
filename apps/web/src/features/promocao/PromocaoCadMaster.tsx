@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Pencil, Trash2, X } from 'lucide-react';
+import { ListaPesquisada } from '../../shared/pesquisa/ListaPesquisada';
 import type { Promocao, PromocaoItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { Field } from '../../shared/ui/Field';
@@ -216,6 +217,8 @@ export function PromocaoCadMaster() {
   // cabeçalho; `editando` = a promoção aberta pela lista (o legado é um cadastro: pesquisa, abre, altera)
   const [editando, setEditando] = useState<number | null>(null);
   const [opcao, setOpcao] = useState<string>('');
+  // a aba "Perfil de Cliente" (destino P): os perfis com o INDR do legado ('I' incluído, 'E' excluído — o excluído segue na lista gravada)
+  const [perfis, setPerfis] = useState<Array<{ codperfil: number; perfil?: string | null; indr: 'I' | 'E' }>>([]);
   const [descricao, setDescricao] = useState('');
   const [tipo, setTipo] = useState<string>('P'); // aba ativa (default Preço Fixo)
   const [destino, setDestino] = useState<string | undefined>('T');
@@ -277,6 +280,8 @@ export function PromocaoCadMaster() {
   };
   const rotuloProduto = useCallback((id: unknown) => rotulos[`P:${id}`] ?? String(id ?? ''), [rotulos]);
   // a Marca (M) segue no combo: tabela pequena. get_marcas expõe a PK ora como idmarca, ora como codigo (igual ao ProdutoCadMaster).
+  const { data: perfilOptions = [] } = useResourceOptions('cadastro/perfil', (pp: any) => ({ value: String(pp.codperfil ?? pp.codigo), label: String(pp.perfil ?? pp.descricao ?? '') }));
+  const nomePerfil = (cod: number) => perfilOptions.find((o) => String(o.value) === String(cod))?.label ?? null;
   const { data: marcaOptions = [] } = useResourceOptions('cadastro/marcas', (m: any) => ({ value: String(m.idmarca ?? m.codigo), label: `${m.idmarca ?? m.codigo} - ${m.descricao ?? ''}` }));
   const rotuloAlvo = useCallback(
     (subtipo: unknown, id: unknown) => {
@@ -435,7 +440,7 @@ export function PromocaoCadMaster() {
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
   const novaPromocao = () => {
-    setEditando(null); setOpcao(''); setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
+    setEditando(null); setOpcao(''); setPerfis([]); setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
     setValorComboHdr(undefined); setTipoComboHdr('C'); limparAdder();
   };
   // abrir a promoção gravada (o cadastro do legado): o cabeçalho, a aba do TIPO e os itens dela; o rótulo do produto vem da DESCRICAO do item
@@ -448,6 +453,9 @@ export function PromocaoCadMaster() {
       setDtini(paraInput(p.datainicio)); setDtfim(paraInput(p.datafim));
       setValorComboHdr((p as any).valorcombo != null ? Number((p as any).valorcombo) : undefined); setTipoComboHdr(String((p as any).tipocombo ?? 'C').trim() || 'C');
       const its = (p.itens ?? []).map((it: any) => ({ ...it, origem: String(it.origem ?? '').trim() }));
+      // CODPERFIL_PARCEIRO = "I12,I15,E9," (AtualizaPerfilCliente) — o mesmo em todos os itens
+      const lista = String(its.find((it: any) => it.codperfil_parceiro)?.codperfil_parceiro ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+      setPerfis(lista.map((x) => ({ indr: (x[0] === 'E' ? 'E' : 'I') as 'I' | 'E', codperfil: Number(x.replace(/^[IE]/, '')) })).filter((x) => x.codperfil > 0));
       for (const it of its) if (it.idorigempromocao != null && it.descricao) guardarRotulo('P', Number(it.idorigempromocao), `${it.idorigempromocao} - ${it.descricao}`);
       setItens(its as PromocaoItemDto[]);
     } catch (e) { mensagem.erro(e); }
@@ -558,7 +566,8 @@ export function PromocaoCadMaster() {
         // Combo: VALORCOMBO/TIPOCOMBO no header (server copia em cada item).
         ...(mec?.shape === 'combo' ? { valorcombo: n(valorComboHdr), tipocombo: tipoComboHdr } : {}),
         // só a mecânica com tela leva itens; a sem tela (o 'T' do binário novo) NÃO manda a chave — os itens dela ficam como estão
-        ...(mec ? { itens } : {}),
+        // AtualizaPerfilCliente: com perfis na aba, cada item leva a lista "I<cod>,E<cod>,"
+        ...(mec ? { itens: perfis.length ? itens.map((it) => ({ ...it, codperfil_parceiro: `${perfis.map((pp) => `${pp.indr}${pp.codperfil}`).join(',')},` })) : itens } : {}),
         ...(confirmado ? { confirmado: true } : {}),
       } as any;
       if (editando != null) await atualizarPromocao(editando, corpo);
@@ -744,6 +753,23 @@ export function PromocaoCadMaster() {
             </>
           )}
         </div>
+
+        {/* TbsPerfilCliente (VerificaDestinoPromocao): só com o destino "Perfil de Cliente"; Adicionar = a GET_PERFIL (ativos, tipo PARCEIRO) em
+            multisseleção; Excluir marca o perfil como 'E' */}
+        {destino === 'P' && (
+          <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
+            <ListaPesquisada rotulo="Perfil de Cliente" itens={perfis.filter((pp) => pp.indr !== 'E').map((pp) => ({ ...pp, perfil: pp.perfil ?? nomePerfil(pp.codperfil) }))}
+              chave="codperfil" editavel colunas={[{ campo: 'codperfil', rotulo: 'Código', largura: 110 }, { campo: 'perfil', rotulo: 'Perfil' }]}
+              recurso="promocao/perfis" deLinha={(l) => ({ codperfil: Number(l.codigo ?? l.codperfil), perfil: (l.perfil as string) ?? null, indr: 'I' })}
+              onChange={(novos) => setPerfis((atual) => {
+                const ficam = new Set(novos.map((x) => Number(x.codperfil)));
+                const marcados = atual.map((pp) => (pp.indr === 'I' && !ficam.has(pp.codperfil) ? { ...pp, indr: 'E' as const } : pp));
+                const ja = new Set(marcados.filter((pp) => pp.indr === 'I').map((pp) => pp.codperfil));
+                const incluidos = novos.filter((x) => !ja.has(Number(x.codperfil))).map((x) => ({ codperfil: Number(x.codperfil), perfil: (x.perfil as string) ?? null, indr: 'I' as const }));
+                return [...marcados.filter((pp) => !incluidos.some((x) => x.codperfil === pp.codperfil)), ...incluidos];
+              })} />
+          </div>
+        )}
 
         {/* Aba da mecânica (PageControl do legado) — P/F/V/R/O funcionais; demais avisam */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">

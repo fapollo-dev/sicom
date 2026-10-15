@@ -695,6 +695,10 @@ export const TELAS_DA_PESQUISA: Record<string, PesquisaTela> = {
   // GET_PERFIL — as abas de perfil do cadastro de usuários (ExistePerfilSelecionado, uCadUsuarios.pas:802-817: ATIVO = 'S' AND TIPO = a aba,
   // que a tela manda em `fixos`; o legado cria a Pesquisa sem controle de retorno). A rel_get_perfil (mig 393) tem as colunas da produção
   // (CODPERFIL como CODIGO, PERFIL, ATIVO, TIPO) e já tira os excluídos
+  // a aba "Perfil de Cliente" da Gestão de Promoções (btnAdicionarPerfilClienteClick): a GET_PERFIL com ATIVO = 'S' AND TIPO = 'PARCEIRO'
+  'promocao/perfis': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADPROMOCAO',
+    titulo: 'Perfil', retorno: 'codigo', statusRetorno: '',
+    obrigatorios: () => [sql<SqlBool>`${sql.ref('ativo')} = 'S'`, sql<SqlBool>`${sql.ref('tipo')} = 'PARCEIRO'`] },
   'lookup/perfis': { view: 'get_perfil', relacao: 'rel_get_perfil', ocultas: ['codperfil', 'indr', 'qtde_operadores'], form: 'FRMCADUSUARIOS',
     titulo: 'Perfil', retorno: 'codigo', statusRetorno: '' },
   // o CÓDIGO PIS/COFINS (BtnPisCofinsClick, uMultAtualizacao.pas:550-556): a GET_PISCOFINS, DESCRICAO / Começado com; retorno CODIGO (= IDPISCOFINS)

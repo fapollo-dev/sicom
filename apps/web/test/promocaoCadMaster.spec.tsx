@@ -8,7 +8,8 @@ import { ShortcutScope } from '../src/shared/keyboard';
 
 const LISTA = [{ idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z', qtde_itens: 1 },
   { idpromocao: 6, descricao: 'PRECO FIXO X', tipo: 'P', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
-  { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 }];
+  { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 },
+  { idpromocao: 9, descricao: 'PERFIL Z', tipo: 'F', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z', qtde_itens: 1 }];
 const PROMOS: Record<number, unknown> = {
   5: { idpromocao: 5, descricao: 'COMPRA PREMIADA', tipo: 'T', opcao: 'O', destino: 'T', empresas: '1', datainicio: '2023-08-11T08:00:00.000Z', datafim: '2023-08-12T02:59:00.000Z',
     itens: [{ idclubedesconto: 1148, origem: 'T ', operacao: 'DESCONTO_POR_PDV', pdv: 72, minimo: 90, maximo: 160 }] },
@@ -16,6 +17,8 @@ const PROMOS: Record<number, unknown> = {
     itens: [{ idclubedesconto: 9, origem: 'P', idorigempromocao: 1, valor: 3.99, quantidade: 1, descricao: 'ARROZ 5KG' }] },
   8: { idpromocao: 8, descricao: 'DESCONTO FIXO Y', tipo: 'F', opcao: 'O', destino: 'T', empresas: '1', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
     itens: [{ idclubedesconto: 10, origem: 'F', idorigempromocao: 2, valor: 6, quantidade: 3, ativo: 'S', preco_grupo: 'N' }] },
+  9: { idpromocao: 9, descricao: 'PERFIL Z', tipo: 'F', opcao: 'O', destino: 'P', empresas: '1', datainicio: '2028-05-01T11:00:00.000Z', datafim: '2028-05-11T01:00:00.000Z',
+    itens: [{ idclubedesconto: 11, origem: 'F', idorigempromocao: 2, valor: 6, quantidade: 3, codperfil_parceiro: 'I3,E4,' }] },
 };
 let chamadas: Array<{ url: string; method: string; body: any }> = [];
 beforeEach(() => {
@@ -93,5 +96,22 @@ describe('Gestão de promoções (UCadPromocao.dfm) — abrir, alterar e o cabe�
     fireEvent.click(botao('Gravar promoção'));
     await waitFor(() => expect(chamadas.some((c) => c.method === 'PUT')).toBe(true));
     expect(chamadas.find((c) => c.method === 'PUT')!.body.itens[0]).toMatchObject({ idorigempromocao: 2, maximo: 5, valor: 6, quantidade: 3 });
+  });
+
+  it('o destino "Perfil de Cliente" mostra a aba com os perfis "I" do CODPERFIL_PARCEIRO; excluir marca "E" e o gravar leva a lista a cada item', async () => {
+    tela();
+    expect(await screen.findByText('PERFIL Z')).toBeTruthy();
+    acao('PERFIL Z', 'Abrir');
+    const linha = await waitFor(() => {
+      const r = [...document.querySelectorAll('[role="row"]')].find((x) => x.textContent?.trim().startsWith('3') && !x.textContent?.includes('FEIJAO'));
+      expect(r).toBeTruthy();
+      return r!;
+    });
+    // o 'E4' (excluído) não aparece
+    expect([...document.querySelectorAll('[role="row"]')].some((x) => x.textContent?.trim().startsWith('4'))).toBe(false);
+    fireEvent.click([...linha.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Excluir' || b.textContent === 'Excluir')!);
+    fireEvent.click(botao('Gravar promoção'));
+    await waitFor(() => expect(chamadas.some((c) => c.method === 'PUT')).toBe(true));
+    expect(chamadas.find((c) => c.method === 'PUT')!.body.itens[0].codperfil_parceiro).toBe('E3,E4,');
   });
 });
