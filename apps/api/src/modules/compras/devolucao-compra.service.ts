@@ -10,6 +10,8 @@ import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { ConfigService } from '../cadastro/config.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { modeloFr3 } from '../../shared/relatorios/modelo-fr3';
+import { colunasNumericas, empresaParaRelatorio, registroFr3 } from '../../shared/relatorios/registro-fr3';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown): number => {
@@ -99,6 +101,36 @@ export class DevolucaoCompraService {
         return { ...(r as any), saldo } as ItemDisponivelDevolucao;
       })
       .filter((r) => num(r.saldo) > 0);
+  }
+
+  /**
+   * "Imprimir" (`Imprimir1Click` → `TRelExtratoDevolucao`, ExtratoDevolucaoCompras.fr3): frxDBMasterDevCompras = o cabeçalho
+   * (o layout usa COD_PEDIDO_DEV_COMPRA, DATA_PEDIDO e RAZAO), frxDBDetailDevCompras = os itens (COD_PRODUTO, DESCRICAO_PRODUTO,
+   * CODBARRA, CODAUXILIAR = MAX do CODAUXILIAR do produto, QTD_DEVOLVIDA, VALOR_CUSTO, TOTAL_PRODUTO_DEVOLVIDO), frxDBEmpresa = a loja.
+   */
+  async impressao(codpeddevcompra: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cab = (await sql<Record<string, unknown>>`SELECT d.codpeddevcompra AS cod_pedido_dev_compra, d.data AS data_pedido, p.razao, d.codparceiro AS cod_parceiro,
+        d.status AS status_pedido, d.obs AS observacoes, d.codnf_emitida AS cod_nota_fiscal_emitida
+        FROM pedido_devolucao_compra d LEFT JOIN parceiros p ON p.codparceiro = d.codparceiro
+       WHERE d.codpeddevcompra = ${codpeddevcompra} AND d.idempresa = ${emp} AND coalesce(d.indr, 'I') <> 'E'`.execute(db)).rows[0];
+    if (!cab) throw new BusinessRuleError('DEVOLUCAO_NAO_ENCONTRADA', { codpeddevcompra });
+    const itens = (await sql<Record<string, unknown>>`SELECT i.idproduto AS cod_produto, coalesce(i.descricao_produto, pr.descricao) AS descricao_produto, pr.codbarra,
+        (SELECT max(ax.codauxiliar) FROM codauxiliar ax WHERE ax.idproduto = i.idproduto) AS codauxiliar,
+        i.qtd_devolvida, i.valor_custo, i.total_produto_devolvido, i.qtd_nota_fiscal, i.codnf AS cod_nf, i.nroitem, i.cfop, i.unidade
+        FROM pedido_devolucao_compra_i i LEFT JOIN produtos pr ON pr.idproduto = i.idproduto
+       WHERE i.codpeddevcompra = ${codpeddevcompra} ORDER BY i.codpeddevcomprai`.execute(db)).rows;
+    const nums = await colunasNumericas(db, ['pedido_devolucao_compra_i'], ['cod_produto', 'cod_pedido_dev_compra', 'cod_parceiro', 'cod_nf']);
+    return {
+      titulo: `Devolução de compras ${codpeddevcompra}`,
+      modelo: await modeloFr3(db, 'ExtratoDevolucaoCompras.fr3'),
+      datasets: {
+        frxDBMasterDevCompras: [registroFr3(cab, nums)],
+        frxDBDetailDevCompras: itens.map((r) => registroFr3(r, nums)),
+        frxDBEmpresa: [await empresaParaRelatorio(db, emp)],
+      },
+    };
   }
 
   /** carrega o documento com trava (forUpdate) e valida existência/empresa. */

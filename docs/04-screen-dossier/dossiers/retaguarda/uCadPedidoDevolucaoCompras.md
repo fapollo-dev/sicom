@@ -123,3 +123,25 @@ Smoke §73.9 (IPI da nota), §73.9b (valores da nota + IPI devolvido), §73.9c (
   com sublinhado e a devolução aberta migrada não podia ser editada, finalizada nem cancelada. Mig 338 converte e troca o default.
 - Smoke §205. Pendentes: NF_STATUS_PROCESSO stDevolucao (transversal), VRCUSTOREP (não vem do CarregaItens), FINALIZADO (não
   provado no fonte).
+
+## Auditoria controle a controle do `uCadPedidoDevolucaoCompras.dfm` (15/10/2026)
+
+Produção: **81 pedidos em 2026** (último em 13/10/2026), 219 desde 2025 com até 10 notas por pedido, quase todos parciais, e **202 de 219 com
+observação**. O Apollo tinha só uma "nova devolução" rápida (todos os itens do fornecedor, sem observação) e a lista; não abria o pedido.
+
+| Controle do legado | Apollo |
+|---|---|
+| O pedido aberto (`edtCodigoExit`): fornecedor, data, situação, CNPJ, a NF emitida, **Observações** (`dbmmoObeservacoes`) | ✅ `DevolucaoCompraEditor` — "Nova devolução" ou "Abrir" na lista; só EM DIGITACAO edita (`PedidoLiberadoParaEdicao`) |
+| "Adicionar Notas Fiscais [F2]" (`btnFiltrarClick`: a Pesquisa da GET_NF de entrada do fornecedor, multisseleção, limite 990) → `CarregaItens` (QtdADevolver = qtde da nota − já devolvido; não repete o item; CFOP de devolução obrigatório) | ✅ a Pesquisa `fiscal/nf` (entrada) com multisseleção + `juntarItens` |
+| "Adicionar Produtos [F7]" (a Pesquisa da GET_NF_PROD) | ✅ a lista dos itens de entrada do fornecedor com saldo, com localizar e marcar (⚠️ o legado aceita começar sem fornecedor e o pega do 1º item; aqui o fornecedor vem antes) |
+| "Adicionar Trocas [F11]" (`TFrmImportaTrocaForDevolucao`) | ✗ fora: COD_TROCA em 0 dos 1.587 itens desde 2025 (21 na história) |
+| `edtQtdDevolvidaExit` — "Quantidade não pode ser maior que a quantidade da nota fiscal a devolver: N" / "Quantidade não pode ser zero"; o fiscal proporcional | ✅ na grade (e o servidor deriva o fiscal ao gravar — corte-4) |
+| "Excluir Itens Selecionados" (BTNEXCLUIRITEM 90; "Deseja realmente excluir o(s) item(ns) selecionado(s)?") | ✅ |
+| Painel de totais (TOTAL_ICMS_BC, ICMS, ST BC, ST, IPI, Descontos, Outras despesas, FCP ST e ST Ret., Total devolvido) | ✅ (dos valores gravados) |
+| "Finalizar Digitação [F4]" (observação em branco pergunta; "Grave a devolução antes…"; depois "Deseja gerar a Nota Fiscal de Devolução?") · "Reabrir Para Digitação [F5]" · "Cancelar [F6]" | ✅ com os atalhos |
+| Popup "Imprimir" (`TRelExtratoDevolucao` → **ExtratoDevolucaoCompras.fr3**: frxDBMasterDevCompras COD_PEDIDO_DEV_COMPRA/DATA_PEDIDO/RAZAO, frxDBDetailDevCompras COD_PRODUTO/DESCRICAO_PRODUTO/CODBARRA/CODAUXILIAR/QTD_DEVOLVIDA/VALOR_CUSTO/TOTAL_PRODUTO_DEVOLVIDO, frxDBEmpresa) | ✅ `GET compras/devolucao-compra/:id/impressao` |
+| "Gerar Nota Fiscal de Devolução" | ✅ já havia (corte-2) |
+| "Exportar Grid" / Salvar e carregar a configuração da grade [F8/F9] / Recolher itens | ✗ conveniências de grade — fora |
+| `chk1` "Troca" (PRODUTO_TROCA) | ✗ morta (NULL em 100%) |
+
+Smoke §323; web `devolucaoCompraEditor.spec.ts`.

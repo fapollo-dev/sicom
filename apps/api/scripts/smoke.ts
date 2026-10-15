@@ -20703,6 +20703,50 @@ async function main() {
         await pg2.end();
       }
     }
+    // ══ §323 PEDIDO DE DEVOLUÇÃO DE COMPRAS — o editor do uCadPedidoDevolucaoCompras.dfm: o pedido aberto recebe itens de outra NF e as observações (PUT), o item sai, e a impressão no ExtratoDevolucaoCompras.fr3 ══
+    {
+      const pg3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const DEV = 'compras/devolucao-compra';
+      let cod = 0;
+      try {
+        const nf1 = Number((await pg3.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+        const nf2 = Number((await pg3.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+        const a = Number((await pg3.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,vrvenda,cfop,total_produto_nota) VALUES ($1,1,1,10,1,'UN',5,7,'1102',50) RETURNING codnfprod`, [nf1])).rows[0].codnfprod);
+        const b = Number((await pg3.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,vrvenda,cfop,total_produto_nota) VALUES ($1,1,2,4,1,'UN',3,4,'1102',12) RETURNING codnfprod`, [nf2])).rows[0].codnfprod);
+        const cr = await fetch(`${base}/${DEV}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ codnf: nf1, codnfprod: a, idproduto: 1, qtd_devolvida: 10 }] }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        cod = Number(crJ.codpeddevcompra ?? crJ.codigo) || 0;
+        // o editor regrava com o item da 2ª nota (F2), a quantidade do 1º alterada e a observação
+        const up = await fetch(`${base}/${DEV}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ codparceiro: 22, obs: 'DEVOLUCAO 323', itens: [
+          { codnf: nf1, codnfprod: a, idproduto: 1, qtd_devolvida: 6 }, { codnf: nf2, codnfprod: b, idproduto: 2, qtd_devolvida: 4 },
+        ] }) });
+        const lido = (await (await fetch(`${base}/${DEV}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const L = (lido.itens ?? []) as any[];
+        const saldoA = ((await (await fetch(`${base}/${DEV}/itens-disponiveis?codparceiro=22&codnf=${nf1}`, { headers: H })).json().catch(() => [])) as any[]).find((x) => Number(x.codnfprod) === a);
+        // "Excluir Itens Selecionados": regravar sem o item da 2ª nota
+        const sem = await fetch(`${base}/${DEV}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ codparceiro: 22, obs: 'DEVOLUCAO 323', itens: [{ codnf: nf1, codnfprod: a, idproduto: 1, qtd_devolvida: 6 }] }) });
+        const lido2 = (await (await fetch(`${base}/${DEV}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        await pg3.query(`INSERT INTO relatorios (codrelatorio, idempresa, nome_relatorio, descricao, tipo, arquivo) VALUES (993230, 1, 'ExtratoDevolucaoCompras.fr3', 'x', 'DEFAULT', $1) ON CONFLICT (codrelatorio) DO NOTHING`,
+          [Buffer.from('<?xml version="1.0" encoding="utf-8"?><TfrxReport><TfrxReportPage Name="Page1"/></TfrxReport>').toString('base64')]);
+        const imp = await fetch(`${base}/${DEV}/${cod}/impressao`, { headers: H });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const det = (impJ.datasets?.frxDBDetailDevCompras ?? [])[0] ?? {};
+        const mst = (impJ.datasets?.frxDBMasterDevCompras ?? [])[0] ?? {};
+        check('DEVOLUÇÃO §323 [o editor do pedido; Imprimir1Click → ExtratoDevolucaoCompras.fr3]: o PUT do pedido aberto grava a observação e os itens de duas notas (6 da 1ª, 4 da 2ª — total 42); o saldo da 1ª nota fica 4; regravar sem o item da 2ª o tira; a impressão traz o cabeçalho (COD_PEDIDO_DEV_COMPRA, DATA_PEDIDO, RAZAO) e o item com COD_PRODUTO, DESCRICAO_PRODUTO, CODBARRA, QTD_DEVOLVIDA 6, VALOR_CUSTO 5 e TOTAL_PRODUTO_DEVOLVIDO 30',
+          cr.status === 201 && up.status === 200 && lido.obs === 'DEVOLUCAO 323' && L.length === 2 && L.some((x) => Number(x.codnfprod) === b && Number(x.qtd_devolvida) === 4)
+          && Number(lido.total ?? L.reduce((s: number, x: any) => s + Number(x.total_produto_devolvido), 0)) === 42 && saldoA && Number(saldoA.saldo) === 4
+          && sem.status === 200 && (lido2.itens ?? []).length === 1 && imp.status === 200 && Number(mst.COD_PEDIDO_DEV_COMPRA) === cod && String(mst.RAZAO ?? '').length > 0 && mst.DATA_PEDIDO != null
+          && Number(det.COD_PRODUTO) === 1 && Number(det.QTD_DEVOLVIDA) === 6 && Number(det.VALOR_CUSTO) === 5 && Number(det.TOTAL_PRODUTO_DEVOLVIDO) === 30 && 'CODBARRA' in det && 'DESCRICAO_PRODUTO' in det,
+          { cr: [cr.status, crJ.code], up: up.status, obs: lido.obs, L: L.map((x) => [x.codnfprod, x.qtd_devolvida, x.total_produto_devolvido]), total: lido.total, saldoA: saldoA?.saldo, sem: [sem.status, lido2.itens?.length], imp: [imp.status, impJ.code, impJ.message], mst, det });
+      } finally {
+        if (cod) {
+          await pg3.query(`DELETE FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1`, [cod]).catch(() => {});
+          await pg3.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [cod]).catch(() => {});
+        }
+        await pg3.query(`DELETE FROM relatorios WHERE codrelatorio = 993230`).catch(() => {});
+        await pg3.end();
+      }
+    }
     // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
     {
       const XF = 'cobranca/extrato-funcionario';

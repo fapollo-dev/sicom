@@ -19,6 +19,13 @@ export class DevolucaoCompraController {
     return this.svc.itensDisponiveis(codparceiro, codnf ? Number(codnf) : undefined);
   }
 
+  /** "Imprimir" (ExtratoDevolucaoCompras.fr3) */
+  @Get(':id/impressao')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
+  impressao(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.impressao(id);
+  }
+
   @Post(':id/finalizar')
   @HttpCode(200)
   @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'FRMCADPEDIDODEVOLUCAOCOMPRAS')
